@@ -569,7 +569,7 @@ dotnet_diagnostic.S6605.severity = none             # Collection-specific "Exist
 ##########################################
 
 # Verify
-[*.{received,verified}.{json,txt}]
+[*.{received,verified}.{json,txt,xml,cs}]
 charset = "utf-8-bom"
 end_of_line = lf
 indent_size = unset
@@ -583,9 +583,14 @@ trim_trailing_whitespace = false
 ##########################################
 [*.{cs,csx,cake}]
 
-# CA1040: Avoid empty interfaces
 dotnet_diagnostic.CA1040.severity = suggestion
-
 dotnet_diagnostic.IDE0090.severity = suggestion
-
 dotnet_diagnostic.IDE0046.severity = suggestion
+
+
+##########################################
+# Test specific rules
+##########################################
+[*{Test,Tests}.{cs,csx,cake}]
+
+dotnet_diagnostic.CA1707.severity = none

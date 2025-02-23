@@ -10,4 +10,15 @@
     <GlobalPackageVersion Include="Meziantou.Analyzer" Version="2.0.186" PrivateAssets="All" />
     <GlobalPackageVersion Include="SonarAnalyzer.CSharp" Version="10.5.0.109200" PrivateAssets="All" />
   </ItemGroup>
+  <ItemGroup>
+    <PackageVersion Include="Meziantou.Polyfill" Version="1.0.42" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.Analyzers" Version="3.11.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.Common" Version="4.12.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="4.12.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="4.12.0" />
+    <PackageVersion Include="Verify.SourceGenerators" Version="2.5.0" />
+    <PackageVersion Include="Verify.XunitV3" Version="28.11.0" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.0.2" />
+    <PackageVersion Include="xunit.v3" Version="1.1.0" />
+  </ItemGroup>
 </Project>
