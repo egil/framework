@@ -11,18 +11,35 @@
 namespace SomeNamespace;
 
 [System.CodeDom.Compiler.GeneratedCodeAttribute("StronglyTypedPrimitives, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null", "1.0.0.0")]
-public readonly partial record struct Foo :
-    global::StronglyTypedPrimitives.IStronglyTypedPrimitive
+public readonly partial record struct Foo : global::StronglyTypedPrimitives.IStronglyTypedPrimitive
 {
     public static readonly Foo None = new Foo(default);
-        private static readonly global::System.ComponentModel.DataAnnotations.ValidationAttribute[] Validators =
+
+    private readonly int @value = ThrowIfValueIsInvalid(Value);       
+
+    public int Value
+    {
+        get => @value;
+        init
+        {
+            @value = ThrowIfValueIsInvalid(value);
+        }
+    }
+
+    private static int ThrowIfValueIsInvalid(int value)
+    {
+        IsValueValid(value, throwIfInvalid: true);
+        return value;
+    }
+    
+    private static readonly global::System.ComponentModel.DataAnnotations.ValidationAttribute[] Validators =
     [
         new global::System.ComponentModel.DataAnnotations.RangeAttribute(50, 100),
         new global::System.ComponentModel.DataAnnotations.RequiredAttribute()
     ];
 
     [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-    public static bool IsValid(int value)
+    public static bool IsValueValid(int value, bool throwIfInvalid)
     {
         for (var i = 0; i < Validators.Length; i++)
         {
@@ -33,17 +50,5 @@ public readonly partial record struct Foo :
         }
 
         return true;
-    }
-
-    public int Value { get; init; } = ThrowIfInvalid(Value);
-
-    private static int ThrowIfInvalid(int value)
-    {
-        if (!IsValid(value))
-        {
-            throw new global::System.ArgumentException($"The value '{value}' is not valid for Foo.", "Value");
-        }
-
-        return value;
     }
 }

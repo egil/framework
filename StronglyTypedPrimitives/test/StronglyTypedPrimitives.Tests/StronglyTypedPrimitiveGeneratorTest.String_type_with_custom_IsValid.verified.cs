@@ -11,21 +11,24 @@
 namespace SomeNamespace;
 
 [System.CodeDom.Compiler.GeneratedCodeAttribute("StronglyTypedPrimitives, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null", "1.0.0.0")]
-public readonly partial record struct Foo :
-    global::StronglyTypedPrimitives.IStronglyTypedPrimitive
+public readonly partial record struct Foo : global::StronglyTypedPrimitives.IStronglyTypedPrimitive
 {
     public static readonly Foo None = new Foo(default);
-    
 
-    public string Value { get; init; } = ThrowIfInvalid(Value);
+    private readonly string @value = ThrowIfValueIsInvalid(Value);       
 
-    private static string ThrowIfInvalid(string value)
+    public string Value
     {
-        if (!IsValid(value))
+        get => @value;
+        init
         {
-            throw new global::System.ArgumentException($"The value '{value}' is not valid for Foo.", "Value");
+            @value = ThrowIfValueIsInvalid(value);
         }
+    }
 
+    private static string ThrowIfValueIsInvalid(string value)
+    {
+        IsValueValid(value, throwIfInvalid: true);
         return value;
     }
 }

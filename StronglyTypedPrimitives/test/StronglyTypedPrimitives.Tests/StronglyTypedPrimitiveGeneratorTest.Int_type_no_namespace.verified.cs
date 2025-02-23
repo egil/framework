@@ -8,16 +8,14 @@
 //------------------------------------------------------------------------------
 #nullable enable
 
-namespace SomeNamespace;
-
 [System.CodeDom.Compiler.GeneratedCodeAttribute("StronglyTypedPrimitives, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null", "1.0.0.0")]
 public readonly partial record struct Foo : global::StronglyTypedPrimitives.IStronglyTypedPrimitive
 {
     public static readonly Foo None = new Foo(default);
 
-    private readonly string @value = ThrowIfValueIsInvalid(Value);       
+    private readonly int @value = ThrowIfValueIsInvalid(Value);       
 
-    public string Value
+    public int Value
     {
         get => @value;
         init
@@ -26,29 +24,12 @@ public readonly partial record struct Foo : global::StronglyTypedPrimitives.IStr
         }
     }
 
-    private static string ThrowIfValueIsInvalid(string value)
+    private static int ThrowIfValueIsInvalid(int value)
     {
         IsValueValid(value, throwIfInvalid: true);
         return value;
     }
-    
-    private static readonly global::System.ComponentModel.DataAnnotations.ValidationAttribute[] Validators =
-    [
-        new global::System.ComponentModel.DataAnnotations.RegularExpressionAttribute("^[a-zA-Z''-'\\s]{1,40}$"),
-        new global::System.ComponentModel.DataAnnotations.DeniedValuesAttribute(new [] {"foo", "bar"})
-    ];
 
     [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-    public static bool IsValueValid(string value, bool throwIfInvalid)
-    {
-        for (var i = 0; i < Validators.Length; i++)
-        {
-            if (!Validators[i].IsValid(value))
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
+    public static bool IsValueValid(int value, bool throwIfInvalid) => true;
 }

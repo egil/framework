@@ -15,40 +15,23 @@ public readonly partial record struct Foo : global::StronglyTypedPrimitives.IStr
 {
     public static readonly Foo None = new Foo(default);
 
-    private readonly string @value = ThrowIfValueIsInvalid(Value);       
+    private readonly int @data = ThrowIfValueIsInvalid(Data);       
 
-    public string Value
+    public int Data
     {
-        get => @value;
+        get => @data;
         init
         {
-            @value = ThrowIfValueIsInvalid(value);
+            @data = ThrowIfValueIsInvalid(value);
         }
     }
 
-    private static string ThrowIfValueIsInvalid(string value)
+    private static int ThrowIfValueIsInvalid(int value)
     {
         IsValueValid(value, throwIfInvalid: true);
         return value;
     }
-    
-    private static readonly global::System.ComponentModel.DataAnnotations.ValidationAttribute[] Validators =
-    [
-        new global::System.ComponentModel.DataAnnotations.RegularExpressionAttribute("^[a-zA-Z''-'\\s]{1,40}$"),
-        new global::System.ComponentModel.DataAnnotations.DeniedValuesAttribute(new [] {"foo", "bar"})
-    ];
 
     [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-    public static bool IsValueValid(string value, bool throwIfInvalid)
-    {
-        for (var i = 0; i < Validators.Length; i++)
-        {
-            if (!Validators[i].IsValid(value))
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
+    public static bool IsValueValid(int value, bool throwIfInvalid) => true;
 }
