@@ -59,19 +59,20 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
     {
         var semanticModel = compilation.GetSemanticModel(info.Target.SyntaxTree);
 
-        return string.Join(
-            "\n",
-            new[]
-            {
-                Emitter.CodeHeader,
+        string?[] typeParts = [
+            Emitter.CodeHeader,
                 Emitter.GetNamespaceDefinition(info),
                 Emitter.GeneratedCodeAttribute,
-                Emitter.GetTargetRecordStructDefinition(info),
-                Emitter.GetNoneStaticField(info),
+                Emitter.GetTargetRecordStructDefinition(info, semanticModel),
+                Emitter.GetNoneStaticField(info, semanticModel),
                 Emitter.GetValuePropertyDefinition(info),
                 Emitter.GetIsValueValidMethodDefinition(info, semanticModel),
+                Emitter.GetToStringDefinition(info),
+                .. Emitter.GetIParsableDefinitions(info, semanticModel),
                 "}"
-            }.OfType<string>());
+            ];
+
+        return string.Join("\n", typeParts.OfType<string>());
     }
 
     private static bool IsStronglyTypedPrimitiveAttribute(AttributeData attribute)

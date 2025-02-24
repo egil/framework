@@ -50,6 +50,45 @@ internal static class Parser
                 && m.Parameters[1].Name == "throwIfInvalid");
     }
 
+    internal static (bool HasParse, bool HasTryParse) HasExistingIParsableImplementation(StronglyTypedTypeInfo info, SemanticModel semanticModel)
+    {
+        var typeSymbol = semanticModel.GetDeclaredSymbol(info.Target);
+        bool hasParse = false;
+        bool hasTryParse = false;
+
+        if (typeSymbol is null)
+        {
+            return (hasParse, hasTryParse);
+        }
+
+        var iformatProviderTypeSymbol = semanticModel.Compilation.GetTypeByMetadataName("System.IFormatProvider");
+
+        foreach (var member in typeSymbol.GetMembers())
+        {
+            if (member is IMethodSymbol method && method.IsStatic && method.MethodKind == MethodKind.Ordinary)
+            {
+                if (method.Name == "Parse" &&
+                    method.Parameters.Length == 2 &&
+                    method.Parameters[0].Type.SpecialType == SpecialType.System_String &&
+                    method.Parameters[1].Type.Equals(iformatProviderTypeSymbol, SymbolEqualityComparer.Default))
+                {
+                    hasParse = true;
+                }
+                else if (method.Name == "TryParse" &&
+                         method.Parameters.Length == 3 &&
+                         method.Parameters[0].Type.SpecialType == SpecialType.System_String &&
+                         method.Parameters[1].Type.Equals(iformatProviderTypeSymbol, SymbolEqualityComparer.Default) &&
+                         method.Parameters[2].RefKind == RefKind.Out &&
+                         method.Parameters[2].Type.Equals(typeSymbol, SymbolEqualityComparer.Default))
+                {
+                    hasTryParse = true;
+                }
+            }
+        }
+
+        return (hasParse, hasTryParse);
+    }
+
     internal static IEnumerable<string> GetValidationAttributes(ParameterSyntax parameter, SemanticModel semanticModel)
     {
         var parameterSymbol = semanticModel.GetDeclaredSymbol(parameter);
@@ -135,5 +174,29 @@ internal static class Parser
             baseType = baseType.BaseType;
         }
         return false;
+    }
+
+    internal static bool IsUnderlyingTypeIParsableOrString(SemanticModel semanticModel, ITypeSymbol underlyingTypeSymbol)
+    {
+        var iParsableInterface = semanticModel.Compilation.GetTypeByMetadataName("System.IParsable`1");
+        bool includeIParsable = false;
+
+        if (underlyingTypeSymbol.SpecialType == SpecialType.System_String)
+        {
+            includeIParsable = true;
+        }
+        else if (iParsableInterface is not null)
+        {
+            includeIParsable = underlyingTypeSymbol.AllInterfaces.Any(i => i.OriginalDefinition.Equals(iParsableInterface, SymbolEqualityComparer.Default));
+        }
+
+        return includeIParsable;
+    }
+
+    internal static bool IsUnderlyingTypeString(StronglyTypedTypeInfo info, SemanticModel semanticModel)
+    {
+        var underlyingTypeSymbol = semanticModel.GetTypeInfo(info.UnderlyingType).Type;
+        var isStringType = underlyingTypeSymbol?.SpecialType == SpecialType.System_String;
+        return isStringType;
     }
 }

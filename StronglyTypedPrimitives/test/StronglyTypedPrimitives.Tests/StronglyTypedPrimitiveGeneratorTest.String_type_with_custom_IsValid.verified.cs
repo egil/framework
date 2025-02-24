@@ -11,7 +11,7 @@
 namespace SomeNamespace;
 
 [System.CodeDom.Compiler.GeneratedCodeAttribute("StronglyTypedPrimitives, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null", "1.0.0.0")]
-public readonly partial record struct Foo : global::StronglyTypedPrimitives.IStronglyTypedPrimitive
+public readonly partial record struct Foo : global::StronglyTypedPrimitives.IStronglyTypedPrimitive, global::System.IParsable<Foo>
 {
     public static readonly Foo None = new Foo(default);
 
@@ -30,5 +30,23 @@ public readonly partial record struct Foo : global::StronglyTypedPrimitives.IStr
     {
         IsValueValid(value, throwIfInvalid: true);
         return value;
+    }
+    public static Foo Parse(string? s, global::System.IFormatProvider? provider)
+    {
+        global::System.ArgumentNullException.ThrowIfNull(s);
+        IsValueValid(s, throwIfInvalid: true);
+        return new Foo(s);
+    }
+
+    public static bool TryParse(string? s, global::System.IFormatProvider? provider, out Foo result)
+    {
+        if (s is not null && IsValueValid(s, throwIfInvalid: false))
+        {
+            result = new Foo(s);
+            return true;
+        }
+
+        result = default;
+        return false;
     }
 }

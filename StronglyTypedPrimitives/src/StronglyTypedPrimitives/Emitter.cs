@@ -1,5 +1,4 @@
 using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.CSharp;
 
 namespace StronglyTypedPrimitives;
@@ -53,16 +52,31 @@ internal static class Emitter
             ? $"namespace {info.Namespace};\n"
             : null;
 
-    internal static string GetTargetRecordStructDefinition(StronglyTypedTypeInfo info)
-        => $$"""
-        {{info.Target.Modifiers}} record struct {{info.Target.Identifier}} : {{IStronglyTypedPrimitive}}
-        {
-        """;
+    internal static string GetTargetRecordStructDefinition(StronglyTypedTypeInfo info, SemanticModel semanticModel)
+    {
+        var includeIParsable = Parser.IsUnderlyingTypeIParsableOrString(
+            semanticModel,
+            semanticModel.GetTypeInfo(info.UnderlyingType).Type!);
 
-    internal static string GetNoneStaticField(StronglyTypedTypeInfo info)
-        => $"""
-            public static readonly {info.Target.Identifier} None = new {info.Target.Identifier}(default);
+        return includeIParsable
+            ? $$"""
+                {{info.Target.Modifiers}} record struct {{info.Target.Identifier}} : {{IStronglyTypedPrimitive}}, global::System.IParsable<{{info.Target.Identifier}}>
+                {
+                """
+            : $$"""
+                {{info.Target.Modifiers}} record struct {{info.Target.Identifier}} : {{IStronglyTypedPrimitive}}
+                {
+                """;
+    }
+
+    internal static string GetNoneStaticField(StronglyTypedTypeInfo info, SemanticModel semanticModel)
+    {
+        var isStringType = Parser.IsUnderlyingTypeString(info, semanticModel);
+        var defaultValue = isStringType ? "string.Empty" : "default";
+        return $"""
+            public static readonly {info.Target.Identifier} None = new {info.Target.Identifier}({defaultValue});
         """;
+    }
 
     internal static string GetValuePropertyDefinition(StronglyTypedTypeInfo info)
     {
@@ -127,6 +141,86 @@ internal static class Emitter
 
                 [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
                 public static bool IsValueValid({{info.UnderlyingType}} value, bool throwIfInvalid) => true;
+            """;
+        }
+    }
+
+    public static string GetToStringDefinition(StronglyTypedTypeInfo info)
+        => $$"""
+
+            public override string ToString() => {{info.Parameter.Identifier}}.ToString();
+        """;
+
+    public static IEnumerable<string> GetIParsableDefinitions(StronglyTypedTypeInfo info, SemanticModel semanticModel)
+    {
+        var (hasParse, hasTryParse) = Parser.HasExistingIParsableImplementation(info, semanticModel);
+
+        if (hasParse && hasTryParse)
+        {
+            yield break;
+        }
+
+        var underlyingTypeSymbol = semanticModel.GetTypeInfo(info.UnderlyingType).Type;
+        var isStringType = underlyingTypeSymbol?.SpecialType == SpecialType.System_String;
+
+        if (!hasParse && !isStringType)
+        {
+            yield return $$"""
+
+                public static {{info.Target.Identifier}} Parse(string? s, global::System.IFormatProvider? provider)
+                {
+                    var rawValue = {{info.UnderlyingType}}.Parse(s!, provider);
+                    IsValueValid(rawValue, throwIfInvalid: true);
+                    return new {{info.Target.Identifier}}(rawValue);
+                }
+            """;
+        }
+        if (!hasParse && isStringType)
+        {
+            yield return $$"""
+
+                public static {{info.Target.Identifier}} Parse(string? s, global::System.IFormatProvider? provider)
+                {
+                    global::System.ArgumentNullException.ThrowIfNull(s);
+                    IsValueValid(s, throwIfInvalid: true);
+                    return new {{info.Target.Identifier}}(s);
+                }
+            """;
+        }
+
+        if (!hasTryParse && !isStringType)
+        {
+            yield return $$"""
+
+                public static bool TryParse(string? s, global::System.IFormatProvider? provider, out {{info.Target.Identifier}} result)
+                {
+                    if ({{info.UnderlyingType}}.TryParse(s, provider, out var rawValue) && IsValueValid(rawValue, throwIfInvalid: false))
+                    {
+                        result = new {{info.Target.Identifier}}(rawValue);
+                        return true;
+                    }
+
+                    result = default;
+                    return false;
+                }
+            """;
+        }
+
+        if (!hasTryParse && isStringType)
+        {
+            yield return $$"""
+    
+                public static bool TryParse(string? s, global::System.IFormatProvider? provider, out {{info.Target.Identifier}} result)
+                {
+                    if (s is not null && IsValueValid(s, throwIfInvalid: false))
+                    {
+                        result = new {{info.Target.Identifier}}(s);
+                        return true;
+                    }
+
+                    result = default;
+                    return false;
+                }
             """;
         }
     }

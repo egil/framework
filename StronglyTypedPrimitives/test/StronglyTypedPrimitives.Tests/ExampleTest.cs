@@ -1,6 +1,3 @@
-using System.Diagnostics;
-using System.Runtime.CompilerServices;
-
 namespace StronglyTypedPrimitives;
 
 public class ExampleTest
@@ -13,13 +10,12 @@ public class ExampleTest
         Assert.NotEqual(Foo.None, new Foo(6));
         Assert.Throws<ArgumentException>(() => new Foo(1));
         Assert.Throws<ArgumentException>(() => Foo.None with { Value = 1 });
-        new Foo(1);
     }
 
     private readonly partial record struct Foo(int Value);
 
     [System.CodeDom.Compiler.GeneratedCodeAttribute("StronglyTypedPrimitives, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null", "1.0.0.0")]
-    private readonly partial record struct Foo
+    private readonly partial record struct Foo : global::System.IParsable<Foo>
     {
         public static readonly Foo None = new Foo();
 
@@ -53,6 +49,29 @@ public class ExampleTest
                 throw new ArgumentException("Value is invalid");
             }
 
+            return false;
+        }
+
+        public static Foo Parse(string? s) => Parse(s, provider: null);
+
+        public static Foo Parse(string? s, global::System.IFormatProvider? provider)
+        {
+            var underlying = int.Parse(s!, provider);
+            IsValueValid(underlying, throwIfInvalid: true);
+            return new Foo(underlying);
+        }
+
+        public static bool TryParse(string? s, out Foo result) => TryParse(s, provider: null, out result);
+
+        public static bool TryParse(string? s, global::System.IFormatProvider? provider, out Foo result)
+        {
+            if (int.TryParse(s, provider, out var underlying) && IsValueValid(underlying, throwIfInvalid: false))
+            {
+                result = new Foo(underlying);
+                return true;
+            }
+
+            result = default;
             return false;
         }
     }
