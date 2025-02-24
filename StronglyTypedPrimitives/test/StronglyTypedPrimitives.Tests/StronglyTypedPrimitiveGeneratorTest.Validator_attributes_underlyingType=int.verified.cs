@@ -13,7 +13,7 @@ namespace SomeNamespace;
 [System.CodeDom.Compiler.GeneratedCodeAttribute("StronglyTypedPrimitives, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null", "1.0.0.0")]
 public readonly partial record struct Foo : global::StronglyTypedPrimitives.IStronglyTypedPrimitive, global::System.IParsable<Foo>
 {
-    public static readonly Foo None = new Foo(default);
+    public static readonly Foo Empty = new Foo(default);
 
     private readonly int @value = ThrowIfValueIsInvalid(Value);       
 

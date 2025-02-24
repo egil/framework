@@ -1,3 +1,4 @@
+
 namespace StronglyTypedPrimitives;
 
 public class ExampleTest
@@ -15,7 +16,7 @@ public class ExampleTest
     private readonly partial record struct Foo(int Value);
 
     [System.CodeDom.Compiler.GeneratedCodeAttribute("StronglyTypedPrimitives, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null", "1.0.0.0")]
-    private readonly partial record struct Foo : global::System.IParsable<Foo>
+    private readonly partial record struct Foo : IParsable<Foo>, ISpanParsable<Foo>, IFormattable, ISpanFormattable
     {
         public static readonly Foo None = new Foo();
 
@@ -74,5 +75,17 @@ public class ExampleTest
             result = default;
             return false;
         }
+
+        public string ToString(string? format, IFormatProvider? formatProvider)
+            => Value.ToString(format, formatProvider);
+
+        public bool TryFormat(Span<char> destination, out int charsWritten, ReadOnlySpan<char> format, IFormatProvider? provider)
+            => Value.TryFormat(destination, out charsWritten, format, provider);
+
+        public static Foo Parse(ReadOnlySpan<char> s, IFormatProvider? provider)
+            => throw new NotImplementedException();
+
+        public static bool TryParse(ReadOnlySpan<char> s, IFormatProvider? provider, [MaybeNullWhen(false)] out Foo result)
+            => throw new NotImplementedException();
     }
 }

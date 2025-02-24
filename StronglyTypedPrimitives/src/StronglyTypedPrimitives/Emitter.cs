@@ -69,12 +69,12 @@ internal static class Emitter
                 """;
     }
 
-    internal static string GetNoneStaticField(StronglyTypedTypeInfo info, SemanticModel semanticModel)
+    internal static string GetEmptyStaticField(StronglyTypedTypeInfo info, SemanticModel semanticModel)
     {
         var isStringType = Parser.IsUnderlyingTypeString(info, semanticModel);
         var defaultValue = isStringType ? "string.Empty" : "default";
         return $"""
-            public static readonly {info.Target.Identifier} None = new {info.Target.Identifier}({defaultValue});
+            public static readonly {info.Target.Identifier} Empty = new {info.Target.Identifier}({defaultValue});
         """;
     }
 

@@ -64,7 +64,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
                 Emitter.GetNamespaceDefinition(info),
                 Emitter.GeneratedCodeAttribute,
                 Emitter.GetTargetRecordStructDefinition(info, semanticModel),
-                Emitter.GetNoneStaticField(info, semanticModel),
+                Emitter.GetEmptyStaticField(info, semanticModel),
                 Emitter.GetValuePropertyDefinition(info),
                 Emitter.GetIsValueValidMethodDefinition(info, semanticModel),
                 Emitter.GetToStringDefinition(info),

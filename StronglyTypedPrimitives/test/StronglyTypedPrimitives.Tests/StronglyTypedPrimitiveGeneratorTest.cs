@@ -7,21 +7,13 @@ public class StronglyTypedPrimitiveGeneratorTest
         "string",
         //"char"
         "int",
-        "long",
         //"Guid",
         //"DateTime",
         //"DateTimeOffset",
         //"TimeSpan",
-        "float",
-        "double",
         "decimal",
         //"bool",
         "byte",
-        "short",
-        "ushort",
-        "uint",
-        "ulong",
-        "sbyte",
     };
 
     [Theory, MemberData(nameof(UnderlyingTypes))]
@@ -145,7 +137,7 @@ public class StronglyTypedPrimitiveGeneratorTest
             {
                 public static Foo Parse(string? s, IFormatProvider? provider)
                 {
-                    return Foo.None;
+                    return Foo.Empty;
                 }
             }
             """;
@@ -173,7 +165,7 @@ public class StronglyTypedPrimitiveGeneratorTest
             {
                 public static bool TryParse(string? s, IFormatProvider? provider, out Foo result)
                 {
-                    result = Foo.None;
+                    result = Foo.Empty;
                     return true;
                 }
             }

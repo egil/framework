@@ -11,7 +11,7 @@
 [System.CodeDom.Compiler.GeneratedCodeAttribute("StronglyTypedPrimitives, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null", "1.0.0.0")]
 public readonly partial record struct Foo : global::StronglyTypedPrimitives.IStronglyTypedPrimitive, global::System.IParsable<Foo>
 {
-    public static readonly Foo None = new Foo(string.Empty);
+    public static readonly Foo Empty = new Foo(string.Empty);
 
     private readonly string @value = ThrowIfValueIsInvalid(Value);       
 
