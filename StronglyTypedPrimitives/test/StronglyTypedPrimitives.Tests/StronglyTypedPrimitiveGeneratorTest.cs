@@ -5,15 +5,15 @@ public class StronglyTypedPrimitiveGeneratorTest
     public static TheoryData<string> UnderlyingTypes { get; } = new TheoryData<string>
     {
         "string",
-        //"char"
         "int",
-        //"Guid",
-        //"DateTime",
-        //"DateTimeOffset",
-        //"TimeSpan",
+        "System.Guid",
+        "System.DateTime",
+        "System.DateTimeOffset",
+        "System.TimeSpan",
         "decimal",
-        //"bool",
         "byte",
+        //"char",
+        //"bool",
     };
 
     [Theory, MemberData(nameof(UnderlyingTypes))]
