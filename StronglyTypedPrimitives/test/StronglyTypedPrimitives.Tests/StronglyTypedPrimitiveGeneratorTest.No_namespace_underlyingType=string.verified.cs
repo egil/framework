@@ -9,7 +9,7 @@
 #nullable enable
 
 [System.CodeDom.Compiler.GeneratedCodeAttribute("StronglyTypedPrimitives, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null", "1.0.0.0")]
-public readonly partial record struct Foo : global::StronglyTypedPrimitives.IStronglyTypedPrimitive, global::System.IParsable<Foo>
+public readonly partial record struct Foo : global::StronglyTypedPrimitives.IStronglyTypedPrimitive, global::System.IParsable<Foo>, global::System.IFormattable
 {
     public static readonly Foo Empty = new Foo(string.Empty);
 
@@ -33,8 +33,6 @@ public readonly partial record struct Foo : global::StronglyTypedPrimitives.IStr
     [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
     public static bool IsValueValid(string value, bool throwIfInvalid) => true;
 
-    public override string ToString() => Value.ToString();
-
     public static Foo Parse(string? s, global::System.IFormatProvider? provider)
     {
         global::System.ArgumentNullException.ThrowIfNull(s);
@@ -53,4 +51,11 @@ public readonly partial record struct Foo : global::StronglyTypedPrimitives.IStr
         result = default;
         return false;
     }
+
+    public override string ToString() => Value.ToString();
+
+    public string ToString(string? format) => Value.ToString();
+
+    public string ToString(string? format, global::System.IFormatProvider? formatProvider)
+        => Value.ToString(formatProvider);
 }

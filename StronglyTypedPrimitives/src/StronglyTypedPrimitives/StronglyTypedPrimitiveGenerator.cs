@@ -61,16 +61,16 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
 
         string?[] typeParts = [
             Emitter.CodeHeader,
-                Emitter.GetNamespaceDefinition(info),
-                Emitter.GeneratedCodeAttribute,
-                Emitter.GetTargetRecordStructDefinition(info, semanticModel),
-                Emitter.GetEmptyStaticField(info, semanticModel),
-                Emitter.GetValuePropertyDefinition(info),
-                Emitter.GetIsValueValidMethodDefinition(info, semanticModel),
-                Emitter.GetToStringDefinition(info),
-                .. Emitter.GetIParsableDefinitions(info, semanticModel),
-                "}"
-            ];
+            Emitter.GetNamespaceDefinition(info),
+            Emitter.GeneratedCodeAttribute,
+            Emitter.GetTargetRecordStructDefinition(info, semanticModel),
+            Emitter.GetEmptyStaticField(info, semanticModel),
+            Emitter.GetValuePropertyDefinition(info),
+            Emitter.GetIsValueValidMethodDefinition(info, semanticModel),
+            .. Emitter.GetIParsableDefinitions(info, semanticModel),
+            .. Emitter.GetIFormattableDefinitions(info, semanticModel),
+            "}"
+        ];
 
         return string.Join("\n", typeParts.OfType<string>());
     }

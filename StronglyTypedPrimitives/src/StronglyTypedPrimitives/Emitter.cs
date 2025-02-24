@@ -58,15 +58,24 @@ internal static class Emitter
             semanticModel,
             semanticModel.GetTypeInfo(info.UnderlyingType).Type!);
 
-        return includeIParsable
-            ? $$"""
-                {{info.Target.Modifiers}} record struct {{info.Target.Identifier}} : {{IStronglyTypedPrimitive}}, global::System.IParsable<{{info.Target.Identifier}}>
-                {
-                """
-            : $$"""
-                {{info.Target.Modifiers}} record struct {{info.Target.Identifier}} : {{IStronglyTypedPrimitive}}
-                {
-                """;
+        var includeIFormattable = true; // Always include IFormattable
+
+        var interfaces = new List<string> { IStronglyTypedPrimitive };
+
+        if (includeIParsable)
+        {
+            interfaces.Add($"global::System.IParsable<{info.Target.Identifier}>");
+        }
+
+        if (includeIFormattable)
+        {
+            interfaces.Add("global::System.IFormattable");
+        }
+
+        return $$"""
+            {{info.Target.Modifiers}} record struct {{info.Target.Identifier}} : {{string.Join(", ", interfaces)}}
+            {
+            """;
     }
 
     internal static string GetEmptyStaticField(StronglyTypedTypeInfo info, SemanticModel semanticModel)
@@ -160,8 +169,7 @@ internal static class Emitter
             yield break;
         }
 
-        var underlyingTypeSymbol = semanticModel.GetTypeInfo(info.UnderlyingType).Type;
-        var isStringType = underlyingTypeSymbol?.SpecialType == SpecialType.System_String;
+        var isStringType = Parser.IsUnderlyingTypeString(info, semanticModel);
 
         if (!hasParse && !isStringType)
         {
@@ -222,6 +230,68 @@ internal static class Emitter
                     return false;
                 }
             """;
+        }
+    }
+
+    internal static IEnumerable<string> GetIFormattableDefinitions(StronglyTypedTypeInfo info, SemanticModel semanticModel)
+    {
+        var isStringType = Parser.IsUnderlyingTypeString(info, semanticModel);
+
+        var (hasToString, hasToStringWithFormat, hasToStringWithFormatProvider) = Parser.HasExistingIFormattableImplementation(info, semanticModel);
+
+        if (isStringType)
+        {
+            if (!hasToString)
+            {
+                yield return $$"""
+
+                    public override string ToString() => {{info.Parameter.Identifier}}.ToString();
+                """;
+            }
+
+            if (!hasToStringWithFormat)
+            {
+                yield return $$"""
+
+                    public string ToString(string? format) => {{info.Parameter.Identifier}}.ToString();
+                """;
+            }
+
+            if (!hasToStringWithFormatProvider)
+            {
+                yield return $$"""
+
+                    public string ToString(string? format, global::System.IFormatProvider? formatProvider)
+                        => {{info.Parameter.Identifier}}.ToString(formatProvider);
+                """;
+            }
+        }
+        else
+        {
+            if (!hasToString)
+            {
+                yield return $$"""
+
+                    public override string ToString() => {{info.Parameter.Identifier}}.ToString();
+                """;
+            }
+
+            if (!hasToStringWithFormat)
+            {
+                yield return $$"""
+
+                    public string ToString(string? format) => {{info.Parameter.Identifier}}.ToString(format, null);
+                """;
+            }
+
+            if (!hasToStringWithFormatProvider)
+            {
+                yield return $$"""
+
+                    public string ToString(string? format, global::System.IFormatProvider? formatProvider)
+                        => {{info.Parameter.Identifier}}.ToString(format, formatProvider);
+                """;
+            }
         }
     }
 }

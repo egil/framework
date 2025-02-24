@@ -89,6 +89,41 @@ internal static class Parser
         return (hasParse, hasTryParse);
     }
 
+    internal static (bool HasToString, bool HasToStringWithFormat, bool HasToStringWithFormatProvider) HasExistingIFormattableImplementation(StronglyTypedTypeInfo info, SemanticModel semanticModel)
+    {
+        var iformatProviderTypeSymbol = semanticModel.Compilation.GetTypeByMetadataName("System.IFormatProvider");
+        var typeSymbol = semanticModel.GetDeclaredSymbol(info.Target);
+        bool hasToString = false;
+        bool hasToStringWithFormat = false;
+        bool hasToStringWithFormatProvider = false;
+
+        if (typeSymbol is null)
+        {
+            return (hasToString, hasToStringWithFormat, hasToStringWithFormatProvider);
+        }
+
+        foreach (var member in typeSymbol.GetMembers())
+        {
+            if (member is IMethodSymbol method && method.MethodKind == MethodKind.Ordinary)
+            {
+                if (method.Name == "ToString" && method.Parameters.Length == 0 && method.IsOverride && !method.IsImplicitlyDeclared)
+                {
+                    hasToString = true;
+                }
+                else if (method.Name == "ToString" && method.Parameters.Length == 1 && method.Parameters[0].Type.SpecialType == SpecialType.System_String)
+                {
+                    hasToStringWithFormat = true;
+                }
+                else if (method.Name == "ToString" && method.Parameters.Length == 2 && method.Parameters[0].Type.SpecialType == SpecialType.System_String && method.Parameters[1].Type.Equals(iformatProviderTypeSymbol, SymbolEqualityComparer.Default))
+                {
+                    hasToStringWithFormatProvider = true;
+                }
+            }
+        }
+
+        return (hasToString, hasToStringWithFormat, hasToStringWithFormatProvider);
+    }
+
     internal static IEnumerable<string> GetValidationAttributes(ParameterSyntax parameter, SemanticModel semanticModel)
     {
         var parameterSymbol = semanticModel.GetDeclaredSymbol(parameter);

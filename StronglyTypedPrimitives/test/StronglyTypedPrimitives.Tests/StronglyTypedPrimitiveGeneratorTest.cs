@@ -123,7 +123,7 @@ public class StronglyTypedPrimitiveGeneratorTest
     }
 
     [Theory, MemberData(nameof(UnderlyingTypes))]
-    public async Task Custom_ParsableParse(string underlyingType)
+    public async Task Custom_IParsable_Parse(string underlyingType)
     {
         var input = $$"""
             #nullable enable
@@ -151,7 +151,7 @@ public class StronglyTypedPrimitiveGeneratorTest
     }
 
     [Theory, MemberData(nameof(UnderlyingTypes))]
-    public async Task Custom_ParsableTryParse(string underlyingType)
+    public async Task Custom_IParsable_TryParse(string underlyingType)
     {
         var input = $$"""
             #nullable enable
@@ -168,6 +168,78 @@ public class StronglyTypedPrimitiveGeneratorTest
                     result = Foo.Empty;
                     return true;
                 }
+            }
+            """;
+
+        var (diagnostics, output) = SnapshotTestHelper.GetGeneratedOutput<StronglyTypedPrimitiveGenerator>(
+            input,
+            includeAttributes: false);
+
+        await Verify(output, extension: "cs").UseParameters(underlyingType);
+        Assert.Empty(diagnostics);
+    }
+
+    [Theory, MemberData(nameof(UnderlyingTypes))]
+    public async Task Custom_IFormattable_ToString(string underlyingType)
+    {
+        var input = $$"""
+            #nullable enable
+            using StronglyTypedPrimitives;
+
+            namespace SomeNamespace;
+
+            [StronglyTyped]
+            public readonly partial record struct Foo({{underlyingType}} Value)
+            {
+                public override string ToString() => "";
+            }
+            """;
+
+        var (diagnostics, output) = SnapshotTestHelper.GetGeneratedOutput<StronglyTypedPrimitiveGenerator>(
+            input,
+            includeAttributes: false);
+
+        await Verify(output, extension: "cs").UseParameters(underlyingType);
+        Assert.Empty(diagnostics);
+    }
+
+    [Theory, MemberData(nameof(UnderlyingTypes))]
+    public async Task Custom_IFormattable_ToString_with_format(string underlyingType)
+    {
+        var input = $$"""
+            #nullable enable
+            using StronglyTypedPrimitives;
+
+            namespace SomeNamespace;
+
+            [StronglyTyped]
+            public readonly partial record struct Foo({{underlyingType}} Value)
+            {
+                public string ToString(string? format) => "";
+            }
+            """;
+
+        var (diagnostics, output) = SnapshotTestHelper.GetGeneratedOutput<StronglyTypedPrimitiveGenerator>(
+            input,
+            includeAttributes: false);
+
+        await Verify(output, extension: "cs").UseParameters(underlyingType);
+        Assert.Empty(diagnostics);
+    }
+
+    [Theory, MemberData(nameof(UnderlyingTypes))]
+    public async Task Custom_IFormattable_ToString_with_format_and_formatProvider(string underlyingType)
+    {
+        var input = $$"""
+            #nullable enable
+            using StronglyTypedPrimitives;
+
+            namespace SomeNamespace;
+
+            [StronglyTyped]
+            public readonly partial record struct Foo({{underlyingType}} Value)
+            {
+                public string ToString(string? format, global::System.IFormatProvider? formatProvider) => "";
             }
             """;
 
