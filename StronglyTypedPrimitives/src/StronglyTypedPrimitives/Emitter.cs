@@ -15,14 +15,13 @@ internal static class Emitter
         // </auto-generated>
         //------------------------------------------------------------------------------
         #nullable enable
-
         """;
 
     public const string StronglyTypedPrimitivesNamespace = "StronglyTypedPrimitives";
 
     public static string IStronglyTypedPrimitive => $"global::{StronglyTypedPrimitivesNamespace}.IStronglyTypedPrimitive";
 
-    public static string GeneratedCodeConstructor => $@"System.CodeDom.Compiler.GeneratedCodeAttribute(""{typeof(StronglyTypedPrimitiveGenerator).Assembly.FullName}"", ""{typeof(StronglyTypedPrimitiveGenerator).Assembly.GetName().Version}"")";
+    public static string GeneratedCodeConstructor => $@"global::System.CodeDom.Compiler.GeneratedCodeAttribute(""{typeof(StronglyTypedPrimitiveGenerator).Assembly.FullName}"", ""{typeof(StronglyTypedPrimitiveGenerator).Assembly.GetName().Version}"")";
 
     public static string GeneratedCodeAttribute => $"[{GeneratedCodeConstructor}]";
 
@@ -44,12 +43,18 @@ internal static class Emitter
         {{GeneratedCodeAttribute}}
         public interface IStronglyTypedPrimitive
         {
-        }       
+        }
+
+        {{GeneratedCodeAttribute}}
+        public interface IStronglyTypedPrimitive<TPrimitiveType> : IStronglyTypedPrimitive
+        {
+            static abstract bool IsValueValid(TPrimitiveType value, bool throwIfInvalid);
+        }
         """;
 
     internal static string? GetNamespaceDefinition(StronglyTypedTypeInfo info)
         => info.Namespace is not null
-            ? $"namespace {info.Namespace};\n"
+            ? $"\nnamespace {info.Namespace};"
             : null;
 
     internal static string GetTargetRecordStructDefinition(StronglyTypedTypeInfo info, SemanticModel semanticModel)

@@ -234,4 +234,28 @@ internal static class Parser
         var isStringType = underlyingTypeSymbol?.SpecialType == SpecialType.System_String;
         return isStringType;
     }
+
+    internal static IEnumerable<ISymbol> GetUnimplementedSymbols<TInterface>(INamedTypeSymbol target, SemanticModel semanticModel)
+    {
+        var interfaceType = semanticModel.Compilation.GetTypeByMetadataName(typeof(TInterface).FullName)
+            ?? throw new InvalidOperationException($"Type symbol not found for {typeof(TInterface).FullName}.");
+
+        var targetMembers = target.GetMembers().ToHashSet(SymbolEqualityComparer.Default);
+
+        foreach (var interfaceMember in interfaceType.GetMembers())
+        {
+            if (!targetMembers.Contains(interfaceMember, SymbolEqualityComparer.Default))
+            {
+                yield return interfaceMember;
+            }
+        }
+    }
+
+    internal static bool IsTypeImplementing<TInterface>(ITypeSymbol target, SemanticModel semanticModel)
+    {
+        var interfaceType = semanticModel.Compilation.GetTypeByMetadataName(typeof(TInterface).FullName)
+            ?? throw new InvalidOperationException($"Type symbol not found for {typeof(TInterface).FullName}.");
+
+        return target.AllInterfaces.Contains(interfaceType, SymbolEqualityComparer.Default);
+    }
 }

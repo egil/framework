@@ -7,13 +7,13 @@ namespace StronglyTypedPrimitives;
 public static partial class SnapshotTestHelper
 {
     public static (ImmutableArray<Diagnostic> Diagnostics, string Output) GetGeneratedOutput<T>(
-        string source, 
+        string source,
         bool includeAttributes = true)
         where T : IIncrementalGenerator, new()
     {
         var syntaxTree = CSharpSyntaxTree.ParseText(source);
-        
-        var references = new List<MetadataReference> 
+
+        var references = new List<MetadataReference>
         {
             MetadataReference.CreateFromFile(typeof(T).Assembly.Location),
             MetadataReference.CreateFromFile(typeof(System.ComponentModel.DataAnnotations.ValidationAttribute).Assembly.Location)
@@ -42,7 +42,7 @@ public static partial class SnapshotTestHelper
             : originalTreeCount + 2;
 
         var generatedTrees = outputCompilation.SyntaxTrees.Skip(countsToExclude).ToList();
-        
+
         // Include both source and generated code in compilation
         var allTrees = new[] { syntaxTree }.Concat(outputCompilation.SyntaxTrees.Skip(originalTreeCount)).ToList();
 

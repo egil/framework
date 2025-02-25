@@ -10,8 +10,8 @@
 
 namespace SomeNamespace;
 
-[System.CodeDom.Compiler.GeneratedCodeAttribute("StronglyTypedPrimitives, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null", "1.0.0.0")]
-public readonly partial record struct Foo : global::StronglyTypedPrimitives.IStronglyTypedPrimitive, global::System.IParsable<Foo>, global::System.IFormattable
+[global::System.CodeDom.Compiler.GeneratedCodeAttribute("StronglyTypedPrimitives, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null", "1.0.0.0")]
+public readonly partial record struct Foo : global::StronglyTypedPrimitives.IStronglyTypedPrimitive<string>, global::System.IParsable<global::SomeNamespace.Foo>, global::System.ISpanParsable<global::SomeNamespace.Foo>, global::System.IComparable<global::SomeNamespace.Foo>, global::System.IComparable
 {
     public static readonly Foo Empty = new Foo(string.Empty);
 
@@ -32,32 +32,72 @@ public readonly partial record struct Foo : global::StronglyTypedPrimitives.IStr
         return value;
     }
 
-    [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-    public static bool IsValueValid(string value, bool throwIfInvalid) => true;
+    public override string ToString() => Data.ToString();
 
-    public static Foo Parse(string? s, global::System.IFormatProvider? provider)
+    public static bool IsValueValid(string value, bool throwIfInvalid)
+        => true;
+
+    public static Foo Parse(string s, global::System.IFormatProvider? provider)
     {
-        global::System.ArgumentNullException.ThrowIfNull(s);
         IsValueValid(s, throwIfInvalid: true);
         return new Foo(s);
     }
 
-    public static bool TryParse(string? s, global::System.IFormatProvider? provider, out Foo result)
+    public static bool TryParse(string? s, global::System.IFormatProvider? provider, [global::System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out SomeNamespace.Foo result)
     {
-        if (s is not null && IsValueValid(s, throwIfInvalid: false))
+        if (s is {} rawValue && IsValueValid(rawValue, throwIfInvalid: false))
         {
-            result = new Foo(s);
+            result = new Foo(rawValue);
             return true;
         }
 
-        result = default;
+        result = Foo.Empty;
         return false;
     }
 
-    public override string ToString() => Data.ToString();
+    public static Foo Parse(System.ReadOnlySpan<char> s, global::System.IFormatProvider? provider)
+    {
+        var rawValue = s.ToString();
+        IsValueValid(rawValue, throwIfInvalid: true);
+        return new Foo(rawValue);
+    }
 
-    public string ToString(string? format) => Data.ToString();
+    public static bool TryParse(System.ReadOnlySpan<char> s, global::System.IFormatProvider? provider, [global::System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out SomeNamespace.Foo result)
+    {
+        var rawValue = s.ToString();
+        if (IsValueValid(rawValue, throwIfInvalid: false))
+        {
+            result = new Foo(rawValue);
+            return true;
+        }
 
-    public string ToString(string? format, global::System.IFormatProvider? formatProvider)
-        => Data.ToString(formatProvider);
+        result = Foo.Empty;
+        return false;
+    }
+    
+    public int CompareTo(SomeNamespace.Foo other)
+        => Data.CompareTo(other.Data);
+    
+    public int CompareTo(object? obj)
+    {
+        if (obj is null)
+        {
+            return 1;
+        }
+
+        if (obj is Foo other)
+        {
+            return Data.CompareTo(other.Data);
+        }
+
+        return ((global::System.IComparable)Data).CompareTo(obj);
+    }
+    
+    public static bool operator > (Foo a, Foo b) => a.CompareTo(b) > 0;                
+
+    public static bool operator < (Foo a, Foo b) => a.CompareTo(b) < 0;                
+
+    public static bool operator >=(Foo a, Foo b) => a.CompareTo(b) >= 0;
+    
+    public static bool operator <=(Foo a, Foo b) => a.CompareTo(b) <= 0;
 }

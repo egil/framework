@@ -31,6 +31,7 @@ public class ExampleTest
             }
         }
 
+        /// <inheritdoc cref="global::System.ISpanParsable{TSelf}.TryParse"/>
         private static int ThrowIfValueIsInvalid(int value)
         {
             IsValueValid(value, throwIfInvalid: true);
