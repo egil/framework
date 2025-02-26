@@ -47,7 +47,7 @@ jobs:
           dotnet-version: 9.x
 
       # Create the NuGet package in the folder from the environment variable NuGetDirectory
-      - run: dotnet pack StronglyTypedPrimitives\StronglyTypedPrimitives.sln --configuration Release --output ${{ env.NuGetDirectory }}
+      - run: dotnet pack ./StronglyTypedPrimitives/StronglyTypedPrimitives.sln --configuration Release --output ${{ env.NuGetDirectory }}
 
       # Publish the NuGet package as an artifact, so they can be used in the following jobs
       - uses: actions/upload-artifact@v4
@@ -95,7 +95,7 @@ jobs:
           dotnet-version: 9.x
 
       - name: Run tests
-        run: dotnet test StronglyTypedPrimitives\StronglyTypedPrimitives.sln --configuration Release --logger trx --results-directory "${{ env.TestResultsDirectory }}" --collect:"XPlat Code Coverage"
+        run: dotnet test ./StronglyTypedPrimitives/StronglyTypedPrimitives.sln --configuration Release --logger trx --results-directory "${{ env.TestResultsDirectory }}" --collect:"XPlat Code Coverage"
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -123,7 +123,7 @@ jobs:
       - name: 'Checkout Repository'
         uses: actions/checkout@v4
       - name: 'Dependency Review'
-        uses: actions/dependency-review-action@v3
+        uses: actions/dependency-review-action@v4
 
   deploy:
     # Publish only when creating a GitHub Release
