@@ -7,9 +7,9 @@
     <RootNamespace>StronglyTypedPrimitives</RootNamespace>
     <IsAnalyzersProject>true</IsAnalyzersProject>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <IsRoslynComponent>true</IsRoslynComponent>
     <NoWarn>$(NoWarn);NU5128</NoWarn>
   </PropertyGroup>
-
 
   <PropertyGroup>
     <PackageId>StronglyTypedPrimitives</PackageId>

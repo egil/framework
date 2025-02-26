@@ -7,8 +7,8 @@
 // </auto-generated>
 //------------------------------------------------------------------------------
 #nullable enable
-[global::System.CodeDom.Compiler.GeneratedCodeAttribute("StronglyTypedPrimitives, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null", "1.0.0.0")]
-public readonly partial record struct Foo : global::StronglyTypedPrimitives.IStronglyTypedPrimitive<string>, global::System.IParsable<global::Foo>, global::System.ISpanParsable<global::Foo>, global::System.IComparable<global::Foo>, global::System.IComparable
+[global::System.CodeDom.Compiler.GeneratedCodeAttribute("StronglyTypedPrimitives, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null", "0.0.0.0")]
+public readonly partial record struct Foo : StronglyTypedPrimitives.IStronglyTypedPrimitive<string>, System.IParsable<Foo>, System.ISpanParsable<Foo>, System.IComparable<Foo>, System.IComparable
 {
     public static readonly Foo Empty = new Foo(string.Empty);
 

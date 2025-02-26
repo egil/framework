@@ -149,8 +149,8 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         namespace {{StronglyTypedPrimitivesNamespace}};
         
         {{GeneratedCodeAttribute}}
-        [global::System.AttributeUsage(global::System.AttributeTargets.Struct, Inherited = false, AllowMultiple = false)]
-        public sealed class StronglyTypedAttribute : global::System.Attribute { }
+        [System.AttributeUsage(System.AttributeTargets.Struct, Inherited = false, AllowMultiple = false)]
+        public sealed class StronglyTypedAttribute : System.Attribute { }
         """;
 
     public static string GetIStronglyTypedPrimitiveSource() => $$"""
@@ -177,7 +177,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
 
     internal static string GetPartialRecordStructDefinition(StronglyTypedTypeInfo info, IEnumerable<INamedTypeSymbol> interfaces)
         => $"""
-        {info.Target.Modifiers} record struct {info.Target.Identifier} : {string.Join(", ", interfaces.Select(x => x.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)))}
+        {info.Target.Modifiers} record struct {info.Target.Identifier} : {string.Join(", ", interfaces.Select(x => x.ToDisplayString()))}
         """;
 
     internal static IEnumerable<string> GetEmptyProperty(StronglyTypedTypeInfo info, IEnumerable<ISymbol> targetTypeMembers, ITypeSymbol underlyingTypeSymbol)
