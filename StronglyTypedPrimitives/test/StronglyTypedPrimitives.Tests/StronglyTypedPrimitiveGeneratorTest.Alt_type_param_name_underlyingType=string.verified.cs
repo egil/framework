@@ -10,16 +10,16 @@
 
 namespace SomeNamespace;
 
-[global::System.CodeDom.Compiler.GeneratedCodeAttribute("StronglyTypedPrimitives, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null", "0.0.0.0")]
+[System.CodeDom.Compiler.GeneratedCodeAttribute("StronglyTypedPrimitives, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null", "0.0.0.0")]
 public readonly partial record struct Foo : StronglyTypedPrimitives.IStronglyTypedPrimitive<string>, System.IParsable<SomeNamespace.Foo>, System.ISpanParsable<SomeNamespace.Foo>, System.IComparable<SomeNamespace.Foo>, System.IComparable
 {
-    public static readonly Foo Empty = new Foo(string.Empty);
+    public static readonly Foo Empty = default;
 
     private readonly string @data = ThrowIfValueIsInvalid(Data);       
 
     public string Data
     {
-        get => @data;
+        get => @data ?? string.Empty;
         init
         {
             @data = ThrowIfValueIsInvalid(value);
@@ -32,7 +32,7 @@ public readonly partial record struct Foo : StronglyTypedPrimitives.IStronglyTyp
         return value;
     }
 
-    public override string ToString() => Data.ToString();
+    public override string ToString() => Data;
 
     public static bool IsValueValid(string value, bool throwIfInvalid)
         => true;

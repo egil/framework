@@ -7,10 +7,10 @@
 // </auto-generated>
 //------------------------------------------------------------------------------
 #nullable enable
-[global::System.CodeDom.Compiler.GeneratedCodeAttribute("StronglyTypedPrimitives, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null", "0.0.0.0")]
+[System.CodeDom.Compiler.GeneratedCodeAttribute("StronglyTypedPrimitives, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null", "0.0.0.0")]
 public readonly partial record struct Foo : StronglyTypedPrimitives.IStronglyTypedPrimitive<System.DateTime>, System.IParsable<Foo>, System.ISpanParsable<Foo>, System.IComparable<Foo>, System.IComparable, System.IFormattable, System.ISpanFormattable, System.IUtf8SpanFormattable
 {
-    public static readonly Foo Empty = new Foo(default);
+    public static readonly Foo Empty = default;
 
     private readonly System.DateTime @value = ThrowIfValueIsInvalid(Value);       
 

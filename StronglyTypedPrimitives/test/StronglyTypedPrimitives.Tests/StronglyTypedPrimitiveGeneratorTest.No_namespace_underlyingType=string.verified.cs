@@ -7,16 +7,16 @@
 // </auto-generated>
 //------------------------------------------------------------------------------
 #nullable enable
-[global::System.CodeDom.Compiler.GeneratedCodeAttribute("StronglyTypedPrimitives, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null", "0.0.0.0")]
+[System.CodeDom.Compiler.GeneratedCodeAttribute("StronglyTypedPrimitives, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null", "0.0.0.0")]
 public readonly partial record struct Foo : StronglyTypedPrimitives.IStronglyTypedPrimitive<string>, System.IParsable<Foo>, System.ISpanParsable<Foo>, System.IComparable<Foo>, System.IComparable
 {
-    public static readonly Foo Empty = new Foo(string.Empty);
+    public static readonly Foo Empty = default;
 
     private readonly string @value = ThrowIfValueIsInvalid(Value);       
 
     public string Value
     {
-        get => @value;
+        get => @value ?? string.Empty;
         init
         {
             @value = ThrowIfValueIsInvalid(value);
@@ -29,7 +29,7 @@ public readonly partial record struct Foo : StronglyTypedPrimitives.IStronglyTyp
         return value;
     }
 
-    public override string ToString() => Value.ToString();
+    public override string ToString() => Value;
 
     public static bool IsValueValid(string value, bool throwIfInvalid)
         => true;

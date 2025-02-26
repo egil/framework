@@ -23,7 +23,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
 
     private static string IStronglyTypedPrimitive => $"{StronglyTypedPrimitivesNamespace}.IStronglyTypedPrimitive`1";
 
-    private static string GeneratedCodeConstructor => $@"global::System.CodeDom.Compiler.GeneratedCodeAttribute(""{typeof(StronglyTypedPrimitiveGenerator).Assembly.FullName}"", ""{typeof(StronglyTypedPrimitiveGenerator).Assembly.GetName().Version}"")";
+    private static string GeneratedCodeConstructor => $@"System.CodeDom.Compiler.GeneratedCodeAttribute(""{typeof(StronglyTypedPrimitiveGenerator).Assembly.FullName}"", ""{typeof(StronglyTypedPrimitiveGenerator).Assembly.GetName().Version}"")";
 
     private static string GeneratedCodeAttribute => $"[{GeneratedCodeConstructor}]";
 
@@ -188,12 +188,8 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             yield break;
         }
 
-        var defaultValue = underlyingTypeSymbol.SpecialType == SpecialType.System_String
-            ? "string.Empty"
-            : "default";
-
         yield return $"""
-                public static readonly {info.Target.Identifier} Empty = new {info.Target.Identifier}({defaultValue});
+                public static readonly {info.Target.Identifier} Empty = default;
             """;
     }
 
@@ -210,6 +206,9 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
 
         const string throwIfValueIsInvalidName = "ThrowIfValueIsInvalid";
         var fieldName = $"@{info.Parameter.Identifier.ToString().ToLowerInvariant()}";
+        var getMethodImplementation = underlyingTypeSymbol.SpecialType is SpecialType.System_String
+            ? $"{fieldName} ?? string.Empty;"
+            : $"{fieldName};";
 
         yield return $$"""
 
@@ -217,7 +216,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
 
             public {{info.UnderlyingType}} {{info.Parameter.Identifier}}
             {
-                get => {{fieldName}};
+                get => {{getMethodImplementation}}
                 init
                 {
                     {{fieldName}} = {{throwIfValueIsInvalidName}}(value);
@@ -249,10 +248,15 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         var toStringMethodExists = targetTypeMembers.OfType<IMethodSymbol>().Any(m => m.Name == "ToString" && !m.IsImplicitlyDeclared && m.ReturnType.SpecialType == SpecialType.System_String && m.Parameters.Length == 0);
         if (!toStringMethodExists)
         {
-            yield return $$"""
+            yield return underlyingTypeSymbol.SpecialType is SpecialType.System_String
+                ? $$"""
 
-                public override string ToString() => {{info.Parameter.Identifier}}.ToString();
-            """;
+                    public override string ToString() => {{info.Parameter.Identifier}};
+                """
+                : $$"""
+
+                    public override string ToString() => {{info.Parameter.Identifier}}.ToString();
+                """;
         }
     }
 

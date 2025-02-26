@@ -10,16 +10,16 @@
 
 namespace SomeNamespace;
 
-[global::System.CodeDom.Compiler.GeneratedCodeAttribute("StronglyTypedPrimitives, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null", "0.0.0.0")]
+[System.CodeDom.Compiler.GeneratedCodeAttribute("StronglyTypedPrimitives, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null", "0.0.0.0")]
 public readonly partial record struct Foo : StronglyTypedPrimitives.IStronglyTypedPrimitive<string>, System.IParsable<SomeNamespace.Foo>, System.ISpanParsable<SomeNamespace.Foo>, System.IComparable<SomeNamespace.Foo>, System.IComparable
 {
-    public static readonly Foo Empty = new Foo(string.Empty);
+    public static readonly Foo Empty = default;
 
     private readonly string @value = ThrowIfValueIsInvalid(Value);       
 
     public string Value
     {
-        get => @value;
+        get => @value ?? string.Empty;
         init
         {
             @value = ThrowIfValueIsInvalid(value);
