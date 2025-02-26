@@ -41,6 +41,8 @@ jobs:
       # Install the .NET SDK indicated in the global.json file
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
 
       # Create the NuGet package in the folder from the environment variable NuGetDirectory
       - run: |
@@ -61,6 +63,8 @@ jobs:
     steps:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
 
       - uses: actions/download-artifact@v4
         with:
@@ -87,6 +91,8 @@ jobs:
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
 
       - name: Run tests
         run: |
@@ -134,6 +140,9 @@ jobs:
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
 
       - name: Publish NuGet package
         shell: pwsh
