@@ -2,22 +2,24 @@
 
 name: strongly-typed-primitives-ci
 on:
-  workflow_dispatch: # Allow running the workflow manually from the GitHub UI
+  workflow_dispatch:
   push:
     branches:
-      - 'main'       # Run the workflow when pushing to the main branch
+      - 'main'
     paths:
-      - '*'                      # Changes in the root folder
-      - 'StronglyTypedPrimitives/**'  # Changes under the StronglyTypedPrimitives folder
+      - '*'
+      - 'StronglyTypedPrimitives/**'
+      - '.github/workflows/strongly-typed-primitives-ci.yml'
   pull_request:
     branches:
-      - '*'          # Run the workflow for all pull requests
+      - '*'       
     paths:
-      - '*'                      # Changes in the root folder
-      - 'StronglyTypedPrimitives/**'  # Changes under the StronglyTypedPrimitives folder
+      - '*'                     
+      - 'StronglyTypedPrimitives/**' 
+      - '.github/workflows/strongly-typed-primitives-ci.yml'
   release:
     types:
-      - published    # Run the workflow when a new GitHub release is published
+      - published
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.event.pull_request.number || github.ref }}
