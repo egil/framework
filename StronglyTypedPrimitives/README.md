@@ -30,7 +30,8 @@ it easy to avoid the primitive obsession anti pattern.
 
 ## Getting started
 
-To get started, add a `[StronglyTyped]` attribute to a **partial record struct** that has one of the 
+To get started, download the nuget [StronglyTypedPrimitives](https://www.nuget.org/packages/StronglyTypedPrimitives) and
+add a `[StronglyTyped]` attribute to a **partial record struct** that has one of the 
 supported primitive types as the first (and only) argument in it's constructor, for example:
 
 ```csharp
