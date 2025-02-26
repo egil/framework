@@ -34,19 +34,19 @@ public readonly partial record struct Foo : global::StronglyTypedPrimitives.IStr
 
     public override string ToString() => Value.ToString();
 
-    public static bool IsValueValid(global::System.DateTime value, bool throwIfInvalid)
+    public static bool IsValueValid(System.DateTime value, bool throwIfInvalid)
         => true;
 
-    public static Foo Parse(string s, global::System.IFormatProvider? provider)
+    public static Foo Parse(string s, System.IFormatProvider? provider)
     {
-        var rawValue = global::System.DateTime.Parse(s, provider);
+        var rawValue = System.DateTime.Parse(s, provider);
         IsValueValid(rawValue, throwIfInvalid: true);
         return new Foo(rawValue);
     }
 
-    public static bool TryParse(string? s, global::System.IFormatProvider? provider, [global::System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out SomeNamespace.Foo result)
+    public static bool TryParse(string? s, System.IFormatProvider? provider, [System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out SomeNamespace.Foo result)
     {
-        if (global::System.DateTime.TryParse(s, provider, out var rawValue) && IsValueValid(rawValue, throwIfInvalid: false))
+        if (System.DateTime.TryParse(s, provider, out var rawValue) && IsValueValid(rawValue, throwIfInvalid: false))
         {
             result = new Foo(rawValue);
             return true;
@@ -56,16 +56,16 @@ public readonly partial record struct Foo : global::StronglyTypedPrimitives.IStr
         return false;
     }
 
-    public static Foo Parse(global::System.ReadOnlySpan<char> s, global::System.IFormatProvider? provider)
+    public static Foo Parse(System.ReadOnlySpan<char> s, System.IFormatProvider? provider)
     {
-        var rawValue = global::System.DateTime.Parse(s, provider);
+        var rawValue = System.DateTime.Parse(s, provider);
         IsValueValid(rawValue, throwIfInvalid: true);
         return new Foo(rawValue);
     }
 
-    public static bool TryParse(global::System.ReadOnlySpan<char> s, global::System.IFormatProvider? provider, [global::System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out SomeNamespace.Foo result)
+    public static bool TryParse(System.ReadOnlySpan<char> s, System.IFormatProvider? provider, [System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out SomeNamespace.Foo result)
     {
-        if (global::System.DateTime.TryParse(s, provider, out var rawValue) && IsValueValid(rawValue, throwIfInvalid: false))
+        if (System.DateTime.TryParse(s, provider, out var rawValue) && IsValueValid(rawValue, throwIfInvalid: false))
         {
             result = new Foo(rawValue);
             return true;
@@ -90,14 +90,14 @@ public readonly partial record struct Foo : global::StronglyTypedPrimitives.IStr
             return Value.CompareTo(other.Value);
         }
 
-        return ((global::System.IComparable)Value).CompareTo(obj);
+        return ((System.IComparable)Value).CompareTo(obj);
     }
     
-    public bool TryFormat(global::System.Span<char> destination, out int charsWritten, global::System.ReadOnlySpan<char> format, global::System.IFormatProvider? provider)
-        => ((global::System.ISpanFormattable)Value).TryFormat(destination, out charsWritten, format, provider);
+    public bool TryFormat(System.Span<char> destination, out int charsWritten, System.ReadOnlySpan<char> format, System.IFormatProvider? provider)
+        => ((System.ISpanFormattable)Value).TryFormat(destination, out charsWritten, format, provider);
     
-    public bool TryFormat(global::System.Span<byte> utf8Destination, out int bytesWritten, global::System.ReadOnlySpan<char> format, global::System.IFormatProvider? provider)
-        => ((global::System.IUtf8SpanFormattable)Value).TryFormat(utf8Destination, out bytesWritten, format, provider);
+    public bool TryFormat(System.Span<byte> utf8Destination, out int bytesWritten, System.ReadOnlySpan<char> format, System.IFormatProvider? provider)
+        => ((System.IUtf8SpanFormattable)Value).TryFormat(utf8Destination, out bytesWritten, format, provider);
     
     public static bool operator > (Foo a, Foo b) => a.CompareTo(b) > 0;                
 

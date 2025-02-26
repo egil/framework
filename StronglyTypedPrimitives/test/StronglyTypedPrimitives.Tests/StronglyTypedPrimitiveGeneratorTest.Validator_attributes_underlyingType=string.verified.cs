@@ -37,13 +37,14 @@ public readonly partial record struct Foo : global::StronglyTypedPrimitives.IStr
     public static bool IsValueValid(string value, bool throwIfInvalid)
         => true;
 
-    public static Foo Parse(string s, global::System.IFormatProvider? provider)
+    public static Foo Parse(string s, System.IFormatProvider? provider)
     {
-        IsValueValid(s, throwIfInvalid: true);
-        return new Foo(s);
+        var rawValue = s;
+        IsValueValid(rawValue, throwIfInvalid: true);
+        return new Foo(rawValue);
     }
 
-    public static bool TryParse(string? s, global::System.IFormatProvider? provider, [global::System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out SomeNamespace.Foo result)
+    public static bool TryParse(string? s, System.IFormatProvider? provider, [System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out SomeNamespace.Foo result)
     {
         if (s is {} rawValue && IsValueValid(rawValue, throwIfInvalid: false))
         {
@@ -55,17 +56,16 @@ public readonly partial record struct Foo : global::StronglyTypedPrimitives.IStr
         return false;
     }
 
-    public static Foo Parse(System.ReadOnlySpan<char> s, global::System.IFormatProvider? provider)
+    public static Foo Parse(System.ReadOnlySpan<char> s, System.IFormatProvider? provider)
     {
         var rawValue = s.ToString();
         IsValueValid(rawValue, throwIfInvalid: true);
         return new Foo(rawValue);
     }
 
-    public static bool TryParse(System.ReadOnlySpan<char> s, global::System.IFormatProvider? provider, [global::System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out SomeNamespace.Foo result)
+    public static bool TryParse(System.ReadOnlySpan<char> s, System.IFormatProvider? provider, [System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out SomeNamespace.Foo result)
     {
-        var rawValue = s.ToString();
-        if (IsValueValid(rawValue, throwIfInvalid: false))
+        if (s.ToString() is {} rawValue && IsValueValid(rawValue, throwIfInvalid: false))
         {
             result = new Foo(rawValue);
             return true;
@@ -90,7 +90,7 @@ public readonly partial record struct Foo : global::StronglyTypedPrimitives.IStr
             return Value.CompareTo(other.Value);
         }
 
-        return ((global::System.IComparable)Value).CompareTo(obj);
+        return ((System.IComparable)Value).CompareTo(obj);
     }
     
     public static bool operator > (Foo a, Foo b) => a.CompareTo(b) > 0;                

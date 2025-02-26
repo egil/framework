@@ -16,25 +16,25 @@ public class StronglyTypedPrimitiveGeneratorTest
         //"bool",
     };
 
-    //[Fact]
-    //public async Task StandardX()
-    //{
-    //    var input = $$"""
-    //        using StronglyTypedPrimitives;
+    [Fact]
+    public async Task StandardX()
+    {
+        var input = $$"""
+            using StronglyTypedPrimitives;
 
-    //        namespace SomeNamespace;
+            namespace SomeNamespace;
 
-    //        [StronglyTyped]
-    //        public readonly partial record struct Foo(char Value);
-    //        """;
+            [StronglyTyped]
+            public readonly partial record struct Foo(string Value);
+            """;
 
-    //    var (diagnostics, output) = SnapshotTestHelper.GetGeneratedOutput<StronglyTypedPrimitiveGenerator>(
-    //        input,
-    //        includeAttributes: false);
+        var (diagnostics, output) = SnapshotTestHelper.GetGeneratedOutput<StronglyTypedPrimitiveGenerator>(
+            input,
+            includeAttributes: false);
 
-    //    await Verify(output, extension: "cs");
-    //    Assert.Empty(diagnostics);
-    //}
+        await Verify(output, extension: "cs");
+        Assert.Empty(diagnostics);
+    }
 
     [Theory, MemberData(nameof(UnderlyingTypes))]
     public async Task Standard(string underlyingType)

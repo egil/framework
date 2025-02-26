@@ -304,81 +304,58 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
 
     private static IEnumerable<string> GetInterfaceSymbols(StronglyTypedTypeInfo info, IEnumerable<ISymbol> symbols, ITypeSymbol underlyingTypeSymbol)
     {
-        foreach (var synbol in symbols)
+        foreach (var symbol in symbols)
         {
-            yield return synbol.OriginalDefinition.ToString() switch
+            if (symbol is not IMethodSymbol method)
             {
-                "StronglyTypedPrimitives.IStronglyTypedPrimitive<TPrimitiveType>.IsValueValid(TPrimitiveType, bool)" when synbol is IMethodSymbol method
-                    => GetIStronglyTypedPrimitiveIsValueValid(info, method, underlyingTypeSymbol),
+                yield return $"\n\t// Missing implementation for {symbol.OriginalDefinition.ToString()}";
+                continue;
+            }
 
-                "System.IParsable<TSelf>.Parse(string, System.IFormatProvider?)" when synbol is IMethodSymbol method && underlyingTypeSymbol.SpecialType is SpecialType.System_String
-                    => GetIParsableParseForString(info, method, underlyingTypeSymbol),
-                "System.IParsable<TSelf>.TryParse(string?, System.IFormatProvider?, out TSelf)" when synbol is IMethodSymbol method && underlyingTypeSymbol.SpecialType is SpecialType.System_String
-                    => GetIParsableTryParseForString(info, method, underlyingTypeSymbol),
+            yield return method switch
+            {
+                { Name: "IsValueValid" } => GetIsValueValid(info, method, underlyingTypeSymbol),
 
-                "System.ISpanParsable<TSelf>.Parse(System.ReadOnlySpan<char>, System.IFormatProvider?)" when synbol is IMethodSymbol method && underlyingTypeSymbol.SpecialType is SpecialType.System_String
-                    => GetISpanParsableParseForString(info, method, underlyingTypeSymbol),
-                "System.ISpanParsable<TSelf>.TryParse(System.ReadOnlySpan<char>, System.IFormatProvider?, out TSelf)" when synbol is IMethodSymbol method && underlyingTypeSymbol.SpecialType is SpecialType.System_String
-                    => GetISpanParsableTryParseForString(info, method, underlyingTypeSymbol),
+                { Name: "Parse", Parameters: { Length: 2 } } when underlyingTypeSymbol.SpecialType is SpecialType.System_String => GetStringParse(info, method, underlyingTypeSymbol),
+                { Name: "TryParse", Parameters: { Length: 3 } } when underlyingTypeSymbol.SpecialType is SpecialType.System_String => GetStringTryParse(info, method, underlyingTypeSymbol),
 
-                "System.IParsable<TSelf>.Parse(string, System.IFormatProvider?)" when synbol is IMethodSymbol method
-                    => GetIParsableParse(info, method, underlyingTypeSymbol),
-                "System.IParsable<TSelf>.TryParse(string?, System.IFormatProvider?, out TSelf)" when synbol is IMethodSymbol method
-                    => GetIParsableTryParse(info, method, underlyingTypeSymbol),
+                { Name: "Parse", Parameters: { Length: 2 } } => GetParse(info, method, underlyingTypeSymbol),
+                { Name: "TryParse", Parameters: { Length: 3 } } => GetTryParse(info, method, underlyingTypeSymbol),
 
-                "System.ISpanParsable<TSelf>.Parse(System.ReadOnlySpan<char>, System.IFormatProvider?)" when synbol is IMethodSymbol method
-                    => GetISpanParsableParse(info, method, underlyingTypeSymbol),
-                "System.ISpanParsable<TSelf>.TryParse(System.ReadOnlySpan<char>, System.IFormatProvider?, out TSelf)" when synbol is IMethodSymbol method
-                    => GetISpanParsableTryParse(info, method, underlyingTypeSymbol),
+                { Name: "CompareTo", ContainingType: { IsGenericType: true } } => GetCompareToOfT(info, method, underlyingTypeSymbol),
+                { Name: "CompareTo", ContainingType: { IsGenericType: false } } => GetCompareTo(info, method, underlyingTypeSymbol),
+                { Name: "ToString", Parameters: { Length: 2 } } => GetToString(info, method, underlyingTypeSymbol),
+                { Name: "TryFormat", Parameters: { Length: 4 } } => GetTryFormat(info, method, underlyingTypeSymbol),
 
-                "System.IUtf8SpanParsable<TSelf>.Parse(System.ReadOnlySpan<byte>, System.IFormatProvider?)" when synbol is IMethodSymbol method
-                    => GetIUtf8SpanParsableParse(info, method, underlyingTypeSymbol),
-                "System.IUtf8SpanParsable<TSelf>.TryParse(System.ReadOnlySpan<byte>, System.IFormatProvider?, out TSelf)" when synbol is IMethodSymbol method
-                    => GetIUtf8SpanParsableTryParse(info, method, underlyingTypeSymbol),
-
-                "System.IComparable<T>.CompareTo(T?)" when synbol is IMethodSymbol method
-                    => GetIComparableOfTCompareTo(info, method, underlyingTypeSymbol),
-                "System.IComparable.CompareTo(object?)" when synbol is IMethodSymbol method
-                    => GetIComparableCompareTo(info, method, underlyingTypeSymbol),
-
-                "System.IFormattable.ToString(string?, System.IFormatProvider?)" when synbol is IMethodSymbol method
-                    => GetIFormattableToString(info, method, underlyingTypeSymbol),
-
-                "System.ISpanFormattable.TryFormat(System.Span<char>, out int, System.ReadOnlySpan<char>, System.IFormatProvider?)" when synbol is IMethodSymbol method
-                    => GetISpanFormattableTryFormat(info, method, underlyingTypeSymbol),
-                "System.IUtf8SpanFormattable.TryFormat(System.Span<byte>, out int, System.ReadOnlySpan<char>, System.IFormatProvider?)" when synbol is IMethodSymbol method
-                    => GetIUtf8SpanFormattableTryFormat(info, method, underlyingTypeSymbol),
-                _ => $"\n\t// Missing implementation for {synbol.OriginalDefinition.ToString()}",
+                _ => $"\n\t// Missing implementation for {symbol.OriginalDefinition.ToString()}",
             };
         }
-
-        yield break;
     }
 
-    private static string GetIStronglyTypedPrimitiveIsValueValid(StronglyTypedTypeInfo info, ISymbol method, ITypeSymbol underlyingTypeSymbol)
+    private static string GetIsValueValid(StronglyTypedTypeInfo info, ISymbol method, ITypeSymbol underlyingTypeSymbol)
         => $$"""
 
-            public static bool IsValueValid({{underlyingTypeSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}} value, bool throwIfInvalid)
+            public static bool IsValueValid({{underlyingTypeSymbol.ToDisplayString()}} value, bool throwIfInvalid)
                 => true;
         """;
 
-    private static string GetIParsableParse(StronglyTypedTypeInfo info, IMethodSymbol method, ITypeSymbol underlyingTypeSymbol)
+    private static string GetParse(StronglyTypedTypeInfo info, IMethodSymbol method, ITypeSymbol underlyingTypeSymbol)
         => $$"""
 
-            public static {{info.Target.Identifier}} Parse({{method.Parameters[0]}}, global::{{method.Parameters[1]}})
+            public static {{info.Target.Identifier}} Parse({{method.Parameters[0]}}, {{method.Parameters[1]}})
             {
-                var rawValue = {{underlyingTypeSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}}.Parse({{method.Parameters[0].Name}}, {{method.Parameters[1].Name}});
+                var rawValue = {{underlyingTypeSymbol.ToDisplayString()}}.Parse({{method.Parameters[0].Name}}, {{method.Parameters[1].Name}});
                 IsValueValid(rawValue, throwIfInvalid: true);
                 return new {{info.Target.Identifier}}(rawValue);
             }
         """;
 
-    private static string GetIParsableTryParse(StronglyTypedTypeInfo info, IMethodSymbol method, ITypeSymbol underlyingTypeSymbol)
+    private static string GetTryParse(StronglyTypedTypeInfo info, IMethodSymbol method, ITypeSymbol underlyingTypeSymbol)
         => $$"""
 
-            public static bool TryParse({{method.Parameters[0]}}, global::{{method.Parameters[1]}}, [global::System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] {{method.Parameters[2]}})
+            public static bool TryParse({{method.Parameters[0]}}, {{method.Parameters[1]}}, [System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] {{method.Parameters[2]}})
             {
-                if ({{underlyingTypeSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}}.TryParse({{method.Parameters[0].Name}}, {{method.Parameters[1].Name}}, out var rawValue) && IsValueValid(rawValue, throwIfInvalid: false))
+                if ({{underlyingTypeSymbol.ToDisplayString()}}.TryParse({{method.Parameters[0].Name}}, {{method.Parameters[1].Name}}, out var rawValue) && IsValueValid(rawValue, throwIfInvalid: false))
                 {
                     {{method.Parameters[2].Name}} = new {{info.Target.Identifier}}(rawValue);
                     return true;
@@ -389,122 +366,56 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             }
         """;
 
-    private static string GetIParsableParseForString(StronglyTypedTypeInfo info, IMethodSymbol method, ITypeSymbol underlyingTypeSymbol)
-        => $$"""
-
-            public static {{info.Target.Identifier}} Parse({{method.Parameters[0]}}, global::{{method.Parameters[1]}})
-            {
-                IsValueValid({{method.Parameters[0].Name}}, throwIfInvalid: true);
-                return new {{info.Target.Identifier}}({{method.Parameters[0].Name}});
-            }
-        """;
-
-    private static string GetIParsableTryParseForString(StronglyTypedTypeInfo info, IMethodSymbol method, ITypeSymbol underlyingTypeSymbol)
-        => $$"""
-
-            public static bool TryParse({{method.Parameters[0]}}, global::{{method.Parameters[1]}}, [global::System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] {{method.Parameters[2]}})
-            {
-                if ({{method.Parameters[0].Name}} is {} rawValue && IsValueValid(rawValue, throwIfInvalid: false))
-                {
-                    {{method.Parameters[2].Name}} = new {{info.Target.Identifier}}(rawValue);
-                    return true;
-                }
-
-                {{method.Parameters[2].Name}} = {{info.Target.Identifier}}.Empty;
-                return false;
-            }
-        """;
-
-    private static string GetISpanParsableParse(StronglyTypedTypeInfo info, IMethodSymbol method, ITypeSymbol underlyingTypeSymbol)
-        => $$"""
-
-            public static {{info.Target.Identifier}} Parse(global::{{method.Parameters[0]}}, global::{{method.Parameters[1]}})
-            {
-                var rawValue = {{underlyingTypeSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}}.Parse({{method.Parameters[0].Name}}, {{method.Parameters[1].Name}});
-                IsValueValid(rawValue, throwIfInvalid: true);
-                return new {{info.Target.Identifier}}(rawValue);
-            }
-        """;
-
-    private static string GetISpanParsableTryParse(StronglyTypedTypeInfo info, IMethodSymbol method, ITypeSymbol underlyingTypeSymbol)
-        => $$"""
-        
-            public static bool TryParse(global::{{method.Parameters[0]}}, global::{{method.Parameters[1]}}, [global::System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] {{method.Parameters[2]}})
-            {
-                if ({{underlyingTypeSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}}.TryParse({{method.Parameters[0].Name}}, {{method.Parameters[1].Name}}, out var rawValue) && IsValueValid(rawValue, throwIfInvalid: false))
-                {
-                    {{method.Parameters[2].Name}} = new {{info.Target.Identifier}}(rawValue);
-                    return true;
-                }
-
-                {{method.Parameters[2].Name}} = {{info.Target.Identifier}}.Empty;
-                return false;
-            }
-        """;
-
-    private static string GetISpanParsableParseForString(StronglyTypedTypeInfo info, IMethodSymbol method, ITypeSymbol underlyingTypeSymbol)
-        => $$"""
-
-            public static {{info.Target.Identifier}} Parse({{method.Parameters[0]}}, global::{{method.Parameters[1]}})
-            {
-                var rawValue = {{method.Parameters[0].Name}}.ToString();
-                IsValueValid(rawValue, throwIfInvalid: true);
-                return new {{info.Target.Identifier}}(rawValue);
-            }
-        """;
-
-    private static string GetISpanParsableTryParseForString(StronglyTypedTypeInfo info, IMethodSymbol method, ITypeSymbol underlyingTypeSymbol)
-        => $$"""
-
-            public static bool TryParse({{method.Parameters[0]}}, global::{{method.Parameters[1]}}, [global::System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] {{method.Parameters[2]}})
-            {
-                var rawValue = {{method.Parameters[0].Name}}.ToString();
-                if (IsValueValid(rawValue, throwIfInvalid: false))
-                {
-                    {{method.Parameters[2].Name}} = new {{info.Target.Identifier}}(rawValue);
-                    return true;
-                }
-
-                {{method.Parameters[2].Name}} = {{info.Target.Identifier}}.Empty;
-                return false;
-            }
-        """;
-
-    private static string GetIUtf8SpanParsableParse(StronglyTypedTypeInfo info, IMethodSymbol method, ITypeSymbol underlyingTypeSymbol)
-        => $$"""
-
-        public static {{info.Target.Identifier}} Parse(global::{{method.Parameters[0]}}, global::{{method.Parameters[1]}})
+    private static string GetStringParse(StronglyTypedTypeInfo info, IMethodSymbol method, ITypeSymbol underlyingTypeSymbol)
+    {
+        var rawValueString = method.Parameters[0].Type switch
         {
-            var rawValue = {{underlyingTypeSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}}.Parse({{method.Parameters[0].Name}}, {{method.Parameters[1].Name}});
-            IsValueValid(rawValue, throwIfInvalid: true);
-            return new {{info.Target.Identifier}}(rawValue);
-        }
-    """;
+            { SpecialType: SpecialType.System_String } => $"{method.Parameters[0].Name}",
+            _ => $"{method.Parameters[0].Name}.ToString()",
+        };
 
-    private static string GetIUtf8SpanParsableTryParse(StronglyTypedTypeInfo info, IMethodSymbol method, ITypeSymbol underlyingTypeSymbol)
-        => $$"""
-        
-        public static bool TryParse(global::{{method.Parameters[0]}}, global::{{method.Parameters[1]}}, [global::System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] {{method.Parameters[2]}})
-        {
-            if ({{underlyingTypeSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}}.TryParse({{method.Parameters[0].Name}}, {{method.Parameters[1].Name}}, out var rawValue) && IsValueValid(rawValue, throwIfInvalid: false))
+        return $$"""
+
+            public static {{info.Target.Identifier}} Parse({{method.Parameters[0]}}, {{method.Parameters[1]}})
             {
-                {{method.Parameters[2].Name}} = new {{info.Target.Identifier}}(rawValue);
-                return true;
+                var rawValue = {{rawValueString}};
+                IsValueValid(rawValue, throwIfInvalid: true);
+                return new {{info.Target.Identifier}}(rawValue);
             }
+        """;
+    }
 
-            {{method.Parameters[2].Name}} = {{info.Target.Identifier}}.Empty;
-            return false;
-        }
-    """;
+    private static string GetStringTryParse(StronglyTypedTypeInfo info, IMethodSymbol method, ITypeSymbol underlyingTypeSymbol)
+    {
+        var rawValueString = method.Parameters[0].Type switch
+        {
+            { SpecialType: SpecialType.System_String } => $"{method.Parameters[0].Name}",
+            _ => $"{method.Parameters[0].Name}.ToString()",
+        };
+        return $$"""
 
-    private static string GetIComparableOfTCompareTo(StronglyTypedTypeInfo info, IMethodSymbol method, ITypeSymbol underlyingTypeSymbol)
+            public static bool TryParse({{method.Parameters[0]}}, {{method.Parameters[1]}}, [System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] {{method.Parameters[2]}})
+            {
+                if ({{rawValueString}} is {} rawValue && IsValueValid(rawValue, throwIfInvalid: false))
+                {
+                    {{method.Parameters[2].Name}} = new {{info.Target.Identifier}}(rawValue);
+                    return true;
+                }
+
+                {{method.Parameters[2].Name}} = {{info.Target.Identifier}}.Empty;
+                return false;
+            }
+        """;
+    }
+
+    private static string GetCompareToOfT(StronglyTypedTypeInfo info, IMethodSymbol method, ITypeSymbol underlyingTypeSymbol)
         => $$"""
         
         public int CompareTo({{method.Parameters[0]}})
             => {{info.Parameter.Identifier}}.CompareTo({{method.Parameters[0].Name}}.{{info.Parameter.Identifier}});
     """;
 
-    private static string GetIComparableCompareTo(StronglyTypedTypeInfo info, IMethodSymbol method, ITypeSymbol underlyingTypeSymbol)
+    private static string GetCompareTo(StronglyTypedTypeInfo info, IMethodSymbol method, ITypeSymbol underlyingTypeSymbol)
         => $$"""
         
         public int CompareTo({{method.Parameters[0]}})
@@ -519,28 +430,21 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
                 return {{info.Parameter.Identifier}}.CompareTo(other.{{info.Parameter.Identifier}});
             }
 
-            return (({{method.ContainingType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}}){{info.Parameter.Identifier}}).CompareTo({{method.Parameters[0].Name}});
+            return (({{method.ContainingType.ToDisplayString()}}){{info.Parameter.Identifier}}).CompareTo({{method.Parameters[0].Name}});
         }
     """;
 
-    private static string GetIFormattableToString(StronglyTypedTypeInfo info, IMethodSymbol method, ITypeSymbol underlyingTypeSymbol)
+    private static string GetToString(StronglyTypedTypeInfo info, IMethodSymbol method, ITypeSymbol underlyingTypeSymbol)
         => $$"""
         
-        public string ToString({{method.Parameters[0]}}, global::{{method.Parameters[1]}})
+        public string ToString({{method.Parameters[0]}}, {{method.Parameters[1]}})
             => {{info.Parameter.Identifier}}.ToString({{method.Parameters[0].Name}}, {{method.Parameters[1].Name}});
     """;
 
-    private static string GetISpanFormattableTryFormat(StronglyTypedTypeInfo info, IMethodSymbol method, ITypeSymbol underlyingTypeSymbol)
+    private static string GetTryFormat(StronglyTypedTypeInfo info, IMethodSymbol method, ITypeSymbol underlyingTypeSymbol)
         => $$"""
         
-        public bool TryFormat(global::{{method.Parameters[0]}}, {{method.Parameters[1]}}, global::{{method.Parameters[2]}}, global::{{method.Parameters[3]}})
-            => (({{method.ContainingType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}}){{info.Parameter.Identifier}}).TryFormat({{method.Parameters[0].Name}}, out {{method.Parameters[1].Name}}, {{method.Parameters[2].Name}}, {{method.Parameters[3].Name}});
-    """;
-
-    private static string GetIUtf8SpanFormattableTryFormat(StronglyTypedTypeInfo info, IMethodSymbol method, ITypeSymbol underlyingTypeSymbol)
-        => $$"""
-        
-        public bool TryFormat(global::{{method.Parameters[0]}}, {{method.Parameters[1]}}, global::{{method.Parameters[2]}}, global::{{method.Parameters[3]}})
-            => (({{method.ContainingType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}}){{info.Parameter.Identifier}}).TryFormat({{method.Parameters[0].Name}}, out {{method.Parameters[1].Name}}, {{method.Parameters[2].Name}}, {{method.Parameters[3].Name}});
+        public bool TryFormat({{method.Parameters[0]}}, {{method.Parameters[1]}}, {{method.Parameters[2]}}, {{method.Parameters[3]}})
+            => (({{method.ContainingType.ToDisplayString()}}){{info.Parameter.Identifier}}).TryFormat({{method.Parameters[0].Name}}, out {{method.Parameters[1].Name}}, {{method.Parameters[2].Name}}, {{method.Parameters[3].Name}});
     """;
 }
