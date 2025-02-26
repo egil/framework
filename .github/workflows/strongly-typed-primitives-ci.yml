@@ -47,9 +47,7 @@ jobs:
           dotnet-version: 9.x
 
       # Create the NuGet package in the folder from the environment variable NuGetDirectory
-      - run: |
-          cd StronglyTypedPrimitives
-          dotnet pack --configuration Release --output ${{ env.NuGetDirectory }}
+      - run: dotnet pack StronglyTypedPrimitives\StronglyTypedPrimitives.sln --configuration Release --output ${{ env.NuGetDirectory }}
 
       # Publish the NuGet package as an artifact, so they can be used in the following jobs
       - uses: actions/upload-artifact@v4
@@ -97,9 +95,7 @@ jobs:
           dotnet-version: 9.x
 
       - name: Run tests
-        run: |
-          cd StronglyTypedPrimitives
-          dotnet test --configuration Release --framework ${{ matrix.framework }} --logger trx --results-directory "${{ env.TestResultsDirectory }}" --collect:"XPlat Code Coverage" --blame-hang --blame-hang-timeout 5min
+        run: dotnet test StronglyTypedPrimitives\StronglyTypedPrimitives.sln --configuration Release --logger trx --results-directory "${{ env.TestResultsDirectory }}" --collect:"XPlat Code Coverage"
 
       - uses: actions/upload-artifact@v4
         if: always()
