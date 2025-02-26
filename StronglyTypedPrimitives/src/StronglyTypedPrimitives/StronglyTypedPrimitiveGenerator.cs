@@ -29,12 +29,6 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
-        context.RegisterPostInitializationOutput(ctx =>
-        {
-            ctx.AddSource("StronglyTypedAttribute.g.cs", GetStronglyTypedPrimitiveAttributeSource());
-            ctx.AddSource("IStronglyTypedPrimitive.g.cs", GetIStronglyTypedPrimitiveSource());
-        });
-
         var recordCandidates = context.SyntaxProvider
             .CreateSyntaxProvider(
                 predicate: static (node, _) =>
@@ -143,33 +137,6 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         return string.Join("\n", typeParts.OfType<string>());
     }
 
-    public static string GetStronglyTypedPrimitiveAttributeSource() => $$"""
-        {{CodeHeader}}
-
-        namespace {{StronglyTypedPrimitivesNamespace}};
-        
-        {{GeneratedCodeAttribute}}
-        [System.AttributeUsage(System.AttributeTargets.Struct, Inherited = false, AllowMultiple = false)]
-        public sealed class StronglyTypedAttribute : System.Attribute { }
-        """;
-
-    public static string GetIStronglyTypedPrimitiveSource() => $$"""
-        {{CodeHeader}}
-
-        namespace {{StronglyTypedPrimitivesNamespace}};
-
-        {{GeneratedCodeAttribute}}
-        public interface IStronglyTypedPrimitive
-        {
-        }
-
-        {{GeneratedCodeAttribute}}
-        public interface IStronglyTypedPrimitive<TPrimitiveType> : IStronglyTypedPrimitive
-        {
-            static abstract bool IsValueValid(TPrimitiveType value, bool throwIfInvalid);
-        }
-        """;
-
     internal static string? GetNamespaceDefinition(StronglyTypedTypeInfo info)
         => info.Namespace is not null
             ? $"\nnamespace {info.Namespace};\n"
@@ -195,6 +162,26 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
 
     internal static IEnumerable<string> GetValueProperty(StronglyTypedTypeInfo info, IEnumerable<ISymbol> targetTypeMembers, ITypeSymbol underlyingTypeSymbol)
     {
+        const string throwIfValueIsInvalidName = "ThrowIfValueIsInvalid";
+        var hasThrowIfValueIsInvalid = targetTypeMembers
+            .OfType<IMethodSymbol>()
+            .Any(m => m.Name == throwIfValueIsInvalidName
+                   && m.IsStatic && m.Parameters.Length == 1
+                   && m.Parameters[0].Type.Equals(underlyingTypeSymbol, SymbolEqualityComparer.Default)
+                   && m.ReturnType.Equals(underlyingTypeSymbol, SymbolEqualityComparer.Default));
+
+        if (!hasThrowIfValueIsInvalid)
+        {
+            yield return $$"""
+
+                private static {{info.UnderlyingType}} {{throwIfValueIsInvalidName}}({{info.UnderlyingType}} value)
+                {
+                    IsValueValid(value, throwIfInvalid: true);
+                    return value;
+                }
+            """;
+        }
+
         // Check for explicit Value property declaration by end user. If they have created it
         // then the custom implementation is NOT created.
         var valueProp = targetTypeMembers.OfType<IPropertySymbol>().Single(x => x.Name == info.Parameter.Identifier.Text && x.Type.Equals(underlyingTypeSymbol, SymbolEqualityComparer.Default));
@@ -204,7 +191,6 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             yield break;
         }
 
-        const string throwIfValueIsInvalidName = "ThrowIfValueIsInvalid";
         var fieldName = $"@{info.Parameter.Identifier.ToString().ToLowerInvariant()}";
         var getMethodImplementation = underlyingTypeSymbol.SpecialType is SpecialType.System_String
             ? $"{fieldName} ?? string.Empty;"
@@ -223,24 +209,6 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
                 }
             }
         """;
-
-        var hasThrowIfValueIsInvalid = targetTypeMembers.OfType<IMethodSymbol>()
-            .Any(m => m.Name == throwIfValueIsInvalidName
-                   && m.IsStatic && m.Parameters.Length == 1
-                   && m.Parameters[0].Type.Equals(underlyingTypeSymbol, SymbolEqualityComparer.Default)
-                   && m.ReturnType.Equals(underlyingTypeSymbol, SymbolEqualityComparer.Default));
-
-        if (!hasThrowIfValueIsInvalid)
-        {
-            yield return $$"""
-
-                private static {{info.UnderlyingType}} {{throwIfValueIsInvalidName}}({{info.UnderlyingType}} value)
-                {
-                    IsValueValid(value, throwIfInvalid: true);
-                    return value;
-                }
-            """;
-        }
     }
 
     internal static IEnumerable<string> GetToStringMethod(StronglyTypedTypeInfo info, IEnumerable<ISymbol> targetTypeMembers, ITypeSymbol underlyingTypeSymbol)
@@ -318,7 +286,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
 
             yield return method switch
             {
-                { Name: "IsValueValid" } => GetIsValueValid(info, method, underlyingTypeSymbol),
+                { Name: "IsValueValid" } => GetIsValueValid(info, underlyingTypeSymbol),
 
                 { Name: "Parse", Parameters: { Length: 2 } } when underlyingTypeSymbol.SpecialType is SpecialType.System_String => GetStringParse(info, method, underlyingTypeSymbol),
                 { Name: "TryParse", Parameters: { Length: 3 } } when underlyingTypeSymbol.SpecialType is SpecialType.System_String => GetStringTryParse(info, method, underlyingTypeSymbol),
@@ -336,7 +304,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         }
     }
 
-    private static string GetIsValueValid(StronglyTypedTypeInfo info, ISymbol method, ITypeSymbol underlyingTypeSymbol)
+    private static string GetIsValueValid(StronglyTypedTypeInfo info, ITypeSymbol underlyingTypeSymbol)
         => $$"""
 
             public static bool IsValueValid({{underlyingTypeSymbol.ToDisplayString()}} value, bool throwIfInvalid)

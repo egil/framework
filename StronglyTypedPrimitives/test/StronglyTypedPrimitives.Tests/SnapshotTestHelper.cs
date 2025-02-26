@@ -1,62 +1,47 @@
-using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 
 namespace StronglyTypedPrimitives;
 
-public static partial class SnapshotTestHelper
+public static class SnapshotTestHelper
 {
-    public static (ImmutableArray<Diagnostic> Diagnostics, string Output) GetGeneratedOutput<T>(
-        string source,
-        bool includeAttributes = true)
-        where T : IIncrementalGenerator, new()
+    public static Task Verify<TGenerator>(string source, out Compilation compilation)
+        where TGenerator : IIncrementalGenerator, new()
+        => Verify<TGenerator>(source, LanguageVersion.Preview, [], out compilation, out _);
+
+    public static Task Verify<TGenerator>(string source, LanguageVersion languageVersion, out Compilation compilation)
+        where TGenerator : IIncrementalGenerator, new()
+        => Verify<TGenerator>(source, languageVersion, [], out compilation, out _);
+
+    public static Task Verify<TGenerator>(string source, LanguageVersion languageVersion, Dictionary<string, List<string>> classLibrarySources, out Compilation compilation, out List<byte[]> generatedAssemblies)
+        where TGenerator : IIncrementalGenerator, new()
     {
-        var syntaxTree = CSharpSyntaxTree.ParseText(source);
+        var parseOptions = new CSharpParseOptions(languageVersion);
+        var references = AppDomain.CurrentDomain.GetAssemblies()
+            .Where(assembly => !assembly.IsDynamic && !string.IsNullOrWhiteSpace(assembly.Location))
+            .Select(assembly => MetadataReference.CreateFromFile(assembly.Location))
+            .Concat(
+            [
+                MetadataReference.CreateFromFile(typeof(TGenerator).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(StronglyTypedAttribute).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(System.ComponentModel.DataAnnotations.ValidationAttribute).Assembly.Location)
+            ])
+            .ToList();
 
-        var references = new List<MetadataReference>
-        {
-            MetadataReference.CreateFromFile(typeof(T).Assembly.Location),
-            MetadataReference.CreateFromFile(typeof(System.ComponentModel.DataAnnotations.ValidationAttribute).Assembly.Location)
-        };
+        var additionalTexts = new List<AdditionalText>();
+        generatedAssemblies = [];
 
-        references.AddRange(
-            AppDomain.CurrentDomain.GetAssemblies()
-                .Where(assembly => !assembly.IsDynamic && !string.IsNullOrWhiteSpace(assembly.Location))
-                .Select(assembly => MetadataReference.CreateFromFile(assembly.Location)));
-
-        var compilation = CSharpCompilation.Create(
-            "generator",
-            new[] { syntaxTree },
+        var inputCompilation = CSharpCompilation.Create("StronglyTypedPrimitivesSample",
+            [CSharpSyntaxTree.ParseText(source, options: parseOptions, path: "Program.cs")],
             references,
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
 
-        var originalTreeCount = compilation.SyntaxTrees.Length;
+        var driver = CSharpGeneratorDriver.Create(
+            generators: [new TGenerator().AsSourceGenerator()],
+            additionalTexts: additionalTexts,
+            parseOptions: parseOptions);
 
-        CSharpGeneratorDriver
-            .Create(new T())
-            .RunGeneratorsAndUpdateCompilation(compilation, out var outputCompilation, out var diagnostics);
-
-        // If we don't want the attributes, we try to get all the potential resource streams and exclude them
-        var countsToExclude = includeAttributes
-            ? originalTreeCount
-            : originalTreeCount + 2;
-
-        var generatedTrees = outputCompilation.SyntaxTrees.Skip(countsToExclude).ToList();
-
-        // Include both source and generated code in compilation
-        var allTrees = new[] { syntaxTree }.Concat(outputCompilation.SyntaxTrees.Skip(originalTreeCount)).ToList();
-
-        // Validate the generated code compiles with source included
-        var generatedCompilation = CSharpCompilation.Create(
-            "generated",
-            allTrees,
-            references,
-            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
-
-        var generatedDiagnostics = generatedCompilation.GetDiagnostics();
-        var allDiagnostics = diagnostics.AddRange(generatedDiagnostics);
-
-        var output = string.Join("\n", generatedTrees.Select(t => t.ToString()));
-        return (allDiagnostics, output);
+        return Verifier.Verify(
+            driver.RunGeneratorsAndUpdateCompilation(inputCompilation, out compilation, out var diagnostics));
     }
 }

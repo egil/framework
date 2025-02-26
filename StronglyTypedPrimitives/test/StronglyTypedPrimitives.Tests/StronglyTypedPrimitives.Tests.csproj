@@ -6,6 +6,7 @@
     <OutputType>Exe</OutputType>
     <RootNamespace>StronglyTypedPrimitives</RootNamespace>
     <TargetFramework>net9.0</TargetFramework>
+    <LangVersion>13</LangVersion>
     <PreserveCompilationContext>true</PreserveCompilationContext>
   </PropertyGroup>
 
@@ -27,6 +28,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\StronglyTypedPrimitives\StronglyTypedPrimitives.csproj" />
+    <ProjectReference Include="..\..\src\StronglyTypedPrimitives.Abstractions\StronglyTypedPrimitives.Abstractions.csproj" />
   </ItemGroup>
 
   <ItemGroup>
