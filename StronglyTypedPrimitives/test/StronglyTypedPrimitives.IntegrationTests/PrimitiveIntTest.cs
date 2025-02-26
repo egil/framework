@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace StronglyTypedPrimitives;
 
 public partial class PrimitiveIntTest
@@ -54,23 +56,23 @@ public partial class PrimitiveIntTest
 
         Assert.Equal(StronglyTypedInt.Empty, default(StronglyTypedInt));
         Assert.NotEqual(StronglyTypedInt.Empty, new StronglyTypedInt(goodValue));
-        Assert.Equal("0", StronglyTypedInt.Empty.ToString());
+        Assert.Equal(default(int).ToString(), StronglyTypedInt.Empty.ToString());
 
         Assert.Throws<ArgumentException>(() => new StronglyTypedInt(tooLowValue));
         Assert.Throws<ArgumentException>(() => StronglyTypedInt.Empty with { Value = tooLowValue });
 
-        Assert.Throws<ArgumentException>(() => StronglyTypedInt.Parse(tooLowString, null));
-        Assert.Equal(new StronglyTypedInt(goodValue), StronglyTypedInt.Parse(goodString, null));
+        Assert.Throws<ArgumentException>(() => StronglyTypedInt.Parse(tooLowString, CultureInfo.InvariantCulture));
+        Assert.Equal(new StronglyTypedInt(goodValue), StronglyTypedInt.Parse(goodString, CultureInfo.InvariantCulture));
 
         Assert.False(StronglyTypedInt.TryParse(tooLowString, null, out var _));
         Assert.True(StronglyTypedInt.TryParse(goodString, null, out var tryParsedString));
         Assert.Equal(new StronglyTypedInt(goodValue), tryParsedString);
 
-        Assert.Throws<ArgumentException>(() => StronglyTypedInt.Parse(tooLowString, null));
-        Assert.Equal(new StronglyTypedInt(goodValue), StronglyTypedInt.Parse(goodString, null));
+        Assert.Throws<ArgumentException>(() => StronglyTypedInt.Parse(tooLowString, CultureInfo.InvariantCulture));
+        Assert.Equal(new StronglyTypedInt(goodValue), StronglyTypedInt.Parse(goodString, CultureInfo.InvariantCulture));
 
-        Assert.False(StronglyTypedInt.TryParse(tooLowSpan, null, out var _));
-        Assert.True(StronglyTypedInt.TryParse(goodSpan, null, out var tryParsedSpan));
+        Assert.False(StronglyTypedInt.TryParse(tooLowSpan, CultureInfo.InvariantCulture, out var _));
+        Assert.True(StronglyTypedInt.TryParse(goodSpan, CultureInfo.InvariantCulture, out var tryParsedSpan));
         Assert.Equal(new StronglyTypedInt(goodValue), tryParsedSpan);
 
         Assert.Equal(goodValue.ToString(), new StronglyTypedInt(goodValue).ToString());
