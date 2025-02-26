@@ -72,9 +72,9 @@
   <ItemGroup>
     <!-- Pack the generator dll in the analyzers/dotnet/cs path -->
     <None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
-    <None Include="$(OutputPath)\..\..\StronglyTypedPrimitives.Abstractions\$(Configuration.ToLowerInvariant())_netstandard2.0\*" Pack="true" PackagePath="lib/netstandard2.0" Visible="false" />
-    <None Include="$(OutputPath)\..\..\StronglyTypedPrimitives.Abstractions\$(Configuration.ToLowerInvariant())_net8.0\*" Pack="true" PackagePath="lib/net8.0" Visible="false" />
-    <None Include="$(OutputPath)\..\..\StronglyTypedPrimitives.Abstractions\$(Configuration.ToLowerInvariant())_net9.0\*" Pack="true" PackagePath="lib/net9.0" Visible="false" />
+    <None Include="..\StronglyTypedPrimitives.Abstractions\bin\Release\netstandard2.0\*" Pack="true" PackagePath="lib/netstandard2.0" Visible="false" />
+    <None Include="..\StronglyTypedPrimitives.Abstractions\bin\Release\net8.0\*" Pack="true" PackagePath="lib/net8.0" Visible="false" />
+    <None Include="..\StronglyTypedPrimitives.Abstractions\bin\Release\net9.0\*" Pack="true" PackagePath="lib/net9.0" Visible="false" />
   </ItemGroup>
 
   <Target Name="SetPackageReleaseNotes" BeforeTargets="GenerateNuspec">
