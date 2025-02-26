@@ -44,7 +44,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          global-json-file: global.json
+          dotnet-version: 9.x
 
       # Create the NuGet package in the folder from the environment variable NuGetDirectory
       - run: |
@@ -66,7 +66,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          global-json-file: global.json
+          dotnet-version: 9.x
 
       - uses: actions/download-artifact@v4
         with:
@@ -94,7 +94,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          global-json-file: global.json
+          dotnet-version: 9.x
 
       - name: Run tests
         run: |
@@ -143,8 +143,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          global-json-file: global.json
-
+          dotnet-version: 9.x
 
       - name: Publish NuGet package
         shell: pwsh
