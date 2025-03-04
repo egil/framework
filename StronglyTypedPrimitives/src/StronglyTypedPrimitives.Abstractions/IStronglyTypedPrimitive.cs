@@ -1,5 +1,8 @@
 namespace StronglyTypedPrimitives;
 
+/// <summary>
+/// Marker interface for strongly typed primitives.
+/// </summary>
 public interface IStronglyTypedPrimitive
 {
 }

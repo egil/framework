@@ -27,6 +27,7 @@ it easy to avoid the primitive obsession anti pattern.
   - `TimeSpan`
   - `decimal`
   - `byte`
+- **Generates JsonConverter for System.Text.Json**, if the target type is in an assembly that references `System.Text.Json` and the type does not already have a `JsonConverter` attribute declared on it.
 
 ## Getting started
 

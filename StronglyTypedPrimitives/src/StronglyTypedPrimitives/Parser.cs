@@ -258,4 +258,13 @@ internal static class Parser
 
         return target.AllInterfaces.Contains(interfaceType, SymbolEqualityComparer.Default);
     }
+
+
+    internal static bool ShouldGenerateJsonConverter(Compilation compilation, INamedTypeSymbol targetTypeSymbol)
+    {
+        var jsonConverterAttributeType = compilation.GetTypeByMetadataName("System.Text.Json.Serialization.JsonConverterAttribute");
+        var hasJsonConverterAttribute = targetTypeSymbol.GetAttributes().Any(a => a.AttributeClass?.Equals(jsonConverterAttributeType, SymbolEqualityComparer.Default) == true);
+        var generateJsonConverter = jsonConverterAttributeType is not null && !hasJsonConverterAttribute;
+        return generateJsonConverter;
+    }
 }

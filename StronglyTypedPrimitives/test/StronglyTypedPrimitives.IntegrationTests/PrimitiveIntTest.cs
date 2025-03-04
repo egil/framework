@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 
 namespace StronglyTypedPrimitives;
 
@@ -41,6 +42,10 @@ public partial class PrimitiveIntTest
         Assert.True(new StronglyTypedString("cbbbbb") >= new StronglyTypedString("cbbbbb"));
         Assert.Equal("bbbbbb".CompareTo("cbbbbb"), new StronglyTypedString("bbbbbb").CompareTo("cbbbbb"));
         Assert.Throws<ArgumentException>(() => new StronglyTypedString("bbbbbb").CompareTo(42));
+
+        Assert.Equal(new StronglyTypedString(goodString), JsonSerializer.Deserialize<StronglyTypedString>(JsonSerializer.Serialize(new StronglyTypedString(goodString))));
+        Assert.Equal($"\"{goodString}\"", JsonSerializer.Serialize(new StronglyTypedString(goodString)));
+        Assert.Equal(new StronglyTypedString(goodString), JsonSerializer.Deserialize<StronglyTypedString>($"\"{goodString}\""));
     }
 
     [Fact]
@@ -83,6 +88,10 @@ public partial class PrimitiveIntTest
         Assert.True(new StronglyTypedInt(7) >= new StronglyTypedInt(7));
         Assert.Equal(6.CompareTo(7), new StronglyTypedInt(6).CompareTo(7));
         Assert.Throws<ArgumentException>(() => new StronglyTypedInt(6).CompareTo("asdf"));
+
+        Assert.Equal(new StronglyTypedInt(goodValue), JsonSerializer.Deserialize<StronglyTypedInt>(JsonSerializer.Serialize(new StronglyTypedInt(goodValue))));
+        Assert.Equal(goodValue.ToString(), JsonSerializer.Serialize(new StronglyTypedInt(goodValue)));
+        Assert.Equal(new StronglyTypedInt(goodValue), JsonSerializer.Deserialize<StronglyTypedInt>(goodValue.ToString()));
     }
 }
 

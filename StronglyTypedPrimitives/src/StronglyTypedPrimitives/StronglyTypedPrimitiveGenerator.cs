@@ -77,8 +77,10 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
     {
         var isCSharp14OrGreater = compilation is CSharpCompilation cSharpCompilation && cSharpCompilation.LanguageVersion > LanguageVersion.CSharp13;
         var semanticModel = compilation.GetSemanticModel(info.Target.SyntaxTree);
-        var targetTypeSymbol = semanticModel.GetDeclaredSymbol(info.Target) ?? throw new InvalidOperationException("Cannot get type symbol for target type.");
-        var underlyingTypeSymbol = semanticModel.GetTypeInfo(info.UnderlyingType).Type ?? throw new InvalidOperationException("Cannot get type symbol for underlying type.");
+        var targetTypeSymbol = semanticModel.GetDeclaredSymbol(info.Target)
+            ?? throw new InvalidOperationException("Cannot get type symbol for target type.");
+        var underlyingTypeSymbol = semanticModel.GetTypeInfo(info.UnderlyingType).Type
+            ?? throw new InvalidOperationException("Cannot get type symbol for underlying type.");
         var targetTypeMembers = targetTypeSymbol.GetMembers().ToHashSet(SymbolEqualityComparer.Default);
 
         var genericInterfaces = new[]
@@ -121,10 +123,13 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             .SelectMany(@interface => semanticModel.GetUnimplementedSymbols(targetTypeMembers, @interface))
             .ToList();
 
+        var generateJsonConverter = Parser.ShouldGenerateJsonConverter(compilation, targetTypeSymbol);
+
         string?[] typeParts = [
             CodeHeader,
             GetNamespaceDefinition(info),
             GeneratedCodeAttribute,
+            .. GetJsonConverterAttribute(info, generateJsonConverter),
             GetPartialRecordStructDefinition(info, interfacesToImplement),
             "{",
             .. GetEmptyProperty(info, targetTypeMembers, underlyingTypeSymbol),
@@ -132,6 +137,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             .. GetToStringMethod(info, targetTypeMembers, underlyingTypeSymbol),
             .. GetInterfaceSymbols(info, unimplementedSymbols, underlyingTypeSymbol),
             .. GetOperatorOverloads(info, targetTypeSymbol, targetTypeMembers),
+            .. GetJsonConverter(info, generateJsonConverter),
             "}"
         ];
 
@@ -437,4 +443,36 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         public bool TryFormat({{method.Parameters[0]}}, {{method.Parameters[1]}}, {{method.Parameters[2]}}, {{method.Parameters[3]}})
             => (({{method.ContainingType.ToDisplayString()}}){{info.Parameter.Identifier}}).TryFormat({{method.Parameters[0].Name}}, out {{method.Parameters[1].Name}}, {{method.Parameters[2].Name}}, {{method.Parameters[3].Name}});
     """;
+
+    private static IEnumerable<string> GetJsonConverterAttribute(StronglyTypedTypeInfo info, bool generateJsonConverter)
+    {
+        if (!generateJsonConverter)
+        {
+            yield break;
+        }
+
+        yield return $$"""
+            [System.Text.Json.Serialization.JsonConverterAttribute(typeof({{info.Target.Identifier}}JsonConverter))]
+            """;
+    }
+
+    private static IEnumerable<string> GetJsonConverter(StronglyTypedTypeInfo info, bool generateJsonConverter)
+    {
+        if (!generateJsonConverter)
+        {
+            yield break;
+        }
+
+        yield return $$"""
+
+            private sealed class {{info.Target.Identifier}}JsonConverter : System.Text.Json.Serialization.JsonConverter<{{info.Target.Identifier}}>
+            {
+                public override {{info.Target.Identifier}} Read(ref System.Text.Json.Utf8JsonReader reader, System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
+                    => new {{info.Target.Identifier}}(System.Text.Json.JsonSerializer.Deserialize<{{info.UnderlyingType}}>(ref reader, options)!);
+
+                public override void Write(System.Text.Json.Utf8JsonWriter writer, {{info.Target.Identifier}} value, System.Text.Json.JsonSerializerOptions options)
+                    => System.Text.Json.JsonSerializer.Serialize(writer, value.{{info.Parameter.Identifier}}, options);
+            }
+        """;
+    }
 }
