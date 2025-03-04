@@ -78,7 +78,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         var semanticModel = compilation.GetSemanticModel(info.Target.SyntaxTree);
         var targetTypeSymbol = semanticModel.GetDeclaredSymbol(info.Target) ?? throw new InvalidOperationException("Cannot get type symbol for target type.");
         var underlyingTypeSymbol = semanticModel.GetTypeInfo(info.UnderlyingType).Type ?? throw new InvalidOperationException("Cannot get type symbol for underlying type.");
-        var targetTypeMembers = targetTypeSymbol.GetMembers().ToHashSet();
+        var targetTypeMembers = targetTypeSymbol.GetMembers().ToHashSet(SymbolEqualityComparer.Default);
 
         var genericInterfaces = new[]
         {
