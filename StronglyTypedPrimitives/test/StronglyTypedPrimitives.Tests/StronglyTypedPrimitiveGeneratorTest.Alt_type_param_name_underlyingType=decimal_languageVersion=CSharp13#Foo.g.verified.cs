@@ -22,7 +22,7 @@ public readonly partial record struct Foo : StronglyTypedPrimitives.IStronglyTyp
         return value;
     }
 
-    private readonly decimal @data = ThrowIfValueIsInvalid(Data);       
+    private readonly decimal @data = ThrowIfValueIsInvalid(Data);
 
     public decimal Data
     {

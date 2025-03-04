@@ -87,7 +87,7 @@ namespace Examples;
 public readonly partial record struct Example(int Value);
 ```
 
-The following code is generated:
+The following code is generated when using C# 13 or below:
 
 ```csharp
 namespace Examples;
@@ -97,22 +97,146 @@ public readonly partial record struct Example : StronglyTypedPrimitives.IStrongl
 {
     public static readonly Example Empty = default;
 
-    private readonly int @value = ThrowIfValueIsInvalid(Value);       
-
-    public int Value
+    private static string ThrowIfValueIsInvalid(string value)
     {
-        get => @value;
+        IsValueValid(value, throwIfInvalid: true);
+        return value;
+    }
+
+    private readonly string @value = ThrowIfValueIsInvalid(Value);       
+
+    public string Value
+    {
+        get => @value ?? string.Empty;
         init
         {
             @value = ThrowIfValueIsInvalid(value);
         }
     }
 
+    public override string ToString() => Value.ToString();
+
+    public static bool IsValueValid(int value, bool throwIfInvalid)
+        => true;
+
+    public static Example Parse(string s, System.IFormatProvider? provider)
+    {
+        var rawValue = int.Parse(s, provider);
+        IsValueValid(rawValue, throwIfInvalid: true);
+        return new Example(rawValue);
+    }
+
+    public static bool TryParse(string? s, System.IFormatProvider? provider, [System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out Examples.Example result)
+    {
+        if (int.TryParse(s, provider, out var rawValue) && IsValueValid(rawValue, throwIfInvalid: false))
+        {
+            result = new Example(rawValue);
+            return true;
+        }
+
+        result = Example.Empty;
+        return false;
+    }
+
+    public static Example Parse(System.ReadOnlySpan<char> s, System.IFormatProvider? provider)
+    {
+        var rawValue = int.Parse(s, provider);
+        IsValueValid(rawValue, throwIfInvalid: true);
+        return new Example(rawValue);
+    }
+
+    public static bool TryParse(System.ReadOnlySpan<char> s, System.IFormatProvider? provider, [System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out Examples.Example result)
+    {
+        if (int.TryParse(s, provider, out var rawValue) && IsValueValid(rawValue, throwIfInvalid: false))
+        {
+            result = new Example(rawValue);
+            return true;
+        }
+
+        result = Example.Empty;
+        return false;
+    }
+
+    public static Example Parse(System.ReadOnlySpan<byte> utf8Text, System.IFormatProvider? provider)
+    {
+        var rawValue = int.Parse(utf8Text, provider);
+        IsValueValid(rawValue, throwIfInvalid: true);
+        return new Example(rawValue);
+    }
+
+    public static bool TryParse(System.ReadOnlySpan<byte> utf8Text, System.IFormatProvider? provider, [System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out Examples.Example result)
+    {
+        if (int.TryParse(utf8Text, provider, out var rawValue) && IsValueValid(rawValue, throwIfInvalid: false))
+        {
+            result = new Example(rawValue);
+            return true;
+        }
+
+        result = Example.Empty;
+        return false;
+    }
+    
+    public int CompareTo(Examples.Example other)
+        => Value.CompareTo(other.Value);
+    
+    public int CompareTo(object? obj)
+    {
+        if (obj is null)
+        {
+            return 1;
+        }
+
+        if (obj is Example other)
+        {
+            return Value.CompareTo(other.Value);
+        }
+
+        return ((System.IComparable)Value).CompareTo(obj);
+    }
+    
+    public string ToString(string? format, System.IFormatProvider? formatProvider)
+        => Value.ToString(format, formatProvider);
+    
+    public bool TryFormat(System.Span<char> destination, out int charsWritten, System.ReadOnlySpan<char> format, System.IFormatProvider? provider)
+        => ((System.ISpanFormattable)Value).TryFormat(destination, out charsWritten, format, provider);
+    
+    public bool TryFormat(System.Span<byte> utf8Destination, out int bytesWritten, System.ReadOnlySpan<char> format, System.IFormatProvider? provider)
+        => ((System.IUtf8SpanFormattable)Value).TryFormat(utf8Destination, out bytesWritten, format, provider);
+    
+    public static bool operator > (Example a, Example b) => a.CompareTo(b) > 0;                
+
+    public static bool operator < (Example a, Example b) => a.CompareTo(b) < 0;                
+
+    public static bool operator >=(Example a, Example b) => a.CompareTo(b) >= 0;
+    
+    public static bool operator <=(Example a, Example b) => a.CompareTo(b) <= 0;
+}
+```
+
+The following code is generated when using C# 14 or higher:
+
+```csharp
+namespace Examples;
+
+[System.CodeDom.Compiler.GeneratedCodeAttribute("StronglyTypedPrimitives, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null", "0.0.0.0")]
+public readonly partial record struct Example : StronglyTypedPrimitives.IStronglyTypedPrimitive<int>, System.IParsable<Examples.Example>, System.ISpanParsable<Examples.Example>, System.IUtf8SpanParsable<Examples.Example>, System.IComparable<Examples.Example>, System.IComparable, System.IFormattable, System.ISpanFormattable, System.IUtf8SpanFormattable
+{
+    public static readonly Example Empty = default;
+
     private static int ThrowIfValueIsInvalid(int value)
     {
         IsValueValid(value, throwIfInvalid: true);
         return value;
     }
+
+    public int Value
+    {
+        get => field;
+        init
+        {
+            field = ThrowIfValueIsInvalid(value);
+        }
+    } = ThrowIfValueIsInvalid(Value);
 
     public override string ToString() => Value.ToString();
 

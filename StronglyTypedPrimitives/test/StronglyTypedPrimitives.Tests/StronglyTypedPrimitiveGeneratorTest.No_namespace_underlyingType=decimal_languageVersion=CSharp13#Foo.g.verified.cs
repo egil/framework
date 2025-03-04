@@ -19,7 +19,7 @@ public readonly partial record struct Foo : StronglyTypedPrimitives.IStronglyTyp
         return value;
     }
 
-    private readonly decimal @value = ThrowIfValueIsInvalid(Value);       
+    private readonly decimal @value = ThrowIfValueIsInvalid(Value);
 
     public decimal Value
     {

@@ -22,7 +22,7 @@ public readonly partial record struct Foo : StronglyTypedPrimitives.IStronglyTyp
         return value;
     }
 
-    private readonly System.DateTimeOffset @data = ThrowIfValueIsInvalid(Data);       
+    private readonly System.DateTimeOffset @data = ThrowIfValueIsInvalid(Data);
 
     public System.DateTimeOffset Data
     {

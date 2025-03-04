@@ -10,6 +10,5 @@ public static class VerifyInitialization
     {
         VerifierSettings.InitializePlugins();
         DiffTools.UseOrder(DiffTool.VisualStudioCode);
-        VerifierSettings.AutoVerify();
     }
 }

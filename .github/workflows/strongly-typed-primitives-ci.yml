@@ -51,7 +51,7 @@ jobs:
           dotnet build ./StronglyTypedPrimitives/src/StronglyTypedPrimitives.Abstractions/StronglyTypedPrimitives.Abstractions.csproj -c Release -f net9.0
           dotnet build ./StronglyTypedPrimitives/src/StronglyTypedPrimitives.Abstractions/StronglyTypedPrimitives.Abstractions.csproj -c Release -f net8.0
           dotnet build ./StronglyTypedPrimitives/src/StronglyTypedPrimitives.Abstractions/StronglyTypedPrimitives.Abstractions.csproj -c Release -f netstandard2.0
-          dotnet pack ./StronglyTypedPrimitives/StronglyTypedPrimitives.sln --configuration Release --output ${{ env.NuGetDirectory }}
+          dotnet pack ./StronglyTypedPrimitives/src/StronglyTypedPrimitives --configuration Release --output ${{ env.NuGetDirectory }}
 
       # Publish the NuGet package as an artifact, so they can be used in the following jobs
       - uses: actions/upload-artifact@v4

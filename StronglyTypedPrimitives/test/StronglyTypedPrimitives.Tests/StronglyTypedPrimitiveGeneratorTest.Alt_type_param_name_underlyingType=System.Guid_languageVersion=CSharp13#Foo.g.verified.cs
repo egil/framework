@@ -22,7 +22,7 @@ public readonly partial record struct Foo : StronglyTypedPrimitives.IStronglyTyp
         return value;
     }
 
-    private readonly System.Guid @data = ThrowIfValueIsInvalid(Data);       
+    private readonly System.Guid @data = ThrowIfValueIsInvalid(Data);
 
     public System.Guid Data
     {

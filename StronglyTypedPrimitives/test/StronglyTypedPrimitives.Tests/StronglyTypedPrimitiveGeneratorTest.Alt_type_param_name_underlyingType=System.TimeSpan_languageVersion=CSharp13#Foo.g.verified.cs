@@ -22,7 +22,7 @@ public readonly partial record struct Foo : StronglyTypedPrimitives.IStronglyTyp
         return value;
     }
 
-    private readonly System.TimeSpan @data = ThrowIfValueIsInvalid(Data);       
+    private readonly System.TimeSpan @data = ThrowIfValueIsInvalid(Data);
 
     public System.TimeSpan Data
     {

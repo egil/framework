@@ -75,6 +75,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
 
     private static string GenerateStronglyTypedSource(StronglyTypedTypeInfo info, Compilation compilation)
     {
+        var isCSharp14OrGreater = compilation is CSharpCompilation cSharpCompilation && cSharpCompilation.LanguageVersion > LanguageVersion.CSharp13;
         var semanticModel = compilation.GetSemanticModel(info.Target.SyntaxTree);
         var targetTypeSymbol = semanticModel.GetDeclaredSymbol(info.Target) ?? throw new InvalidOperationException("Cannot get type symbol for target type.");
         var underlyingTypeSymbol = semanticModel.GetTypeInfo(info.UnderlyingType).Type ?? throw new InvalidOperationException("Cannot get type symbol for underlying type.");
@@ -127,7 +128,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             GetPartialRecordStructDefinition(info, interfacesToImplement),
             "{",
             .. GetEmptyProperty(info, targetTypeMembers, underlyingTypeSymbol),
-            .. GetValueProperty(info, targetTypeMembers, underlyingTypeSymbol),
+            .. GetValueProperty(info, targetTypeMembers, underlyingTypeSymbol, isCSharp14OrGreater),
             .. GetToStringMethod(info, targetTypeMembers, underlyingTypeSymbol),
             .. GetInterfaceSymbols(info, unimplementedSymbols, underlyingTypeSymbol),
             .. GetOperatorOverloads(info, targetTypeSymbol, targetTypeMembers),
@@ -160,7 +161,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             """;
     }
 
-    internal static IEnumerable<string> GetValueProperty(StronglyTypedTypeInfo info, IEnumerable<ISymbol> targetTypeMembers, ITypeSymbol underlyingTypeSymbol)
+    internal static IEnumerable<string> GetValueProperty(StronglyTypedTypeInfo info, IEnumerable<ISymbol> targetTypeMembers, ITypeSymbol underlyingTypeSymbol, bool isCSharp14OrGreater)
     {
         const string throwIfValueIsInvalidName = "ThrowIfValueIsInvalid";
         var hasThrowIfValueIsInvalid = targetTypeMembers
@@ -191,24 +192,41 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             yield break;
         }
 
-        var fieldName = $"@{info.Parameter.Identifier.ToString().ToLowerInvariant()}";
+        var fieldName = isCSharp14OrGreater ? "field" : $"@{info.Parameter.Identifier.ToString().ToLowerInvariant()}";
         var getMethodImplementation = underlyingTypeSymbol.SpecialType is SpecialType.System_String
             ? $"{fieldName} ?? string.Empty;"
             : $"{fieldName};";
 
-        yield return $$"""
+        if (isCSharp14OrGreater)
+        {
+            yield return $$"""
 
-            private readonly {{info.UnderlyingType}} {{fieldName}} = {{throwIfValueIsInvalidName}}({{info.Parameter.Identifier}});       
-
-            public {{info.UnderlyingType}} {{info.Parameter.Identifier}}
-            {
-                get => {{getMethodImplementation}}
-                init
+                public {{info.UnderlyingType}} {{info.Parameter.Identifier}}
                 {
-                    {{fieldName}} = {{throwIfValueIsInvalidName}}(value);
+                    get => {{getMethodImplementation}}
+                    init
+                    {
+                        {{fieldName}} = {{throwIfValueIsInvalidName}}(value);
+                    }
+                } = {{throwIfValueIsInvalidName}}({{info.Parameter.Identifier}});
+            """;
+        }
+        else
+        {
+            yield return $$"""
+
+                private readonly {{info.UnderlyingType}} {{fieldName}} = {{throwIfValueIsInvalidName}}({{info.Parameter.Identifier}});
+
+                public {{info.UnderlyingType}} {{info.Parameter.Identifier}}
+                {
+                    get => {{getMethodImplementation}}
+                    init
+                    {
+                        {{fieldName}} = {{throwIfValueIsInvalidName}}(value);
+                    }
                 }
-            }
-        """;
+            """;
+        }
     }
 
     internal static IEnumerable<string> GetToStringMethod(StronglyTypedTypeInfo info, IEnumerable<ISymbol> targetTypeMembers, ITypeSymbol underlyingTypeSymbol)

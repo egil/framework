@@ -19,7 +19,7 @@ public readonly partial record struct Foo : StronglyTypedPrimitives.IStronglyTyp
         return value;
     }
 
-    private readonly System.DateTime @value = ThrowIfValueIsInvalid(Value);       
+    private readonly System.DateTime @value = ThrowIfValueIsInvalid(Value);
 
     public System.DateTime Value
     {

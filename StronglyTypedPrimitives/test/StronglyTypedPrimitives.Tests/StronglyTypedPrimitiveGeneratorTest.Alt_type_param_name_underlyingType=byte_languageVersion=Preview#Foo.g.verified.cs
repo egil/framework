@@ -22,16 +22,14 @@ public readonly partial record struct Foo : StronglyTypedPrimitives.IStronglyTyp
         return value;
     }
 
-    private readonly byte @data = ThrowIfValueIsInvalid(Data);       
-
     public byte Data
     {
-        get => @data;
+        get => field;
         init
         {
-            @data = ThrowIfValueIsInvalid(value);
+            field = ThrowIfValueIsInvalid(value);
         }
-    }
+    } = ThrowIfValueIsInvalid(Data);
 
     public override string ToString() => Data.ToString();
 

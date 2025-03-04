@@ -41,7 +41,7 @@ public class StronglyTypedPrimitiveGeneratorTest
 
         await SnapshotTestHelper.Verify<StronglyTypedPrimitiveGenerator>(
             input,
-            LanguageVersion.Preview,
+            LanguageVersion.CSharp13,
             out var compilation);
 
         Assert.Empty(compilation

@@ -22,16 +22,14 @@ public readonly partial record struct Foo : StronglyTypedPrimitives.IStronglyTyp
         return value;
     }
 
-    private readonly decimal @value = ThrowIfValueIsInvalid(Value);       
-
     public decimal Value
     {
-        get => @value;
+        get => field;
         init
         {
-            @value = ThrowIfValueIsInvalid(value);
+            field = ThrowIfValueIsInvalid(value);
         }
-    }
+    } = ThrowIfValueIsInvalid(Value);
 
     public override string ToString() => Value.ToString();
 
