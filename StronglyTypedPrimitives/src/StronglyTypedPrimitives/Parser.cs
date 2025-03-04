@@ -237,7 +237,7 @@ internal static class Parser
 
     internal static IEnumerable<ISymbol> GetUnimplementedSymbols<TInterface>(INamedTypeSymbol target, SemanticModel semanticModel)
     {
-        var interfaceType = semanticModel.Compilation.GetTypeByMetadataName(typeof(TInterface).FullName)
+        var interfaceType = semanticModel.Compilation.GetTypeByMetadataName(typeof(TInterface).FullName!)
             ?? throw new InvalidOperationException($"Type symbol not found for {typeof(TInterface).FullName}.");
 
         var targetMembers = target.GetMembers().ToHashSet(SymbolEqualityComparer.Default);
@@ -253,7 +253,7 @@ internal static class Parser
 
     internal static bool IsTypeImplementing<TInterface>(ITypeSymbol target, SemanticModel semanticModel)
     {
-        var interfaceType = semanticModel.Compilation.GetTypeByMetadataName(typeof(TInterface).FullName)
+        var interfaceType = semanticModel.Compilation.GetTypeByMetadataName(typeof(TInterface).FullName!)
             ?? throw new InvalidOperationException($"Type symbol not found for {typeof(TInterface).FullName}.");
 
         return target.AllInterfaces.Contains(interfaceType, SymbolEqualityComparer.Default);
