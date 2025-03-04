@@ -13,7 +13,7 @@ public static class SnapshotTestHelper
         where TGenerator : IIncrementalGenerator, new()
         => Verify<TGenerator>(source, languageVersion, [], out compilation, out _);
 
-    public static Task Verify<TGenerator>(string source, LanguageVersion languageVersion, Dictionary<string, List<string>> classLibrarySources, out Compilation compilation, out List<byte[]> generatedAssemblies)
+    public static Task Verify<TGenerator>(string source, LanguageVersion languageVersion, IEnumerable<Type> includeTypesAssembly, out Compilation compilation, out List<byte[]> generatedAssemblies)
         where TGenerator : IIncrementalGenerator, new()
     {
         var parseOptions = new CSharpParseOptions(languageVersion);
@@ -23,9 +23,9 @@ public static class SnapshotTestHelper
             .Concat(
             [
                 MetadataReference.CreateFromFile(typeof(TGenerator).Assembly.Location),
-                MetadataReference.CreateFromFile(typeof(StronglyTypedAttribute).Assembly.Location),
-                MetadataReference.CreateFromFile(typeof(System.ComponentModel.DataAnnotations.ValidationAttribute).Assembly.Location)
+                MetadataReference.CreateFromFile(typeof(StronglyTypedAttribute).Assembly.Location)
             ])
+            .Concat(includeTypesAssembly.Select(x => MetadataReference.CreateFromFile(x.Assembly.Location)))
             .ToList();
 
         var additionalTexts = new List<AdditionalText>();

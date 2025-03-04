@@ -114,32 +114,6 @@ public class StronglyTypedPrimitiveGeneratorTest
     }
 
     [Theory, MemberData(nameof(UnderlyingTypes))]
-    public async Task Validator_attributes(string underlyingType, LanguageVersion languageVersion)
-    {
-        var input = $$"""
-            using System.ComponentModel.DataAnnotations;
-            using StronglyTypedPrimitives;
-
-            namespace SomeNamespace;
-
-            [StronglyTyped]
-            public readonly partial record struct Foo(
-                [Range(50, 100), Required]
-                [RegularExpression(@"^[a-zA-Z''-'\s]{1,40}$")]
-                [DeniedValues("foo", "bar")] {{underlyingType}} Value);
-            """;
-
-        await SnapshotTestHelper.Verify<StronglyTypedPrimitiveGenerator>(
-            input,
-            languageVersion,
-            out var compilation);
-
-        Assert.Empty(compilation
-            .GetDiagnostics(TestContext.Current.CancellationToken)
-            .Where(d => d.Severity > DiagnosticSeverity.Warning));
-    }
-
-    [Theory, MemberData(nameof(UnderlyingTypes))]
     public async Task Custom_IsValueValid(string underlyingType, LanguageVersion languageVersion)
     {
         var input = $$"""

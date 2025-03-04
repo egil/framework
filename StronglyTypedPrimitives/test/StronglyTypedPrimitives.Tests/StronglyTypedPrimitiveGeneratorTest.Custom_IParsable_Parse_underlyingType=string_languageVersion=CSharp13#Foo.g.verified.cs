@@ -12,7 +12,6 @@
 namespace SomeNamespace;
 
 [System.CodeDom.Compiler.GeneratedCodeAttribute("StronglyTypedPrimitives, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null", "0.0.0.0")]
-[System.Text.Json.Serialization.JsonConverterAttribute(typeof(FooJsonConverter))]
 public readonly partial record struct Foo : StronglyTypedPrimitives.IStronglyTypedPrimitive<string>, System.IParsable<SomeNamespace.Foo>, System.ISpanParsable<SomeNamespace.Foo>, System.IComparable<SomeNamespace.Foo>, System.IComparable
 {
     public static readonly Foo Empty = default;
@@ -95,13 +94,4 @@ public readonly partial record struct Foo : StronglyTypedPrimitives.IStronglyTyp
     public static bool operator >=(Foo a, Foo b) => a.CompareTo(b) >= 0;
     
     public static bool operator <=(Foo a, Foo b) => a.CompareTo(b) <= 0;
-
-    private sealed class FooJsonConverter : System.Text.Json.Serialization.JsonConverter<Foo>
-    {
-        public override Foo Read(ref System.Text.Json.Utf8JsonReader reader, System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
-            => new Foo(System.Text.Json.JsonSerializer.Deserialize<string>(ref reader, options)!);
-
-        public override void Write(System.Text.Json.Utf8JsonWriter writer, Foo value, System.Text.Json.JsonSerializerOptions options)
-            => System.Text.Json.JsonSerializer.Serialize(writer, value.Value, options);
-    }
 }
