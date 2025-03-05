@@ -5,27 +5,28 @@ namespace StronglyTypedPrimitives;
 
 public class StronglyTypedPrimitiveGeneratorTest
 {
-    public static TheoryData<string, LanguageVersion> UnderlyingTypes { get; } = new()
-    {
-        { "string", LanguageVersion.Preview },
-        { "int", LanguageVersion.Preview },
-        { "System.Guid", LanguageVersion.Preview },
-        { "System.DateTime", LanguageVersion.Preview },
-        { "System.DateTimeOffset", LanguageVersion.Preview },
-        { "System.TimeSpan", LanguageVersion.Preview },
-        { "decimal", LanguageVersion.Preview },
-        { "byte", LanguageVersion.Preview },
-        { "string", LanguageVersion.CSharp13 },
-        { "int", LanguageVersion.CSharp13 },
-        { "System.Guid", LanguageVersion.CSharp13 },
-        { "System.DateTime", LanguageVersion.CSharp13 },
-        { "System.DateTimeOffset", LanguageVersion.CSharp13 },
-        { "System.TimeSpan", LanguageVersion.CSharp13 },
-        { "decimal", LanguageVersion.CSharp13 },
-        { "byte", LanguageVersion.CSharp13 },
-        //"char",
-        //"bool",
-    };
+    public static TheoryData<string, LanguageVersion> UnderlyingTypes { get; } =
+        new()
+        {
+            { "string", LanguageVersion.Preview },
+            { "int", LanguageVersion.Preview },
+            { "System.Guid", LanguageVersion.Preview },
+            { "System.DateTime", LanguageVersion.Preview },
+            { "System.DateTimeOffset", LanguageVersion.Preview },
+            { "System.TimeSpan", LanguageVersion.Preview },
+            { "decimal", LanguageVersion.Preview },
+            { "byte", LanguageVersion.Preview },
+            { "string", LanguageVersion.CSharp13 },
+            { "int", LanguageVersion.CSharp13 },
+            { "System.Guid", LanguageVersion.CSharp13 },
+            { "System.DateTime", LanguageVersion.CSharp13 },
+            { "System.DateTimeOffset", LanguageVersion.CSharp13 },
+            { "System.TimeSpan", LanguageVersion.CSharp13 },
+            { "decimal", LanguageVersion.CSharp13 },
+            { "byte", LanguageVersion.CSharp13 },
+            //"char",
+            //"bool",
+        };
 
     [Fact]
     public async Task StandardX()
@@ -42,11 +43,14 @@ public class StronglyTypedPrimitiveGeneratorTest
         await SnapshotTestHelper.Verify<StronglyTypedPrimitiveGenerator>(
             input,
             LanguageVersion.CSharp13,
-            out var compilation);
+            out var compilation
+        );
 
-        Assert.Empty(compilation
-            .GetDiagnostics(TestContext.Current.CancellationToken)
-            .Where(d => d.Severity > DiagnosticSeverity.Warning));
+        Assert.Empty(
+            compilation
+                .GetDiagnostics(TestContext.Current.CancellationToken)
+                .Where(d => d.Severity > DiagnosticSeverity.Warning)
+        );
     }
 
     [Theory, MemberData(nameof(UnderlyingTypes))]
@@ -64,11 +68,14 @@ public class StronglyTypedPrimitiveGeneratorTest
         await SnapshotTestHelper.Verify<StronglyTypedPrimitiveGenerator>(
             input,
             languageVersion,
-            out var compilation);
+            out var compilation
+        );
 
-        Assert.Empty(compilation
-            .GetDiagnostics(TestContext.Current.CancellationToken)
-            .Where(d => d.Severity > DiagnosticSeverity.Warning));
+        Assert.Empty(
+            compilation
+                .GetDiagnostics(TestContext.Current.CancellationToken)
+                .Where(d => d.Severity > DiagnosticSeverity.Warning)
+        );
     }
 
     [Theory, MemberData(nameof(UnderlyingTypes))]
@@ -84,11 +91,14 @@ public class StronglyTypedPrimitiveGeneratorTest
         await SnapshotTestHelper.Verify<StronglyTypedPrimitiveGenerator>(
             input,
             languageVersion,
-            out var compilation);
+            out var compilation
+        );
 
-        Assert.Empty(compilation
-            .GetDiagnostics(TestContext.Current.CancellationToken)
-            .Where(d => d.Severity > DiagnosticSeverity.Warning));
+        Assert.Empty(
+            compilation
+                .GetDiagnostics(TestContext.Current.CancellationToken)
+                .Where(d => d.Severity > DiagnosticSeverity.Warning)
+        );
     }
 
     [Theory, MemberData(nameof(UnderlyingTypes))]
@@ -106,11 +116,14 @@ public class StronglyTypedPrimitiveGeneratorTest
         await SnapshotTestHelper.Verify<StronglyTypedPrimitiveGenerator>(
             input,
             languageVersion,
-            out var compilation);
+            out var compilation
+        );
 
-        Assert.Empty(compilation
-            .GetDiagnostics(TestContext.Current.CancellationToken)
-            .Where(d => d.Severity > DiagnosticSeverity.Warning));
+        Assert.Empty(
+            compilation
+                .GetDiagnostics(TestContext.Current.CancellationToken)
+                .Where(d => d.Severity > DiagnosticSeverity.Warning)
+        );
     }
 
     [Theory, MemberData(nameof(UnderlyingTypes))]
@@ -124,7 +137,7 @@ public class StronglyTypedPrimitiveGeneratorTest
             [StronglyTyped]
             public readonly partial record struct Foo({{underlyingType}} Value)
             {
-                public static bool IsValueValid({{underlyingType}} value, bool throwIfInvalid) 
+                public static bool IsValueValid({{underlyingType}} value, bool throwIfInvalid)
                     => true;
             }
             """;
@@ -132,11 +145,14 @@ public class StronglyTypedPrimitiveGeneratorTest
         await SnapshotTestHelper.Verify<StronglyTypedPrimitiveGenerator>(
             input,
             languageVersion,
-            out var compilation);
+            out var compilation
+        );
 
-        Assert.Empty(compilation
-            .GetDiagnostics(TestContext.Current.CancellationToken)
-            .Where(d => d.Severity > DiagnosticSeverity.Warning));
+        Assert.Empty(
+            compilation
+                .GetDiagnostics(TestContext.Current.CancellationToken)
+                .Where(d => d.Severity > DiagnosticSeverity.Warning)
+        );
     }
 
     [Theory, MemberData(nameof(UnderlyingTypes))]
@@ -162,15 +178,21 @@ public class StronglyTypedPrimitiveGeneratorTest
         await SnapshotTestHelper.Verify<StronglyTypedPrimitiveGenerator>(
             input,
             languageVersion,
-            out var compilation);
+            out var compilation
+        );
 
-        Assert.Empty(compilation
-            .GetDiagnostics(TestContext.Current.CancellationToken)
-            .Where(d => d.Severity > DiagnosticSeverity.Warning));
+        Assert.Empty(
+            compilation
+                .GetDiagnostics(TestContext.Current.CancellationToken)
+                .Where(d => d.Severity > DiagnosticSeverity.Warning)
+        );
     }
 
     [Theory, MemberData(nameof(UnderlyingTypes))]
-    public async Task Custom_IParsable_TryParse(string underlyingType, LanguageVersion languageVersion)
+    public async Task Custom_IParsable_TryParse(
+        string underlyingType,
+        LanguageVersion languageVersion
+    )
     {
         var input = $$"""
             #nullable enable
@@ -193,15 +215,21 @@ public class StronglyTypedPrimitiveGeneratorTest
         await SnapshotTestHelper.Verify<StronglyTypedPrimitiveGenerator>(
             input,
             languageVersion,
-            out var compilation);
+            out var compilation
+        );
 
-        Assert.Empty(compilation
-            .GetDiagnostics(TestContext.Current.CancellationToken)
-            .Where(d => d.Severity > DiagnosticSeverity.Warning));
+        Assert.Empty(
+            compilation
+                .GetDiagnostics(TestContext.Current.CancellationToken)
+                .Where(d => d.Severity > DiagnosticSeverity.Warning)
+        );
     }
 
     [Theory, MemberData(nameof(UnderlyingTypes))]
-    public async Task Custom_IFormattable_ToString(string underlyingType, LanguageVersion languageVersion)
+    public async Task Custom_IFormattable_ToString(
+        string underlyingType,
+        LanguageVersion languageVersion
+    )
     {
         var input = $$"""
             #nullable enable
@@ -219,15 +247,21 @@ public class StronglyTypedPrimitiveGeneratorTest
         await SnapshotTestHelper.Verify<StronglyTypedPrimitiveGenerator>(
             input,
             languageVersion,
-            out var compilation);
+            out var compilation
+        );
 
-        Assert.Empty(compilation
-            .GetDiagnostics(TestContext.Current.CancellationToken)
-            .Where(d => d.Severity > DiagnosticSeverity.Warning));
+        Assert.Empty(
+            compilation
+                .GetDiagnostics(TestContext.Current.CancellationToken)
+                .Where(d => d.Severity > DiagnosticSeverity.Warning)
+        );
     }
 
     [Theory, MemberData(nameof(UnderlyingTypes))]
-    public async Task Custom_IFormattable_ToString_with_format(string underlyingType, LanguageVersion languageVersion)
+    public async Task Custom_IFormattable_ToString_with_format(
+        string underlyingType,
+        LanguageVersion languageVersion
+    )
     {
         var input = $$"""
             #nullable enable
@@ -245,15 +279,21 @@ public class StronglyTypedPrimitiveGeneratorTest
         await SnapshotTestHelper.Verify<StronglyTypedPrimitiveGenerator>(
             input,
             languageVersion,
-            out var compilation);
+            out var compilation
+        );
 
-        Assert.Empty(compilation
-            .GetDiagnostics(TestContext.Current.CancellationToken)
-            .Where(d => d.Severity > DiagnosticSeverity.Warning));
+        Assert.Empty(
+            compilation
+                .GetDiagnostics(TestContext.Current.CancellationToken)
+                .Where(d => d.Severity > DiagnosticSeverity.Warning)
+        );
     }
 
     [Theory, MemberData(nameof(UnderlyingTypes))]
-    public async Task Custom_IFormattable_ToString_with_format_and_formatProvider(string underlyingType, LanguageVersion languageVersion)
+    public async Task Custom_IFormattable_ToString_with_format_and_formatProvider(
+        string underlyingType,
+        LanguageVersion languageVersion
+    )
     {
         var input = $$"""
             #nullable enable
@@ -271,10 +311,13 @@ public class StronglyTypedPrimitiveGeneratorTest
         await SnapshotTestHelper.Verify<StronglyTypedPrimitiveGenerator>(
             input,
             languageVersion,
-            out var compilation);
+            out var compilation
+        );
 
-        Assert.Empty(compilation
-            .GetDiagnostics(TestContext.Current.CancellationToken)
-            .Where(d => d.Severity > DiagnosticSeverity.Warning));
+        Assert.Empty(
+            compilation
+                .GetDiagnostics(TestContext.Current.CancellationToken)
+                .Where(d => d.Severity > DiagnosticSeverity.Warning)
+        );
     }
 }

@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 
@@ -41,7 +42,7 @@ public static class SnapshotTestHelper
             additionalTexts: additionalTexts,
             parseOptions: parseOptions);
 
-        return Verifier.Verify(
-            driver.RunGeneratorsAndUpdateCompilation(inputCompilation, out compilation, out var diagnostics));
+        return Verifier.Verify(driver.RunGeneratorsAndUpdateCompilation(inputCompilation, out compilation, out var _))
+            .ScrubLinesWithReplace(x => Regex.Replace(x, @"\d+\.\d+\.\d+\.\d+", "x.x.x.x"));
     }
 }
