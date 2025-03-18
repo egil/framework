@@ -6,13 +6,13 @@ on:
     branches:
       - 'main'
     paths:
-      - 'StronglyTypedPrimitives/**'
+      - 'Egil.StronglyTypedPrimitives/**'
       - '.github/workflows/strongly-typed-primitives-ci.yml'
   pull_request:
     branches:
       - '*'
     paths:
-      - 'StronglyTypedPrimitives/**'
+      - 'Egil.StronglyTypedPrimitives/**'
       - '.github/workflows/strongly-typed-primitives-ci.yml'
   release:
     types:
@@ -45,10 +45,10 @@ jobs:
             10.x
 
       - run: |
-          dotnet build ./StronglyTypedPrimitives/src/StronglyTypedPrimitives.Abstractions/StronglyTypedPrimitives.Abstractions.csproj -c Release -f net9.0
-          dotnet build ./StronglyTypedPrimitives/src/StronglyTypedPrimitives.Abstractions/StronglyTypedPrimitives.Abstractions.csproj -c Release -f net8.0
-          dotnet build ./StronglyTypedPrimitives/src/StronglyTypedPrimitives.Abstractions/StronglyTypedPrimitives.Abstractions.csproj -c Release -f netstandard2.0
-          dotnet pack ./StronglyTypedPrimitives/src/StronglyTypedPrimitives --configuration Release --output ${{ env.NuGetDirectory }}
+          dotnet build ./Egil.StronglyTypedPrimitives/src/Egil.StronglyTypedPrimitives.Abstractions/Egil.StronglyTypedPrimitives.Abstractions.csproj -c Release -f net9.0
+          dotnet build ./Egil.StronglyTypedPrimitives/src/Egil.StronglyTypedPrimitives.Abstractions/Egil.StronglyTypedPrimitives.Abstractions.csproj -c Release -f net8.0
+          dotnet build ./Egil.StronglyTypedPrimitives/src/Egil.StronglyTypedPrimitives.Abstractions/Egil.StronglyTypedPrimitives.Abstractions.csproj -c Release -f netstandard2.0
+          dotnet pack ./Egil.StronglyTypedPrimitives/src/Egil.StronglyTypedPrimitives --configuration Release --output ${{ env.NuGetDirectory }}
 
       - uses: actions/upload-artifact@v4
         with:
@@ -99,7 +99,7 @@ jobs:
             10.x
 
       - name: Run tests
-        run: dotnet test ./StronglyTypedPrimitives/StronglyTypedPrimitives.sln --configuration Release --logger trx --results-directory "${{ env.TestResultsDirectory }}" --collect:"XPlat Code Coverage"
+        run: dotnet test ./Egil.StronglyTypedPrimitives/Egil.StronglyTypedPrimitives.sln --configuration Release --logger trx --results-directory "${{ env.TestResultsDirectory }}" --collect:"XPlat Code Coverage"
 
       - uses: actions/upload-artifact@v4
         if: always()
