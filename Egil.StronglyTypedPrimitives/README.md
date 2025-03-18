@@ -11,7 +11,8 @@ it easy to avoid the primitive obsession anti pattern.
 
 - **Interoperable with other source generators**. The "Value" property is visible to them and can be used in their generated code.
 
-- **Generates implementation of the following interfaces**, if the underlying type supports them: 
+- **Generates implementation of the following interfaces**, if the underlying type supports them:
+
   - `System.IParsable<TSelf>`
   - `System.ISpanParsable<TSelf>`
   - `System.IUtf8SpanParsable<TSelf>`
@@ -22,6 +23,7 @@ it easy to avoid the primitive obsession anti pattern.
   - `System.IUtf8SpanFormattable` 
 
 - **Supported primitive types**:
+
   - `string`
   - `int`
   - `Guid`
@@ -42,6 +44,8 @@ add a `[StronglyTyped]` attribute to a **partial record struct** that has one of
 supported primitive types as the first (and only) argument in it's constructor, for example:
 
 ```csharp
+using Egil.StronglyTypedPrimitives;
+
 namespace Examples;
 
 [StronglyTyped]
@@ -51,6 +55,10 @@ public readonly partial record struct StronglyTypedInt(int Value);
 To constrain what values are legal for an strongly-typed primitive, implement the `IsValueValid` method:
 
 ```csharp
+using Egil.StronglyTypedPrimitives;
+
+namespace Examples;
+
 [StronglyTyped]
 public readonly partial record struct StronglyTypedIntWithConstraints(int Value)
 {
@@ -88,6 +96,8 @@ Assert.Throws<ArgumentException>(() => StronglyTypedIntWithConstraints.Empty wit
 Given this type declaration:
 
 ```csharp
+using Egil.StronglyTypedPrimitives;
+
 namespace Examples;
 
 [StronglyTyped]
@@ -226,6 +236,10 @@ public readonly partial record struct StronglyTypedInt : Egil.StronglyTypedPrimi
 Given this type declaration:
 
 ```csharp
+using Egil.StronglyTypedPrimitives;
+
+namespace Examples;
+
 [StronglyTyped]
 public readonly partial record struct StronglyTypedIntWithConstraints(int Value)
 {
