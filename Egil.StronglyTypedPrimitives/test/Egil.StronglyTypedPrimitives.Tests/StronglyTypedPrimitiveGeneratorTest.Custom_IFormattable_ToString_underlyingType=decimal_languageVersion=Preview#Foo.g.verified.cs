@@ -17,21 +17,7 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
 {
     public static readonly Foo Empty = default;
 
-    private static decimal ThrowIfValueIsInvalid(decimal value)
-    {
-        IsValueValid(value, throwIfInvalid: true);
-        return value;
-    }
-
-    public decimal Value
-    {
-        get => field;
-        init
-        {
-            field = ThrowIfValueIsInvalid(value);
-        }
-    } = ThrowIfValueIsInvalid(Value);
-
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
     public static bool IsValueValid(decimal value, bool throwIfInvalid)
         => true;
 
@@ -130,7 +116,12 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
     private sealed class FooJsonConverter : System.Text.Json.Serialization.JsonConverter<Foo>
     {
         public override Foo Read(ref System.Text.Json.Utf8JsonReader reader, System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
-            => new Foo(System.Text.Json.JsonSerializer.Deserialize<decimal>(ref reader, options)!);
+        {
+            var rawValue = System.Text.Json.JsonSerializer.Deserialize<decimal>(ref reader, options);
+            return Foo.IsValueValid(rawValue, throwIfInvalid: false)
+                ? new Foo(rawValue)
+                : Foo.Empty;
+        }
 
         public override void Write(System.Text.Json.Utf8JsonWriter writer, Foo value, System.Text.Json.JsonSerializerOptions options)
             => System.Text.Json.JsonSerializer.Serialize(writer, value.Value, options);

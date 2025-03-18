@@ -133,7 +133,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             GetPartialRecordStructDefinition(info, interfacesToImplement),
             "{",
             .. GetEmptyProperty(info, targetTypeMembers, underlyingTypeSymbol),
-            .. GetValueProperty(info, targetTypeMembers, underlyingTypeSymbol, isCSharp14OrGreater),
+            .. GetValueProperty(info, targetTypeMembers, underlyingTypeSymbol, isCSharp14OrGreater, unimplementedSymbols),
             .. GetToStringMethod(info, targetTypeMembers, underlyingTypeSymbol),
             .. GetInterfaceSymbols(info, unimplementedSymbols, underlyingTypeSymbol),
             .. GetOperatorOverloads(info, targetTypeSymbol, targetTypeMembers),
@@ -167,8 +167,13 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             """;
     }
 
-    internal static IEnumerable<string> GetValueProperty(StronglyTypedTypeInfo info, IEnumerable<ISymbol> targetTypeMembers, ITypeSymbol underlyingTypeSymbol, bool isCSharp14OrGreater)
+    internal static IEnumerable<string> GetValueProperty(StronglyTypedTypeInfo info, IEnumerable<ISymbol> targetTypeMembers, ITypeSymbol underlyingTypeSymbol, bool isCSharp14OrGreater, IEnumerable<ISymbol> unimplementedSymbols)
     {
+        if (unimplementedSymbols.Any(x => x.Name == "IsValueValid"))
+        {
+            yield break;
+        }
+
         const string throwIfValueIsInvalidName = "ThrowIfValueIsInvalid";
         var hasThrowIfValueIsInvalid = targetTypeMembers
             .OfType<IMethodSymbol>()
@@ -331,6 +336,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
     private static string GetIsValueValid(StronglyTypedTypeInfo info, ITypeSymbol underlyingTypeSymbol)
         => $$"""
 
+            [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
             public static bool IsValueValid({{underlyingTypeSymbol.ToDisplayString()}} value, bool throwIfInvalid)
                 => true;
         """;
@@ -468,7 +474,12 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             private sealed class {{info.Target.Identifier}}JsonConverter : System.Text.Json.Serialization.JsonConverter<{{info.Target.Identifier}}>
             {
                 public override {{info.Target.Identifier}} Read(ref System.Text.Json.Utf8JsonReader reader, System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
-                    => new {{info.Target.Identifier}}(System.Text.Json.JsonSerializer.Deserialize<{{info.UnderlyingType}}>(ref reader, options)!);
+                {
+                    var rawValue = System.Text.Json.JsonSerializer.Deserialize<{{info.UnderlyingType}}>(ref reader, options);
+                    return {{info.Target.Identifier}}.IsValueValid(rawValue, throwIfInvalid: false)
+                        ? new {{info.Target.Identifier}}(rawValue)
+                        : {{info.Target.Identifier}}.Empty;
+                }
 
                 public override void Write(System.Text.Json.Utf8JsonWriter writer, {{info.Target.Identifier}} value, System.Text.Json.JsonSerializerOptions options)
                     => System.Text.Json.JsonSerializer.Serialize(writer, value.{{info.Parameter.Identifier}}, options);

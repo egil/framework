@@ -17,25 +17,9 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
 {
     public static readonly Foo Empty = default;
 
-    private static int ThrowIfValueIsInvalid(int value)
-    {
-        IsValueValid(value, throwIfInvalid: true);
-        return value;
-    }
-
-    private readonly int @value = ThrowIfValueIsInvalid(Value);
-
-    public int Value
-    {
-        get => @value;
-        init
-        {
-            @value = ThrowIfValueIsInvalid(value);
-        }
-    }
-
     public override string ToString() => Value.ToString();
 
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
     public static bool IsValueValid(int value, bool throwIfInvalid)
         => true;
 
@@ -122,7 +106,12 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
     private sealed class FooJsonConverter : System.Text.Json.Serialization.JsonConverter<Foo>
     {
         public override Foo Read(ref System.Text.Json.Utf8JsonReader reader, System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
-            => new Foo(System.Text.Json.JsonSerializer.Deserialize<int>(ref reader, options)!);
+        {
+            var rawValue = System.Text.Json.JsonSerializer.Deserialize<int>(ref reader, options);
+            return Foo.IsValueValid(rawValue, throwIfInvalid: false)
+                ? new Foo(rawValue)
+                : Foo.Empty;
+        }
 
         public override void Write(System.Text.Json.Utf8JsonWriter writer, Foo value, System.Text.Json.JsonSerializerOptions options)
             => System.Text.Json.JsonSerializer.Serialize(writer, value.Value, options);
