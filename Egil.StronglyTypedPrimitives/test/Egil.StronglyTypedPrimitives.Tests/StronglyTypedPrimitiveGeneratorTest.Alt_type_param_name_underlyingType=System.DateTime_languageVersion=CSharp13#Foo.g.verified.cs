@@ -101,6 +101,7 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
         public override Foo Read(ref System.Text.Json.Utf8JsonReader reader, System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
         {
             var rawValue = System.Text.Json.JsonSerializer.Deserialize<System.DateTime>(ref reader, options);
+            
             return Foo.IsValueValid(rawValue, throwIfInvalid: false)
                 ? new Foo(rawValue)
                 : Foo.Empty;

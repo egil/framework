@@ -137,7 +137,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             .. GetToStringMethod(info, targetTypeMembers, underlyingTypeSymbol),
             .. GetInterfaceSymbols(info, unimplementedSymbols, underlyingTypeSymbol),
             .. GetOperatorOverloads(info, targetTypeSymbol, targetTypeMembers),
-            .. GetJsonConverter(info, generateJsonConverter),
+            .. GetJsonConverter(info, generateJsonConverter, semanticModel),
             "}"
         ];
 
@@ -462,12 +462,16 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             """;
     }
 
-    private static IEnumerable<string> GetJsonConverter(StronglyTypedTypeInfo info, bool generateJsonConverter)
+    private static IEnumerable<string> GetJsonConverter(StronglyTypedTypeInfo info, bool generateJsonConverter, SemanticModel semanticModel)
     {
         if (!generateJsonConverter)
         {
             yield break;
         }
+
+        var nullCheckString = semanticModel.CanTypeBeNull(info.UnderlyingType)
+            ? "rawValue is not null && "
+            : "";
 
         yield return $$"""
 
@@ -476,7 +480,8 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
                 public override {{info.Target.Identifier}} Read(ref System.Text.Json.Utf8JsonReader reader, System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
                 {
                     var rawValue = System.Text.Json.JsonSerializer.Deserialize<{{info.UnderlyingType}}>(ref reader, options);
-                    return {{info.Target.Identifier}}.IsValueValid(rawValue, throwIfInvalid: false)
+                    
+                    return {{nullCheckString}}{{info.Target.Identifier}}.IsValueValid(rawValue, throwIfInvalid: false)
                         ? new {{info.Target.Identifier}}(rawValue)
                         : {{info.Target.Identifier}}.Empty;
                 }

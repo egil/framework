@@ -48,6 +48,7 @@ namespace Egil.StronglyTypedPrimitives
 
             Assert.Equal(new StronglyTypedString(goodString), JsonSerializer.Deserialize<StronglyTypedString>(JsonSerializer.Serialize(new StronglyTypedString(goodString))));
             Assert.Equal(StronglyTypedString.Empty, JsonSerializer.Deserialize<StronglyTypedString>($"\"{tooShortString}\""));
+            Assert.Equal(StronglyTypedString.Empty, JsonSerializer.Deserialize<StronglyTypedString>("null"));
             Assert.Equal($"\"{goodString}\"", JsonSerializer.Serialize(new StronglyTypedString(goodString)));
             Assert.Equal(new StronglyTypedString(goodString), JsonSerializer.Deserialize<StronglyTypedString>($"\"{goodString}\""));
         }
