@@ -124,7 +124,6 @@ The key components in this configuration:
 
 Storage operations generate spans with the following attributes:
 
-- Storage provider name
+- Storage name
 - State name
-- Grain ID
 - Operation type (Read/Write/Clear)
