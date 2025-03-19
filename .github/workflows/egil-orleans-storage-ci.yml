@@ -67,8 +67,6 @@ jobs:
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 9.x
 
       - uses: actions/download-artifact@v4
         with:
@@ -94,63 +92,15 @@ jobs:
         uses: actions/dependency-review-action@v4
 
   prepare-release:
-    runs-on: ubuntu-latest
+    uses: ./.github/workflows/prepare-release-action.yml
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.prepare-release == 'true'
     permissions:
       contents: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-          fetch-depth: 0
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 9.x
-
-      - name: Configure GIT
-        run: |
-          git config user.name "${{ github.actor }}"
-          git config user.email "${{ github.actor }}@users.noreply.github.com"
-
-      - name: Prepare release
-        id: prepare-release
-        run: |
-          cd Egil.Orleans.Storage
-          dotnet tool restore
-          RELEASE_INFO=$(dotnet nbgv prepare-release --versionIncrement ${{ github.event.inputs.release-type }} --commit-message-pattern "Egil.Orleans.Storage - {0} release" --format json)
-          echo "RELEASE_INFO<<EOF" >> $GITHUB_OUTPUT
-          echo "$RELEASE_INFO" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-          echo "$RELEASE_INFO" | jq .
-
-      - name: Extract branch info
-        id: extract-branch
-        shell: bash
-        run: |
-          RELEASE_INFO='${{ steps.prepare-release.outputs.RELEASE_INFO }}'
-          NEW_BRANCH=$(echo "$RELEASE_INFO" | jq -r '.NewBranch.Name')
-          echo "NEW_BRANCH=$NEW_BRANCH" >> $GITHUB_OUTPUT
-          echo "New branch created: $NEW_BRANCH"
-
-      - name: Push release branch
-        env:
-          PAT_TOKEN: ${{ secrets.PAT_FOR_GIT_CONTENT_OPS }}
-        run: |
-          if [[ "${{ steps.extract-branch.outputs.NEW_BRANCH }}" != "null" ]]; then
-            git push https://${PAT_TOKEN}@github.com/${{ github.repository }}.git ${{ steps.extract-branch.outputs.NEW_BRANCH }}
-            echo "Pushed new branch: ${{ steps.extract-branch.outputs.NEW_BRANCH }}"
-          else
-            echo "No new branch was created"
-          fi
-
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Push changes to main
-        run: git push origin main
+    with:
+      release-type: ${{ github.event.inputs.release-type }}
+      projectName: Egil.StronglyTypedPrimitives
+    secrets:
+      PAT_FOR_GIT_CONTENT_OPS: ${{ secrets.PAT_FOR_GIT_CONTENT_OPS }}
 
   release:
     runs-on: ubuntu-latest
