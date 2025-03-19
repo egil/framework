@@ -1,22 +1,18 @@
 {
   "$schema": "https://raw.githubusercontent.com/dotnet/Nerdbank.GitVersioning/main/src/NerdBank.GitVersioning/version.schema.json",
-  "inherit": false,
-  "version": "1.4-alpha",
-  "release": {
-    "branchName" : "release/egil-orleans-storage/v{version}",
-    "versionIncrement" : "minor",
-    "firstUnstableTag" : "alpha"
-  },
+  "version": "1.4",
   "publicReleaseRefSpec": [
     "^refs/heads/main$",
     "^refs/heads/v\\d+(?:\\.\\d+)?$"
   ],
   "cloudBuild": {
     "setAllVariables": true,
-    "setVersionVariables": true,
     "buildNumber": {
       "enabled": true
     }
+  },
+  "release": {
+    "branchName": "release/egil-orleans-storage/v{version}"
   },
   "pathFilters": [
     "./",
