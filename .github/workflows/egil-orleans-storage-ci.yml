@@ -20,6 +20,7 @@ env:
   NuGetDirectory: ${{ github.workspace}}/nuget
   TestResultsDirectory: ${{ github.workspace}}/TestResults
   BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+  Project: Egil.Orleans.Storage
 
 jobs:
   create-nuget:
@@ -102,6 +103,7 @@ jobs:
 
       - name: Add git tag using dotnet nbgv
         run: |
+          cd ${{ env.Project }}
           dotnet tool restore
           dotnet nbgv tag
           git push origin --tags
