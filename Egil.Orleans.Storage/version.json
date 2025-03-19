@@ -11,7 +11,8 @@
     }
   },
   "release": {
-    "branchName": "release/egil-orleans-storage/v{version}"
+    "branchName": "release/egil-orleans-storage/v{version}",
+    "tagName" : "egil-orleans-storage/v{version}"
   },
   "pathFilters": [
     "./",

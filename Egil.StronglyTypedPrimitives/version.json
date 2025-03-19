@@ -5,7 +5,8 @@
   "release": {
     "branchName" : "release/egil-strongly-typed-primitives/v{version}",
     "versionIncrement" : "minor",
-    "firstUnstableTag" : "alpha"
+    "firstUnstableTag" : "alpha",
+    "tagName" : "egil-strongly-typed-primitives/v{version}"
   },
   "publicReleaseRefSpec": [
     "^refs/heads/release/egil-strongly-typed-primitives/v\\d+(?:\\.\\d+)?$"

@@ -74,50 +74,38 @@ jobs:
           path: ${{ env.NuGetDirectory }}
 
       - name: Install nuget validator
-        run: dotnet tool update Meziantou.Framework.NuGetPackageValidation.Tool --global
+        run: dotnet tool restore
 
       - name: Validate package
         shell: pwsh
-        run: meziantou.validate-nuget-package (Get-ChildItem "${{ env.NuGetDirectory }}/*.nupkg") --excluded-rules IconMustBeSet
-
-  dependency-review:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    if: github.event_name == 'pull_request' && github.repository_owner == 'egil'
-    steps:
-      - name: 'Checkout Repository'
-        uses: actions/checkout@v4
-      - name: 'Dependency Review'
-        uses: actions/dependency-review-action@v4
+        run: dotnet meziantou.validate-nuget-package (Get-ChildItem "${{ env.NuGetDirectory }}/*.nupkg") --excluded-rules IconMustBeSet
 
   prepare-release:
-    uses: ./.github/workflows/prepare-release-action.yml
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.prepare-release == 'true'
+    runs-on: ubuntu-latest
     permissions:
-      contents: write
-    with:
-      release-type: ${{ github.event.inputs.release-type }}
-      projectName: Egil.StronglyTypedPrimitives
-    secrets:
-      PAT_FOR_GIT_CONTENT_OPS: ${{ secrets.PAT_FOR_GIT_CONTENT_OPS }}
+      checks: write
+    steps:
+      - name: Run Prepare Release Action
+        uses: ./.github/actions/prepare-release-action
+        with:
+          releaseType: ${{ github.event.inputs.release-type }}
+          projectName: Egil.Orleans.Storage
+        secrets:
+          PAT_FOR_GIT_CONTENT_OPS: ${{ secrets.PAT_FOR_GIT_CONTENT_OPS }}
 
   release:
     runs-on: ubuntu-latest
     needs: [validate-nuget]
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/heads/release/egil-orleans-storage/v')
+    permissions:
+      checks: write
     steps:
       - uses: actions/download-artifact@v4
         with:
           name: nuget
           path: ${{ env.NuGetDirectory }}
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-
-      - name: Publish NuGet package
-        shell: pwsh
-        run: |
-          foreach($file in (Get-ChildItem "${{ env.NuGetDirectory }}" -Recurse -Include *.nupkg)) {
-              dotnet nuget push $file --api-key "${{ secrets.NUGET_APIKEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
-          }
+      - uses: ./.github/actions/release-action
+        with:
+          nuget_directory: ${{ env.NuGetDirectory }}
+          branch_name: ${{ env.BRANCH_NAME }}

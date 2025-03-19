@@ -7,14 +7,21 @@
       "commands": [
         "dotnet-verify"
       ],
-      "rollForward": false
+      "rollForward": true
     },
     "nbgv": {
       "version": "3.7.115",
       "commands": [
         "nbgv"
       ],
-      "rollForward": false
+      "rollForward": true
+    },
+    "meziantou.framework.nugetpackagevalidation.tool": {
+      "version": "1.0.19",
+      "commands": [
+        "meziantou.validate-nuget-package"
+      ],
+      "rollForward": true
     }
   }
 }

@@ -1,0 +1,42 @@
+name: 'Release Action'
+description: 'Composite action to publish NuGet package, add git tag, and delete release branch'
+inputs:
+  nuget_directory:
+    description: 'Directory where NuGet packages are located'
+    required: true
+  branch_name:
+    description: 'The current branch name'
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+
+    - name: Publish NuGet package
+      shell: pwsh
+      run: |
+        foreach($file in (Get-ChildItem "${{ inputs.nuget_directory }}" -Recurse -Include *.nupkg)) {
+            dotnet nuget push $file --api-key "${{ secrets.NUGET_APIKEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
+        }
+
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Configure GIT
+      run: |
+        git config user.name "${{ github.actor }}"
+        git config user.email "${{ github.actor }}@users.noreply.github.com"
+
+    - name: Add git tag using dotnet nbgv
+      run: |
+        dotnet tool restore
+        dotnet nbgv tag
+        git push origin --tags
+
+    - name: Delete release branch on origin
+      if: startsWith(github.ref, 'refs/heads/release/')
+      run: git push origin --delete "${{ inputs.branch_name }}"
