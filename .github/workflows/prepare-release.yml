@@ -59,12 +59,11 @@ jobs:
           echo "New branch created: $NEW_BRANCH"
 
       - name: Push release branch
-        env:
-          PAT_TOKEN: ${{ secrets.PAT_FOR_GIT_CONTENT_OPS }}
         run: |
           git push origin main
           if [[ "${{ steps.extract-branch.outputs.NEW_BRANCH }}" != "null" ]]; then
-            git push https://${PAT_TOKEN}@github.com/${{ github.repository }}.git ${{ steps.extract-branch.outputs.NEW_BRANCH }}
+            git remote set-url origin https://x-access-token:${{ secrets.PAT_FOR_GIT_CONTENT_OPS }}@github.com/${{ github.repository }}
+            git push ${{ steps.extract-branch.outputs.NEW_BRANCH }}
             echo "Pushed new branch: ${{ steps.extract-branch.outputs.NEW_BRANCH }}"
           else
             echo "No new branch was created"
