@@ -51,11 +51,10 @@ jobs:
             10.x
 
       - run: |
-          dotnet restore ./Egil.StronglyTypedPrimitives/Egil.StronglyTypedPrimitives.sln
-          dotnet build ./Egil.StronglyTypedPrimitives/src/Egil.StronglyTypedPrimitives.Abstractions/Egil.StronglyTypedPrimitives.Abstractions.csproj -c Release -f net9.0 --no-restore
-          dotnet build ./Egil.StronglyTypedPrimitives/src/Egil.StronglyTypedPrimitives.Abstractions/Egil.StronglyTypedPrimitives.Abstractions.csproj -c Release -f net8.0 --no-restore
-          dotnet build ./Egil.StronglyTypedPrimitives/src/Egil.StronglyTypedPrimitives.Abstractions/Egil.StronglyTypedPrimitives.Abstractions.csproj -c Release -f netstandard2.0 --no-restore
-          dotnet pack ./Egil.StronglyTypedPrimitives/src/Egil.StronglyTypedPrimitives -c Release --no-build --output ${{ env.NuGetDirectory }}
+          dotnet build ./Egil.StronglyTypedPrimitives/src/Egil.StronglyTypedPrimitives.Abstractions/Egil.StronglyTypedPrimitives.Abstractions.csproj -c Release -f net9.0
+          dotnet build ./Egil.StronglyTypedPrimitives/src/Egil.StronglyTypedPrimitives.Abstractions/Egil.StronglyTypedPrimitives.Abstractions.csproj -c Release -f net8.0
+          dotnet build ./Egil.StronglyTypedPrimitives/src/Egil.StronglyTypedPrimitives.Abstractions/Egil.StronglyTypedPrimitives.Abstractions.csproj -c Release -f netstandard2.0
+          dotnet pack ./Egil.StronglyTypedPrimitives/src/Egil.StronglyTypedPrimitives -c Release --output ${{ env.NuGetDirectory }}
 
       - uses: actions/upload-artifact@v4
         with:
