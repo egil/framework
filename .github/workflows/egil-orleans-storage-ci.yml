@@ -1,5 +1,5 @@
 # yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
-name: egil-orleans-storage-ci
+name: egil-orleans-storage
 on:
   workflow_dispatch:
   push:
@@ -51,6 +51,7 @@ jobs:
     if: github.event.inputs.prepare-release != 'true'
     needs: [ create-nuget ]
     steps:
+      - uses: actions/checkout@v4
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
