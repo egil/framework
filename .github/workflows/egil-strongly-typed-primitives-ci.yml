@@ -118,7 +118,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/heads/release/egil-strongly-typed-primitives/v')
     runs-on: ubuntu-latest
     permissions:
-      checks: write
+      contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -150,8 +150,8 @@ jobs:
           cd ${{ env.Project }}
           dotnet tool restore
           dotnet nbgv tag
-          git push https://${{ secrets.PAT_FOR_GIT_CONTENT_OPS }}@github.com/${{ github.repository }}.git --tags
+          git push origin --tags
 
       - name: Delete release branch on origin
         if: startsWith(github.ref, 'refs/heads/release/egil-strongly-typed-primitives/v')
-        run: git push https://${{ secrets.PAT_FOR_GIT_CONTENT_OPS }}@github.com/${{ github.repository }}.git --delete "${{ env.BRANCH_NAME }}"
+        run: git push origin --delete "${{ env.BRANCH_NAME }}"
