@@ -63,7 +63,7 @@ jobs:
           git push origin main
           if [[ "${{ steps.extract-branch.outputs.NEW_BRANCH }}" != "null" ]]; then
             git remote set-url origin https://x-access-token:${{ secrets.PAT_FOR_GIT_CONTENT_OPS }}@github.com/${{ github.repository }}
-            git push ${{ steps.extract-branch.outputs.NEW_BRANCH }}
+            git push origin ${{ steps.extract-branch.outputs.NEW_BRANCH }}
             echo "Pushed new branch: ${{ steps.extract-branch.outputs.NEW_BRANCH }}"
           else
             echo "No new branch was created"
