@@ -28,7 +28,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          persist-credentials: false
           fetch-depth: 0
 
       - name: Setup .NET
@@ -63,16 +62,10 @@ jobs:
         env:
           PAT_TOKEN: ${{ secrets.PAT_FOR_GIT_CONTENT_OPS }}
         run: |
+          git push origin main
           if [[ "${{ steps.extract-branch.outputs.NEW_BRANCH }}" != "null" ]]; then
             git push https://${PAT_TOKEN}@github.com/${{ github.repository }}.git ${{ steps.extract-branch.outputs.NEW_BRANCH }}
             echo "Pushed new branch: ${{ steps.extract-branch.outputs.NEW_BRANCH }}"
           else
             echo "No new branch was created"
           fi
-
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Push changes to main
-        run: git push origin main
