@@ -69,23 +69,43 @@ jobs:
         run: dotnet meziantou.validate-nuget-package (Get-ChildItem "${{ env.NuGetDirectory }}/*.nupkg") --excluded-rules IconMustBeSet
 
   release:
-    runs-on: ubuntu-latest
     needs: [validate-nuget]
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/heads/release/egil-orleans-storage/v')
+    runs-on: ubuntu-latest
     permissions:
       checks: write
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
       - uses: actions/download-artifact@v4
         with:
           name: nuget
           path: ${{ env.NuGetDirectory }}
 
-      - uses: ./.github/actions/release-action
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+
+      - name: Publish NuGet package
+        shell: pwsh
+        run: |
+          foreach($file in (Get-ChildItem "${{ env.NuGetDirectory }}" -Recurse -Include *.nupkg)) {
+            dotnet nuget push $file --api-key "${{ secrets.NUGET_APIKEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
+          }
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
-          nuget_directory: ${{ env.NuGetDirectory }}
-          branch_name: ${{ env.BRANCH_NAME }}
+          fetch-depth: 0
+
+      - name: Configure GIT
+        run: |
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
+
+      - name: Add git tag using dotnet nbgv
+        run: |
+          dotnet tool restore
+          dotnet nbgv tag
+          git push origin --tags
+
+      - name: Delete release branch on origin
+        if: startsWith(github.ref, 'refs/heads/release/egil-orleans-storage/v')
+        run: git push origin --delete "${{ env.BRANCH_NAME }}"
