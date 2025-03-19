@@ -142,7 +142,7 @@ jobs:
       contents: write
     with:
       release-type: ${{ github.event.inputs.release-type }}
-      projectName: Egil.Orleans.Storage
+      projectName: Egil.StronglyTypedPrimitives
     secrets:
       PAT_FOR_GIT_CONTENT_OPS: ${{ secrets.PAT_FOR_GIT_CONTENT_OPS }}
 
