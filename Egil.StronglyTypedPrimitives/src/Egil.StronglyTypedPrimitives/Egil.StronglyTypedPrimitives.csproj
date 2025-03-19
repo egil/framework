@@ -71,10 +71,4 @@
     <None Include="..\Egil.StronglyTypedPrimitives.Abstractions\bin\Release\net9.0\*" Pack="true" PackagePath="lib/net9.0" Visible="false" />
   </ItemGroup>
 
-  <Target Name="SetPackageReleaseNotes" BeforeTargets="GenerateNuspec">
-    <PropertyGroup>
-      <PackageReleaseNotes>$([System.IO.File]::ReadAllText("$(MSBuildProjectDirectory)/../../CHANGELOG.md"))</PackageReleaseNotes>
-    </PropertyGroup>
-  </Target>
-
 </Project>
