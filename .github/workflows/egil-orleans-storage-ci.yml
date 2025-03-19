@@ -2,21 +2,26 @@
 name: egil-orleans-storage-ci
 on:
   workflow_dispatch:
+    inputs:
+      prepare-release:
+        description: 'Run prepare-release job'
+        type: boolean
+        default: false
+      release-type:
+        description: 'Type of release'
+        type: choice
+        options:
+          - build
+          - minor
+          - major
+        default: minor
   push:
     branches:
       - 'main'
-    paths:
-      - 'Egil.Orleans.Storage/**'
-      - '.github/workflows/egil-orleans-storage-ci.yml'
+      - 'release/egil-orleans-storage/v*'
   pull_request:
     branches:
-      - '*'
-    paths:
-      - 'Egil.Orleans.Storage/**'
-      - '.github/workflows/egil-orleans-storage-ci.yml'
-  release:
-    types:
-      - published
+      - 'main'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.event.pull_request.number || github.ref }}
@@ -32,6 +37,7 @@ env:
 jobs:
   create-nuget:
     runs-on: ubuntu-latest
+    if: github.event.inputs.prepare-release != 'true'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -55,6 +61,7 @@ jobs:
 
   validate-nuget:
     runs-on: ubuntu-latest
+    if: github.event.inputs.prepare-release != 'true'
     needs: [ create-nuget ]
     steps:
 
@@ -86,9 +93,63 @@ jobs:
       - name: 'Dependency Review'
         uses: actions/dependency-review-action@v4
 
-  deploy:
+  prepare-release:
     runs-on: ubuntu-latest
-    needs: [ validate-nuget ]
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.prepare-release == 'true'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.x
+
+      - name: Configure GIT
+        run: |
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
+
+      - name: Prepare release
+        id: prepare-release
+        run: |
+          cd Egil.Orleans.Storage
+          dotnet tool restore
+          RELEASE_INFO=$(dotnet nbgv prepare-release --versionIncrement ${{ github.event.inputs.release-type }} --commit-message-pattern "Egil.Orleans.Storage - {0} release" --format json)
+          echo "RELEASE_INFO<<EOF" >> $GITHUB_OUTPUT
+          echo "$RELEASE_INFO" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "$RELEASE_INFO" | jq .
+
+      - name: Extract branch info
+        id: extract-branch
+        shell: bash
+        run: |
+          RELEASE_INFO='${{ steps.prepare-release.outputs.RELEASE_INFO }}'
+          NEW_BRANCH=$(echo "$RELEASE_INFO" | jq -r '.NewBranch.Name')
+          echo "NEW_BRANCH=$NEW_BRANCH" >> $GITHUB_OUTPUT
+          echo "New branch created: $NEW_BRANCH"
+
+      - name: Push changes
+        env:
+          GH_TOKEN: ${{ secrets.PAT_FOR_GIT_CONTENT_OPS }}
+        run: |
+          git push https://${GH_TOKEN}@github.com/${{ github.repository }}.git main
+          if [[ "${{ steps.extract-branch.outputs.NEW_BRANCH }}" != "null" ]]; then
+            git push https://${GH_TOKEN}@github.com/${{ github.repository }}.git ${{ steps.extract-branch.outputs.NEW_BRANCH }}
+            echo "Pushed new branch: ${{ steps.extract-branch.outputs.NEW_BRANCH }}"
+          else
+            echo "No new branch was created"
+          fi
+
+  release:
+    runs-on: ubuntu-latest
+    needs: [validate-nuget]
+    if: startsWith(github.ref, 'refs/heads/release/egil-orleans-storage/v')
     steps:
       - uses: actions/download-artifact@v4
         with:

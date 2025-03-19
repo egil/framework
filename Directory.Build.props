@@ -15,7 +15,6 @@
     <TargetFramework>net9.0</TargetFramework>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>1573,1591,1712,CA1014,NU1900</NoWarn>
-
     <!-- Used by code coverage -->
     <DebugType>full</DebugType>
     <DebugSymbols>true</DebugSymbols>
@@ -34,6 +33,17 @@
 
   <ItemGroup>
     <Using Include="System.Diagnostics.CodeAnalysis" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <NBGV_ThisAssemblyNamespace>$(RootNamespace)</NBGV_ThisAssemblyNamespace>
+    <NBGV_ThisAssemblyIncludesPackageVersion>true</NBGV_ThisAssemblyIncludesPackageVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Nerdbank.GitVersioning">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
+    </PackageReference>
   </ItemGroup>
 
 </Project>
