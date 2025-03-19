@@ -54,7 +54,7 @@ jobs:
           dotnet build ./Egil.StronglyTypedPrimitives/src/Egil.StronglyTypedPrimitives.Abstractions/Egil.StronglyTypedPrimitives.Abstractions.csproj -c Release -f net9.0
           dotnet build ./Egil.StronglyTypedPrimitives/src/Egil.StronglyTypedPrimitives.Abstractions/Egil.StronglyTypedPrimitives.Abstractions.csproj -c Release -f net8.0
           dotnet build ./Egil.StronglyTypedPrimitives/src/Egil.StronglyTypedPrimitives.Abstractions/Egil.StronglyTypedPrimitives.Abstractions.csproj -c Release -f netstandard2.0
-          dotnet pack ./Egil.StronglyTypedPrimitives/src/Egil.StronglyTypedPrimitives --configuration Release --output ${{ env.NuGetDirectory }}
+          dotnet pack ./Egil.StronglyTypedPrimitives/src/Egil.StronglyTypedPrimitives -c Release --no-build --output ${{ env.NuGetDirectory }}
 
       - uses: actions/upload-artifact@v4
         with:
@@ -179,17 +179,18 @@ jobs:
           echo "NEW_BRANCH=$NEW_BRANCH" >> $GITHUB_OUTPUT
           echo "New branch created: $NEW_BRANCH"
 
-          - name: Push changes
-          env:
-            GH_TOKEN: ${{ secrets.PAT_FOR_GIT_CONTENT_OPS }}
-          run: |
-            git push https://${GH_TOKEN}@github.com/${{ github.repository }}.git main
-            if [[ "${{ steps.extract-branch.outputs.NEW_BRANCH }}" != "null" ]]; then
-              git push https://${GH_TOKEN}@github.com/${{ github.repository }}.git ${{ steps.extract-branch.outputs.NEW_BRANCH }}
-              echo "Pushed new branch: ${{ steps.extract-branch.outputs.NEW_BRANCH }}"
-            else
-              echo "No new branch was created"
-            fi
+      - name: Push changes
+        env:
+          PAT_TOKEN: ${{ secrets.PAT_FOR_GIT_CONTENT_OPS }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git push https://${GITHUB_TOKEN}@github.com/${{ github.repository }}.git main
+          if [[ "${{ steps.extract-branch.outputs.NEW_BRANCH }}" != "null" ]]; then
+            git push https://${PAT_TOKEN}@github.com/${{ github.repository }}.git ${{ steps.extract-branch.outputs.NEW_BRANCH }}
+            echo "Pushed new branch: ${{ steps.extract-branch.outputs.NEW_BRANCH }}"
+          else
+            echo "No new branch was created"
+          fi
 
   release:
     runs-on: ubuntu-latest

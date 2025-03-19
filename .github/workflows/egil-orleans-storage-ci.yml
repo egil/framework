@@ -50,7 +50,7 @@ jobs:
 
       - run: |
           dotnet build ./Egil.Orleans.Storage/src/Egil.Orleans.Storage/Egil.Orleans.Storage.csproj -c Release -f net9.0
-          dotnet pack ./Egil.Orleans.Storage/src/Egil.Orleans.Storage/Egil.Orleans.Storage.csproj --configuration Release --output ${{ env.NuGetDirectory }}
+          dotnet pack ./Egil.Orleans.Storage/src/Egil.Orleans.Storage/Egil.Orleans.Storage.csproj -c Release --no-build --output ${{ env.NuGetDirectory }}
 
       - uses: actions/upload-artifact@v4
         with:
@@ -136,11 +136,12 @@ jobs:
 
       - name: Push changes
         env:
-          GH_TOKEN: ${{ secrets.PAT_FOR_GIT_CONTENT_OPS }}
+          PAT_TOKEN: ${{ secrets.PAT_FOR_GIT_CONTENT_OPS }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git push https://${GH_TOKEN}@github.com/${{ github.repository }}.git main
+          git push https://${GITHUB_TOKEN}@github.com/${{ github.repository }}.git main
           if [[ "${{ steps.extract-branch.outputs.NEW_BRANCH }}" != "null" ]]; then
-            git push https://${GH_TOKEN}@github.com/${{ github.repository }}.git ${{ steps.extract-branch.outputs.NEW_BRANCH }}
+            git push https://${PAT_TOKEN}@github.com/${{ github.repository }}.git ${{ steps.extract-branch.outputs.NEW_BRANCH }}
             echo "Pushed new branch: ${{ steps.extract-branch.outputs.NEW_BRANCH }}"
           else
             echo "No new branch was created"

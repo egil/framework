@@ -8,8 +8,7 @@
     "firstUnstableTag" : "alpha"
   },
   "publicReleaseRefSpec": [
-    "^refs/heads/main$",
-    "^refs/heads/v\\d+(?:\\.\\d+)?$"
+    "^refs/heads/release/egil-strongly-typed-primitives/v\\d+(?:\\.\\d+)?$"
   ],
   "cloudBuild": {
     "setAllVariables": true,
