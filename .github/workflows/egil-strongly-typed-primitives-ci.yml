@@ -2,19 +2,6 @@
 name: egil-strongly-typed-primitives-ci
 on:
   workflow_dispatch:
-    inputs:
-      prepare-release:
-        description: 'Run prepare-release job'
-        type: boolean
-        default: false
-      release-type:
-        description: 'Type of release'
-        type: choice
-        options:
-          - build
-          - minor
-          - major
-        default: minor
   push:
     branches:
       - 'main'
@@ -123,20 +110,6 @@ jobs:
           path: ${{ env.TestResultsDirectory }}/**/*.trx
           path-replace-backslashes: 'true'
           reporter: dotnet-trx
-
-  prepare-release:
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.prepare-release == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      checks: write
-    steps:
-      - name: Run Prepare Release Action
-        uses: ./.github/actions/prepare-release-action
-        with:
-          releaseType: ${{ github.event.inputs.release-type }}
-          projectName: Egil.StronglyTypedPrimitives
-        secrets:
-          PAT_FOR_GIT_CONTENT_OPS: ${{ secrets.PAT_FOR_GIT_CONTENT_OPS }}
 
   release:
     needs: [validate-nuget, run-test]
