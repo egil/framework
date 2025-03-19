@@ -150,8 +150,8 @@ jobs:
           cd ${{ env.Project }}
           dotnet tool restore
           dotnet nbgv tag
-          git push origin --tags
+          git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/egil/framework.git --tags
 
       - name: Delete release branch on origin
         if: startsWith(github.ref, 'refs/heads/release/egil-strongly-typed-primitives/v')
-        run: git push origin --delete "${{ env.BRANCH_NAME }}"
+        run: git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/egil/framework.git --delete "${{ env.BRANCH_NAME }}"
