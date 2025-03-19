@@ -134,18 +134,23 @@ jobs:
           echo "NEW_BRANCH=$NEW_BRANCH" >> $GITHUB_OUTPUT
           echo "New branch created: $NEW_BRANCH"
 
-      - name: Push changes
+      - name: Push release branch
         env:
           PAT_TOKEN: ${{ secrets.PAT_FOR_GIT_CONTENT_OPS }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git push https://${GITHUB_TOKEN}@github.com/${{ github.repository }}.git main
           if [[ "${{ steps.extract-branch.outputs.NEW_BRANCH }}" != "null" ]]; then
             git push https://${PAT_TOKEN}@github.com/${{ github.repository }}.git ${{ steps.extract-branch.outputs.NEW_BRANCH }}
             echo "Pushed new branch: ${{ steps.extract-branch.outputs.NEW_BRANCH }}"
           else
             echo "No new branch was created"
           fi
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push changes to main
+        run: git push origin main
 
   release:
     runs-on: ubuntu-latest
