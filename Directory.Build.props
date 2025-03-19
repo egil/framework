@@ -6,6 +6,7 @@
     <Authors>Egil Hansen</Authors>
     <NeutralLanguage>en</NeutralLanguage>
     <DefaultLanguage>en-US</DefaultLanguage>
+    <AccelerateBuildsInVisualStudio>true</AccelerateBuildsInVisualStudio>
   </PropertyGroup>
 
   <PropertyGroup Label="Compile settings">

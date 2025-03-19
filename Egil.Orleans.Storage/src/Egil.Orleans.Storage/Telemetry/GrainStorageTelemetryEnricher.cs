@@ -15,6 +15,9 @@ internal sealed class GrainStorageTelemetryEnricher(string storageName, IGrainSt
     private static readonly Counter<long> ClearStateCounter = Meter.CreateCounter<long>("orleans-storage-clear", description: "The number of times the clear operation has been used.");
     private static readonly Counter<long> ReadStateCounter = Meter.CreateCounter<long>("orleans-storage-read", description: "The number of times the read operation has been used.");
     private static readonly Counter<long> WriteStateCounter = Meter.CreateCounter<long>("orleans-storage-write", description: "The number of times the write operation has been used.");
+    private static readonly Histogram<double> ClearStateDurationHistogram = Meter.CreateHistogram<double>("orleans-storage-clear-duration", description: "The duration of clear operation in milliseconds.");
+    private static readonly Histogram<double> ReadStateDurationHistogram = Meter.CreateHistogram<double>("orleans-storage-read-duration", description: "The duration of read operation in milliseconds.");
+    private static readonly Histogram<double> WriteStateDurationHistogram = Meter.CreateHistogram<double>("orleans-storage-write-duration", description: "The duration of write operation in milliseconds.");
     private readonly KeyValuePair<string, object?> storageNameTag = new KeyValuePair<string, object?>(StorageNameTagKey, storageName);
 
     public void Participate(ISiloLifecycle lifecycle)
@@ -31,9 +34,19 @@ internal sealed class GrainStorageTelemetryEnricher(string storageName, IGrainSt
         activity?.AddTag(StorageNameTagKey, storageName);
         activity?.AddTag(StateNameTagKey, stateName);
 
+        var stopwatch = ClearStateDurationHistogram.Enabled ? Stopwatch.StartNew() : null;
+
         await inner.ClearStateAsync(stateName, grainId, grainState);
 
-        ClearStateCounter.Add(1, storageNameTag, new KeyValuePair<string, object?>(StateNameTagKey, stateName));
+        var stateNameTag = new KeyValuePair<string, object?>(StateNameTagKey, stateName);
+
+        if(stopwatch is not null)
+        {
+            stopwatch.Stop();
+            ClearStateDurationHistogram.Record(stopwatch.Elapsed.TotalMilliseconds, storageNameTag, stateNameTag);
+        }
+
+        ClearStateCounter.Add(1, storageNameTag, stateNameTag);
     }
 
     public async Task ReadStateAsync<T>(string stateName, GrainId grainId, IGrainState<T> grainState)
@@ -42,9 +55,19 @@ internal sealed class GrainStorageTelemetryEnricher(string storageName, IGrainSt
         activity?.AddTag(StorageNameTagKey, storageName);
         activity?.AddTag(StateNameTagKey, stateName);
 
+        var stopwatch = ReadStateDurationHistogram.Enabled ? Stopwatch.StartNew() : null;
+
         await inner.ReadStateAsync(stateName, grainId, grainState);
 
-        ReadStateCounter.Add(1, storageNameTag, new KeyValuePair<string, object?>(StateNameTagKey, stateName));
+        var stateNameTag = new KeyValuePair<string, object?>(StateNameTagKey, stateName);
+
+        if(stopwatch is not null)
+        {
+            stopwatch.Stop();
+            ReadStateDurationHistogram.Record(stopwatch.Elapsed.TotalMilliseconds, storageNameTag, stateNameTag);
+        }
+
+        ReadStateCounter.Add(1, storageNameTag, stateNameTag);
     }
 
     public async Task WriteStateAsync<T>(string stateName, GrainId grainId, IGrainState<T> grainState)
@@ -53,8 +76,18 @@ internal sealed class GrainStorageTelemetryEnricher(string storageName, IGrainSt
         activity?.AddTag(StorageNameTagKey, storageName);
         activity?.AddTag(StateNameTagKey, stateName);
 
+        var stopwatch = WriteStateDurationHistogram.Enabled ? Stopwatch.StartNew() : null;
+
         await inner.WriteStateAsync(stateName, grainId, grainState);
 
-        WriteStateCounter.Add(1, storageNameTag, new KeyValuePair<string, object?>(StateNameTagKey, stateName));
+        var stateNameTag = new KeyValuePair<string, object?>(StateNameTagKey, stateName);
+
+        if(stopwatch is not null)
+        {
+            stopwatch.Stop();
+            WriteStateDurationHistogram.Record(stopwatch.Elapsed.TotalMilliseconds, storageNameTag, stateNameTag);
+        }
+
+        WriteStateCounter.Add(1, storageNameTag, stateNameTag);
     }
 }

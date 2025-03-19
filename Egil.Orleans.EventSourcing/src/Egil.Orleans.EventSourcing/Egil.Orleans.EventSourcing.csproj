@@ -1,0 +1,59 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <DebugType>embedded</DebugType>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <PackageId>Egil.Orleans.EventSourcing</PackageId>
+    <Title>Orleans Event Sourcing</Title>
+    <Company>Egil Hansen</Company>
+    <Authors>Egil Hansen</Authors>
+    <Description>
+      An event sourcing library for Orleans that uses Azure Blob Storage for persistence.
+    </Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>orleans, storage, egil</PackageTags>
+    <Copyright>Egil Hansen</Copyright>
+    <PackageProjectUrl>https://github.com/egil/framework/tree/main/Egil.Orleans.EventSourcing</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/egil/framework</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <EnablePackageValidation>false</EnablePackageValidation>
+    <PackageValidationBaselineVersion>1.0.2</PackageValidationBaselineVersion>
+    <MinVerTagPrefix>v</MinVerTagPrefix>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Azure.Storage.Blobs" />
+    <PackageReference Include="Microsoft.IO.RecyclableMemoryStream" />
+    <PackageReference Include="Microsoft.Orleans.Runtime" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
+    <PackageReference Include="DotNet.ReproducibleBuilds">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="MinVer">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\..\LICENSE">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+    <None Include="..\..\README.md">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+  </ItemGroup>
+
+</Project>
