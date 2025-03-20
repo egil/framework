@@ -94,24 +94,7 @@ jobs:
             10.x
 
       - name: Run tests
-        run: dotnet test ./Egil.StronglyTypedPrimitives/Egil.StronglyTypedPrimitives.sln --configuration Release --logger trx --results-directory "${{ env.TestResultsDirectory }}" --collect:"XPlat Code Coverage"
-
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: test-results
-          if-no-files-found: error
-          retention-days: 3
-          path: ${{ env.TestResultsDirectory }}/**
-
-      - name: Test Report
-        uses: dorny/test-reporter@v1
-        if: github.actor != 'dependabot[bot]' && (success() || failure()) && github.repository_owner == 'egil'
-        with:
-          name: test-results
-          path: ${{ env.TestResultsDirectory }}/**/*.trx
-          path-replace-backslashes: 'true'
-          reporter: dotnet-trx
+        run: dotnet test ./Egil.StronglyTypedPrimitives/Egil.StronglyTypedPrimitives.sln --configuration Release
 
   release:
     needs: [validate-nuget, run-test]
