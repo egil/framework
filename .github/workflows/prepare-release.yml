@@ -14,7 +14,6 @@ on:
         description: 'Type of release'
         type: choice
         options:
-          - build
           - minor
           - major
         default: minor
@@ -50,21 +49,42 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
           echo "$RELEASE_INFO" | jq .
 
-      - name: Extract branch info
+      - name: Extract version change details
         id: extract-branch
         shell: bash
         run: |
+          cd ${{ inputs.project }}
           RELEASE_INFO='${{ steps.prepare-release.outputs.RELEASE_INFO }}'
           NEW_BRANCH=$(echo "$RELEASE_INFO" | jq -r '.NewBranch.Name')
           echo "NEW_BRANCH=$NEW_BRANCH" >> $GITHUB_OUTPUT
           echo "New branch created: $NEW_BRANCH"
+          MAIN_VERSION_COMMIT_MESSAGE=$(git log --format=%B -n 1 --skip 1)
+          echo "MAIN_VERSION_COMMIT_MESSAGE=$MAIN_VERSION_COMMIT_MESSAGE" >> $GITHUB_OUTPUT
+          echo "Commit message: $MAIN_VERSION_COMMIT_MESSAGE"
+          MAIN_BRANCH_VERSION=$(echo "$RELEASE_INFO" | jq -r '.CurrentBranch.Version')
+          echo "MAIN_BRANCH_VERSION=$MAIN_BRANCH_VERSION" >> $GITHUB_OUTPUT
+          echo "New main branch version: $MAIN_BRANCH_VERSION"
 
-      - name: Push main and release branch
+      - name: Push release branch
+        run: |
+          git push origin ${{ steps.extract-branch.outputs.NEW_BRANCH }}
+          echo "Pushed new branch: ${{ steps.extract-branch.outputs.NEW_BRANCH }}"
+
+      - uses: actions/checkout@v4
+        name: Checkout main branch from Origin
+
+      - name: Merge release branch into main
+        shell: bash
+        run: |
+          cd ${{ inputs.project }}
+          git merge -X ours ${{ steps.extract-branch.outputs.NEW_BRANCH }}
+          echo "merged ${{ steps.extract-branch.outputs.NEW_BRANCH }} into main"
+          dotnet nbgv set-version ${{ steps.extract-branch.outputs.MAIN_BRANCH_VERSION }}
+          git commit -am "${{ steps.extract-branch.outputs.MAIN_VERSION_COMMIT_MESSAGE }}"
+          echo "reapplied version changes to main"
+          cat version.json
+
+      - name: Push main branch
         run: |
           git push origin main
-          if [[ "${{ steps.extract-branch.outputs.NEW_BRANCH }}" != "null" ]]; then
-            git push origin ${{ steps.extract-branch.outputs.NEW_BRANCH }}
-            echo "Pushed new branch: ${{ steps.extract-branch.outputs.NEW_BRANCH }}"
-          else
-            echo "No new branch was created"
-          fi
+          echo "Pushed main branch"
