@@ -28,6 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          token: ${{ secrets.PAT_FOR_GIT_CONTENT_OPS }}
           fetch-depth: 0
 
       - name: Setup .NET
@@ -58,11 +59,10 @@ jobs:
           echo "NEW_BRANCH=$NEW_BRANCH" >> $GITHUB_OUTPUT
           echo "New branch created: $NEW_BRANCH"
 
-      - name: Push release branch
+      - name: Push main and release branch
         run: |
           git push origin main
           if [[ "${{ steps.extract-branch.outputs.NEW_BRANCH }}" != "null" ]]; then
-            git remote set-url origin https://x-access-token:${{ secrets.PAT_FOR_GIT_CONTENT_OPS }}@github.com/${{ github.repository }}
             git push origin ${{ steps.extract-branch.outputs.NEW_BRANCH }}
             echo "Pushed new branch: ${{ steps.extract-branch.outputs.NEW_BRANCH }}"
           else
