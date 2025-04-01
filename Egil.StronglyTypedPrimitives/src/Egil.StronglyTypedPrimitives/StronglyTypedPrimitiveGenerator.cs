@@ -475,7 +475,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
 
         yield return $$"""
 
-            private sealed class {{info.Target.Identifier}}JsonConverter : System.Text.Json.Serialization.JsonConverter<{{info.Target.Identifier}}>
+            public sealed class {{info.Target.Identifier}}JsonConverter : System.Text.Json.Serialization.JsonConverter<{{info.Target.Identifier}}>
             {
                 public override {{info.Target.Identifier}} Read(ref System.Text.Json.Utf8JsonReader reader, System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
                 {

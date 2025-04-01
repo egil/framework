@@ -103,7 +103,7 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
     
     public static bool operator <=(Foo a, Foo b) => a.CompareTo(b) <= 0;
 
-    private sealed class FooJsonConverter : System.Text.Json.Serialization.JsonConverter<Foo>
+    public sealed class FooJsonConverter : System.Text.Json.Serialization.JsonConverter<Foo>
     {
         public override Foo Read(ref System.Text.Json.Utf8JsonReader reader, System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
         {
