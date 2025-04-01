@@ -9,7 +9,6 @@
 //------------------------------------------------------------------------------
 #nullable enable
 [System.CodeDom.Compiler.GeneratedCodeAttribute("Egil.StronglyTypedPrimitives, Version=x.x.x.x, Culture=neutral, PublicKeyToken=null", "x.x.x.x")]
-[System.Text.Json.Serialization.JsonConverterAttribute(typeof(FooJsonConverter))]
 public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<string>, System.IParsable<Foo>, System.ISpanParsable<Foo>, System.IComparable<Foo>, System.IComparable
 {
     public static readonly Foo Empty = default;
@@ -83,19 +82,4 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
     public static bool operator >=(Foo a, Foo b) => a.CompareTo(b) >= 0;
     
     public static bool operator <=(Foo a, Foo b) => a.CompareTo(b) <= 0;
-
-    public sealed class FooJsonConverter : System.Text.Json.Serialization.JsonConverter<Foo>
-    {
-        public override Foo Read(ref System.Text.Json.Utf8JsonReader reader, System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
-        {
-            var rawValue = System.Text.Json.JsonSerializer.Deserialize<string>(ref reader, options);
-            
-            return rawValue is not null && Foo.IsValueValid(rawValue, throwIfInvalid: false)
-                ? new Foo(rawValue)
-                : Foo.Empty;
-        }
-
-        public override void Write(System.Text.Json.Utf8JsonWriter writer, Foo value, System.Text.Json.JsonSerializerOptions options)
-            => System.Text.Json.JsonSerializer.Serialize(writer, value.Value, options);
-    }
 }
