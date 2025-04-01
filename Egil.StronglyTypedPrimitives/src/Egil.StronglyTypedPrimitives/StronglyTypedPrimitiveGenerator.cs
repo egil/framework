@@ -248,7 +248,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             yield return underlyingTypeSymbol.SpecialType is SpecialType.System_String
                 ? $$"""
 
-                    public override string ToString() => {{info.Parameter.Identifier}};
+                    public override string ToString() => {{info.Parameter.Identifier}} ?? string.Empty;
                 """
                 : $$"""
 
