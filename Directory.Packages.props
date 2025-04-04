@@ -20,9 +20,10 @@
     <PackageVersion Include="Meziantou.Polyfill" Version="1.0.42" />
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="9.0.3" />
     <PackageVersion Include="Microsoft.CodeAnalysis.Analyzers" Version="3.11.0" />
-    <PackageVersion Include="Microsoft.CodeAnalysis.Common" Version="4.13.0" />
-    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="4.13.0" />
-    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="4.12.0" />
+    <!-- Version 4.8.0 matches with the release of dotnet 8 -->
+    <PackageVersion Include="Microsoft.CodeAnalysis.Common" Version="4.8.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="4.8.0" />
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.0.3" />
     <PackageVersion Include="Microsoft.IO.RecyclableMemoryStream" Version="3.0.1" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.13.0" />
@@ -31,7 +32,7 @@
     <PackageVersion Include="MinVer" Version="6.0.0" />
     <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.11.2" />
     <PackageVersion Include="System.Linq.AsyncEnumerable" Version="10.0.0-preview.2.25163.2" />
-    <PackageVersion Include="Verify.SourceGenerators" Version="2.5.0" />
+    <PackageVersion Include="Verify.SourceGenerators" Version="2.2.0" />
     <PackageVersion Include="Verify.XunitV3" Version="28.11.0" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.0.2" />
     <PackageVersion Include="Nerdbank.GitVersioning" Version="3.7.115" />

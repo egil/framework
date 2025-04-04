@@ -1,6 +1,6 @@
-using System.Text.RegularExpressions;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using System.Text.RegularExpressions;
 
 namespace Egil.StronglyTypedPrimitives;
 
@@ -43,6 +43,7 @@ public static class SnapshotTestHelper
             parseOptions: parseOptions);
 
         return Verifier.Verify(driver.RunGeneratorsAndUpdateCompilation(inputCompilation, out compilation, out var _))
-            .ScrubLinesWithReplace(x => Regex.Replace(x, @"\d+\.\d+\.\d+\.\d+", "x.x.x.x"));
+            .ScrubLinesWithReplace(x => Regex.Replace(x, @"\d+\.\d+\.\d+\.\d+", "x.x.x.x"))
+            .UseDirectory("./snapshots");
     }
 }

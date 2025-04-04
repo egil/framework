@@ -3,27 +3,27 @@ using Microsoft.CodeAnalysis.CSharp;
 
 namespace Egil.StronglyTypedPrimitives;
 
-public class StronglyTypedPrimitiveGeneratorTest
+public abstract class StronglyTypedPrimitiveGeneratorTestBase
 {
     public static TheoryData<string, LanguageVersion> UnderlyingTypes { get; } =
         new()
         {
-            { "string", LanguageVersion.Preview },
-            { "int", LanguageVersion.Preview },
-            { "System.Guid", LanguageVersion.Preview },
-            { "System.DateTime", LanguageVersion.Preview },
-            { "System.DateTimeOffset", LanguageVersion.Preview },
-            { "System.TimeSpan", LanguageVersion.Preview },
-            { "decimal", LanguageVersion.Preview },
-            { "byte", LanguageVersion.Preview },
-            { "string", LanguageVersion.CSharp13 },
-            { "int", LanguageVersion.CSharp13 },
-            { "System.Guid", LanguageVersion.CSharp13 },
-            { "System.DateTime", LanguageVersion.CSharp13 },
-            { "System.DateTimeOffset", LanguageVersion.CSharp13 },
-            { "System.TimeSpan", LanguageVersion.CSharp13 },
-            { "decimal", LanguageVersion.CSharp13 },
-            { "byte", LanguageVersion.CSharp13 },
+            //{ "string", LanguageVersion.Preview },
+            //{ "int", LanguageVersion.Preview },
+            //{ "System.Guid", LanguageVersion.Preview },
+            //{ "System.DateTime", LanguageVersion.Preview },
+            //{ "System.DateTimeOffset", LanguageVersion.Preview },
+            //{ "System.TimeSpan", LanguageVersion.Preview },
+            //{ "decimal", LanguageVersion.Preview },
+            //{ "byte", LanguageVersion.Preview },
+            { "string", LanguageVersion.LatestMajor },
+            { "int", LanguageVersion.LatestMajor },
+            { "System.Guid", LanguageVersion.LatestMajor },
+            { "System.DateTime", LanguageVersion.LatestMajor },
+            { "System.DateTimeOffset", LanguageVersion.LatestMajor },
+            { "System.TimeSpan", LanguageVersion.LatestMajor },
+            { "decimal", LanguageVersion.LatestMajor },
+            { "byte", LanguageVersion.LatestMajor },
             //"char",
             //"bool",
         };
@@ -42,7 +42,7 @@ public class StronglyTypedPrimitiveGeneratorTest
 
         await SnapshotTestHelper.Verify<StronglyTypedPrimitiveGenerator>(
             input,
-            LanguageVersion.CSharp13,
+            LanguageVersion.LatestMajor,
             out var compilation
         );
 
@@ -52,9 +52,12 @@ public class StronglyTypedPrimitiveGeneratorTest
                 .Where(d => d.Severity > DiagnosticSeverity.Warning)
         );
     }
+}
 
+public class Plain_type : StronglyTypedPrimitiveGeneratorTestBase
+{
     [Theory, MemberData(nameof(UnderlyingTypes))]
-    public async Task Standard(string underlyingType, LanguageVersion languageVersion)
+    public async Task Test(string underlyingType, LanguageVersion languageVersion)
     {
         var input = $$"""
             using Egil.StronglyTypedPrimitives;
@@ -77,9 +80,12 @@ public class StronglyTypedPrimitiveGeneratorTest
                 .Where(d => d.Severity > DiagnosticSeverity.Warning)
         );
     }
+}
 
+public class No_namespace : StronglyTypedPrimitiveGeneratorTestBase
+{
     [Theory, MemberData(nameof(UnderlyingTypes))]
-    public async Task No_namespace(string underlyingType, LanguageVersion languageVersion)
+    public async Task Test(string underlyingType, LanguageVersion languageVersion)
     {
         var input = $$"""
             using Egil.StronglyTypedPrimitives;
@@ -100,9 +106,12 @@ public class StronglyTypedPrimitiveGeneratorTest
                 .Where(d => d.Severity > DiagnosticSeverity.Warning)
         );
     }
+}
 
+public class Alt_type_param_name : StronglyTypedPrimitiveGeneratorTestBase
+{
     [Theory, MemberData(nameof(UnderlyingTypes))]
-    public async Task Alt_type_param_name(string underlyingType, LanguageVersion languageVersion)
+    public async Task Test(string underlyingType, LanguageVersion languageVersion)
     {
         var input = $$"""
             using Egil.StronglyTypedPrimitives;
@@ -125,9 +134,12 @@ public class StronglyTypedPrimitiveGeneratorTest
                 .Where(d => d.Severity > DiagnosticSeverity.Warning)
         );
     }
+}
 
+public class Custom_IsValueValid : StronglyTypedPrimitiveGeneratorTestBase
+{
     [Theory, MemberData(nameof(UnderlyingTypes))]
-    public async Task Custom_IsValueValid(string underlyingType, LanguageVersion languageVersion)
+    public async Task Test(string underlyingType, LanguageVersion languageVersion)
     {
         var input = $$"""
             using Egil.StronglyTypedPrimitives;
@@ -154,9 +166,12 @@ public class StronglyTypedPrimitiveGeneratorTest
                 .Where(d => d.Severity > DiagnosticSeverity.Warning)
         );
     }
+}
 
+public class Custom_IParsable_Parse : StronglyTypedPrimitiveGeneratorTestBase
+{
     [Theory, MemberData(nameof(UnderlyingTypes))]
-    public async Task Custom_IParsable_Parse(string underlyingType, LanguageVersion languageVersion)
+    public async Task Test(string underlyingType, LanguageVersion languageVersion)
     {
         var input = $$"""
             #nullable enable
@@ -187,12 +202,14 @@ public class StronglyTypedPrimitiveGeneratorTest
                 .Where(d => d.Severity > DiagnosticSeverity.Warning)
         );
     }
+}
 
+public class Custom_IParsable_TryParse : StronglyTypedPrimitiveGeneratorTestBase
+{
     [Theory, MemberData(nameof(UnderlyingTypes))]
-    public async Task Custom_IParsable_TryParse(
+    public async Task Test(
         string underlyingType,
-        LanguageVersion languageVersion
-    )
+        LanguageVersion languageVersion)
     {
         var input = $$"""
             #nullable enable
@@ -224,12 +241,14 @@ public class StronglyTypedPrimitiveGeneratorTest
                 .Where(d => d.Severity > DiagnosticSeverity.Warning)
         );
     }
+}
 
+public class Custom_IFormattable_ToString : StronglyTypedPrimitiveGeneratorTestBase
+{
     [Theory, MemberData(nameof(UnderlyingTypes))]
-    public async Task Custom_IFormattable_ToString(
+    public async Task Test(
         string underlyingType,
-        LanguageVersion languageVersion
-    )
+        LanguageVersion languageVersion)
     {
         var input = $$"""
             #nullable enable
@@ -256,9 +275,12 @@ public class StronglyTypedPrimitiveGeneratorTest
                 .Where(d => d.Severity > DiagnosticSeverity.Warning)
         );
     }
+}
 
+public class Custom_IFormattable_ToString_with_format : StronglyTypedPrimitiveGeneratorTestBase
+{
     [Theory, MemberData(nameof(UnderlyingTypes))]
-    public async Task Custom_IFormattable_ToString_with_format(
+    public async Task Test(
         string underlyingType,
         LanguageVersion languageVersion
     )
@@ -288,12 +310,14 @@ public class StronglyTypedPrimitiveGeneratorTest
                 .Where(d => d.Severity > DiagnosticSeverity.Warning)
         );
     }
+}
 
+public class Custom_IFormattable_ToString_with_format_and_formatProvider : StronglyTypedPrimitiveGeneratorTestBase
+{
     [Theory, MemberData(nameof(UnderlyingTypes))]
-    public async Task Custom_IFormattable_ToString_with_format_and_formatProvider(
+    public async Task Test(
         string underlyingType,
-        LanguageVersion languageVersion
-    )
+        LanguageVersion languageVersion)
     {
         var input = $$"""
             #nullable enable

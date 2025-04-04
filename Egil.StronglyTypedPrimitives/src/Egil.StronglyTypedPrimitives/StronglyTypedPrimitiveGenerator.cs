@@ -75,7 +75,8 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
 
     private static string GenerateStronglyTypedSource(StronglyTypedTypeInfo info, Compilation compilation)
     {
-        var isCSharp14OrGreater = compilation is CSharpCompilation cSharpCompilation && cSharpCompilation.LanguageVersion > LanguageVersion.CSharp13;
+        const int CSharp13 = 1300;
+        var isCSharp14OrGreater = compilation is CSharpCompilation cSharpCompilation && (int)cSharpCompilation.LanguageVersion > CSharp13;
         var semanticModel = compilation.GetSemanticModel(info.Target.SyntaxTree);
         var targetTypeSymbol = semanticModel.GetDeclaredSymbol(info.Target)
             ?? throw new InvalidOperationException("Cannot get type symbol for target type.");
