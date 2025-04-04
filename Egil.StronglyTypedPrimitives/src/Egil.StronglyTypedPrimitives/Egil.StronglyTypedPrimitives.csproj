@@ -30,7 +30,6 @@
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
-    <MinVerTagPrefix>v</MinVerTagPrefix>
     <EnablePackageValidation>false</EnablePackageValidation>
     <PackageValidationBaselineVersion>1.0.2</PackageValidationBaselineVersion>
   </PropertyGroup>

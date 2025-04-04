@@ -27,7 +27,6 @@
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
     <EnablePackageValidation>false</EnablePackageValidation>
     <PackageValidationBaselineVersion>1.0.2</PackageValidationBaselineVersion>
-    <MinVerTagPrefix>v</MinVerTagPrefix>
   </PropertyGroup>
 
   <ItemGroup>
