@@ -1,0 +1,1 @@
+# Orleans Event Sourcing with Azure Blob Block Storage

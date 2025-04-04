@@ -1,5 +1,6 @@
 # yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
 name: prepare-release
+description: Creates a release branch with version increment and merges it into main
 on:
   workflow_dispatch:
     inputs:
@@ -8,6 +9,7 @@ on:
         type: choice
         required: true
         options:
+          - Egil.Orleans.EventSourcing
           - Egil.Orleans.Storage
           - Egil.StronglyTypedPrimitives
       releaseType:

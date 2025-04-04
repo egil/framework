@@ -1,0 +1,30 @@
+{
+  "$schema": "https://raw.githubusercontent.com/dotnet/Nerdbank.GitVersioning/main/src/NerdBank.GitVersioning/version.schema.json",
+  "version": "0.2-alpha",
+  "publicReleaseRefSpec": [
+    "^refs/heads/main$",
+    "^refs/heads/release/egil-orleans-eventsourcing/v\\d+(?:\\.\\d+)?$"
+  ],
+  "cloudBuild": {
+    "setAllVariables": true,
+    "buildNumber": {
+      "enabled": true
+    }
+  },
+  "release": {
+    "tagName": "egil-orleans-eventsourcing/v{version}",
+    "branchName": "release/egil-orleans-eventsourcing/v{version}"
+  },
+  "pathFilters": [
+    "./",
+    "../.github/workflows/egil-orleans-eventsourcing-ci.yml",
+    "../.editorconfig",
+    "../.gitattributes",
+    "../.gitignore",
+    "../Directory.Build.props",
+    "../Directory.Packages.props",
+    "../LICENSE",
+    "../version.json",
+    "../xunit.runner.json"
+  ]
+}

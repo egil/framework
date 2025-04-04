@@ -1,0 +1,134 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: egil-orleans-eventsourcing
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'main'
+      - 'release/egil-orleans-eventsourcing/v*'
+  pull_request:
+    branches:
+      - 'main'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 1
+  DOTNET_NOLOGO: true
+  NuGetDirectory: ${{ github.workspace}}/nuget
+  TestResultsDirectory: ${{ github.workspace}}/TestResults
+  BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+  Project: Egil.Orleans.EventSourcing
+
+jobs:
+  create-nuget:
+    runs-on: ubuntu-latest
+    if: github.event.inputs.prepare-release != 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.x
+
+      - run: |
+          dotnet build ./Egil.Orleans.EventSourcing/src/Egil.Orleans.EventSourcing/Egil.Orleans.EventSourcing.csproj -c Release -f net9.0
+          dotnet pack ./Egil.Orleans.EventSourcing/src/Egil.Orleans.EventSourcing/Egil.Orleans.EventSourcing.csproj -c Release --no-build --output ${{ env.NuGetDirectory }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nuget
+          if-no-files-found: error
+          retention-days: 7
+          path: ${{ env.NuGetDirectory }}/*.nupkg
+
+  validate-nuget:
+    runs-on: ubuntu-latest
+    if: github.event.inputs.prepare-release != 'true'
+    needs: [ create-nuget ]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: nuget
+          path: ${{ env.NuGetDirectory }}
+
+      - name: Install nuget validator
+        run: dotnet tool restore
+
+      - name: Validate package
+        shell: pwsh
+        run: dotnet meziantou.validate-nuget-package (Get-ChildItem "${{ env.NuGetDirectory }}/*.nupkg") --excluded-rules IconMustBeSet
+
+  run-test:
+    runs-on: ubuntu-latest
+    if: github.event.inputs.prepare-release != 'true'
+    timeout-minutes: 30
+    env:
+      TestResultsDirectory: ${{ github.workspace }}/TestResults
+    permissions:
+      checks: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.x
+
+      - name: Run tests
+        run: dotnet test ./Egil.Orleans.EventSourcing/Egil.Orleans.EventSourcing.sln --configuration Release
+
+  release:
+    needs: [validate-nuget, run-test]
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/heads/release/egil-orleans-eventsourcing/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: nuget
+          path: ${{ env.NuGetDirectory }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+
+      - name: Publish NuGet package
+        shell: pwsh
+        run: |
+          foreach($file in (Get-ChildItem "${{ env.NuGetDirectory }}" -Recurse -Include *.nupkg)) {
+            dotnet nuget push $file --api-key "${{ secrets.NUGET_APIKEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
+          }
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure GIT
+        run: |
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
+
+      - name: Add git tag using dotnet nbgv
+        run: |
+          cd ${{ env.Project }}
+          dotnet tool restore
+          dotnet nbgv tag
+          git push origin --tags
+
+      - name: Delete release branch on origin
+        if: startsWith(github.ref, 'refs/heads/release/egil-orleans-eventsourcing/v')
+        run: git push origin --delete "${{ env.BRANCH_NAME }}"

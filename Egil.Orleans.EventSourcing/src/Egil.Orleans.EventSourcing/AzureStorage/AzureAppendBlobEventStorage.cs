@@ -1,14 +1,14 @@
+using Azure;
+using Azure.Storage.Blobs.Models;
+using Azure.Storage.Blobs.Specialized;
+using Microsoft.Extensions.Logging;
+using Microsoft.IO;
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
-using Azure;
-using Azure.Storage.Blobs.Models;
-using Azure.Storage.Blobs.Specialized;
-using Microsoft.Extensions.Logging;
-using Microsoft.IO;
 
 namespace Egil.Orleans.EventSourcing;
 
@@ -51,12 +51,20 @@ public sealed partial class AzureAppendBlobEventStorage<TEvent>(
 
         var appended = 0;
 
-        foreach (var (stream, addedEvents) in AddEventsToStreams(events))
+        try
         {
-            var result = await client.AppendBlockAsync(stream, appendOptions, cancellationToken);
-            appendOptions.Conditions.IfNoneMatch = default;
-            appendOptions.Conditions.IfMatch = result.Value.ETag;
-            appended += addedEvents;
+            foreach (var (stream, addedEvents) in AddEventsToStreams(events))
+            {
+                var result = await client.AppendBlockAsync(stream, appendOptions, cancellationToken);
+                appendOptions.Conditions.IfNoneMatch = default;
+                appendOptions.Conditions.IfMatch = result.Value.ETag;
+                appended += addedEvents;
+            }
+        }
+        catch (Exception ex)
+        {
+            LogFailedToApplyEvents(ex);
+            throw;
         }
 
         AppendEventsCounter.Add(appended, EventTypeTag);
@@ -322,6 +330,9 @@ public sealed partial class AzureAppendBlobEventStorage<TEvent>(
 
         return totalRead;
     }
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to apply events to log.")]
+    private partial void LogFailedToApplyEvents(Exception exception);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Deserialization of event {Version} from event storage returned null.")]
     private partial void LogErrorDeserializingEvent(Exception exception, int version);

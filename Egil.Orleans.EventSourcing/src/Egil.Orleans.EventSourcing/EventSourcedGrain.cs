@@ -1,10 +1,10 @@
-using System.Reflection;
 using Egil.Orleans.EventSourcing.AzureStorage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Orleans;
 using Orleans.Runtime;
+using System.Reflection;
 
 namespace Egil.Orleans.EventSourcing;
 
@@ -158,8 +158,9 @@ public abstract partial class EventSourcedGrain<TEvent, TState> : Grain
 
             await projectionStorage.WriteStateAsync(cancellationToken);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            LogFailedToWriteStateFromStorage(ex, this.GetGrainId());
             projectionStorage.State = originalState;
             throw;
         }
@@ -233,4 +234,7 @@ public abstract partial class EventSourcedGrain<TEvent, TState> : Grain
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to read state from storage for grain {GrainId}. Creating new state.")]
     private partial void LogFailedToReadStateFromStorage(Exception exception, GrainId grainId);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to write state from storage for grain {GrainId}. Reverting to previous state.")]
+    private partial void LogFailedToWriteStateFromStorage(Exception exception, GrainId grainId);
 }
