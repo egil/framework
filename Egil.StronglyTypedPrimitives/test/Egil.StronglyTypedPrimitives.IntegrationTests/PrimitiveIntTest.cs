@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Text.Json;
-using Egil.StronglyTypedPrimitives;
 
 namespace Egil.StronglyTypedPrimitives
 {
@@ -91,25 +90,4 @@ namespace Egil.StronglyTypedPrimitives
             Assert.Equal(new StronglyTypedInt(goodValue), JsonSerializer.Deserialize<StronglyTypedInt>(goodValue.ToString()));
         }
     }
-}
-
-namespace Examples
-{
-    [StronglyTyped]
-    public readonly partial record struct StronglyTypedIntWithConstraints(int Value)
-    {
-        public static bool IsValueValid(int value, bool throwIfInvalid)
-        {
-            if (value > 5)
-                return true;
-
-            if (throwIfInvalid)
-                throw new ArgumentException("Value must be at larger than 5", nameof(value));
-
-            return false;
-        }
-    }
-
-    [StronglyTyped]
-    public readonly partial record struct StronglyTypedInt(int Value);
 }

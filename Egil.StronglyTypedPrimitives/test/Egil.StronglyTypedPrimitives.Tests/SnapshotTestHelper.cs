@@ -24,7 +24,8 @@ public static class SnapshotTestHelper
             .Concat(
             [
                 MetadataReference.CreateFromFile(typeof(TGenerator).Assembly.Location),
-                MetadataReference.CreateFromFile(typeof(StronglyTypedAttribute).Assembly.Location)
+                MetadataReference.CreateFromFile(typeof(StronglyTypedAttribute).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(System.Text.Json.JsonSerializer).Assembly.Location)
             ])
             .Concat(includeTypesAssembly.Select(x => MetadataReference.CreateFromFile(x.Assembly.Location)))
             .ToList();

@@ -1,4 +1,3 @@
-using Egil.StronglyTypedPrimitives;
 using System.Text.Json;
 
 namespace Egil.StronglyTypedPrimitives
@@ -49,10 +48,4 @@ namespace Egil.StronglyTypedPrimitives
             Assert.True(new StronglyTypedGuid(goodGuid) >= StronglyTypedGuid.Empty);
         }
     }
-}
-
-namespace Examples
-{
-    [StronglyTyped]
-    public readonly partial record struct StronglyTypedGuid(Guid Value);
 }

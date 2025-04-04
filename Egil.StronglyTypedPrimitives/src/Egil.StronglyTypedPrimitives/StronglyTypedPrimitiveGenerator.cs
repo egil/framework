@@ -489,6 +489,12 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
 
                 public override void Write(System.Text.Json.Utf8JsonWriter writer, {{info.Target.Identifier}} value, System.Text.Json.JsonSerializerOptions options)
                     => System.Text.Json.JsonSerializer.Serialize(writer, value.{{info.Parameter.Identifier}}, options);
+
+                public override {{info.Target.Identifier}} ReadAsPropertyName(ref System.Text.Json.Utf8JsonReader reader, System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
+                    => {{info.Target.Identifier}}.Parse(reader.GetString()!, null);
+
+                public override void WriteAsPropertyName(System.Text.Json.Utf8JsonWriter writer, [System.Diagnostics.CodeAnalysis.DisallowNull] {{info.Target.Identifier}} value, System.Text.Json.JsonSerializerOptions options)
+                    => writer.WritePropertyName(value.ToString());
             }
         """;
     }
