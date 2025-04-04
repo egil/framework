@@ -114,30 +114,21 @@ namespace Egil.StronglyTypedPrimitives
         [Fact]
         public void JsonSerialization_with_type_resolver()
         {
-            var options = new JsonSerializerOptions { TypeInfoResolver = TestJsonSerializerContext.Default };
-            var dto = new Dto(new TypedId("42"), new StronglyTypedString("Foo"), [new("Bar"), new("Baz")]);
+            var options = new JsonSerializerOptions { TypeInfoResolver = TypedStringJsonSerializerContext.Default };
+            var dto = new StringDto(new StronglyTypedString("42"), [new("Bar"), new("Baz")]);
 
             var json = JsonSerializer.Serialize(dto, options);
-            var dtoFromJson = JsonSerializer.Deserialize<Dto>(json, options);
+            var dtoFromJson = JsonSerializer.Deserialize<StringDto>(json, options);
 
             Assert.Equivalent(dto, dtoFromJson);
         }
     }
 
-    [StronglyTyped]
-    public readonly partial record struct TypedId(string Id);
+    internal record class StringDto(StronglyTypedString Id, IEnumerable<StronglyTypedString> PetNames);
 
-    public record class Dto(TypedId Id, StronglyTypedString Name, IEnumerable<StronglyTypedString> PetNames);
-
-    [JsonSourceGenerationOptions(
-        WriteIndented = false,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        IgnoreReadOnlyFields = true,
-        RespectNullableAnnotations = true,
-        UseStringEnumConverter = true,
-        AllowOutOfOrderMetadataProperties = true)]
-    [JsonSerializable(typeof(Dto))]
-    internal sealed partial class TestJsonSerializerContext : JsonSerializerContext
+    [JsonSourceGenerationOptions]
+    [JsonSerializable(typeof(StringDto))]
+    internal sealed partial class TypedStringJsonSerializerContext : JsonSerializerContext
     {
     }
 }

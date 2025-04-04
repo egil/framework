@@ -4,6 +4,7 @@ namespace Egil.StronglyTypedPrimitives
 {
     using Examples;
     using System;
+    using System.Text.Json.Serialization;
     using Xunit;
 
     public partial class PrimitiveGuidTest
@@ -46,6 +47,28 @@ namespace Egil.StronglyTypedPrimitives
             Assert.True(new StronglyTypedGuid(goodGuid) > StronglyTypedGuid.Empty);
             Assert.False(new StronglyTypedGuid(goodGuid) <= StronglyTypedGuid.Empty);
             Assert.True(new StronglyTypedGuid(goodGuid) >= StronglyTypedGuid.Empty);
+
+            // System.Text.Json.Serialization.Metadata.JsonMetadataServices
         }
+
+        [Fact]
+        public void JsonSerialization_with_type_resolver()
+        {
+            var options = new JsonSerializerOptions { TypeInfoResolver = TypedGuidJsonSerializerContext.Default };
+            var dto = new GuidDto(new StronglyTypedGuid(Guid.NewGuid()), [new(Guid.NewGuid()), new(Guid.NewGuid())]);
+
+            var json = JsonSerializer.Serialize(dto, options);
+            var dtoFromJson = JsonSerializer.Deserialize<GuidDto>(json, options);
+
+            Assert.Equivalent(dto, dtoFromJson);
+        }
+    }
+
+    internal record class GuidDto(StronglyTypedGuid Id, IEnumerable<StronglyTypedGuid> Multiples);
+
+    [JsonSourceGenerationOptions]
+    [JsonSerializable(typeof(GuidDto))]
+    internal sealed partial class TypedGuidJsonSerializerContext : JsonSerializerContext
+    {
     }
 }
