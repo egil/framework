@@ -22,20 +22,26 @@ it easy to avoid the primitive obsession anti pattern.
   - `System.ISpanFormattable`
   - `System.IUtf8SpanFormattable` 
 
-- **Supported primitive types**:
+- **Supported primitive types (among others)**:
 
   - `string`
   - `int`
+  - `decimal`
+  - `long`
+  - `double`
   - `Guid`
   - `DateTime`
   - `DateTimeOffset`
+  - `TimeOnly`
+  - `DateOnly`
   - `TimeSpan`
-  - `decimal`
   - `byte`
     
 - All types are marked with `IStronglyTypedPrimitive<TPrimitiveType>` and `IStronglyTypedPrimitive`.
 
 - **Generates JsonConverter for System.Text.Json**, if the target type is in an assembly that references `System.Text.Json` and the type does not already have a `JsonConverter` attribute declared on it.
+
+- **.NET 9 OpenAPI support**. The library includes a custom schema transformer that will ensure strongly typed types have the right OpenAPI schema definition.
 
 ## Getting started
 
@@ -111,7 +117,7 @@ The following code is generated:
 
 namespace Examples;
 
-[System.CodeDom.Compiler.GeneratedCodeAttribute("Egil.StronglyTypedPrimitives, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null", "1.0.0.0")]
+[System.CodeDom.Compiler.GeneratedCodeAttribute("Egil.StronglyTypedPrimitives, Version=1.9.0.0, Culture=neutral, PublicKeyToken=null", "1.9.0.0")]
 [System.Text.Json.Serialization.JsonConverterAttribute(typeof(StronglyTypedIntJsonConverter))]
 public readonly partial record struct StronglyTypedInt : Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<int>, System.IParsable<Examples.StronglyTypedInt>, System.ISpanParsable<Examples.StronglyTypedInt>, System.IUtf8SpanParsable<Examples.StronglyTypedInt>, System.IComparable<Examples.StronglyTypedInt>, System.IComparable, System.IFormattable, System.ISpanFormattable, System.IUtf8SpanFormattable
 {
@@ -215,11 +221,12 @@ public readonly partial record struct StronglyTypedInt : Egil.StronglyTypedPrimi
     
     public static bool operator <=(StronglyTypedInt a, StronglyTypedInt b) => a.CompareTo(b) <= 0;
 
-    private sealed class StronglyTypedIntJsonConverter : System.Text.Json.Serialization.JsonConverter<StronglyTypedInt>
+    public sealed class StronglyTypedIntJsonConverter : System.Text.Json.Serialization.JsonConverter<StronglyTypedInt>
     {
         public override StronglyTypedInt Read(ref System.Text.Json.Utf8JsonReader reader, System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
         {
             var rawValue = System.Text.Json.JsonSerializer.Deserialize<int>(ref reader, options);
+            
             return StronglyTypedInt.IsValueValid(rawValue, throwIfInvalid: false)
                 ? new StronglyTypedInt(rawValue)
                 : StronglyTypedInt.Empty;
@@ -227,9 +234,17 @@ public readonly partial record struct StronglyTypedInt : Egil.StronglyTypedPrimi
 
         public override void Write(System.Text.Json.Utf8JsonWriter writer, StronglyTypedInt value, System.Text.Json.JsonSerializerOptions options)
             => System.Text.Json.JsonSerializer.Serialize(writer, value.Value, options);
+
+        public override StronglyTypedInt ReadAsPropertyName(ref System.Text.Json.Utf8JsonReader reader, System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
+            => StronglyTypedInt.Parse(reader.GetString()!, null);
+
+        public override void WriteAsPropertyName(System.Text.Json.Utf8JsonWriter writer, [System.Diagnostics.CodeAnalysis.DisallowNull] StronglyTypedInt value, System.Text.Json.JsonSerializerOptions options)
+            => writer.WritePropertyName(value.ToString());
     }
 }
 ```
+
+See more examples in https://github.com/egil/framework/tree/main/Egil.StronglyTypedPrimitives/test/Egil.StronglyTypedPrimitives.Tests/snapshots
 
 ## Generator output for int with constraints
 
@@ -285,114 +300,8 @@ public readonly partial record struct StronglyTypedIntWithConstraints : Egil.Str
             @value = ThrowIfValueIsInvalid(value);
         }
     }
-
-    public override string ToString() => Value.ToString();
-
-    public static StronglyTypedIntWithConstraints Parse(string s, System.IFormatProvider? provider)
-    {
-        var rawValue = int.Parse(s, provider);
-        IsValueValid(rawValue, throwIfInvalid: true);
-        return new StronglyTypedIntWithConstraints(rawValue);
-    }
-
-    public static bool TryParse(string? s, System.IFormatProvider? provider, [System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out Examples.StronglyTypedIntWithConstraints result)
-    {
-        if (int.TryParse(s, provider, out var rawValue) && IsValueValid(rawValue, throwIfInvalid: false))
-        {
-            result = new StronglyTypedIntWithConstraints(rawValue);
-            return true;
-        }
-
-        result = StronglyTypedIntWithConstraints.Empty;
-        return false;
-    }
-
-    public static StronglyTypedIntWithConstraints Parse(System.ReadOnlySpan<char> s, System.IFormatProvider? provider)
-    {
-        var rawValue = int.Parse(s, provider);
-        IsValueValid(rawValue, throwIfInvalid: true);
-        return new StronglyTypedIntWithConstraints(rawValue);
-    }
-
-    public static bool TryParse(System.ReadOnlySpan<char> s, System.IFormatProvider? provider, [System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out Examples.StronglyTypedIntWithConstraints result)
-    {
-        if (int.TryParse(s, provider, out var rawValue) && IsValueValid(rawValue, throwIfInvalid: false))
-        {
-            result = new StronglyTypedIntWithConstraints(rawValue);
-            return true;
-        }
-
-        result = StronglyTypedIntWithConstraints.Empty;
-        return false;
-    }
-
-    public static StronglyTypedIntWithConstraints Parse(System.ReadOnlySpan<byte> utf8Text, System.IFormatProvider? provider)
-    {
-        var rawValue = int.Parse(utf8Text, provider);
-        IsValueValid(rawValue, throwIfInvalid: true);
-        return new StronglyTypedIntWithConstraints(rawValue);
-    }
-
-    public static bool TryParse(System.ReadOnlySpan<byte> utf8Text, System.IFormatProvider? provider, [System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out Examples.StronglyTypedIntWithConstraints result)
-    {
-        if (int.TryParse(utf8Text, provider, out var rawValue) && IsValueValid(rawValue, throwIfInvalid: false))
-        {
-            result = new StronglyTypedIntWithConstraints(rawValue);
-            return true;
-        }
-
-        result = StronglyTypedIntWithConstraints.Empty;
-        return false;
-    }
     
-    public int CompareTo(Examples.StronglyTypedIntWithConstraints other)
-        => Value.CompareTo(other.Value);
-    
-    public int CompareTo(object? obj)
-    {
-        if (obj is null)
-        {
-            return 1;
-        }
-
-        if (obj is StronglyTypedIntWithConstraints other)
-        {
-            return Value.CompareTo(other.Value);
-        }
-
-        return ((System.IComparable)Value).CompareTo(obj);
-    }
-    
-    public string ToString(string? format, System.IFormatProvider? formatProvider)
-        => Value.ToString(format, formatProvider);
-    
-    public bool TryFormat(System.Span<char> destination, out int charsWritten, System.ReadOnlySpan<char> format, System.IFormatProvider? provider)
-        => ((System.ISpanFormattable)Value).TryFormat(destination, out charsWritten, format, provider);
-    
-    public bool TryFormat(System.Span<byte> utf8Destination, out int bytesWritten, System.ReadOnlySpan<char> format, System.IFormatProvider? provider)
-        => ((System.IUtf8SpanFormattable)Value).TryFormat(utf8Destination, out bytesWritten, format, provider);
-    
-    public static bool operator > (StronglyTypedIntWithConstraints a, StronglyTypedIntWithConstraints b) => a.CompareTo(b) > 0;                
-
-    public static bool operator < (StronglyTypedIntWithConstraints a, StronglyTypedIntWithConstraints b) => a.CompareTo(b) < 0;                
-
-    public static bool operator >=(StronglyTypedIntWithConstraints a, StronglyTypedIntWithConstraints b) => a.CompareTo(b) >= 0;
-    
-    public static bool operator <=(StronglyTypedIntWithConstraints a, StronglyTypedIntWithConstraints b) => a.CompareTo(b) <= 0;
-
-    private sealed class StronglyTypedIntWithConstraintsJsonConverter : System.Text.Json.Serialization.JsonConverter<StronglyTypedIntWithConstraints>
-    {
-        public override StronglyTypedIntWithConstraints Read(ref System.Text.Json.Utf8JsonReader reader, System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
-        {
-            var rawValue = System.Text.Json.JsonSerializer.Deserialize<int>(ref reader, options);
-            return StronglyTypedIntWithConstraints.IsValueValid(rawValue, throwIfInvalid: false)
-                ? new StronglyTypedIntWithConstraints(rawValue)
-                : StronglyTypedIntWithConstraints.Empty;
-        }
-
-        public override void Write(System.Text.Json.Utf8JsonWriter writer, StronglyTypedIntWithConstraints value, System.Text.Json.JsonSerializerOptions options)
-            => System.Text.Json.JsonSerializer.Serialize(writer, value.Value, options);
-    }
+    // remaining cut for brevity. same as first example above ...
 }
 ```
 
@@ -424,113 +333,20 @@ public readonly partial record struct StronglyTypedIntWithConstraints : Egil.Str
         }
     } = ThrowIfValueIsInvalid(Value);
 
-    public override string ToString() => Value.ToString();
+    // remaining cut for brevity. same as first example above ...
+}
+```
 
-    public static StronglyTypedIntWithConstraints Parse(string s, System.IFormatProvider? provider)
-    {
-        var rawValue = int.Parse(s, provider);
-        IsValueValid(rawValue, throwIfInvalid: true);
-        return new StronglyTypedIntWithConstraints(rawValue);
-    }
+## .NET 9 OpenAPI support
 
-    public static bool TryParse(string? s, System.IFormatProvider? provider, [System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out Examples.StronglyTypedIntWithConstraints result)
-    {
-        if (int.TryParse(s, provider, out var rawValue) && IsValueValid(rawValue, throwIfInvalid: false))
-        {
-            result = new StronglyTypedIntWithConstraints(rawValue);
-            return true;
-        }
+The library includes a custom schema transformer that will ensure strongly typed types have the right OpenAPI schema definition. To use it, add the following to your OpenApi options:
 
-        result = StronglyTypedIntWithConstraints.Empty;
-        return false;
-    }
+```csharp
+using Egil.StronglyTypedPrimitives;
 
-    public static StronglyTypedIntWithConstraints Parse(System.ReadOnlySpan<char> s, System.IFormatProvider? provider)
-    {
-        var rawValue = int.Parse(s, provider);
-        IsValueValid(rawValue, throwIfInvalid: true);
-        return new StronglyTypedIntWithConstraints(rawValue);
-    }
-
-    public static bool TryParse(System.ReadOnlySpan<char> s, System.IFormatProvider? provider, [System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out Examples.StronglyTypedIntWithConstraints result)
-    {
-        if (int.TryParse(s, provider, out var rawValue) && IsValueValid(rawValue, throwIfInvalid: false))
-        {
-            result = new StronglyTypedIntWithConstraints(rawValue);
-            return true;
-        }
-
-        result = StronglyTypedIntWithConstraints.Empty;
-        return false;
-    }
-
-    public static StronglyTypedIntWithConstraints Parse(System.ReadOnlySpan<byte> utf8Text, System.IFormatProvider? provider)
-    {
-        var rawValue = int.Parse(utf8Text, provider);
-        IsValueValid(rawValue, throwIfInvalid: true);
-        return new StronglyTypedIntWithConstraints(rawValue);
-    }
-
-    public static bool TryParse(System.ReadOnlySpan<byte> utf8Text, System.IFormatProvider? provider, [System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out Examples.StronglyTypedIntWithConstraints result)
-    {
-        if (int.TryParse(utf8Text, provider, out var rawValue) && IsValueValid(rawValue, throwIfInvalid: false))
-        {
-            result = new StronglyTypedIntWithConstraints(rawValue);
-            return true;
-        }
-
-        result = StronglyTypedIntWithConstraints.Empty;
-        return false;
-    }
-    
-    public int CompareTo(Examples.StronglyTypedIntWithConstraints other)
-        => Value.CompareTo(other.Value);
-    
-    public int CompareTo(object? obj)
-    {
-        if (obj is null)
-        {
-            return 1;
-        }
-
-        if (obj is StronglyTypedIntWithConstraints other)
-        {
-            return Value.CompareTo(other.Value);
-        }
-
-        return ((System.IComparable)Value).CompareTo(obj);
-    }
-    
-    public string ToString(string? format, System.IFormatProvider? formatProvider)
-        => Value.ToString(format, formatProvider);
-    
-    public bool TryFormat(System.Span<char> destination, out int charsWritten, System.ReadOnlySpan<char> format, System.IFormatProvider? provider)
-        => ((System.ISpanFormattable)Value).TryFormat(destination, out charsWritten, format, provider);
-    
-    public bool TryFormat(System.Span<byte> utf8Destination, out int bytesWritten, System.ReadOnlySpan<char> format, System.IFormatProvider? provider)
-        => ((System.IUtf8SpanFormattable)Value).TryFormat(utf8Destination, out bytesWritten, format, provider);
-    
-    public static bool operator > (StronglyTypedIntWithConstraints a, StronglyTypedIntWithConstraints b) => a.CompareTo(b) > 0;                
-
-    public static bool operator < (StronglyTypedIntWithConstraints a, StronglyTypedIntWithConstraints b) => a.CompareTo(b) < 0;                
-
-    public static bool operator >=(StronglyTypedIntWithConstraints a, StronglyTypedIntWithConstraints b) => a.CompareTo(b) >= 0;
-    
-    public static bool operator <=(StronglyTypedIntWithConstraints a, StronglyTypedIntWithConstraints b) => a.CompareTo(b) <= 0;
-
-    private sealed class StronglyTypedIntWithConstraintsJsonConverter : System.Text.Json.Serialization.JsonConverter<StronglyTypedIntWithConstraints>
-    {
-        public override StronglyTypedIntWithConstraints Read(ref System.Text.Json.Utf8JsonReader reader, System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
-        {
-            var rawValue = System.Text.Json.JsonSerializer.Deserialize<int>(ref reader, options);
-            return StronglyTypedIntWithConstraints.IsValueValid(rawValue, throwIfInvalid: false)
-                ? new StronglyTypedIntWithConstraints(rawValue)
-                : StronglyTypedIntWithConstraints.Empty;
-        }
-
-        public override void Write(System.Text.Json.Utf8JsonWriter writer, StronglyTypedIntWithConstraints value, System.Text.Json.JsonSerializerOptions options)
-            => System.Text.Json.JsonSerializer.Serialize(writer, value.Value, options);
-    }
+builder.Services.AddOpenApi(options =>
+{
+    options.AddSchemaTransformer<StronglyTypedSchemaTransformer>();
 }
 ```
 
