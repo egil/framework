@@ -8,22 +8,17 @@ public abstract class StronglyTypedPrimitiveGeneratorTestBase
     public static TheoryData<string, LanguageVersion> UnderlyingTypes { get; } =
         new()
         {
-            //{ "string", LanguageVersion.Preview },
-            //{ "int", LanguageVersion.Preview },
-            //{ "System.Guid", LanguageVersion.Preview },
-            //{ "System.DateTime", LanguageVersion.Preview },
-            //{ "System.DateTimeOffset", LanguageVersion.Preview },
-            //{ "System.TimeSpan", LanguageVersion.Preview },
-            //{ "decimal", LanguageVersion.Preview },
-            //{ "byte", LanguageVersion.Preview },
             { "string", LanguageVersion.LatestMajor },
             { "int", LanguageVersion.LatestMajor },
             { "System.Guid", LanguageVersion.LatestMajor },
             { "System.DateTime", LanguageVersion.LatestMajor },
             { "System.DateTimeOffset", LanguageVersion.LatestMajor },
             { "System.TimeSpan", LanguageVersion.LatestMajor },
+            { "System.DateOnly", LanguageVersion.LatestMajor },
+            { "System.TimeOnly", LanguageVersion.LatestMajor },
             { "decimal", LanguageVersion.LatestMajor },
             { "byte", LanguageVersion.LatestMajor },
+            //{ "char", LanguageVersion.LatestMajor },
             //"char",
             //"bool",
         };
