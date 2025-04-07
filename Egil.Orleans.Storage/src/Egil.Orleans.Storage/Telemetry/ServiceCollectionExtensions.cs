@@ -119,8 +119,8 @@ public static class ServiceCollectionExtensions
 
         return siloBuilder.Services.AddGrainStorageTelemetrySamplingProcessor(
             samplingProbability,
-            stateName,
-            storageName
+            storageName,
+            stateName
         );
     }
 
@@ -143,8 +143,8 @@ public static class ServiceCollectionExtensions
                 traceBuilder.AddProcessor(
                     new GrainStorageTelemetryProcessor(
                         samplingProbability: samplingProbability,
-                        stateName,
-                        storageName
+                        storageName,
+                        stateName
                     )
                 )
         );
@@ -153,7 +153,7 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Adds a processor that marks all grain storage 'GET' operations as successful in telemetry.
+    /// Adds a processor that marks all grain storage read operations that returns 'not found (404)' as successful in telemetry.
     /// </summary>
     /// <remarks>
     /// Some storage providers, notable Azure Storage, will mark an read from a non-existing entity as an error,
@@ -161,11 +161,11 @@ public static class ServiceCollectionExtensions
     /// </remarks>
     /// <param name="services">The service collection.</param>
     /// <returns>The service collection for chaining.</returns>
-    public static IServiceCollection AddGrainStorageGetAlwaysOkTelemetryProcessor(
+    public static IServiceCollection GrainStorageReadNotFoundOkTelemetryProcessor(
         this IServiceCollection services)
     {
         services.ConfigureOpenTelemetryTracerProvider((sp, traceBuilder)
-            => traceBuilder.AddProcessor(new GrainStorageGetAlwaysOkTelemetryProcessor())
+            => traceBuilder.AddProcessor(new GrainStorageReadNotFoundOkTelemetryProcessor())
         );
 
         return services;

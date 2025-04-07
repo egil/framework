@@ -20,10 +20,10 @@ This extension method wraps each registered grain storage provider with a teleme
 
 ### Handling GET Operations for Missing Entities
 
-Some storage providers (notably Azure Storage) mark read operations for non-existent entities as errors, which isn't always appropriate in Orleans. This processor ensures such operations are marked as successful in telemetry:
+Some storage providers (notably Azure Storage) mark read operations for non-existent entities as errors, which isn't always appropriate in Orleans. This processor ensures such "read state" not found (404) operations are marked as successful in telemetry:
 
 ```csharp
-siloBuilder.Services.AddGrainStorageGetAlwaysOkTelemetryProcessor();
+siloBuilder.Services.GrainStorageReadNotFoundOkTelemetryProcessor();
 ```
 
 ### Configuring Sampling for Storage Telemetry
@@ -119,6 +119,9 @@ The key components in this configuration:
 - `orleans-storage-read`: Count of read operations with storage name and state name dimensions
 - `orleans-storage-write`: Count of write operations with storage name and state name dimensions
 - `orleans-storage-clear`: Count of clear operations with storage name and state name dimensions
+- `orleans-storage-read-duration`: Duration of read operations with storage name and state name dimensions
+- `orleans-storage-write-duration`: Duration of write operations with storage name and state name dimensions
+- `orleans-storage-clear-duration`: Duration of clear operations with storage name and state name dimensions
 
 ### Traces
 

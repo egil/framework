@@ -1,5 +1,5 @@
-using System.Diagnostics;
 using OpenTelemetry;
+using System.Diagnostics;
 
 namespace Egil.Orleans.Storage.Telemetry;
 
@@ -7,7 +7,7 @@ namespace Egil.Orleans.Storage.Telemetry;
 /// Some storage providers, notable Azure Storage, will mark an read from a non-existing entity as an error,
 /// which is not the case for Orleans. This processor will mark such activities as successful.
 /// </summary>
-internal sealed class GrainStorageGetAlwaysOkTelemetryProcessor : BaseProcessor<Activity>
+internal sealed class GrainStorageReadNotFoundOkTelemetryProcessor : BaseProcessor<Activity>
 {
     public override void OnEnd(Activity data)
     {
