@@ -8,13 +8,12 @@ using System.Reflection;
 
 namespace Egil.Orleans.EventSourcing;
 
-public readonly record struct ProjectStateConfiguration(string StateName, string StorageName) : IPersistentStateConfiguration;
-
 public abstract partial class EventSourcedGrain<TEvent, TState> : Grain
 {
     private readonly IEventStorage<TEvent> eventLogStorage;
     private readonly IPersistentState<Projection<TState>> projectionStorage;
     private readonly ILogger<EventSourcedGrain<TEvent, TState>> logger;
+    private TState? state;
 
     /// <summary>
     /// Gets the hash code used to validate if the persisted projection
@@ -30,7 +29,7 @@ public abstract partial class EventSourcedGrain<TEvent, TState> : Grain
     /// <summary>
     /// Gets the projected state of the <typeparamref name="TEvent"/> log.
     /// </summary>
-    protected TState State { get; private set; }
+    protected TState State { get => state ?? CreateDefaultState(); private set => state = value; }
 
     /// <summary>
     /// Gets whether the <see cref="State"/> is newer than what is persisted to storage.
@@ -42,7 +41,7 @@ public abstract partial class EventSourcedGrain<TEvent, TState> : Grain
     /// </summary>
     protected int Version { get; private set; }
 
-    protected EventSourcedGrain(ProjectStateConfiguration projectionStateConfiguration)
+    protected EventSourcedGrain(ProjectionStateConfiguration projectionStateConfiguration)
     {
         if (ServiceProvider is not { } serviceProvider)
         {
@@ -56,9 +55,6 @@ public abstract partial class EventSourcedGrain<TEvent, TState> : Grain
             .GetRequiredService<IAzureAppendBlobEventStorageProvider>()
             .Create<TEvent>(GrainContext);
 
-
-
-        State = CreateDefaultState();
         Version = 0;
         logger = serviceProvider.GetService<ILogger<EventSourcedGrain<TEvent, TState>>>()
             ?? NullLogger<EventSourcedGrain<TEvent, TState>>.Instance;
@@ -160,7 +156,7 @@ public abstract partial class EventSourcedGrain<TEvent, TState> : Grain
         }
         catch (Exception ex)
         {
-            LogFailedToWriteStateFromStorage(ex, this.GetGrainId());
+            LogFailedToWriteStateToStorage(ex, this.GetGrainId());
             projectionStorage.State = originalState;
             throw;
         }
@@ -235,6 +231,6 @@ public abstract partial class EventSourcedGrain<TEvent, TState> : Grain
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to read state from storage for grain {GrainId}. Creating new state.")]
     private partial void LogFailedToReadStateFromStorage(Exception exception, GrainId grainId);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to write state from storage for grain {GrainId}. Reverting to previous state.")]
-    private partial void LogFailedToWriteStateFromStorage(Exception exception, GrainId grainId);
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to write state to storage for grain {GrainId}. Reverting to previous state.")]
+    private partial void LogFailedToWriteStateToStorage(Exception exception, GrainId grainId);
 }
