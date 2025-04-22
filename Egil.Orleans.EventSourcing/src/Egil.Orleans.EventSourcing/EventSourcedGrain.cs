@@ -41,15 +41,16 @@ public abstract partial class EventSourcedGrain<TEvent, TState> : Grain
     /// </summary>
     protected int Version { get; private set; }
 
-    protected EventSourcedGrain(ProjectionStateConfiguration projectionStateConfiguration)
+    protected EventSourcedGrain(IPersistentState<Projection<TState>> projectionStorage)
     {
         if (ServiceProvider is not { } serviceProvider)
         {
             throw new InvalidOperationException("Cannot instantiate EventSourcedGrain without a runtime.");
         }
 
-        projectionStorage = serviceProvider.GetRequiredService<IPersistentStateFactory>()
-            .Create<Projection<TState>>(GrainContext, projectionStateConfiguration);
+        //projectionStorage = serviceProvider.GetRequiredService<IPersistentStateFactory>()
+        //    .Create<Projection<TState>>(GrainContext, projectionStateConfiguration);
+        this.projectionStorage = projectionStorage;
 
         eventLogStorage = serviceProvider
             .GetRequiredService<IAzureAppendBlobEventStorageProvider>()
@@ -65,8 +66,8 @@ public abstract partial class EventSourcedGrain<TEvent, TState> : Grain
     /// </summary>
     public override async Task OnActivateAsync(CancellationToken cancellationToken)
     {
-        await ReadStateAsync(writeStateIfStoredStateInvalid: true, cancellationToken);
         await base.OnActivateAsync(cancellationToken);
+        await ReadStateAsync(writeStateIfStoredStateInvalid: true, cancellationToken);
     }
 
     /// <summary>
