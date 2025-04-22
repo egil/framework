@@ -17,10 +17,7 @@ internal sealed class AzureAppendBlobEventStorageProvider(
     private async Task Initialize(CancellationToken cancellationToken)
     {
         var client = await options.CreateClient(cancellationToken);
-
-        await containerFactory
-            .InitializeAsync(client, cancellationToken)
-            .ConfigureAwait(false);
+        await containerFactory.InitializeAsync(client, cancellationToken);
     }
 
     public IEventStorage<TEvent> Create<TEvent>(IGrainContext grainContext)
