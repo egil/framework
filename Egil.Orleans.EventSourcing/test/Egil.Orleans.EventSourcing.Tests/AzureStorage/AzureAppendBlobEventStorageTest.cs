@@ -1,9 +1,9 @@
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using Azure;
 using Azure.Storage.Blobs.Models;
 using Azure.Storage.Blobs.Specialized;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Egil.Orleans.EventSourcing.Tests.AzureStorage;
 
@@ -137,6 +137,12 @@ public class AzureAppendBlobEventStorageTest(AppHostFixture fixture) : IClassFix
 
         public override Task<Response<BlobContentInfo>> CreateAsync(AppendBlobCreateOptions options, CancellationToken cancellationToken = default)
             => inner.CreateAsync(options, cancellationToken);
+
+        public override Task<Response<BlobContentInfo>> CreateIfNotExistsAsync(AppendBlobCreateOptions options, CancellationToken cancellationToken = default)
+            => inner.CreateIfNotExistsAsync(options, cancellationToken);
+
+        public override Task<Response<bool>> ExistsAsync(CancellationToken cancellationToken = default)
+            => inner.ExistsAsync(cancellationToken);
 
         public override Task<Response<BlobAppendInfo>> AppendBlockAsync(Stream content, AppendBlobAppendBlockOptions? options = null, CancellationToken cancellationToken = default)
             => inner.AppendBlockAsync(content, options, cancellationToken);

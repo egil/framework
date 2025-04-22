@@ -37,7 +37,7 @@ public sealed partial class AzureAppendBlobEventStorage<TEvent>(
     {
         Conditions = new AppendBlobRequestConditions { IfNoneMatch = ETag.All }
     };
-    private bool blobExists;
+    private bool? blobExists;
 
     public ValueTask<int> AppendEventAsync(TEvent @event, CancellationToken cancellationToken = default)
         => AppendEventsAsync([@event], cancellationToken);
@@ -47,7 +47,7 @@ public sealed partial class AzureAppendBlobEventStorage<TEvent>(
         using var activity = ActivitySource.StartActivity($"{EventTypeName}.AppendEventsAsync", ActivityKind.Client);
         Stopwatch? stopwatch = AppendEventsDurationHistogram.Enabled ? Stopwatch.StartNew() : null;
 
-        await CheckBlobExists(cancellationToken);
+        await CreateIfNotExistsAsync(cancellationToken);
 
         var appended = 0;
 
@@ -261,8 +261,15 @@ public sealed partial class AzureAppendBlobEventStorage<TEvent>(
 
     private async Task<Stream?> TryGetBlockBlobStream(CancellationToken cancellationToken)
     {
+        if (!await CheckBlobExistsAsync(cancellationToken))
+        {
+            return null;
+        }
+
         try
         {
+
+
             var result = await client.DownloadStreamingAsync(cancellationToken: cancellationToken);
             return result.Value.Content;
         }
@@ -292,23 +299,49 @@ public sealed partial class AzureAppendBlobEventStorage<TEvent>(
         }
     }
 
-    private async Task CheckBlobExists(CancellationToken cancellationToken)
+    private async ValueTask CreateIfNotExistsAsync(CancellationToken cancellationToken)
     {
-        if (blobExists)
+        if (blobExists.HasValue && blobExists.Value)
         {
             return;
         }
 
         try
         {
-            var response = await client.CreateAsync(CreateOptions, cancellationToken);
-            appendOptions.Conditions.IfNoneMatch = default;
-            appendOptions.Conditions.IfMatch = response.Value.ETag;
+            var response = await client.CreateIfNotExistsAsync(CreateOptions, cancellationToken);
+
+            if (response?.Value is { } info)
+            {
+                appendOptions.Conditions.IfMatch = info.ETag;
+                appendOptions.Conditions.IfNoneMatch = default;
+            }
+
             blobExists = true;
         }
-        catch (RequestFailedException ex) when (ex.Status == 409)
+        catch (Exception ex)
         {
-            blobExists = true;
+            LogUnexpectedException(ex);
+        }
+    }
+
+    private async ValueTask<bool> CheckBlobExistsAsync(CancellationToken cancellationToken)
+    {
+        if (blobExists.HasValue)
+        {
+            return blobExists.Value;
+        }
+
+        try
+        {
+            var response = await client.ExistsAsync(cancellationToken);
+            blobExists = response.Value;
+            return blobExists.Value;
+        }
+        catch (Exception ex)
+        {
+            LogUnexpectedException(ex);
+            blobExists = false;
+            return false;
         }
     }
 
@@ -330,6 +363,9 @@ public sealed partial class AzureAppendBlobEventStorage<TEvent>(
 
         return totalRead;
     }
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Unexpected exception occurred.")]
+    private partial void LogUnexpectedException(Exception exception);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to apply events to log.")]
     private partial void LogFailedToApplyEvents(Exception exception);
