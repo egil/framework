@@ -66,13 +66,14 @@ public sealed partial class AzureAppendBlobEventStorage<TEvent>(
             LogFailedToApplyEvents(ex);
             throw;
         }
-
-        AppendEventsCounter.Add(appended, EventTypeTag);
-
-        if (stopwatch is not null)
+        finally
         {
-            stopwatch.Stop();
-            AppendEventsDurationHistogram.Record(stopwatch.Elapsed.TotalMilliseconds, EventTypeTag);
+            AppendEventsCounter.Add(appended, EventTypeTag);
+            if (stopwatch is not null)
+            {
+                stopwatch.Stop();
+                AppendEventsDurationHistogram.Record(stopwatch.Elapsed.TotalMilliseconds, EventTypeTag);
+            }
         }
 
         return appended;

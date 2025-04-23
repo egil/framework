@@ -9,7 +9,7 @@ namespace Egil.Orleans.EventSourcing;
 [JsonConverter(typeof(ProjectionJsonConverterFactory))]
 public sealed class Projection<TState>
 {
-    internal static int RuntimeMetadataHashCode { get; } = GetTStateMetadataHashCode(typeof(TState));
+    public static int RuntimeMetadataHashCode { get; } = GetTStateMetadataHashCode(typeof(TState));
 
     [JsonPropertyName("State")]
     public TState? State { get; init; }

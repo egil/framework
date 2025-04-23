@@ -33,15 +33,19 @@ public sealed class ProjectionJsonConverterFactory : JsonConverterFactory
             while (reader.Read())
             {
                 if (reader.TokenType == JsonTokenType.EndObject)
+                {
                     return new Projection<TState>
                     {
                         State = state,
-                        Version = version,
-                        MetadataHashCode = metadataHashCode
+                        Version = state is not null ? version : 0,
+                        MetadataHashCode = state is not null ? metadataHashCode : 0,
                     };
+                }
 
                 if (reader.TokenType != JsonTokenType.PropertyName)
+                {
                     throw new JsonException();
+                }
 
                 string propertyName = reader.GetString()!;
                 reader.Read();
@@ -49,7 +53,15 @@ public sealed class ProjectionJsonConverterFactory : JsonConverterFactory
                 switch (propertyName)
                 {
                     case StatePropertyName:
-                        state = JsonSerializer.Deserialize<TState>(ref reader, options);
+                        try
+                        {
+                            state = JsonSerializer.Deserialize<TState>(ref reader, options);
+                        }
+                        catch (JsonException)
+                        {
+                            reader.Skip();
+                            state = default;
+                        }
                         break;
                     case VersionPropertyName:
                         version = reader.GetInt32();
@@ -69,11 +81,10 @@ public sealed class ProjectionJsonConverterFactory : JsonConverterFactory
         public override void Write(Utf8JsonWriter writer, Projection<TState> value, JsonSerializerOptions options)
         {
             writer.WriteStartObject();
-
-            writer.WritePropertyName(StatePropertyName);
-            JsonSerializer.Serialize(writer, value.State, options);
             writer.WriteNumber(VersionPropertyName, value.Version);
             writer.WriteNumber(MetadataHashCodePropertyName, value.MetadataHashCode);
+            writer.WritePropertyName(StatePropertyName);
+            JsonSerializer.Serialize(writer, value.State, options);
             writer.WriteEndObject();
         }
     }
