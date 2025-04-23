@@ -168,7 +168,6 @@ public sealed partial class AzureAppendBlobEventStorage<TEvent>(
         var stream = await TryGetBlockBlobStream(cancellationToken);
         if (stream is null)
         {
-            blobExists = false;
             yield break;
         }
 
@@ -268,10 +267,12 @@ public sealed partial class AzureAppendBlobEventStorage<TEvent>(
 
         try
         {
-
-
             var result = await client.DownloadStreamingAsync(cancellationToken: cancellationToken);
             return result.Value.Content;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return null;
         }
         catch (RequestFailedException exception) when (exception.Status is 404)
         {
@@ -318,6 +319,11 @@ public sealed partial class AzureAppendBlobEventStorage<TEvent>(
 
             blobExists = true;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Operation was canceled, rethrow the exception to propagate it.
+            throw;
+        }
         catch (Exception ex)
         {
             LogUnexpectedException(ex);
@@ -337,10 +343,13 @@ public sealed partial class AzureAppendBlobEventStorage<TEvent>(
             blobExists = response.Value;
             return blobExists.Value;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return false;
+        }
         catch (Exception ex)
         {
             LogUnexpectedException(ex);
-            blobExists = false;
             return false;
         }
     }

@@ -4,7 +4,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Orleans;
 using Orleans.Runtime;
-using System.Reflection;
+using Orleans.Serialization.TypeSystem;
 
 namespace Egil.Orleans.EventSourcing;
 
@@ -24,12 +24,16 @@ public abstract partial class EventSourcedGrain<TEvent, TState> : Grain
     /// <remarks>
     /// The default hash code is generated from the public properties of the <typeparamref name="TState"/> type.
     /// </remarks>
-    protected virtual int StateMetadataHashCode { get; } = GetTStateMetadataHashCode();
+    protected virtual int StateMetadataHashCode { get; } = Projection<TState>.RuntimeMetadataHashCode;
 
     /// <summary>
     /// Gets the projected state of the <typeparamref name="TEvent"/> log.
     /// </summary>
-    protected TState State { get => state ?? CreateDefaultState(); private set => state = value; }
+    protected TState State
+    {
+        get => state ?? throw new InvalidOperationException("State has not been assigned yet. State is available after GrainLifecycleStage.SetupState + 1");
+        private set => state = value;
+    }
 
     /// <summary>
     /// Gets whether the <see cref="State"/> is newer than what is persisted to storage.
@@ -48,26 +52,14 @@ public abstract partial class EventSourcedGrain<TEvent, TState> : Grain
             throw new InvalidOperationException("Cannot instantiate EventSourcedGrain without a runtime.");
         }
 
-        //projectionStorage = serviceProvider.GetRequiredService<IPersistentStateFactory>()
-        //    .Create<Projection<TState>>(GrainContext, projectionStateConfiguration);
-        this.projectionStorage = projectionStorage;
-
+        logger = serviceProvider.GetService<ILogger<EventSourcedGrain<TEvent, TState>>>()
+            ?? NullLogger<EventSourcedGrain<TEvent, TState>>.Instance;
         eventLogStorage = serviceProvider
             .GetRequiredService<IAzureAppendBlobEventStorageProvider>()
             .Create<TEvent>(GrainContext);
 
-        Version = 0;
-        logger = serviceProvider.GetService<ILogger<EventSourcedGrain<TEvent, TState>>>()
-            ?? NullLogger<EventSourcedGrain<TEvent, TState>>.Instance;
-    }
-
-    /// <summary>
-    /// Reads the projected state from storage and applies any missing events.
-    /// </summary>
-    public override async Task OnActivateAsync(CancellationToken cancellationToken)
-    {
-        await base.OnActivateAsync(cancellationToken);
-        await ReadStateAsync(writeStateIfStoredStateInvalid: true, cancellationToken);
+        this.projectionStorage = projectionStorage;
+        StorageInitializer.Create(this);
     }
 
     /// <summary>
@@ -78,7 +70,6 @@ public abstract partial class EventSourcedGrain<TEvent, TState> : Grain
     /// call <see cref="WriteStateAsync"/> to save the state.
     /// </remarks>
     /// <returns>The number of events that were saved and applied.</returns>
-
     protected async ValueTask<(TState Before, TState After)> RaiseEventAsync(TEvent @event, CancellationToken cancellationToken = default)
     {
         var appendedEvent = await eventLogStorage.AppendEventAsync(@event, cancellationToken);
@@ -99,36 +90,54 @@ public abstract partial class EventSourcedGrain<TEvent, TState> : Grain
     /// current version of <typeparamref name="TState"/>, the state will be created and saved from
     /// the <typeparamref name="TEvent"/> log.
     /// </summary>
-    protected ValueTask ReadStateAsync(CancellationToken cancellationToken = default)
-        => ReadStateAsync(writeStateIfStoredStateInvalid: false, cancellationToken);
+    protected async ValueTask ReadStateAsync(CancellationToken cancellationToken = default)
+    {
+        await projectionStorage.ReadStateAsync(cancellationToken);
+        await ReadStateAsync(writeStateIfStoredStateInvalid: false, cancellationToken);
+    }
 
     private async ValueTask ReadStateAsync(bool writeStateIfStoredStateInvalid, CancellationToken cancellationToken)
     {
         try
         {
-            await projectionStorage.ReadStateAsync(cancellationToken);
-
-            if (projectionStorage.RecordExists && projectionStorage.State.State is not null && projectionStorage.State.MetadataHashCode == StateMetadataHashCode)
+            var storedStateValid = AssignProjectionPropertiesFromPersistentStateOrDefault();
+            var appliedEvents = await ApplyMissingEvents(cancellationToken);
+            if (appliedEvents > 0 && writeStateIfStoredStateInvalid && !storedStateValid)
             {
-                State = projectionStorage.State.State;
-                Version = projectionStorage.State.Version;
-                await ApplyMissingEvents(cancellationToken);
-                return;
+                await WriteStateAsync(cancellationToken);
             }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
             LogFailedToReadStateFromStorage(ex, this.GetGrainId());
         }
+    }
 
-        State = CreateDefaultState();
-        Version = 0;
-
-        var appliedEvents = await ApplyMissingEvents(cancellationToken);
-
-        if (appliedEvents > 0 && writeStateIfStoredStateInvalid)
+    /// <summary>
+    /// Assigns the <see cref="State"/> and <see cref="Version"/> properties from
+    /// <see cref="projectionStorage"/> if the persisted state is compatible with <typeparamref name="TState"/>.
+    /// If it is not compatible based on <see cref="Projection{TState}.MetadataHashCode"/>, then <see cref="State"/>
+    /// is set to the returned value from <see cref="CreateDefaultState"/> and <see cref="Version"/> is set to <c>0</c>.
+    /// </summary>
+    /// <returns><see langword="true"/> if state was set from <see cref="projectionStorage"/>, <see langword="false"/> otherwise.</returns>
+    [MemberNotNull(nameof(State))]
+    private bool AssignProjectionPropertiesFromPersistentStateOrDefault()
+    {
+        if (projectionStorage.RecordExists && projectionStorage.State.State is not null && projectionStorage.State.MetadataHashCode == StateMetadataHashCode)
         {
-            await WriteStateAsync(cancellationToken);
+            State = projectionStorage.State.State;
+            Version = projectionStorage.State.Version;
+            return true;
+        }
+        else
+        {
+            State = CreateDefaultState()!;
+            Version = 0;
+            return false;
         }
     }
 
@@ -210,17 +219,45 @@ public abstract partial class EventSourcedGrain<TEvent, TState> : Grain
         return appliedEvents;
     }
 
-    private static int GetTStateMetadataHashCode()
+    private sealed class StorageInitializer : ILifecycleObserver, IGrainMigrationParticipant
     {
-        var hash = new HashCode();
+        private readonly EventSourcedGrain<TEvent, TState> grain;
 
-        foreach (var property in typeof(TState).GetProperties(BindingFlags.Public | BindingFlags.Instance))
+        private StorageInitializer(EventSourcedGrain<TEvent, TState> grain) => this.grain = grain;
+
+        public void OnDehydrate(IDehydrationContext dehydrationContext)
+            => (grain.projectionStorage as IGrainMigrationParticipant)?.OnDehydrate(dehydrationContext);
+
+        public void OnRehydrate(IRehydrationContext rehydrationContext)
         {
-            hash.Add(property.Name);
-            hash.Add(property.PropertyType.FullName);
+            (grain.projectionStorage as IGrainMigrationParticipant)?.OnRehydrate(rehydrationContext);
+            grain.AssignProjectionPropertiesFromPersistentStateOrDefault();
         }
 
-        return hash.ToHashCode();
+        public async Task OnStart(CancellationToken cancellationToken = default)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
+            grain.AssignProjectionPropertiesFromPersistentStateOrDefault();
+            await grain.ReadStateAsync(writeStateIfStoredStateInvalid: true, cancellationToken);
+        }
+
+        public Task OnStop(CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public static StorageInitializer Create(EventSourcedGrain<TEvent, TState> grain)
+        {
+            var observer = new StorageInitializer(grain);
+            grain.GrainContext.ObservableLifecycle.AddMigrationParticipant(observer);
+            grain.GrainContext.ObservableLifecycle.Subscribe(
+                RuntimeTypeNameFormatter.Format(grain.GetType()),
+                GrainLifecycleStage.SetupState + 1, // ensure this runs just after SetupState where grain.projectionStorage runs.
+                observer);
+            return observer;
+        }
     }
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to append all events to the log. Successfully appended {AppendedEvents} of {TotalEvents} events.")]
