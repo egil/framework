@@ -1,7 +1,7 @@
 using Azure.Storage.Blobs;
 using Orleans.Runtime;
 
-namespace Egil.Orleans.EventSourcing.AzureStorage;
+namespace Egil.Orleans.EventSourcing.AzureStorage.AppendBlobStorage;
 
 /// <summary>
 /// A factory for building container clients for blob storage using GrainId

@@ -1,12 +1,12 @@
-using System.Text.Json;
 using Azure;
 using Azure.Core;
 using Azure.Storage;
 using Azure.Storage.Blobs;
 using Orleans;
 using Orleans.Runtime;
+using System.Text.Json;
 
-namespace Egil.Orleans.EventSourcing.AzureStorage;
+namespace Egil.Orleans.EventSourcing.AzureStorage.AppendBlobStorage;
 
 public class AzureAppendBlobEventStorageOptions
 {

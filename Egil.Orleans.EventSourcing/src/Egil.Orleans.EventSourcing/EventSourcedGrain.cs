@@ -1,4 +1,3 @@
-using Egil.Orleans.EventSourcing.AzureStorage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -54,8 +53,9 @@ public abstract partial class EventSourcedGrain<TEvent, TState> : Grain
 
         logger = serviceProvider.GetService<ILogger<EventSourcedGrain<TEvent, TState>>>()
             ?? NullLogger<EventSourcedGrain<TEvent, TState>>.Instance;
+
         eventLogStorage = serviceProvider
-            .GetRequiredService<IAzureAppendBlobEventStorageProvider>()
+            .GetRequiredService<IEventStorageProvider>()
             .Create<TEvent>(GrainContext);
 
         this.projectionStorage = projectionStorage;
