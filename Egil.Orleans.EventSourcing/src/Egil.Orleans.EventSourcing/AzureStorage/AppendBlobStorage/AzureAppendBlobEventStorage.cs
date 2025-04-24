@@ -1,12 +1,12 @@
 using Azure;
 using Azure.Storage.Blobs.Models;
 using Azure.Storage.Blobs.Specialized;
+using Egil.Orleans.EventSourcing.AzureStorage;
 using Microsoft.Extensions.Logging;
 using Microsoft.IO;
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Diagnostics;
-using System.Diagnostics.Metrics;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 
@@ -17,16 +17,7 @@ public sealed partial class AzureAppendBlobEventStorage<TEvent>(
     JsonSerializerOptions jsonSerializerOptions,
     ILogger<AzureAppendBlobEventStorage<TEvent>> logger) : IEventStorage<TEvent>
 {
-    private static readonly ActivitySource ActivitySource = new ActivitySource("Egil.Orleans.EventSourcing");
-    private static readonly Meter Meter = new Meter("Egil.Orleans.EventSourcing");
-    private static readonly Counter<long> AppendEventsCounter = Meter.CreateCounter<long>("egil-orleans-eventsourcing-events-append", description: "The number of events appended to the event stream.");
-    private static readonly Counter<long> ReadEventsCounter = Meter.CreateCounter<long>("egil-orleans-eventsourcing-events-read", description: "The number of events read from the event stream.");
-    private static readonly Histogram<double> AppendEventsDurationHistogram = Meter.CreateHistogram<double>("egil-orleans-eventsourcing-events-append-duration", description: "The duration of AppendEventsAsync in milliseconds");
-    private static readonly Histogram<double> ReadEventsDurationHistogram = Meter.CreateHistogram<double>("egil-orleans-eventsourcing-events-read-duration", description: "The duration of ReadEventsAsync in milliseconds");
-    private static readonly string EventTypeName = typeof(TEvent).Name;
-    private static readonly KeyValuePair<string, object?> EventTypeTag = new KeyValuePair<string, object?>("EventType", EventTypeName);
     private const int BlockHeaderLength = 4;
-
     private static readonly RecyclableMemoryStreamManager MemoryStreamManager = new RecyclableMemoryStreamManager();
     private readonly ILogger<AzureAppendBlobEventStorage<TEvent>> logger = logger;
     private static readonly AppendBlobCreateOptions CreateOptions = new AppendBlobCreateOptions()
@@ -44,8 +35,8 @@ public sealed partial class AzureAppendBlobEventStorage<TEvent>(
 
     public async ValueTask<int> AppendEventsAsync(IEnumerable<TEvent> events, CancellationToken cancellationToken = default)
     {
-        using var activity = ActivitySource.StartActivity($"{EventTypeName}.AppendEventsAsync", ActivityKind.Client);
-        Stopwatch? stopwatch = AppendEventsDurationHistogram.Enabled ? Stopwatch.StartNew() : null;
+        using var activity = Telemetry<TEvent>.StartActivity(nameof(AppendEventsAsync));
+        Stopwatch? stopwatch = Telemetry<TEvent>.AppendEventsDurationHistogram.Enabled ? Stopwatch.StartNew() : null;
 
         await CreateIfNotExistsAsync(cancellationToken);
 
@@ -68,11 +59,11 @@ public sealed partial class AzureAppendBlobEventStorage<TEvent>(
         }
         finally
         {
-            AppendEventsCounter.Add(appended, EventTypeTag);
+            Telemetry<TEvent>.AppendEventsCounter.Add(appended, Telemetry<TEvent>.EventTypeTag);
             if (stopwatch is not null)
             {
                 stopwatch.Stop();
-                AppendEventsDurationHistogram.Record(stopwatch.Elapsed.TotalMilliseconds, EventTypeTag);
+                Telemetry<TEvent>.AppendEventsDurationHistogram.Record(stopwatch.Elapsed.TotalMilliseconds, Telemetry<TEvent>.EventTypeTag);
             }
         }
 
@@ -163,8 +154,8 @@ public sealed partial class AzureAppendBlobEventStorage<TEvent>(
 
     public async IAsyncEnumerable<TEvent> ReadEventsAsync(int fromVersion = 0, [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        using var activity = ActivitySource.StartActivity($"{EventTypeName}.ReadEventsAsync", ActivityKind.Client);
-        Stopwatch? stopwatch = ReadEventsDurationHistogram.Enabled ? Stopwatch.StartNew() : null;
+        using var activity = Telemetry<TEvent>.StartActivity(nameof(ReadEventsAsync));
+        Stopwatch? stopwatch = Telemetry<TEvent>.ReadEventsDurationHistogram.Enabled ? Stopwatch.StartNew() : null;
 
         var stream = await TryGetBlockBlobStream(cancellationToken);
         if (stream is null)
@@ -229,14 +220,13 @@ public sealed partial class AzureAppendBlobEventStorage<TEvent>(
             ReturnBuffer(headerBuffer);
             await stream.DisposeAsync();
 
-            ReadEventsCounter.Add(currentVersion, EventTypeTag);
+            Telemetry<TEvent>.ReadEventsCounter.Add(currentVersion, Telemetry<TEvent>.EventTypeTag);
 
             if (stopwatch is not null)
             {
                 stopwatch.Stop();
-                ReadEventsDurationHistogram.Record(stopwatch.Elapsed.TotalMilliseconds, EventTypeTag);
+                Telemetry<TEvent>.ReadEventsDurationHistogram.Record(stopwatch.Elapsed.TotalMilliseconds, Telemetry<TEvent>.EventTypeTag);
             }
-
         }
 
         static byte[] RentOrReuse(byte[] buffer, int minLength)

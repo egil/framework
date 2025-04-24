@@ -11,10 +11,11 @@
     <GlobalPackageVersion Include="SonarAnalyzer.CSharp" Version="10.5.0.109200" PrivateAssets="All" />
   </ItemGroup>
   <ItemGroup>
-    <PackageVersion Include="Aspire.Hosting.Testing" Version="9.1.0" />
+    <PackageVersion Include="Aspire.Hosting.Testing" Version="9.2.1" />
+    <PackageVersion Include="Azure.Data.Tables" Version="12.10.0" />
     <PackageVersion Include="Azure.Storage.Blobs" Version="12.24.0" />
-    <PackageVersion Include="Aspire.Hosting.AppHost" Version="9.1.0" />
-    <PackageVersion Include="Aspire.Hosting.Azure.Storage" Version="9.1.0" />
+    <PackageVersion Include="Aspire.Hosting.AppHost" Version="9.2.1" />
+    <PackageVersion Include="Aspire.Hosting.Azure.Storage" Version="9.2.1" />
     <PackageVersion Include="DotNet.ReproducibleBuilds" Version="1.2.25" />
     <PackageVersion Include="MartinCostello.Logging.XUnit.v3" Version="0.5.1" />
     <PackageVersion Include="Meziantou.Polyfill" Version="1.0.42" />
@@ -31,11 +32,12 @@
     <PackageVersion Include="Microsoft.Orleans.Runtime" Version="9.1.2" />
     <PackageVersion Include="MinVer" Version="6.0.0" />
     <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.11.2" />
+    <PackageVersion Include="Streamstone" Version="3.0.0" />
     <PackageVersion Include="System.Linq.AsyncEnumerable" Version="10.0.0-preview.2.25163.2" />
     <PackageVersion Include="Verify.SourceGenerators" Version="2.2.0" />
     <PackageVersion Include="Verify.XunitV3" Version="28.11.0" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.0.2" />
     <PackageVersion Include="Nerdbank.GitVersioning" Version="3.7.115" />
-    <PackageVersion Include="xunit.v3" Version="2.0.0" />
+    <PackageVersion Include="xunit.v3" Version="2.0.1" />
   </ItemGroup>
 </Project>

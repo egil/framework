@@ -4,6 +4,7 @@ var persistentStorage = builder
     .AddAzureStorage("azureStorage")
     .RunAsEmulator(config => config.WithLifetime(ContainerLifetime.Persistent));
 
-persistentStorage.AddBlobs("logStorage");
+persistentStorage.AddBlobs("blobStorage");
+persistentStorage.AddTables("tableStorage");
 
 await builder.Build().RunAsync();
