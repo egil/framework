@@ -4,12 +4,12 @@ using Microsoft.Extensions.Options;
 using Orleans;
 using Orleans.Runtime;
 
-namespace Egil.Orleans.EventSourcing.AzureStorage;
+namespace Egil.Orleans.EventSourcing.AzureStorage.AppendBlobStorage;
 
 internal sealed class AzureAppendBlobEventStorageProvider(
     IOptions<AzureAppendBlobEventStorageOptions> options,
     IServiceProvider serviceProvider,
-    ILoggerFactory loggerFactory) : ILifecycleParticipant<ISiloLifecycle>, IAzureAppendBlobEventStorageProvider
+    ILoggerFactory loggerFactory) : ILifecycleParticipant<ISiloLifecycle>, IEventStorageProvider
 {
     private readonly IBlobContainerFactory containerFactory = options.Value.BuildContainerFactory(serviceProvider, options.Value);
     private readonly AzureAppendBlobEventStorageOptions options = options.Value;
@@ -35,7 +35,7 @@ internal sealed class AzureAppendBlobEventStorageProvider(
     {
         observer.Subscribe(
             nameof(AzureAppendBlobEventStorageProvider),
-            ServiceLifecycleStage.RuntimeInitialize,
+            options.InitStage,
             onStart: Initialize);
     }
 }

@@ -1,7 +1,7 @@
 using Azure.Storage.Blobs;
 using Orleans.Runtime;
 
-namespace Egil.Orleans.EventSourcing.AzureStorage;
+namespace Egil.Orleans.EventSourcing.AzureStorage.AppendBlobStorage;
 
 /// <summary>
 /// A default blob container factory that uses the default container name.

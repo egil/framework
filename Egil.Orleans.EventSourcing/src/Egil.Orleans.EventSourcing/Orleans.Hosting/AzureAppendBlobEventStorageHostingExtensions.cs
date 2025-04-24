@@ -1,5 +1,5 @@
 using Egil.Orleans.EventSourcing;
-using Egil.Orleans.EventSourcing.AzureStorage;
+using Egil.Orleans.EventSourcing.AzureStorage.AppendBlobStorage;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -29,7 +29,7 @@ public static class AzureAppendBlobEventStorageHostingExtensions
         }
 
         builder.Services.AddSingleton<AzureAppendBlobEventStorageProvider>();
-        builder.Services.AddSingleton<IAzureAppendBlobEventStorageProvider>(s => s.GetRequiredService<AzureAppendBlobEventStorageProvider>());
+        builder.Services.AddSingleton<IEventStorageProvider>(s => s.GetRequiredService<AzureAppendBlobEventStorageProvider>());
         builder.Services.AddSingleton<ILifecycleParticipant<ISiloLifecycle>>(s => s.GetRequiredService<AzureAppendBlobEventStorageProvider>());
 
         return builder;
