@@ -1,11 +1,13 @@
 using Aspire.Hosting;
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Testing;
+using Azure.Data.Tables;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Specialized;
 using MartinCostello.Logging.XUnit;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Streamstone;
 
 namespace Egil.Orleans.EventSourcing.Tests;
 
@@ -14,7 +16,9 @@ public sealed class AppHostFixture : IAsyncLifetime
     private IDistributedApplicationTestingBuilder? appHost;
     private DistributedApplication? app;
 
-    public string StorageConnectionString { get; private set; } = string.Empty;
+    public string BlobStorageConnectionString { get; private set; } = string.Empty;
+
+    public string TableStorageConnectionString { get; private set; } = string.Empty;
 
     public ILoggerFactory LoggerFactory { get; private set; }
 
@@ -31,9 +35,12 @@ public sealed class AppHostFixture : IAsyncLifetime
         app = await appHost.BuildAsync(TestContext.Current.CancellationToken);
         var resourceNotificationService = app.Services.GetRequiredService<ResourceNotificationService>();
         await app.StartAsync(TestContext.Current.CancellationToken);
-        await resourceNotificationService.WaitForResourceAsync("logStorage", KnownResourceStates.Running, TestContext.Current.CancellationToken);
-        StorageConnectionString = await app.GetConnectionStringAsync("logStorage", TestContext.Current.CancellationToken)
-            ?? throw new InvalidOperationException("Failed to get logStorage connection string");
+        await resourceNotificationService.WaitForResourceAsync("blobStorage", KnownResourceStates.Running, TestContext.Current.CancellationToken);
+        BlobStorageConnectionString = await app.GetConnectionStringAsync("blobStorage", TestContext.Current.CancellationToken)
+            ?? throw new InvalidOperationException("Failed to get blobStorage connection string");
+        await resourceNotificationService.WaitForResourceAsync("tableStorage", KnownResourceStates.Running, TestContext.Current.CancellationToken);
+        TableStorageConnectionString = await app.GetConnectionStringAsync("tableStorage", TestContext.Current.CancellationToken)
+            ?? throw new InvalidOperationException("Failed to get tableStorage connection string");
     }
 
     public async ValueTask DisposeAsync()
@@ -51,11 +58,20 @@ public sealed class AppHostFixture : IAsyncLifetime
 
     public async Task<AppendBlobClient> GetAppendBlobClientAsync(string containerName = "logs", string? blobName = null)
     {
-        var blobServiceClient = new BlobServiceClient(StorageConnectionString);
+        var blobServiceClient = new BlobServiceClient(BlobStorageConnectionString);
         var defaultContainer = blobServiceClient.GetBlobContainerClient("logs");
         await defaultContainer.CreateIfNotExistsAsync(cancellationToken: TestContext.Current.CancellationToken);
         var appendBlobClient = defaultContainer.GetAppendBlobClient(blobName ?? Guid.CreateVersion7().ToString("N"));
         return appendBlobClient;
+    }
+
+    public async Task<Partition> GetPartitionAsync(string tableName = "logs", string? blobName = null)
+    {
+        var tableClient = new TableServiceClient(TableStorageConnectionString).GetTableClient(tableName);
+        await tableClient.CreateIfNotExistsAsync(cancellationToken: TestContext.Current.CancellationToken);
+        return new Partition(
+            tableClient,
+            blobName ?? Guid.CreateVersion7().ToString("N"));
     }
 
     private sealed class TestOutputHelperAccessor : ITestOutputHelperAccessor

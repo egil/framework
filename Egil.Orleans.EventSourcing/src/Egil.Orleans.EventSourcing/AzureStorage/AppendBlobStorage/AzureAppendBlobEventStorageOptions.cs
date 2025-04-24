@@ -12,7 +12,7 @@ public class AzureAppendBlobEventStorageOptions
 {
     private static readonly Func<GrainId, string> DefaultGetBlobName = static (grainId) => $"{grainId}.bin";
 
-    public const string DefaultContainerName = "logs";
+    public const string DefaultContainerName = "events";
     public const int DefaultInitStage = ServiceLifecycleStage.ApplicationServices;
 
     /// <summary>
