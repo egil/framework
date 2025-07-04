@@ -40,7 +40,7 @@ namespace Egil.StronglyTypedPrimitives
             Assert.Equal(new StronglyTypedIntWithConstraints(goodValue), tryParsedSpan);
 
             Assert.Equal(goodValue.ToString(), new StronglyTypedIntWithConstraints(goodValue).ToString());
-            Assert.Equal(6.CompareTo(7), new StronglyTypedIntWithConstraints(6).CompareTo(new StronglyTypedIntWithConstraints(77)));
+            Assert.Equal(6.CompareTo(7), new StronglyTypedIntWithConstraints(6).CompareTo(new StronglyTypedIntWithConstraints(7)));
             Assert.True(new StronglyTypedIntWithConstraints(6) < new StronglyTypedIntWithConstraints(7));
             Assert.False(new StronglyTypedIntWithConstraints(6) > new StronglyTypedIntWithConstraints(7));
             Assert.True(new StronglyTypedIntWithConstraints(7) <= new StronglyTypedIntWithConstraints(7));
@@ -77,7 +77,7 @@ namespace Egil.StronglyTypedPrimitives
             Assert.Equal(new StronglyTypedInt(goodValue), tryParsedSpan);
 
             Assert.Equal(goodValue.ToString(), new StronglyTypedInt(goodValue).ToString());
-            Assert.Equal(6.CompareTo(7), new StronglyTypedInt(6).CompareTo(new StronglyTypedInt(77)));
+            Assert.Equal(6.CompareTo(7), new StronglyTypedInt(6).CompareTo(new StronglyTypedInt(7)));
             Assert.True(new StronglyTypedInt(6) < new StronglyTypedInt(7));
             Assert.False(new StronglyTypedInt(6) > new StronglyTypedInt(7));
             Assert.True(new StronglyTypedInt(7) <= new StronglyTypedInt(7));
