@@ -370,10 +370,10 @@ public sealed partial class AzureAppendBlobEventStorage<TEvent>(
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to apply events to log.")]
     private partial void LogFailedToApplyEvents(Exception exception);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "Deserialization of event {Version} from event storage returned null.")]
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to deserialize event {Version} from event storage.")]
     private partial void LogErrorDeserializingEvent(Exception exception, int version);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to deserialize event {Version} from event storage.")]
+    [LoggerMessage(Level = LogLevel.Error, Message = "Deserialization of event {Version} from event storage returned null.")]
     private partial void LogDeserializationReturnedNull(int version);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to read the expected payload bytes for event {Version}. Read {BytesRead} bytes of {ExpectedPayloadLength}.")]
