@@ -159,12 +159,12 @@ public sealed partial class StreamstoneEventStorage<TEvent>(
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to apply events to log.")]
     private partial void LogFailedToApplyEvents(Exception exception);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to deserialize event {Version} from event storage.")]
+    [LoggerMessage(Level = LogLevel.Error, Message = "Deserialization of event {Version} from event storage returned null.")]
     private partial void LogDeserializationReturnedNull(int version);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to deserialize event {Version} from event storage. Event data not found in table row.")]
     private partial void LogDeserializationFailedMissingData(int version);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "Deserialization of event {Version} from event storage returned null.")]
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to deserialize event {Version} from event storage.")]
     private partial void LogErrorDeserializingEvent(Exception exception, int version);
 }
