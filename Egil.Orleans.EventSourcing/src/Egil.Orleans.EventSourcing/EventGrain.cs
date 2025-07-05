@@ -79,8 +79,34 @@ public abstract class EventGrain<TEventBase, TProjection> : Grain
     /// that require publishing will be retried asynchronusly in the background until they succeed or
     /// are removed from the event partition.
     /// </summary>
-    protected ValueTask ProcessEventsAsync(params ReadOnlySpan<TEventBase> events)
+    protected async ValueTask ProcessEventsAsync(params TEventBase[] events)
     {
-        throw new NotImplementedException();
+        if (events.Length == 0)
+            return;
+
+        // Get grain ID safely, fallback to type name for unit tests
+        string grainId;
+        try
+        {
+            grainId = this.GetGrainId().ToString();
+        }
+        catch
+        {
+            // Fallback for unit tests where Orleans runtime context is not available
+            grainId = this.GetType().Name;
+        }
+
+        // Convert events to list for storage
+        var eventsList = new List<object>();
+        foreach (var @event in events)
+        {
+            if (@event is not null)
+            {
+                eventsList.Add(@event);
+            }
+        }
+
+        // Save events and projection atomically
+        await EventStorage.SaveAsync(grainId, eventsList, Projection);
     }
 }

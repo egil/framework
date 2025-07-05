@@ -1,5 +1,3 @@
-using Xunit;
-
 namespace Egil.Orleans.EventSourcing.Tests;
 
 /// <summary>
@@ -52,6 +50,23 @@ public class EventGrainBasicTests
         Assert.Equal(0, grain.TestProjection.Version);
         Assert.True(grain.IsActivated);
     }
+
+    [Fact]
+    public async Task Single_event_is_processed()
+    {
+        // Arrange
+        var eventStorage = new FakeEventStorage();
+        var grain = new TestEventGrain(eventStorage);
+        var createdEvent = new TestCreatedEvent("TestGrain");
+
+        // Act
+        await grain.TestProcessEventsAsync(createdEvent);
+
+        // Assert
+        Assert.Single(eventStorage.SavedEvents);
+        Assert.Contains(createdEvent, eventStorage.SavedEvents);
+        Assert.NotNull(eventStorage.SavedProjection);
+    }
 }
 
 /// <summary>
@@ -71,6 +86,16 @@ public class TestEventGrain : EventGrain<TestEvent, TestProjection>
     {
         await OnActivateAsync(CancellationToken.None);
         IsActivated = true;
+    }
+
+    public async Task TestProcessEventsAsync(params TestEvent[] events)
+    {
+        await ProcessEventsAsync(events);
+    }
+
+    public async Task ProcessEventAsync(TestEvent @event, CancellationToken cancellationToken)
+    {
+        await ProcessEventsAsync(@event);
     }
 }
 
@@ -107,24 +132,34 @@ public record TestCreatedEvent(string Name) : TestEvent;
 /// </summary>
 public class FakeEventStorage : IEventStorage
 {
-    public ValueTask<TProjection?> LoadProjectionAsync<TProjection>(string grainId, CancellationToken cancellationToken = default) 
+    public List<object> SavedEvents { get; } = new();
+    public object? SavedProjection { get; private set; }
+
+    public ValueTask<TProjection?> LoadProjectionAsync<TProjection>(string grainId, CancellationToken cancellationToken = default)
         where TProjection : class
     {
         // Return null to simulate empty storage for now
         return ValueTask.FromResult<TProjection?>(null);
     }
 
-    public IAsyncEnumerable<TEvent> LoadEventsAsync<TEvent>(string grainId, CancellationToken cancellationToken = default) 
+    public IAsyncEnumerable<TEvent> LoadEventsAsync<TEvent>(string grainId, CancellationToken cancellationToken = default)
         where TEvent : class
     {
         // Return empty async enumerable to simulate no events
         return AsyncEnumerable.Empty<TEvent>();
     }
 
-    public ValueTask SaveAsync<TProjection>(string grainId, IEnumerable<object> events, TProjection projection, CancellationToken cancellationToken = default) 
+    public ValueTask SaveAsync<TProjection>(string grainId, IEnumerable<object> events, TProjection projection, CancellationToken cancellationToken = default)
         where TProjection : class
     {
-        // For testing, just return completed task
+        // Capture saved events and projection for verification in tests
+        foreach (var @event in events)
+        {
+            SavedEvents.Add(@event);
+        }
+
+        SavedProjection = projection;
+
         return ValueTask.CompletedTask;
     }
 }
