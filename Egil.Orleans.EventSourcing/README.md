@@ -1,1 +1,2 @@
-# Orleans Event Sourcing with Azure Blob Block Storage
+# Orleans Event Sourcing with Azure Table Storage
+
