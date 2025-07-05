@@ -69,6 +69,18 @@ public abstract class EventGrain<TEventBase, TProjection> : Grain
     }
 
     /// <summary>
+    /// Called when events are processed to apply them to the projection.
+    /// Override this method to implement custom event handling logic.
+    /// </summary>
+    /// <param name="events">The events to apply to the projection</param>
+    /// <returns>The updated projection after applying all events</returns>
+    protected virtual TProjection ApplyEvents(IEnumerable<TEventBase> events, TProjection projection)
+    {
+        // Default implementation - no changes to projection
+        return projection;
+    }
+
+    /// <summary>
     /// Processes a batch of events asynchronously.
     /// When this method returns, all events in the batch has been saved to grains event storage
     /// and any event handlers will have completed running, including for events that may have been
@@ -83,6 +95,9 @@ public abstract class EventGrain<TEventBase, TProjection> : Grain
     {
         if (events.Length == 0)
             return;
+
+        // Apply events to projection
+        Projection = ApplyEvents(events, Projection);
 
         // Get grain ID safely, fallback to type name for unit tests
         string grainId;

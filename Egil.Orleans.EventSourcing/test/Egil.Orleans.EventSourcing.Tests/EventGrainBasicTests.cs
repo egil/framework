@@ -67,6 +67,23 @@ public class EventGrainBasicTests
         Assert.Contains(createdEvent, eventStorage.SavedEvents);
         Assert.NotNull(eventStorage.SavedProjection);
     }
+
+    [Fact]
+    public async Task Event_handlers_are_called_during_processing()
+    {
+        // Arrange
+        var eventStorage = new FakeEventStorage();
+        var grain = new TestEventGrain(eventStorage);
+        var createdEvent = new TestCreatedEvent("TestGrain");
+
+        // Act
+        await grain.TestProcessEventsAsync(createdEvent);
+
+        // Assert
+        Assert.True(grain.WasEventHandlerCalled);
+        Assert.Equal("TestGrain", grain.TestProjection.Name);
+        Assert.Equal(1, grain.TestProjection.Version);
+    }
 }
 
 /// <summary>
@@ -77,6 +94,7 @@ public class TestEventGrain : EventGrain<TestEvent, TestProjection>
     public TestProjection TestProjection => Projection;
     public IEventStorage TestEventStorage => EventStorage;
     public bool IsActivated { get; private set; }
+    public bool WasEventHandlerCalled { get; private set; }
 
     public TestEventGrain(IEventStorage eventStorage) : base(eventStorage)
     {
@@ -96,6 +114,27 @@ public class TestEventGrain : EventGrain<TestEvent, TestProjection>
     public async Task ProcessEventAsync(TestEvent @event, CancellationToken cancellationToken)
     {
         await ProcessEventsAsync(@event);
+    }
+
+    protected override TestProjection ApplyEvents(IEnumerable<TestEvent> events, TestProjection projection)
+    {
+        var updatedProjection = projection;
+
+        foreach (var @event in events)
+        {
+            if (@event is TestCreatedEvent createdEvent)
+            {
+                updatedProjection = new TestProjection
+                {
+                    Name = createdEvent.Name,
+                    Version = updatedProjection.Version + 1
+                };
+
+                WasEventHandlerCalled = true;
+            }
+        }
+
+        return updatedProjection;
     }
 }
 
