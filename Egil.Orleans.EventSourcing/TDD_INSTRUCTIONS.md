@@ -4,6 +4,7 @@
 This document outlines the Test-Driven Development (TDD) approach for implementing the EventGrain and related types in the Orleans Event Sourcing framework.
 
 ## TDD Process
+
 1. **Start with the most basic scenario** that is not yet implemented
 2. **Create a test** for that scenario
 3. **Validate the test fails** for the correct reason (Red phase)
@@ -22,28 +23,28 @@ This document outlines the Test-Driven Development (TDD) approach for implementi
 
 ### Phase 1: Basic EventGrain Infrastructure
 1. **Basic EventGrain creation and initialization**
-   - Test: Create a simple EventGrain with a basic projection
+   - Test: `Default_projection_is_initialized`
    - Implementation: Basic constructor and projection initialization
 
 2. **Event storage dependency injection**
-   - Test: EventGrain receives IEventStorage in constructor
+   - Test: `Event_storage_dependency_is_injected`
    - Implementation: Proper dependency injection setup
 
 3. **Projection initialization on grain activation**
-   - Test: Projection is properly initialized on grain activation
+   - Test: `Empty_event_stream_loads_default_projection`
    - Implementation: OnActivateAsync override to load projection
 
 ### Phase 2: Event Processing
 4. **Basic event appending**
-   - Test: ProcessEventsAsync can append a single event
+   - Test: `Single_event_is_processed`
    - Implementation: Basic event storage and processing
 
 5. **Event handler execution**
-   - Test: Event handlers are called when processing events
+   - Test: `Event_handlers_are_called_during_processing`
    - Implementation: Event handler registration and execution
 
 6. **Projection updates**
-   - Test: Projection is updated when events are processed
+   - Test: `Projection_updates_with_new_events`
    - Implementation: Apply events to projection through handlers
 
 ### Phase 3: Event Storage and Retrieval
@@ -80,9 +81,15 @@ This document outlines the Test-Driven Development (TDD) approach for implementi
 - Group related tests in the same test class
 
 ### Test Naming Convention
-- Use descriptive method names that explain the scenario
-- Format: `MethodUnderTest_Scenario_ExpectedBehavior`
-- Example: `ProcessEventsAsync_WithSingleEvent_UpdatesProjection`
+- Use descriptive method names that explain the scenario or feature being tested
+- Format: `Scenario_or_feature_description` using lowercase with underscores
+- Focus on the business/functional scenario rather than technical implementation details
+- Examples: 
+  - `Default_projection_is_initialized`
+  - `Event_storage_dependency_is_injected`
+  - `Empty_event_stream`
+  - `Single_event_is_processed`
+  - `Projection_updates_with_new_events`
 
 ### Test Implementation Patterns
 - **Arrange**: Set up test data and dependencies

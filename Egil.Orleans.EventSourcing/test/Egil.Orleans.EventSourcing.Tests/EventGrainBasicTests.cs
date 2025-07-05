@@ -8,14 +8,14 @@ namespace Egil.Orleans.EventSourcing.Tests;
 public class EventGrainBasicTests
 {
     [Fact]
-    public void EventGrain_CanBeCreated_WithBasicProjection()
+    public void Default_projection_is_initialized()
     {
         // Arrange
         var eventStorage = new FakeEventStorage();
-        
+
         // Act
         var grain = new TestEventGrain(eventStorage);
-        
+
         // Assert
         Assert.NotNull(grain);
         Assert.NotNull(grain.TestProjection);
@@ -24,14 +24,14 @@ public class EventGrainBasicTests
     }
 
     [Fact]
-    public void EventGrain_StoresEventStorageDependency()
+    public void Event_storage_dependency_is_injected()
     {
         // Arrange
         var eventStorage = new FakeEventStorage();
-        
+
         // Act
         var grain = new TestEventGrain(eventStorage);
-        
+
         // Assert
         Assert.Same(eventStorage, grain.TestEventStorage);
     }
@@ -44,7 +44,7 @@ public class TestEventGrain : EventGrain<TestEvent, TestProjection>
 {
     public TestProjection TestProjection => Projection;
     public IEventStorage TestEventStorage => EventStorage;
-    
+
     public TestEventGrain(IEventStorage eventStorage) : base(eventStorage)
     {
     }
@@ -57,13 +57,13 @@ public class TestProjection : IEventProjection<TestProjection>
 {
     public string Name { get; init; } = string.Empty;
     public int Version { get; init; } = 0;
-    
+
     public static TestProjection CreateDefault()
     {
-        return new TestProjection 
-        { 
-            Name = "Default", 
-            Version = 0 
+        return new TestProjection
+        {
+            Name = "Default",
+            Version = 0
         };
     }
 }
