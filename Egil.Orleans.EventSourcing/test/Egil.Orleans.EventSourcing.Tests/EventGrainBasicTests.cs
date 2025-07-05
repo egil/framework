@@ -121,7 +121,7 @@ public class FakeEventStorage : IEventStorage
         return AsyncEnumerable.Empty<TEvent>();
     }
 
-    public ValueTask SaveAtomicallyAsync<TProjection>(string grainId, IEnumerable<object> events, TProjection projection, CancellationToken cancellationToken = default) 
+    public ValueTask SaveAsync<TProjection>(string grainId, IEnumerable<object> events, TProjection projection, CancellationToken cancellationToken = default) 
         where TProjection : class
     {
         // For testing, just return completed task

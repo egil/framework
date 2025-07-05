@@ -37,7 +37,7 @@ internal class ProjectionLoader<TProjection> : IProjectionLoader<TProjection>
 
     public ValueTask SaveAsync(string grainId, TProjection projection, CancellationToken cancellationToken = default)
     {
-        // Note: Projection saving will be handled through the atomic SaveAtomicallyAsync method
+        // Note: Projection saving will be handled through the SaveAsync method
         // when events are processed. This method is kept for potential future direct projection saves.
         throw new NotSupportedException("Direct projection saves are not supported. Use ProcessEventsAsync for atomic event and projection saves.");
     }

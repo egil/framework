@@ -1,7 +1,7 @@
 namespace Egil.Orleans.EventSourcing;
 
 /// <summary>
-/// Azure Table Storage-based event storage that provides atomic transactions 
+/// Azure Table Storage-based event storage that provides atomic transactions
 /// for both event streams/partitions and projections.
 /// </summary>
 public interface IEventStorage
@@ -27,7 +27,7 @@ public interface IEventStorage
         where TEvent : class;
 
     /// <summary>
-    /// Atomically saves both events and projection to Azure Table Storage within a single transaction.
+    /// Saves both events and projection to Azure Table Storage within a single transaction.
     /// This ensures that either both the events and projection are saved, or neither are saved.
     /// </summary>
     /// <typeparam name="TProjection">The type of projection to save.</typeparam>
@@ -36,10 +36,10 @@ public interface IEventStorage
     /// <param name="projection">The updated projection to save.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task representing the atomic operation.</returns>
-    ValueTask SaveAtomicallyAsync<TProjection>(
-        string grainId, 
-        IEnumerable<object> events, 
-        TProjection projection, 
+    ValueTask SaveAsync<TProjection>(
+        string grainId,
+        IEnumerable<object> events,
+        TProjection projection,
         CancellationToken cancellationToken = default)
         where TProjection : class;
 }
