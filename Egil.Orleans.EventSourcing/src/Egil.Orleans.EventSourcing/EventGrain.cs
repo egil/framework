@@ -14,9 +14,11 @@ public abstract class EventGrain<TEventBase, TProjection> : Grain
     }
 
     protected TProjection Projection { get; private set; } = TProjection.CreateDefault();
+    protected IEventStorage EventStorage { get; }
 
     protected EventGrain(IEventStorage eventStorage)
     {
+        EventStorage = eventStorage ?? throw new ArgumentNullException(nameof(eventStorage));
     }
 
     /// <summary>
