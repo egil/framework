@@ -35,6 +35,23 @@ public class EventGrainBasicTests
         // Assert
         Assert.Same(eventStorage, grain.TestEventStorage);
     }
+
+    [Fact]
+    public async Task Empty_event_stream_loads_default_projection()
+    {
+        // Arrange
+        var eventStorage = new FakeEventStorage();
+        var grain = new TestEventGrain(eventStorage);
+
+        // Act
+        await grain.TestActivateAsync();
+
+        // Assert
+        Assert.NotNull(grain.TestProjection);
+        Assert.Equal("Default", grain.TestProjection.Name);
+        Assert.Equal(0, grain.TestProjection.Version);
+        Assert.True(grain.IsActivated);
+    }
 }
 
 /// <summary>
@@ -44,9 +61,16 @@ public class TestEventGrain : EventGrain<TestEvent, TestProjection>
 {
     public TestProjection TestProjection => Projection;
     public IEventStorage TestEventStorage => EventStorage;
+    public bool IsActivated { get; private set; }
 
     public TestEventGrain(IEventStorage eventStorage) : base(eventStorage)
     {
+    }
+
+    public async Task TestActivateAsync()
+    {
+        await OnActivateAsync(CancellationToken.None);
+        IsActivated = true;
     }
 }
 

@@ -84,7 +84,7 @@ This document outlines the Test-Driven Development (TDD) approach for implementi
 - Use descriptive method names that explain the scenario or feature being tested
 - Format: `Scenario_or_feature_description` using lowercase with underscores
 - Focus on the business/functional scenario rather than technical implementation details
-- Examples: 
+- Examples:
   - `Default_projection_is_initialized`
   - `Event_storage_dependency_is_injected`
   - `Empty_event_stream`

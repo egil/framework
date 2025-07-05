@@ -5,7 +5,11 @@
 ### Basic EventGrain Infrastructure ✅
 - **EventGrain creation and initialization**: EventGrain can be created with proper projection initialization
 - **Event storage dependency injection**: EventGrain properly accepts and stores IEventStorage dependency
-- **Projection initialization**: Projection is initialized with default values using `TProjection.CreateDefault()`
+- **Projection initialization on grain activation**: EventGrain loads projection from storage on activation, falls back to default if none exists
+
+### Internal Architecture ✅
+- **ProjectionLoader**: Internal service for loading/saving projections from storage
+- **Error handling**: Graceful fallback for unit testing scenarios where Orleans runtime context is unavailable
 
 ## EventGrain behavior on activation:
 
