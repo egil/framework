@@ -1,3 +1,5 @@
+using Orleans.Runtime;
+
 namespace Egil.Orleans.EventSourcing;
 
 /// <summary>
@@ -13,7 +15,7 @@ public interface IEventStorage
     /// <param name="grainId">The unique identifier of the grain.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The loaded projection, or null if none exists.</returns>
-    ValueTask<TProjection?> LoadProjectionAsync<TProjection>(string grainId, CancellationToken cancellationToken = default)
+    ValueTask<TProjection?> LoadProjectionAsync<TProjection>(GrainId grainId, CancellationToken cancellationToken = default)
         where TProjection : class;
 
     /// <summary>
@@ -23,7 +25,7 @@ public interface IEventStorage
     /// <param name="grainId">The unique identifier of the grain.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>An async enumerable of events from the stream.</returns>
-    IAsyncEnumerable<TEvent> LoadEventsAsync<TEvent>(string grainId, CancellationToken cancellationToken = default)
+    IAsyncEnumerable<TEvent> LoadEventsAsync<TEvent>(GrainId grainId, CancellationToken cancellationToken = default)
         where TEvent : class;
 
     /// <summary>
@@ -36,10 +38,11 @@ public interface IEventStorage
     /// <param name="projection">The updated projection to save.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task representing the atomic operation.</returns>
-    ValueTask SaveAsync<TProjection>(
-        string grainId,
-        IEnumerable<object> events,
+    ValueTask SaveAsync<TEvent, TProjection>(
+        GrainId grainId,
+        IEnumerable<TEvent> events,
         TProjection projection,
         CancellationToken cancellationToken = default)
+        where TEvent : class
         where TProjection : class;
 }

@@ -11,17 +11,24 @@ namespace Egil.Orleans.EventSourcing.Examples;
 [JsonDerivedType(typeof(UserMessageReceived), "UserMessageReceived.V1")]
 public interface IUserEvent;
 
+[Immutable, GenerateSerializer]
 public sealed record UserCreated(string UserId, string Name, string Email, DateTimeOffset Timestamp) : IUserEvent;
+
+[Immutable, GenerateSerializer]
 public sealed record UserDeactivated(string UserId, string Reason, DateTimeOffset Timestamp) : IUserEvent;
+
+[Immutable, GenerateSerializer]
 public sealed record UserMessageReceived(string UserId, string Message, DateTimeOffset Timestamp) : IUserEvent;
 
 [JsonDerivedType(typeof(OffensiveLanguageDetectedEvent), "OffensiveLanguageDetectedEvent.V1")]
 [JsonDerivedType(typeof(UserWelcomeEvent), "UserWelcomeEvent.V1")]
 public interface IUserOutboxEvent : IUserEvent;
 
+[Immutable, GenerateSerializer]
 public sealed record OffensiveLanguageDetectedEvent(string UserId, string Message, DateTimeOffset Timestamp)
     : IUserOutboxEvent;
 
+[Immutable, GenerateSerializer]
 public sealed record UserWelcomeEvent(string Email, string Name, DateTimeOffset Timestamp)
     : IUserOutboxEvent;
 

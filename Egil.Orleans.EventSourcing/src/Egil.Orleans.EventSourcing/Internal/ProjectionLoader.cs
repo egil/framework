@@ -1,3 +1,5 @@
+using Orleans.Runtime;
+
 namespace Egil.Orleans.EventSourcing.Internal;
 
 /// <summary>
@@ -9,12 +11,12 @@ internal interface IProjectionLoader<TProjection> where TProjection : class
     /// Loads a projection from storage for the specified grain.
     /// If no projection exists or loading fails, returns null.
     /// </summary>
-    ValueTask<TProjection?> LoadAsync(string grainId, CancellationToken cancellationToken = default);
+    ValueTask<TProjection?> LoadAsync(GrainId grainId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Saves a projection to storage for the specified grain.
     /// </summary>
-    ValueTask SaveAsync(string grainId, TProjection projection, CancellationToken cancellationToken = default);
+    ValueTask SaveAsync(GrainId grainId, TProjection projection, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -30,12 +32,12 @@ internal class ProjectionLoader<TProjection> : IProjectionLoader<TProjection>
         this.eventStorage = eventStorage ?? throw new ArgumentNullException(nameof(eventStorage));
     }
 
-    public ValueTask<TProjection?> LoadAsync(string grainId, CancellationToken cancellationToken = default)
+    public ValueTask<TProjection?> LoadAsync(GrainId grainId, CancellationToken cancellationToken = default)
     {
         return eventStorage.LoadProjectionAsync<TProjection>(grainId, cancellationToken);
     }
 
-    public ValueTask SaveAsync(string grainId, TProjection projection, CancellationToken cancellationToken = default)
+    public ValueTask SaveAsync(GrainId grainId, TProjection projection, CancellationToken cancellationToken = default)
     {
         // Note: Projection saving will be handled through the SaveAsync method
         // when events are processed. This method is kept for potential future direct projection saves.
