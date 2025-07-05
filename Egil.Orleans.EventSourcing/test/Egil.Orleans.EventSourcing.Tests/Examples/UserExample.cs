@@ -94,12 +94,12 @@ public sealed class UserGrain([FromKeyedServices("user-events")] IEventStorage s
                 config => config.KeySelector(e => e.UserId));
     });
 
-    public ValueTask RegisterUser(string name, string email)
+    public async ValueTask RegisterUser(string name, string email)
     {
         var userId = this.GetPrimaryKeyString();
         var @event = new UserCreated(userId, name, email, DateTimeOffset.UtcNow);
         var @event2 = new UserWelcomeEvent(email, name, DateTimeOffset.UtcNow);
-        return ProcessEventsAsync(@event, @event2);
+        await ProcessEventsAsync(@event, @event2);
     }
 
     public async ValueTask<bool> Deactivate(string reason)
