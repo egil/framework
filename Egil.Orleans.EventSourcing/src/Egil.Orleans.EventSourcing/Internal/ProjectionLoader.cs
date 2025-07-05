@@ -10,7 +10,7 @@ internal interface IProjectionLoader<TProjection> where TProjection : class
     /// If no projection exists or loading fails, returns null.
     /// </summary>
     ValueTask<TProjection?> LoadAsync(string grainId, CancellationToken cancellationToken = default);
-    
+
     /// <summary>
     /// Saves a projection to storage for the specified grain.
     /// </summary>
@@ -18,29 +18,27 @@ internal interface IProjectionLoader<TProjection> where TProjection : class
 }
 
 /// <summary>
-/// Default implementation of projection loader.
+/// Default implementation of projection loader that delegates to IEventStorage.
 /// </summary>
-internal class ProjectionLoader<TProjection> : IProjectionLoader<TProjection> 
+internal class ProjectionLoader<TProjection> : IProjectionLoader<TProjection>
     where TProjection : class, IEventProjection<TProjection>
 {
-    private readonly IEventStorage _eventStorage;
+    private readonly IEventStorage eventStorage;
 
     public ProjectionLoader(IEventStorage eventStorage)
     {
-        _eventStorage = eventStorage ?? throw new ArgumentNullException(nameof(eventStorage));
+        this.eventStorage = eventStorage ?? throw new ArgumentNullException(nameof(eventStorage));
     }
 
     public ValueTask<TProjection?> LoadAsync(string grainId, CancellationToken cancellationToken = default)
     {
-        // For now, return null to simulate empty storage
-        // This will be implemented when we add storage functionality
-        return ValueTask.FromResult<TProjection?>(null);
+        return eventStorage.LoadProjectionAsync<TProjection>(grainId, cancellationToken);
     }
 
     public ValueTask SaveAsync(string grainId, TProjection projection, CancellationToken cancellationToken = default)
     {
-        // For now, do nothing
-        // This will be implemented when we add storage functionality
-        return ValueTask.CompletedTask;
+        // Note: Projection saving will be handled through the atomic SaveAtomicallyAsync method
+        // when events are processed. This method is kept for potential future direct projection saves.
+        throw new NotSupportedException("Direct projection saves are not supported. Use ProcessEventsAsync for atomic event and projection saves.");
     }
 }

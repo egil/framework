@@ -13,7 +13,7 @@ public abstract class EventGrain<TEventBase, TProjection> : Grain
     {
         throw new NotImplementedException("Event partition configuration is not implemented yet. Use the static Configure method in derived classes.");
     }    protected TProjection Projection { get; private set; } = TProjection.CreateDefault();
-    
+
     protected IEventStorage EventStorage { get; }
     private readonly IProjectionLoader<TProjection> projectionLoader;
 
@@ -29,7 +29,7 @@ public abstract class EventGrain<TEventBase, TProjection> : Grain
     public override async Task OnActivateAsync(CancellationToken cancellationToken)
     {
         await base.OnActivateAsync(cancellationToken);
-        
+
         // Get grain ID safely, fallback to type name for unit tests
         string grainId;
         try
@@ -41,9 +41,9 @@ public abstract class EventGrain<TEventBase, TProjection> : Grain
             // Fallback for unit tests where Orleans runtime context is not available
             grainId = this.GetType().Name;
         }
-        
+
         var loadedProjection = await projectionLoader.LoadAsync(grainId, cancellationToken);
-        
+
         // If no projection exists in storage, keep the default one
         Projection = loadedProjection ?? TProjection.CreateDefault();
     }
@@ -51,9 +51,21 @@ public abstract class EventGrain<TEventBase, TProjection> : Grain
     /// <summary>
     /// Reads the current event partition of <typeparamref name="TEvent"/> events.
     /// </summary>
-    protected IAsyncEnumerable<TEvent> GetEventsAsync<TEvent>() where TEvent : notnull, TEventBase
+    protected IAsyncEnumerable<TEvent> GetEventsAsync<TEvent>() where TEvent : class, TEventBase
     {
-        throw new NotImplementedException();
+        // Get grain ID safely, fallback to type name for unit tests
+        string grainId;
+        try
+        {
+            grainId = this.GetGrainId().ToString();
+        }
+        catch
+        {
+            // Fallback for unit tests where Orleans runtime context is not available
+            grainId = this.GetType().Name;
+        }
+
+        return EventStorage.LoadEventsAsync<TEvent>(grainId);
     }
 
     /// <summary>

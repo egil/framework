@@ -107,5 +107,24 @@ public record TestCreatedEvent(string Name) : TestEvent;
 /// </summary>
 public class FakeEventStorage : IEventStorage
 {
-    // Implementation will be added as we develop the IEventStorage interface
+    public ValueTask<TProjection?> LoadProjectionAsync<TProjection>(string grainId, CancellationToken cancellationToken = default) 
+        where TProjection : class
+    {
+        // Return null to simulate empty storage for now
+        return ValueTask.FromResult<TProjection?>(null);
+    }
+
+    public IAsyncEnumerable<TEvent> LoadEventsAsync<TEvent>(string grainId, CancellationToken cancellationToken = default) 
+        where TEvent : class
+    {
+        // Return empty async enumerable to simulate no events
+        return AsyncEnumerable.Empty<TEvent>();
+    }
+
+    public ValueTask SaveAtomicallyAsync<TProjection>(string grainId, IEnumerable<object> events, TProjection projection, CancellationToken cancellationToken = default) 
+        where TProjection : class
+    {
+        // For testing, just return completed task
+        return ValueTask.CompletedTask;
+    }
 }
