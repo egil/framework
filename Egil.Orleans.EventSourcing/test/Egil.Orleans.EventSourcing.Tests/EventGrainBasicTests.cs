@@ -84,6 +84,25 @@ public class EventGrainBasicTests
         Assert.Equal("TestGrain", grain.TestProjection.Name);
         Assert.Equal(1, grain.TestProjection.Version);
     }
+
+    [Fact]
+    public async Task Projection_updates_with_new_events()
+    {
+        // Arrange
+        var eventStorage = new FakeEventStorage();
+        var grain = new TestEventGrain(eventStorage);
+        var createdEvent = new TestCreatedEvent("InitialName");
+        var updatedEvent = new TestUpdatedEvent("UpdatedName");
+
+        // Act
+        await grain.TestProcessEventsAsync(createdEvent);
+        await grain.TestProcessEventsAsync(updatedEvent);
+
+        // Assert
+        Assert.Equal("UpdatedName", grain.TestProjection.Name);
+        Assert.Equal(2, grain.TestProjection.Version);
+        Assert.Equal(2, eventStorage.SavedEvents.Count);
+    }
 }
 
 /// <summary>
@@ -132,6 +151,16 @@ public class TestEventGrain : EventGrain<TestEvent, TestProjection>
 
                 WasEventHandlerCalled = true;
             }
+            else if (@event is TestUpdatedEvent updatedEvent)
+            {
+                updatedProjection = new TestProjection
+                {
+                    Name = updatedEvent.Name,
+                    Version = updatedProjection.Version + 1
+                };
+
+                WasEventHandlerCalled = true;
+            }
         }
 
         return updatedProjection;
@@ -165,6 +194,11 @@ public abstract record TestEvent;
 /// Test event for basic functionality.
 /// </summary>
 public record TestCreatedEvent(string Name) : TestEvent;
+
+/// <summary>
+/// Test event for updating data.
+/// </summary>
+public record TestUpdatedEvent(string Name) : TestEvent;
 
 /// <summary>
 /// Fake implementation of IEventStorage for testing.
