@@ -12,7 +12,7 @@
   </ItemGroup>
   <ItemGroup>
     <PackageVersion Include="Aspire.Hosting.Testing" Version="9.2.1" />
-    <PackageVersion Include="Azure.Data.Tables" Version="12.10.0" />
+    <PackageVersion Include="Azure.Data.Tables" Version="12.11.0" />
     <PackageVersion Include="Azure.Storage.Blobs" Version="12.24.0" />
     <PackageVersion Include="Aspire.Hosting.AppHost" Version="9.2.1" />
     <PackageVersion Include="Aspire.Hosting.Azure.Storage" Version="9.2.1" />

@@ -4,33 +4,25 @@ using Orleans.Runtime;
 namespace Egil.Orleans.EventSourcing.Internal;
 
 /// <summary>
-/// Default implementation of <see cref="IEventGrainContext"/> used during event processing.
+/// Default implementation of <see cref="IEventGrainContext{TEvent}"/> used during event processing.
 /// It collects events appended by handlers and provides access to the grain id,
 /// grain factory and event stream.
 /// </summary>
-internal sealed class EventGrainContext : IEventGrainContext
+internal sealed class EventGrainContext<TEventBase>(GrainId grainId, IEventStorage storage, IGrainFactory grainFactory) : IEventGrainContext<TEventBase>
+    where TEventBase : notnull
 {
-    private readonly GrainId grainId;
-    private readonly IEventStorage storage;
-    private readonly IGrainFactory grainFactory;
-    private readonly List<object> appendedEvents = new();
-
-    public EventGrainContext(GrainId grainId, IEventStorage storage, IGrainFactory grainFactory)
-    {
-        this.grainId = grainId;
-        this.storage = storage;
-        this.grainFactory = grainFactory;
-    }
+    private List<TEventBase>? appendedEvents;
 
     /// <inheritdoc />
-    public void AppendEvent(object @event)
+    public void AppendEvent(TEventBase @event)
     {
         ArgumentNullException.ThrowIfNull(@event);
+        appendedEvents ??= new List<TEventBase>();
         appendedEvents.Add(@event);
     }
 
     /// <inheritdoc />
-    public IAsyncEnumerable<TEvent> GetEventsAsync<TEvent>() where TEvent : class
+    public IAsyncEnumerable<TEvent> GetEventsAsync<TEvent>() where TEvent : TEventBase
     {
         return storage.LoadEventsAsync<TEvent>(grainId);
     }
@@ -40,14 +32,4 @@ internal sealed class EventGrainContext : IEventGrainContext
 
     /// <inheritdoc />
     public IGrainFactory GrainFactory => grainFactory;
-
-    /// <summary>
-    /// Returns and clears all events appended via <see cref="AppendEvent"/>.
-    /// </summary>
-    internal IReadOnlyList<object> DrainAppendedEvents()
-    {
-        var events = appendedEvents.ToArray();
-        appendedEvents.Clear();
-        return events;
-    }
 }

@@ -16,7 +16,7 @@ public interface IEventStorage
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The loaded projection, or null if none exists.</returns>
     ValueTask<TProjection?> LoadProjectionAsync<TProjection>(GrainId grainId, CancellationToken cancellationToken = default)
-        where TProjection : class;
+        where TProjection : notnull;
 
     /// <summary>
     /// Loads events from the event stream for the specified grain and event type.
@@ -26,7 +26,7 @@ public interface IEventStorage
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>An async enumerable of events from the stream.</returns>
     IAsyncEnumerable<TEvent> LoadEventsAsync<TEvent>(GrainId grainId, CancellationToken cancellationToken = default)
-        where TEvent : class;
+        where TEvent : notnull;
 
     /// <summary>
     /// Saves both events and projection to Azure Table Storage within a single transaction.
@@ -43,6 +43,6 @@ public interface IEventStorage
         IEnumerable<TEvent> events,
         TProjection projection,
         CancellationToken cancellationToken = default)
-        where TEvent : class
-        where TProjection : class;
+        where TEvent : notnull
+        where TProjection : notnull;
 }

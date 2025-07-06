@@ -30,6 +30,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Azure.Data.Tables" />
     <PackageReference Include="Azure.Storage.Blobs" />
     <PackageReference Include="Streamstone" />
     <PackageReference Include="Microsoft.IO.RecyclableMemoryStream" />

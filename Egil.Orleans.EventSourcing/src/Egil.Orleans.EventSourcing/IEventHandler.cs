@@ -1,14 +1,28 @@
 namespace Egil.Orleans.EventSourcing;
 
+public interface IEventHandler
+{
+    bool CanHandle<TEvent>(TEvent @event) where TEvent : notnull;
+}
+
 /// <summary>
 /// Interface for event handlers.
 /// </summary>
-public interface IEventHandler<in TEvent, TProjection>
+public interface IEventHandler<TEvent, TProjection> : IEventHandler
+    where TEvent : notnull
+    where TProjection : notnull, IEventProjection<TProjection>
 {
-    ValueTask<TProjection> HandleAsync(TEvent @event, TProjection projection, IEventGrainContext context);
+    ValueTask<TProjection> HandleAsync(TEvent @event, TProjection projection, IEventGrainContext<TEvent> context);
 }
 
-public interface IEventPublisher<in TEvent, TProjection>
+public interface IEventPublisher
 {
-    ValueTask PublishAsync(IEnumerable<TEvent> @event, TProjection projection, IEventGrainContext context);
+    bool CanPublish<TEvent>(TEvent @event) where TEvent : notnull;
+}
+
+public interface IEventPublisher<TEvent, TProjection> : IEventPublisher
+    where TEvent : notnull
+    where TProjection : notnull, IEventProjection<TProjection>
+{
+    ValueTask PublishAsync(IEnumerable<TEvent> @event, TProjection projection, IEventGrainContext<TEvent> context);
 }

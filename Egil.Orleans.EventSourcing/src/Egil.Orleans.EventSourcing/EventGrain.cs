@@ -8,17 +8,15 @@ namespace Egil.Orleans.EventSourcing;
 /// Base class for event-sourced grains.
 /// </summary>
 public abstract class EventGrain<TEventBase, TProjection> : Grain
-    where TEventBase : class
-    where TProjection : class, IEventProjection<TProjection>
+    where TEventBase : notnull
+    where TProjection : notnull, IEventProjection<TProjection>
 {
     private readonly IEventStorage eventStorage;
-    private readonly ProjectionLoader<TProjection> projectionLoader;
     private readonly GrainId grainId;
 
     protected EventGrain(IEventStorage eventStorage)
     {
         this.eventStorage = eventStorage ?? throw new ArgumentNullException(nameof(eventStorage));
-        projectionLoader = new ProjectionLoader<TProjection>(eventStorage);
         Projection = TProjection.CreateDefault();
         grainId = this.GetGrainId();
     }
@@ -27,31 +25,15 @@ public abstract class EventGrain<TEventBase, TProjection> : Grain
 
     protected TProjection Projection { get; set; }
 
-
     public override async Task OnActivateAsync(CancellationToken cancellationToken)
     {
-        Projection = await projectionLoader.LoadAsync(grainId, cancellationToken) ?? TProjection.CreateDefault();
     }
 
     protected async Task ProcessEventsAsync(params TEventBase[] events)
     {
-        var context = new EventGrainContext(grainId, eventStorage, GrainFactory);
+        var context = new EventGrainContext<TEventBase>(grainId, eventStorage, GrainFactory);
 
-        // Apply event handlers to update the projection
-        var configuration = EventHandlerRegistry.GetConfiguration(this.GetType());
-        if (configuration != null)
-        {
-            var updatedProjection = await configuration.ProcessEventsAsync(events.Cast<object>(), Projection, context);
-            if (updatedProjection is TProjection typedProjection)
-            {
-                Projection = typedProjection;
-            }
-        }
 
-        var allEvents = events.Concat(context.DrainAppendedEvents().Cast<TEventBase>()).ToArray();
-
-        // Store the events and updated projection atomically
-        await eventStorage.SaveAsync(grainId, allEvents, Projection);
     }
 
     protected IAsyncEnumerable<TEvent> GetEventsAsync<TEvent>(CancellationToken cancellationToken = default)
@@ -60,16 +42,9 @@ public abstract class EventGrain<TEventBase, TProjection> : Grain
         return eventStorage.LoadEventsAsync<TEvent>(grainId, cancellationToken);
     }
 
-    protected static void Configure<TEventGrain>(Action<IEventPartitonBuilder<TEventGrain, TEventBase, TProjection>> builder)
+    protected static void Configure<TEventGrain>(Action<IEventPartitionBuilder<TEventGrain, TEventBase, TProjection>> builder)
+        where TEventGrain : IGrain
     {
-        // Create the real configuration system
-        var configuration = new GrainEventConfiguration<TEventBase, TProjection>();
-        var realBuilder = new EventPartitionBuilder<TEventGrain, TEventBase, TProjection>(configuration);
-
-        // Execute the builder to configure partitions and handlers
-        builder(realBuilder);
-
-        // Register the configuration in the registry
-        EventHandlerRegistry.RegisterConfiguration<TEventGrain>(configuration);
+        throw new NotImplementedException();
     }
 }
