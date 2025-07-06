@@ -35,19 +35,23 @@ public abstract class EventGrain<TEventBase, TProjection> : Grain
 
     protected async Task ProcessEventsAsync(params TEventBase[] events)
     {
+        var context = new EventGrainContext(grainId, eventStorage, GrainFactory);
+
         // Apply event handlers to update the projection
         var configuration = EventHandlerRegistry.GetConfiguration(this.GetType());
         if (configuration != null)
         {
-            var updatedProjection = await configuration.ProcessEventsAsync(events.Cast<object>(), Projection);
+            var updatedProjection = await configuration.ProcessEventsAsync(events.Cast<object>(), Projection, context);
             if (updatedProjection is TProjection typedProjection)
             {
                 Projection = typedProjection;
             }
         }
 
+        var allEvents = events.Concat(context.DrainAppendedEvents().Cast<TEventBase>()).ToArray();
+
         // Store the events and updated projection atomically
-        await eventStorage.SaveAsync(grainId, events, Projection);
+        await eventStorage.SaveAsync(grainId, allEvents, Projection);
     }
 
     protected IAsyncEnumerable<TEvent> GetEventsAsync<TEvent>(CancellationToken cancellationToken = default)
