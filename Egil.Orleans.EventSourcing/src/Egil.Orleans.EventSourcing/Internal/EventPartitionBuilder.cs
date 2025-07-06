@@ -59,7 +59,11 @@ internal class EventPartitionConfigurator<TEventGrain, TEvent, TProjection> : IE
         return this;
     }
 
-    public IEventPartitionConfigurator<TEventGrain, TEvent, TProjection> Handle(Func<TEvent, TProjection, IEventGrainContext, TProjection> handler) => this;
+    public IEventPartitionConfigurator<TEventGrain, TEvent, TProjection> Handle(Func<TEvent, TProjection, IEventGrainContext, TProjection> handler)
+    {
+        partition.AddHandler(handler);
+        return this;
+    }
     public IEventPartitionConfigurator<TEventGrain, TEvent, TProjection> Handle(Func<TEvent, TProjection, ValueTask<TProjection>> handler) => this;
     public IEventPartitionConfigurator<TEventGrain, TEvent, TProjection> Handle(Func<TEvent, TProjection, IEventGrainContext, ValueTask<TProjection>> handler) => this;
 
@@ -82,7 +86,18 @@ internal class EventPartitionConfigurator<TEventGrain, TEvent, TProjection> : IE
         return this;
     }
 
-    public IEventPartitionConfigurator<TEventGrain, TEvent, TProjection> Handle<TSpecificEvent>(Func<TSpecificEvent, TProjection, IEventGrainContext, TProjection> handler) where TSpecificEvent : TEvent => this;
+    public IEventPartitionConfigurator<TEventGrain, TEvent, TProjection> Handle<TSpecificEvent>(Func<TSpecificEvent, TProjection, IEventGrainContext, TProjection> handler) where TSpecificEvent : TEvent
+    {
+        if (partition is EventPartition<TSpecificEvent, TEvent, TProjection> typedPartition)
+        {
+            typedPartition.AddHandler((e, p, ctx) => handler(e, p, ctx));
+        }
+        else if (typeof(TSpecificEvent) == typeof(TEvent))
+        {
+            partition.AddHandler((Func<TEvent, TProjection, IEventGrainContext, TProjection>)(object)handler);
+        }
+        return this;
+    }
     public IEventPartitionConfigurator<TEventGrain, TEvent, TProjection> Handle<TSpecificEvent>(Func<TSpecificEvent, TProjection, ValueTask<TProjection>> handler) where TSpecificEvent : TEvent => this;
     public IEventPartitionConfigurator<TEventGrain, TEvent, TProjection> Handle<TSpecificEvent>(Func<TSpecificEvent, TProjection, IEventGrainContext, ValueTask<TProjection>> handler) where TSpecificEvent : TEvent => this;
     public IEventPartitionConfigurator<TEventGrain, TEvent, TProjection> Handle<TEventHandler>() where TEventHandler : class, IEventHandler<TEvent, TProjection> => this;

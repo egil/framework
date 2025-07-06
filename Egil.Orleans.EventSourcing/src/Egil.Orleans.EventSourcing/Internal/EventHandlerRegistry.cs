@@ -42,7 +42,10 @@ internal interface IGrainEventConfiguration
     /// <summary>
     /// Processes events through the configured handlers and returns the updated projection.
     /// </summary>
-    ValueTask<object> ProcessEventsAsync(IEnumerable<object> events, object currentProjection);
+    ValueTask<object> ProcessEventsAsync(
+        IEnumerable<object> events,
+        object currentProjection,
+        IEventGrainContext context);
 }
 
 /// <summary>
@@ -65,7 +68,10 @@ internal class GrainEventConfiguration<TEventBase, TProjection> : IGrainEventCon
     /// <summary>
     /// Processes events through all configured partitions.
     /// </summary>
-    public ValueTask<object> ProcessEventsAsync(IEnumerable<object> events, object currentProjection)
+    public ValueTask<object> ProcessEventsAsync(
+        IEnumerable<object> events,
+        object currentProjection,
+        IEventGrainContext context)
     {
         if (currentProjection is not TProjection typedProjection)
         {
@@ -82,7 +88,7 @@ internal class GrainEventConfiguration<TEventBase, TProjection> : IGrainEventCon
                 {
                     if (partition.CanHandle(@event))
                     {
-                        result = partition.HandleEvent(typedEvent, result);
+                        result = partition.HandleEvent(typedEvent, result, context);
                     }
                 }
             }
@@ -106,7 +112,7 @@ internal interface IEventPartition<TEventBase, TProjection>
     /// <summary>
     /// Handles the event and returns the updated projection.
     /// </summary>
-    TProjection HandleEvent(TEventBase @event, TProjection projection);
+    TProjection HandleEvent(TEventBase @event, TProjection projection, IEventGrainContext context);
 }
 
 /// <summary>
@@ -119,6 +125,7 @@ internal interface ITypedEventPartition<TEvent, TProjection>
     /// Adds a handler for the event type.
     /// </summary>
     void AddHandler(Func<TEvent, TProjection, TProjection> handler);
+    void AddHandler(Func<TEvent, TProjection, IEventGrainContext, TProjection> handler);
 }
 
 /// <summary>
@@ -128,12 +135,17 @@ internal class EventPartition<TEvent, TEventBase, TProjection> : IEventPartition
     where TEvent : notnull, TEventBase
     where TProjection : class, IEventProjection<TProjection>
 {
-    private readonly List<Func<TEvent, TProjection, TProjection>> handlers = new();
+    private readonly List<Func<TEvent, TProjection, IEventGrainContext, TProjection>> handlers = new();
 
     /// <summary>
     /// Adds a handler for the event type.
     /// </summary>
     public void AddHandler(Func<TEvent, TProjection, TProjection> handler)
+    {
+        handlers.Add((e, p, _) => handler(e, p));
+    }
+
+    public void AddHandler(Func<TEvent, TProjection, IEventGrainContext, TProjection> handler)
     {
         handlers.Add(handler);
     }
@@ -149,7 +161,7 @@ internal class EventPartition<TEvent, TEventBase, TProjection> : IEventPartition
     /// <summary>
     /// Handles the event through all registered handlers.
     /// </summary>
-    public TProjection HandleEvent(TEventBase @event, TProjection projection)
+    public TProjection HandleEvent(TEventBase @event, TProjection projection, IEventGrainContext context)
     {
         if (@event is not TEvent typedEvent)
         {
@@ -159,7 +171,7 @@ internal class EventPartition<TEvent, TEventBase, TProjection> : IEventPartition
         var result = projection;
         foreach (var handler in handlers)
         {
-            result = handler(typedEvent, result);
+            result = handler(typedEvent, result, context);
         }
 
         return result;
