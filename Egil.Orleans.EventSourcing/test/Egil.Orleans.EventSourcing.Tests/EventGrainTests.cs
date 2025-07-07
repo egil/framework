@@ -18,6 +18,11 @@ public class EventGrainTests(SiloFixture fixture) : IClassFixture<SiloFixture>
         var grain = fixture.GetGrain<IUserGrain>(Guid.NewGuid());
 
         // Act - Process the event
-        await grain.RegisterUser("John Doe", "john.doe@example.com");   
+        await grain.RegisterUser("John Doe", "john.doe@example.com");
+
+        var user = await grain.GetUser();
+        Assert.NotNull(user);
+        Assert.Equal("John Doe", user.Name);
+        Assert.Equal("john.doe@example.com", user.Email);
     }
 }

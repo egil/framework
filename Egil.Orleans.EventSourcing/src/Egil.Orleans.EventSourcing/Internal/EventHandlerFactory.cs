@@ -1,47 +1,88 @@
 using Microsoft.Extensions.DependencyInjection;
+using Orleans;
 
 namespace Egil.Orleans.EventSourcing.Internal;
 
-internal class EventHandlerFactory<TEventGrain, TEvent, TProjection>(Func<TEventGrain, IEventHandler<TEvent, TProjection>> handlerFactory) : IEventHandlerFactory<TEventGrain>
+internal class EventHandlerFactory<TEventGrain, TEvent, TProjection>(Func<TEventGrain, IEventHandler<TEvent, TProjection>> handlerFactory) : IEventHandlerFactory<TEventGrain, TProjection>
     where TEvent : notnull
     where TProjection : notnull, IEventProjection<TProjection>
 {
-    public IEventHandler Create(TEventGrain grain, IServiceProvider serviceProvider)
-        => handlerFactory(grain);
-}
-
-internal class EventHandlerLambdaFactory<TEventGrain, TEvent, TProjection>(Func<TEventGrain, Func<TEvent, TProjection, TProjection>> handlerFactory) : IEventHandlerFactory<TEventGrain>
-    where TEvent : notnull
-    where TProjection : notnull, IEventProjection<TProjection>
-{
-    public IEventHandler Create(TEventGrain grain, IServiceProvider serviceProvider)
-        => new EventHandler<TEvent, TProjection>(handlerFactory(grain));
-}
-
-internal class EventHandlerServiceProviderFactory<TEventGrain, TEventBase, TProjection, TEventHandler>() : IEventHandlerFactory<TEventGrain>
-    where TEventBase : notnull
-    where TProjection : notnull, IEventProjection<TProjection>
-    where TEventHandler : IEventHandler<TEventBase, TProjection>
-{
-    public IEventHandler Create(TEventGrain grain, IServiceProvider serviceProvider)
-        => serviceProvider.GetRequiredService<TEventHandler>();
-}
-
-internal class EventHandler<TEvent, TProjection>(Func<TEvent, TProjection, TProjection> handlerFuncReference) : IEventHandler<TEvent, TProjection>, IEventHandler
-    where TEvent : notnull
-    where TProjection : notnull, IEventProjection<TProjection>
-{
-    public ValueTask<TProjection> HandleAsync(TEvent @event, TProjection projection, IEventGrainContext context)
+    public IEventHandler<TRequestedEvent, TProjection>? TryCreate<TRequestedEvent>(TRequestedEvent @event, IGrainBase grain, IServiceProvider serviceProvider) where TRequestedEvent : notnull
     {
-        var result = handlerFuncReference(@event, projection);
-        return ValueTask.FromResult(result);
+        if (@event is TEvent && grain is TEventGrain eventGrain)
+        {
+            return EventHandlerWrapper<TEvent, TProjection>
+                .Create(handlerFactory(eventGrain))
+                .TryCast(@event);
+        }
+
+        return null;
     }
 }
 
-internal class EventHandlerSingletonFactory<TEventGrain, TEvent, TProjection>(IEventHandler<TEvent, TProjection> handler) : IEventHandlerFactory<TEventGrain>
+internal class EventHandlerLambdaFactory<TEventGrain, TEvent, TProjection> : IEventHandlerFactory<TEventGrain, TProjection>
     where TEvent : notnull
     where TProjection : notnull, IEventProjection<TProjection>
 {
-    public IEventHandler Create(TEventGrain grain, IServiceProvider serviceProvider)
+    private readonly Func<TEventGrain, Func<TEvent, TProjection, TProjection>> handlerFactory;
+
+    public EventHandlerLambdaFactory(Func<TEvent, TProjection, TProjection> handlerLambda)
+        : this(_ => handlerLambda)
+    {
+    }
+
+    public EventHandlerLambdaFactory(Func<TEventGrain, Func<TEvent, TProjection, TProjection>> handlerFactory)
+    {
+        this.handlerFactory = handlerFactory;
+    }
+
+    public IEventHandler<TRequestedEvent, TProjection>? TryCreate<TRequestedEvent>(TRequestedEvent @event, IGrainBase grain, IServiceProvider serviceProvider) where TRequestedEvent : notnull
+    {
+        if (@event is TEvent && grain is TEventGrain eventGrain)
+        {
+            return EventHandlerWrapper<TEvent, TProjection>
+                .Create(handlerFactory(eventGrain))
+                .TryCast(@event);
+        }
+
+        return null;
+    }
+}
+
+internal class EventHandlerServiceProviderFactory<TEventGrain, TEvent, TProjection, TEventHandler>() : IEventHandlerFactory<TEventGrain, TProjection>
+    where TEvent : notnull
+    where TProjection : notnull, IEventProjection<TProjection>
+    where TEventHandler : IEventHandler<TEvent, TProjection>
+{
+    public IEventHandler<TRequestedEvent, TProjection>? TryCreate<TRequestedEvent>(TRequestedEvent @event, IGrainBase grain, IServiceProvider serviceProvider) where TRequestedEvent : notnull
+    {
+        if (@event is TEvent)
+        {
+            return EventHandlerWrapper<TEvent, TProjection>
+                .Create(serviceProvider.GetRequiredService<TEventHandler>())
+                .TryCast(@event);
+        }
+
+        return null;
+    }
+}
+
+internal class EventHandlerSingletonFactory<TEventGrain, TEvent, TProjection>(IEventHandler<TEvent, TProjection> handler) : IEventHandlerFactory<TEventGrain, TProjection>
+    where TEvent : notnull
+    where TProjection : notnull, IEventProjection<TProjection>
+{
+    private IEventHandler<TProjection> handler = EventHandlerWrapper<TEvent, TProjection>.Create(handler);
+
+    public IEventHandler<TProjection> Create(TEventGrain grain, IServiceProvider serviceProvider)
         => handler;
+
+    public IEventHandler<TRequestedEvent, TProjection>? TryCreate<TRequestedEvent>(TRequestedEvent @event, IGrainBase grain, IServiceProvider serviceProvider) where TRequestedEvent : notnull
+    {
+        if (@event is TEvent)
+        {
+            return handler.TryCast(@event);
+        }
+
+        return null;
+    }
 }

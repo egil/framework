@@ -1,8 +1,9 @@
 namespace Egil.Orleans.EventSourcing;
 
-internal interface IEventPartitionConfigurator<TEventGrain>
+internal interface IEventPartitionConfigurator<TEventGrain, TProjection>
+    where TProjection : notnull, IEventProjection<TProjection>
 {
-    IEventPartition<TEventGrain> Build();
+    IEventPartition<TEventGrain, TProjection> Build();
 }
 
 public partial interface IEventPartitionConfigurator<TEventGrain, TEventBase, TProjection>

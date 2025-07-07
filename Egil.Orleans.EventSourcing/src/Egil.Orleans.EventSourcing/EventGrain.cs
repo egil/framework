@@ -7,21 +7,20 @@ namespace Egil.Orleans.EventSourcing;
 /// <summary>
 /// Base class for event-sourced grains.
 /// </summary>
-public abstract class EventGrain<TEventGrain, TEventBase, TProjection> : Grain
-    where TEventGrain : EventGrain<TEventGrain, TEventBase, TProjection>
-    where TEventBase : notnull
+public abstract class EventGrain<TEventGrain, TProjection> : Grain
+    where TEventGrain : EventGrain<TEventGrain, TProjection>
     where TProjection : notnull, IEventProjection<TProjection>
 {
     private readonly IEventStorage eventStorage;
     private readonly GrainId grainId;
-    private readonly IEventPartition<TEventGrain>[] partitions;
+    private readonly IEventPartition<TEventGrain, TProjection>[] partitions;
 
     protected EventGrain(IEventStorage eventStorage)
     {
         this.eventStorage = eventStorage ?? throw new ArgumentNullException(nameof(eventStorage));
         Projection = TProjection.CreateDefault();
         grainId = this.GetGrainId();
-        var builder = new EventPartitionBuilder<TEventGrain, TEventBase, TProjection>();
+        var builder = new EventPartitionBuilder<TEventGrain, TProjection>();
         Configure(builder);
         partitions = builder.Build();
     }
@@ -34,34 +33,57 @@ public abstract class EventGrain<TEventGrain, TEventBase, TProjection> : Grain
     {
     }
 
-    protected async Task ProcessEventAsync<TEvent>(TEvent @event) where TEvent : TEventBase
+    protected async Task ProcessEventAsync<TEvent>(TEvent @event) where TEvent : notnull
     {
         var context = new EventGrainContext(grainId, eventStorage, GrainFactory);
+        var partition = FindPartition<TEvent>(@event);
 
-        foreach (var partition in partitions)
+
+
+        foreach (var handlerFactory in partition.Handlers)
         {
-            if (partition is not IEventPartition<TEventGrain, TEvent> compatiblePartition)
+            if (handlerFactory.TryCreate(@event, this, ServiceProvider) is { } handler)
             {
-                continue;
-            }
-
-            foreach (var handlerFactory in compatiblePartition.Handlers)
-            {
-                var grain = (TEventGrain)this;
-                var handler = handlerFactory.Create(grain, ServiceProvider);
-                var compatibleHandler = (IEventHandler<TEvent, TProjection>)handler;
-                Projection = await compatibleHandler.HandleAsync(@event, Projection, context);
+                Projection = await handler.HandleAsync(@event, Projection, context);
             }
         }
     }
 
+    private IEventPartition<TEventGrain, TProjection> FindPartition<TEvent>(TEvent @event) where TEvent : notnull
+    {
+        IEventPartition<TEventGrain, TProjection>? result = null;
+
+        foreach (var partition in partitions)
+        {
+            if (partition.TryCast(@event) is IEventPartition<TEventGrain, TProjection> compatiblePartition)
+            {
+
+                if (result is null)
+                {
+                    result = compatiblePartition;
+                }
+                else
+                {
+                    throw new InvalidOperationException($"Multiple partitions found for event type {typeof(TEvent).Name}. Ensure only one partition handles this event type.");
+                }
+            }
+        }
+
+        if (result is null)
+        {
+            throw new InvalidOperationException($"No partition found for event type {typeof(TEvent).Name}. Ensure a partition is configured to handle this event type.");
+        }
+
+        return result;
+    }
+
     protected IAsyncEnumerable<TEvent> GetEventsAsync<TEvent>(CancellationToken cancellationToken = default)
-        where TEvent : class, TEventBase
+        where TEvent : notnull
     {
         return eventStorage.LoadEventsAsync<TEvent>(grainId, cancellationToken);
     }
 
-    protected abstract void Configure(IEventPartitionBuilder<TEventGrain, TEventBase, TProjection> builder);
+    protected abstract void Configure(IEventPartitionBuilder<TEventGrain, TProjection> builder);
 
     //protected static void Configure<TEventGrain>(Action<IEventPartitionBuilder<TEventGrain, TEventBase, TProjection>> builderAction)
     //    where TEventGrain : IGrain

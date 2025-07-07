@@ -1,33 +1,32 @@
 using System.Collections.Immutable;
 using System.Text.Json.Serialization;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace Egil.Orleans.EventSourcing.Examples;
 
-// Event interfaces and records
+// Events that share the same partition and partition rules
 [JsonDerivedType(typeof(UserCreated), "UserCreated.V1")]
 [JsonDerivedType(typeof(UserDeactivated), "UserDeactivated.V1")]
-[JsonDerivedType(typeof(UserMessageReceived), "UserMessageReceived.V1")]
 public interface IUserEvent;
 
-[Immutable, GenerateSerializer]
+[Immutable, GenerateSerializer, Alias("UserCreated.V1")]
 public sealed record UserCreated(string UserId, string Name, string Email, DateTimeOffset Timestamp) : IUserEvent;
 
-[Immutable, GenerateSerializer]
+[Immutable, GenerateSerializer, Alias("UserDeactivated.V1")]
 public sealed record UserDeactivated(string UserId, string Reason, DateTimeOffset Timestamp) : IUserEvent;
 
-[Immutable, GenerateSerializer]
-public sealed record UserMessageReceived(string UserId, string Message, DateTimeOffset Timestamp) : IUserEvent;
+// Event that has its own partition and partition rules
+[Immutable, GenerateSerializer, Alias("UserMessageReceived.V1")]
+public sealed record UserMessageReceived(string UserId, string Message, DateTimeOffset Timestamp);
 
 [JsonDerivedType(typeof(OffensiveLanguageDetectedEvent), "OffensiveLanguageDetectedEvent.V1")]
 [JsonDerivedType(typeof(UserWelcomeEvent), "UserWelcomeEvent.V1")]
 public interface IUserOutboxEvent : IUserEvent;
 
-[Immutable, GenerateSerializer]
+[Immutable, GenerateSerializer, Alias("OffensiveLanguageDetectedEvent.V1")]
 public sealed record OffensiveLanguageDetectedEvent(string UserId, string Message, DateTimeOffset Timestamp)
     : IUserOutboxEvent;
 
-[Immutable, GenerateSerializer]
+[Immutable, GenerateSerializer, Alias("UserWelcomeEvent.V1")]
 public sealed record UserWelcomeEvent(string Email, string Name, DateTimeOffset Timestamp)
     : IUserOutboxEvent;
 
@@ -53,7 +52,7 @@ public sealed record User(
         LastModifiedAt: DateTimeOffset.MinValue);
 }
 
-[Immutable, GenerateSerializer]
+[Immutable, GenerateSerializer, Alias("UserMessage.V1")]
 public sealed record UserMessage(string UserId, string Message, DateTimeOffset Timestamp);
 
 public interface IUserGrain : IGrainWithGuidKey
@@ -67,14 +66,14 @@ public interface IUserGrain : IGrainWithGuidKey
 }
 
 public sealed class UserGrain(IEventStorage storage, TimeProvider timeProvider)
-    : EventGrain<UserGrain, IUserEvent, User>(storage), IUserGrain
+    : EventGrain<UserGrain, User>(storage), IUserGrain
 {
     public async ValueTask RegisterUser(string name, string email)
     {
         var userId = this.GetPrimaryKeyString();
         var @event = new UserCreated(userId, name, email, DateTimeOffset.UtcNow);
-        var @event2 = new UserWelcomeEvent(email, name, DateTimeOffset.UtcNow);
         await ProcessEventAsync(@event);
+        var @event2 = new UserWelcomeEvent(email, name, DateTimeOffset.UtcNow);
         await ProcessEventAsync(@event2);
     }
 
@@ -124,7 +123,7 @@ public sealed class UserGrain(IEventStorage storage, TimeProvider timeProvider)
         };
     }
 
-    protected override void Configure(IEventPartitionBuilder<UserGrain, IUserEvent, User> builder)
+    protected override void Configure(IEventPartitionBuilder<UserGrain, User> builder)
     {
         // A partition can have a base type and handlers for specific events.
         builder.AddPartition<IUserEvent>()
@@ -152,7 +151,7 @@ public sealed class UserGrain(IEventStorage storage, TimeProvider timeProvider)
         //    .StreamPublish<OffensiveLanguageDetectedEvent>(
         //        "stream-provider-name",
         //        "offensive-words-namespace",
-        //        config => config.KeySelector(e => e.UserId));
+        //        publishConfig => publishConfig.KeySelector(e => e.UserId));
     }
 }
 

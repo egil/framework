@@ -1,9 +1,6 @@
-using Orleans;
-
 namespace Egil.Orleans.EventSourcing;
 
-public interface IEventPartitionBuilder<TEventGrain, TEventBase, TProjection>
-    where TEventBase : notnull
+public interface IEventPartitionBuilder<TEventGrain, TProjection>
     where TProjection : notnull, IEventProjection<TProjection>
 {
     /// <summary>
@@ -12,5 +9,5 @@ public interface IEventPartitionBuilder<TEventGrain, TEventBase, TProjection>
     /// <typeparam name="TEvent"></typeparam>
     /// <returns></returns>
     IEventPartitionConfigurator<TEventGrain, TEvent, TProjection> AddPartition<TEvent>()
-        where TEvent : notnull, TEventBase;
+        where TEvent : notnull;
 }
