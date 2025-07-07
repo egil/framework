@@ -3,7 +3,6 @@ using Orleans;
 namespace Egil.Orleans.EventSourcing;
 
 public interface IEventPartitionBuilder<TEventGrain, TEventBase, TProjection>
-    where TEventGrain : IGrain
     where TEventBase : notnull
     where TProjection : notnull, IEventProjection<TProjection>
 {

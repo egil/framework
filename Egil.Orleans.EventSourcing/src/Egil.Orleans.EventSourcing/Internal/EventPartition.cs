@@ -2,10 +2,8 @@ using Orleans;
 
 namespace Egil.Orleans.EventSourcing.Internal;
 
-internal class EventPartition<TEventGrain, TEvent, TProjection> : IEventPartition<TEventGrain, TEvent, TProjection>
-    where TEventGrain : IGrain
+internal class EventPartition<TEventGrain, TEvent> : IEventPartition<TEventGrain, TEvent>
     where TEvent : notnull
-    where TProjection : notnull, IEventProjection<TProjection>
 {
     public required IEventHandlerFactory<TEventGrain>[] Handlers { get; init; }
 

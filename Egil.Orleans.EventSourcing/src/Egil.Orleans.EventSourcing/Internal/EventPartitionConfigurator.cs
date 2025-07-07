@@ -1,9 +1,6 @@
-using Orleans;
-
 namespace Egil.Orleans.EventSourcing.Internal;
 
-internal class EventPartitionConfigurator<TEventGrain, TEventBase, TProjection> : IEventPartitionConfigurator<TEventGrain, TEventBase, TProjection>
-    where TEventGrain : IGrain
+internal partial class EventPartitionConfigurator<TEventGrain, TEventBase, TProjection> : IEventPartitionConfigurator<TEventGrain, TEventBase, TProjection>, IEventPartitionConfigurator<TEventGrain>
     where TEventBase : notnull
     where TProjection : notnull, IEventProjection<TProjection>
 {
@@ -43,6 +40,9 @@ internal class EventPartitionConfigurator<TEventGrain, TEventBase, TProjection> 
         return this;
     }
 
+    public IEventPartitionConfigurator<TEventGrain, TEventBase, TProjection> Handle(Func<TEventGrain, IEventHandler<TEventBase, TProjection>> handlerFactory)
+        => Handle<TEventBase>(handlerFactory);
+
     public IEventPartitionConfigurator<TEventGrain, TEventBase, TProjection> Handle<TEvent>(Func<TEventGrain, IEventHandler<TEvent, TProjection>> handlerFactory)
         where TEvent : notnull, TEventBase
     {
@@ -50,6 +50,9 @@ internal class EventPartitionConfigurator<TEventGrain, TEventBase, TProjection> 
         handlers.Add(new EventHandlerFactory<TEventGrain, TEvent, TProjection>(handlerFactory));
         return this;
     }
+
+    public IEventPartitionConfigurator<TEventGrain, TEventBase, TProjection> Publish(Func<TEventGrain, IEventPublisher<TEventBase, TProjection>> publisherFactory)
+        => Publish<TEventBase>(publisherFactory);
 
     public IEventPartitionConfigurator<TEventGrain, TEventBase, TProjection> Publish<TEvent>(Func<TEventGrain, IEventPublisher<TEvent, TProjection>> publisherFactory)
         where TEvent : notnull, TEventBase
@@ -59,14 +62,14 @@ internal class EventPartitionConfigurator<TEventGrain, TEventBase, TProjection> 
         return this;
     }
 
-    public IEventPartition<TEventGrain, TEventBase, TProjection> Build()
+    public IEventPartition<TEventGrain> Build()
     {
         if (untilProcessed && (keepCount.HasValue || keepAge.HasValue || keySelector != null))
         {
             throw new InvalidOperationException("Cannot combine KeepUntilProcessed with other keep settings.");
         }
 
-        return new EventPartition<TEventGrain, TEventBase, TProjection>
+        return new EventPartition<TEventGrain, TEventBase>
         {
             Handlers = handlers.ToArray(),
             Publishers = publishers.ToArray(),
@@ -79,5 +82,30 @@ internal class EventPartitionConfigurator<TEventGrain, TEventBase, TProjection> 
                 KeySelector = keySelector
             },
         };
+    }
+
+}
+
+internal partial class EventPartitionConfigurator<TEventGrain, TEventBase, TProjection> : IEventPartitionConfigurator<TEventGrain, TEventBase, TProjection>
+{
+    public IEventPartitionConfigurator<TEventGrain, TEventBase, TProjection> Handle<TEvent>(Func<TEventGrain, Func<TEvent, TProjection, TProjection>> handlerFactory)
+        where TEvent : TEventBase
+    {
+        ArgumentNullException.ThrowIfNull(handlerFactory);
+        handlers.Add(new EventHandlerLambdaFactory<TEventGrain, TEvent, TProjection>(handlerFactory));
+        return this;
+    }
+
+    public IEventPartitionConfigurator<TEventGrain, TEventBase, TProjection> Handle<TEventHandler>() where TEventHandler : IEventHandler<TEventBase, TProjection>
+    {
+        handlers.Add(new EventHandlerServiceProviderFactory<TEventGrain, TEventBase, TProjection, TEventHandler>());
+        return this;
+    }
+
+    public IEventPartitionConfigurator<TEventGrain, TEventBase, TProjection> Handle<TEvent>(Func<TEvent, TProjection, TProjection> handler) where TEvent : TEventBase
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        handlers.Add(new EventHandlerSingletonFactory<TEventGrain, TEvent, TProjection>(new EventHandler<TEvent, TProjection>(handler)));
+        return this;
     }
 }

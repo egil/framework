@@ -12,13 +12,4 @@ internal class EventPartitionRetention<TEvent>
     public required Func<TEvent, DateTimeOffset>? TimestampSelector { get; init; } = null;
 
     public required Func<TEvent, string>? KeySelector { get; init; } = null;
-
-    public static EventPartitionRetention<TEvent> KeepAll { get; } = new EventPartitionRetention<TEvent>()
-    {
-        Count = null,
-        MaxAge = null,
-        UntilProcessed = false,
-        TimestampSelector = null,
-        KeySelector = null
-    };
 }

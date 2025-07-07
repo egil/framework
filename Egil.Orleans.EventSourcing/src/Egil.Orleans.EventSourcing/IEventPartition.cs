@@ -1,15 +1,16 @@
 using Egil.Orleans.EventSourcing.Internal;
-using Orleans;
 
 namespace Egil.Orleans.EventSourcing;
 
-internal interface IEventPartition<TEventGrain, TEvent>
-    where TEventGrain : IGrain
-    where TEvent : notnull
+internal interface IEventPartition<TEventGrain>
 {
     IEventHandlerFactory<TEventGrain>[] Handlers { get; }
 
     IEventPublisherFactory<TEventGrain>[] Publishers { get; }
+}
 
+internal interface IEventPartition<TEventGrain, TEvent> : IEventPartition<TEventGrain>
+    where TEvent : notnull
+{
     EventPartitionRetention<TEvent> Retention { get; }
 }

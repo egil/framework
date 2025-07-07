@@ -1,14 +1,11 @@
-using Orleans;
-
 namespace Egil.Orleans.EventSourcing;
 
-internal interface IEventPartitionConfigurator<TEventGrain> where TEventGrain : IGrain
+internal interface IEventPartitionConfigurator<TEventGrain>
 {
-    IEventPartition<TEventGrain, TEventBase, TProjection> Build();
+    IEventPartition<TEventGrain> Build();
 }
 
-public interface IEventPartitionConfigurator<TEventGrain, TEventBase, TProjection>
-    where TEventGrain : IGrain
+public partial interface IEventPartitionConfigurator<TEventGrain, TEventBase, TProjection>
     where TEventBase : notnull
     where TProjection : notnull, IEventProjection<TProjection>
 {
@@ -41,9 +38,22 @@ public interface IEventPartitionConfigurator<TEventGrain, TEventBase, TProjectio
     /// </remarks>
     IEventPartitionConfigurator<TEventGrain, TEventBase, TProjection> KeepDistinct(Func<TEventBase, string> eventKeySelector);
 
+    IEventPartitionConfigurator<TEventGrain, TEventBase, TProjection> Handle(Func<TEventGrain, IEventHandler<TEventBase, TProjection>> handlerFactory);
+
     IEventPartitionConfigurator<TEventGrain, TEventBase, TProjection> Handle<TEvent>(Func<TEventGrain, IEventHandler<TEvent, TProjection>> handlerFactory)
         where TEvent : notnull, TEventBase;
 
+    IEventPartitionConfigurator<TEventGrain, TEventBase, TProjection> Publish(Func<TEventGrain, IEventPublisher<TEventBase, TProjection>> publisherFactory);
+
     IEventPartitionConfigurator<TEventGrain, TEventBase, TProjection> Publish<TEvent>(Func<TEventGrain, IEventPublisher<TEvent, TProjection>> publisherFactory)
         where TEvent : notnull, TEventBase;
+}
+
+public partial interface IEventPartitionConfigurator<TEventGrain, TEventBase, TProjection>
+{
+    IEventPartitionConfigurator<TEventGrain, TEventBase, TProjection> Handle<TEvent>(Func<TEventGrain, Func<TEvent, TProjection, TProjection>> handlerFactory) where TEvent : TEventBase;
+
+    IEventPartitionConfigurator<TEventGrain, TEventBase, TProjection> Handle<TEventHandler>() where TEventHandler : IEventHandler<TEventBase, TProjection>;
+
+    IEventPartitionConfigurator<TEventGrain, TEventBase, TProjection> Handle<TEvent>(Func<TEvent, TProjection, TProjection> handler) where TEvent : TEventBase;
 }

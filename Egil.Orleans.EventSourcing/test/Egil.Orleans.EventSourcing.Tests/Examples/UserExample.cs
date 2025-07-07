@@ -1,7 +1,6 @@
 using System.Collections.Immutable;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.DependencyInjection;
-using Orleans;
 
 namespace Egil.Orleans.EventSourcing.Examples;
 
@@ -57,7 +56,7 @@ public sealed record User(
 [Immutable, GenerateSerializer]
 public sealed record UserMessage(string UserId, string Message, DateTimeOffset Timestamp);
 
-public interface IUserGrain : IGrainWithStringKey
+public interface IUserGrain : IGrainWithGuidKey
 {
     ValueTask RegisterUser(string name, string email);
     ValueTask<bool> Deactivate(string reason);
@@ -67,53 +66,23 @@ public interface IUserGrain : IGrainWithStringKey
     IAsyncEnumerable<UserMessage> GetLatestMessages();
 }
 
-public sealed class UserGrain([FromKeyedServices("user-events")] IEventStorage storage) : EventGrain<IUserEvent, User>(storage), IUserGrain
+public sealed class UserGrain(IEventStorage storage, TimeProvider timeProvider)
+    : EventGrain<UserGrain, IUserEvent, User>(storage), IUserGrain
 {
-    // Static configuration block - this is called once per grain type
-    static UserGrain() => Configure<UserGrain>(builder =>
-    {
-        // A partiton can have a base type and handlers for specific events.
-        builder.AddPartition<IUserEvent>()
-            .Handle<UserCreated>(static grain => grain.ApplyUserCreated)
-            .Handle<UserDeactivated>(static grain => grain.ApplyUserDeactivated);
-
-        // A partiton can also have multiple handlers for the same event type.
-        builder.AddPartition<UserMessageReceived>()
-            .KeepUntil(TimeSpan.FromDays(7), e => e.Timestamp)
-            .Handle<UserMessageReceivedHandler>()
-            .Handle<UserMessageReceived>(static (e, projection) =>
-            {
-                projection = projection with
-                {
-                    TotalMessagesCount = projection.TotalMessagesCount + 1,
-                    LastModifiedAt = e.Timestamp
-                };
-                return projection;
-            });
-
-        // Events in a partition can be published. Similar to a handler, but the publisher is not expected to modify the projection.
-        builder.AddPartition<IUserOutboxEvent>()
-            .KeepUntilProcessed()
-            .Publish<UserWelcomeEvent, UserWelcomeEventPublisher>()
-            .StreamPublish<OffensiveLanguageDetectedEvent>(
-                "stream-provider-name",
-                "offensive-words-namespace",
-                config => config.KeySelector(e => e.UserId));
-    });
-
     public async ValueTask RegisterUser(string name, string email)
     {
         var userId = this.GetPrimaryKeyString();
         var @event = new UserCreated(userId, name, email, DateTimeOffset.UtcNow);
         var @event2 = new UserWelcomeEvent(email, name, DateTimeOffset.UtcNow);
-        await ProcessEventsAsync(@event, @event2);
+        await ProcessEventAsync(@event);
+        await ProcessEventAsync(@event2);
     }
 
     public async ValueTask<bool> Deactivate(string reason)
     {
         var userId = this.GetPrimaryKeyString();
         var @event = new UserDeactivated(userId, reason, DateTimeOffset.UtcNow);
-        await ProcessEventsAsync(@event);
+        await ProcessEventAsync(@event);
         return Projection.IsDeactivated;
     }
 
@@ -121,7 +90,7 @@ public sealed class UserGrain([FromKeyedServices("user-events")] IEventStorage s
     {
         var userId = this.GetPrimaryKeyString();
         var @event = new UserMessageReceived(userId, message, DateTimeOffset.UtcNow);
-        await ProcessEventsAsync(@event);
+        await ProcessEventAsync(@event);
     }
 
     public ValueTask<User> GetUser() => ValueTask.FromResult(Projection);
@@ -134,7 +103,7 @@ public sealed class UserGrain([FromKeyedServices("user-events")] IEventStorage s
         }
     }
 
-    private User ApplyUserCreated(UserCreated @event, User projection)
+    private static User ApplyUserCreated(UserCreated @event, User projection)
     {
         return projection with
         {
@@ -151,8 +120,39 @@ public sealed class UserGrain([FromKeyedServices("user-events")] IEventStorage s
         return projection with
         {
             IsDeactivated = true,
-            LastModifiedAt = @event.Timestamp
+            LastModifiedAt = timeProvider.GetUtcNow(),
         };
+    }
+
+    protected override void Configure(IEventPartitionBuilder<UserGrain, IUserEvent, User> builder)
+    {
+        // A partition can have a base type and handlers for specific events.
+        builder.AddPartition<IUserEvent>()
+            .Handle<UserCreated>(ApplyUserCreated)
+            .Handle<UserDeactivated>(static grain => grain.ApplyUserDeactivated);
+
+        // A partition can also have multiple handlers for the same event type.
+        builder.AddPartition<UserMessageReceived>()
+            .KeepUntil(TimeSpan.FromDays(7), e => e.Timestamp)
+            .Handle<UserMessageReceivedHandler>()
+            .Handle<UserMessageReceived>(static (e, projection) =>
+            {
+                projection = projection with
+                {
+                    TotalMessagesCount = projection.TotalMessagesCount + 1,
+                    LastModifiedAt = e.Timestamp
+                };
+                return projection;
+            });
+
+        //// Events in a partition can be published. Similar to a handler, but the publisher is not expected to modify the projection.
+        //builder.AddPartition<IUserOutboxEvent>()
+        //    .KeepUntilProcessed()
+        //    .Publish<UserWelcomeEvent, UserWelcomeEventPublisher>()
+        //    .StreamPublish<OffensiveLanguageDetectedEvent>(
+        //        "stream-provider-name",
+        //        "offensive-words-namespace",
+        //        config => config.KeySelector(e => e.UserId));
     }
 }
 
@@ -188,6 +188,8 @@ public interface IEmailServer
 
 public class UserWelcomeEventPublisher(IEmailServer emailServer) : IEventPublisher<UserWelcomeEvent, User>
 {
+    public bool CanPublish<TEvent>(TEvent @event) where TEvent : notnull => throw new NotImplementedException();
+
     public async ValueTask PublishAsync(IEnumerable<UserWelcomeEvent> @event, User projection, IEventGrainContext context)
     {
         foreach (var welcomeEvent in @event)
