@@ -1,3 +1,5 @@
+using Egil.Orleans.EventSourcing.Examples;
+using Egil.Orleans.EventSourcing.Examples.EventHandlers;
 using Microsoft.Extensions.DependencyInjection;
 using Orleans.TestingHost;
 
@@ -10,7 +12,7 @@ public sealed class SiloFixture : IAsyncLifetime, IGrainFactory
 
     public IServiceProvider Services => cluster?.GetSiloServiceProvider() ?? throw new InvalidOperationException("Test cluster not running.");
 
-    public FakeEventStorage EventStorage { get; } = new();
+    public FakeEventStore EventStorage { get; } = new();
 
     public IGrainFactory GrainFactory => grainFactory ?? throw new InvalidOperationException("Test cluster not running.");
 
@@ -21,6 +23,8 @@ public sealed class SiloFixture : IAsyncLifetime, IGrainFactory
         builder.ConfigureSilo((options, siloBuilder) =>
         {
             siloBuilder.Services.AddSingleton<IEventStore>(EventStorage);
+            siloBuilder.Services.AddSingleton<UserMessageReceivedHandler>();
+            siloBuilder.Services.AddSingleton<BadWordsDetector>();
             siloBuilder.UseInMemoryReminderService();
         });
 

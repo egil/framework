@@ -7,19 +7,36 @@ internal class EventStream<TEvent, TProjection> : IEventStream<TEvent, TProjecti
     where TEvent : notnull
     where TProjection : notnull, IEventProjection<TProjection>
 {
+    public required string Name { get; init; }
+
     public required IEventHandlerFactory<TProjection>[] Handlers { get; init; }
 
     public required IEventReactorFactory<TProjection>[] Publishers { get; init; }
 
     public required EventStreamRetention<TEvent> Retention { get; init; }
 
-    public IEventStream<TProjection>? TryCast<TRequestedEvent>(TRequestedEvent @event) where TRequestedEvent : notnull
+    public bool Matches<TRequestedEvent>(TRequestedEvent? @event) where TRequestedEvent : notnull
     {
-        if (@event is TEvent)
+        if (@event is null)
         {
-            return this;
+            return Matches<TRequestedEvent>();
         }
 
-        return null;
+        if (@event is TEvent)
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool Matches<TRequestedEvent>() where TRequestedEvent : notnull
+    {
+        if (typeof(TRequestedEvent).IsAssignableTo(typeof(TEvent)))
+        {
+            return true;
+        }
+
+        return false;
     }
 }

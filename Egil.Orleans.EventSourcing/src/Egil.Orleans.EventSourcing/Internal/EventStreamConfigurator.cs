@@ -16,6 +16,9 @@ internal partial class EventStreamConfigurator<TEventGrain, TEventBase, TProject
     private Func<TEventBase, string>? keySelector;
     private List<IEventHandlerFactory<TProjection>> handlers = [];
     private List<IEventReactorFactory<TProjection>> publishers = [];
+    private string streamName;
+
+    public EventStreamConfigurator(string streamName) => this.streamName = streamName;
 
     public IEventStreamConfigurator<TEventGrain, TEventBase, TProjection> KeepUntilProcessed()
     {
@@ -104,6 +107,7 @@ internal partial class EventStreamConfigurator<TEventGrain, TEventBase, TProject
 
         return new EventStream<TEventBase, TProjection>
         {
+            Name = streamName,
             Handlers = handlers.ToArray(),
             Publishers = publishers.ToArray(),
             Retention = new EventStreamRetention<TEventBase>

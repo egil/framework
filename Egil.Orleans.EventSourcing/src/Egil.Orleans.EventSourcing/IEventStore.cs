@@ -15,7 +15,7 @@ public interface IEventStore
     /// <param name="grainId">The unique identifier of the grain.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The loaded projection, or null if none exists.</returns>
-    ValueTask<TProjection?> LoadProjectionAsync<TProjection>(GrainId grainId, CancellationToken cancellationToken = default)
+    ValueTask<TProjection?> LoadProjectionAsync<TProjection>(string streamName, GrainId grainId, CancellationToken cancellationToken = default)
         where TProjection : notnull;
 
     /// <summary>
@@ -25,7 +25,7 @@ public interface IEventStore
     /// <param name="grainId">The unique identifier of the grain.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>An async enumerable of events from the stream.</returns>
-    IAsyncEnumerable<TEvent> LoadEventsAsync<TEvent>(GrainId grainId, CancellationToken cancellationToken = default)
+    IAsyncEnumerable<TEvent> LoadEventsAsync<TEvent>(string streamName, GrainId grainId, CancellationToken cancellationToken = default)
         where TEvent : notnull;
 
     /// <summary>
@@ -39,6 +39,7 @@ public interface IEventStore
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task representing the atomic operation.</returns>
     ValueTask SaveAsync<TEvent, TProjection>(
+        string streamName,
         GrainId grainId,
         IEnumerable<TEvent> events,
         TProjection projection,

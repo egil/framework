@@ -8,7 +8,7 @@ namespace Egil.Orleans.EventSourcing.Internal;
 /// It collects events appended by handlers and provides access to the grain id,
 /// grain factory and event stream.
 /// </summary>
-internal sealed class EventContext(GrainId grainId, IEventStore storage, IGrainFactory grainFactory) : IEventHandlerContext, IEventReactContext
+internal sealed class EventContext(GrainId grainId, IEventGrain eventGrain, IGrainFactory grainFactory) : IEventHandlerContext, IEventReactContext
 {
     private List<object>? appendedEvents;
 
@@ -23,7 +23,7 @@ internal sealed class EventContext(GrainId grainId, IEventStore storage, IGrainF
     /// <inheritdoc />
     public IAsyncEnumerable<TEvent> GetEventsAsync<TEvent>() where TEvent : notnull
     {
-        return storage.LoadEventsAsync<TEvent>(grainId);
+        return eventGrain.GetEventsAsync<TEvent>();
     }
 
     /// <inheritdoc />

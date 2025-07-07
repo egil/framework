@@ -2,7 +2,7 @@ using Egil.Orleans.EventSourcing.Examples.Events;
 
 namespace Egil.Orleans.EventSourcing.Examples.EventHandlers;
 
-public class UserMessageReceivedHandler(IBadWordsDetector badWordsDetector) : IEventHandler<UserMessageSent, User>
+public class UserMessageReceivedHandler(BadWordsDetector badWordsDetector) : IEventHandler<UserMessageSent, User>
 {
     public async ValueTask<User> HandleAsync(UserMessageSent @event, User projection, IEventHandlerContext context)
     {

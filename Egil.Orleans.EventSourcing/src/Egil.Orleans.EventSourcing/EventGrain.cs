@@ -4,21 +4,26 @@ using Orleans.Runtime;
 
 namespace Egil.Orleans.EventSourcing;
 
+internal interface IEventGrain
+{
+    IAsyncEnumerable<TEvent> GetEventsAsync<TEvent>(CancellationToken cancellationToken = default) where TEvent : notnull;
+}
+
 /// <summary>
 /// Base class for event-sourced grains.
 /// </summary>
-public abstract class EventGrain<TEventGrain, TProjection> : Grain
+public abstract class EventGrain<TEventGrain, TProjection> : Grain, IEventGrain
     where TEventGrain : EventGrain<TEventGrain, TProjection>
     where TProjection : notnull, IEventProjection<TProjection>
 {
-    private readonly IEventStore eventStorage;
+    private readonly IEventStore eventstore;
     private readonly GrainId grainId;
     private readonly IEventStream<TProjection>[] streams;
     private EventContext? activeContext;
 
     protected EventGrain(IEventStore eventStorage)
     {
-        this.eventStorage = eventStorage ?? throw new ArgumentNullException(nameof(eventStorage));
+        this.eventstore = eventStorage ?? throw new ArgumentNullException(nameof(eventStorage));
         Projection = TProjection.CreateDefault();
         grainId = this.GetGrainId();
         var builder = new EventStreamBuilder<TEventGrain, TProjection>();
@@ -26,7 +31,7 @@ public abstract class EventGrain<TEventGrain, TProjection> : Grain
         streams = builder.Build();
     }
 
-    protected IEventStore EventStorage => eventStorage;
+    protected IEventStore EventStorage => eventstore;
 
     protected TProjection Projection { get; set; }
 
@@ -37,7 +42,7 @@ public abstract class EventGrain<TEventGrain, TProjection> : Grain
     protected async ValueTask ProcessEventAsync<TEvent>(TEvent @event) where TEvent : notnull
     {
         var topScope = activeContext is null;
-        activeContext ??= new EventContext(grainId, eventStorage, GrainFactory);
+        activeContext ??= new EventContext(grainId, this, GrainFactory);
 
         try
         {
@@ -67,7 +72,7 @@ public abstract class EventGrain<TEventGrain, TProjection> : Grain
 
     protected async ValueTask ProcessEventAsync(Func<Task> processScope)
     {
-        var context = new EventContext(grainId, eventStorage, GrainFactory);
+        var context = new EventContext(grainId, this, GrainFactory);
         try
         {
             await processScope.Invoke();
@@ -79,21 +84,21 @@ public abstract class EventGrain<TEventGrain, TProjection> : Grain
         }
     }
 
-    private IEventStream<TProjection> FindStream<TEvent>(TEvent @event) where TEvent : notnull
+    private IEventStream<TProjection> FindStream<TEvent>(TEvent? @event) where TEvent : notnull
     {
         IEventStream<TProjection>? result = null;
 
         foreach (var stream in streams)
         {
-            if (stream.TryCast(@event) is { } compatibleStream)
+            if (stream.Matches(@event))
             {
                 if (result is null)
                 {
-                    result = compatibleStream;
+                    result = stream;
                 }
                 else
                 {
-                    throw new InvalidOperationException($"Multiple streams found for event type {typeof(TEvent).Name}. Ensure only one stream handles this event type.");
+                    throw new InvalidOperationException($"Multiple streams found for event type {typeof(TEvent).Name}. Ensure only one stream handles this event type. Matching streams: {result.Name}, {stream.Name}.");
                 }
             }
         }
@@ -109,8 +114,11 @@ public abstract class EventGrain<TEventGrain, TProjection> : Grain
     protected IAsyncEnumerable<TEvent> GetEventsAsync<TEvent>(CancellationToken cancellationToken = default)
         where TEvent : notnull
     {
-        return eventStorage.LoadEventsAsync<TEvent>(grainId, cancellationToken);
+        var streamName = FindStream<TEvent>(default);
+        return eventstore.LoadEventsAsync<TEvent>(streamName.Name, grainId, cancellationToken);
     }
+
+    IAsyncEnumerable<TEvent> IEventGrain.GetEventsAsync<TEvent>(CancellationToken cancellationToken) => GetEventsAsync<TEvent>(cancellationToken);
 
     protected abstract void Configure(IEventStreamBuilder<TEventGrain, TProjection> builder);
 

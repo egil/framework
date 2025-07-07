@@ -2,7 +2,7 @@ using Egil.Orleans.EventSourcing.Examples.Events;
 
 namespace Egil.Orleans.EventSourcing.Examples.EventReactors;
 
-public class UserWelcomeEventPublisher(IEmailServer emailServer) : IEventReactor<UserWelcomeEvent, User>
+public class UserWelcomeEmailSender(IEmailServer emailServer) : IEventReactor<UserWelcomeEvent, User>
 {
     public async ValueTask ReactAsync(IEnumerable<UserWelcomeEvent> @event, User projection, IEventReactContext context)
     {
