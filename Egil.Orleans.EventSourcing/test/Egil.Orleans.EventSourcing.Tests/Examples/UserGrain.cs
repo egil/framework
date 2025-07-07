@@ -192,17 +192,17 @@ public sealed class UserGrain([FromKeyedServices("eventStoreProvider")] IEventSt
             .KeepUntilProcessed()
 
             // Track the number of outbox events
-            .Handle((@event, user) => user with { OutboxEventsCount = user.OutboxEventsCount + 1 })
+            .Handle((@event, user) => user with { OutboxEventsCount = user.OutboxEventsCount + 1 });
 
             // Register a reactor that sends welcome emails
             // Reactors handle side effects AFTER events are successfully saved
-            .React<UserWelcomeEvent, UserWelcomeEmailSender>()
+            //.React<UserWelcomeEvent, UserWelcomeEmailSender>()
 
             // Configure publishing to Orleans streams
             // This enables other grains to subscribe to offensive language events
-            .StreamPublish<OffensiveLanguageDetectedEvent>(
-                "stream-provider-name",
-                "offensive-words-namespace",
-                publishConfig => publishConfig.KeySelector(e => e.UserId));
+            //.StreamPublish<OffensiveLanguageDetectedEvent>(
+            //    "stream-provider-name",
+            //    "offensive-words-namespace",
+            //    publishConfig => publishConfig.KeySelector(e => e.UserId));
     }
 }

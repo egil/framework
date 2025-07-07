@@ -31,8 +31,6 @@ public class EventGrainTests(SiloFixture fixture) : IClassFixture<SiloFixture>
         // Assert
         var user = await grain.GetUser();
         Assert.Equal(3, user.TotalMessagesCount); // Each message increments the counter
-
-        // Verify we can retrieve the messages
         var messages = await grain.GetLatestMessages().ToListAsync();
         Assert.Equal(3, messages.Count);
         Assert.Contains(messages, m => m.Message == "Hello");

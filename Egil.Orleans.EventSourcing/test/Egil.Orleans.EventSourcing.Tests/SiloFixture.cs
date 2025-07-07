@@ -22,7 +22,7 @@ public sealed class SiloFixture : IAsyncLifetime, IGrainFactory
 
         builder.ConfigureSilo((options, siloBuilder) =>
         {
-            siloBuilder.Services.AddSingleton<IEventStore>(EventStorage);
+            siloBuilder.Services.AddKeyedSingleton<IEventStore>("eventStoreProvider", EventStorage);
             siloBuilder.Services.AddSingleton<UserMessageReceivedHandler>();
             siloBuilder.Services.AddSingleton<BadWordsDetector>();
             siloBuilder.UseInMemoryReminderService();
