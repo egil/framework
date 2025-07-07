@@ -1,7 +1,9 @@
+using Orleans;
+
 namespace Egil.Orleans.EventSourcing.Internal;
 
-internal interface IEventPublisherFactory<TEventGrain, TProjection>
+internal interface IEventPublisherFactory<TProjection>
     where TProjection : notnull, IEventProjection<TProjection>
 {
-    IEventPublisher<TProjection> Create(TEventGrain grain, IServiceProvider serviceProvider);
+    IEventPublisher<TProjection> Create(IGrainBase grain, IServiceProvider serviceProvider);
 }

@@ -13,7 +13,7 @@ public abstract class EventGrain<TEventGrain, TProjection> : Grain
 {
     private readonly IEventStorage eventStorage;
     private readonly GrainId grainId;
-    private readonly IEventPartition<TEventGrain, TProjection>[] partitions;
+    private readonly IEventPartition<TProjection>[] partitions;
 
     protected EventGrain(IEventStorage eventStorage)
     {
@@ -35,11 +35,9 @@ public abstract class EventGrain<TEventGrain, TProjection> : Grain
 
     protected async Task ProcessEventAsync<TEvent>(TEvent @event) where TEvent : notnull
     {
-        var context = new EventGrainContext(grainId, eventStorage, GrainFactory);
         var partition = FindPartition<TEvent>(@event);
-
-
-
+        var context = new EventGrainContext(grainId, eventStorage, GrainFactory);
+        
         foreach (var handlerFactory in partition.Handlers)
         {
             if (handlerFactory.TryCreate(@event, this, ServiceProvider) is { } handler)
@@ -49,15 +47,14 @@ public abstract class EventGrain<TEventGrain, TProjection> : Grain
         }
     }
 
-    private IEventPartition<TEventGrain, TProjection> FindPartition<TEvent>(TEvent @event) where TEvent : notnull
+    private IEventPartition<TProjection> FindPartition<TEvent>(TEvent @event) where TEvent : notnull
     {
-        IEventPartition<TEventGrain, TProjection>? result = null;
+        IEventPartition<TProjection>? result = null;
 
         foreach (var partition in partitions)
         {
-            if (partition.TryCast(@event) is IEventPartition<TEventGrain, TProjection> compatiblePartition)
+            if (partition.TryCast(@event) is { } compatiblePartition)
             {
-
                 if (result is null)
                 {
                     result = compatiblePartition;

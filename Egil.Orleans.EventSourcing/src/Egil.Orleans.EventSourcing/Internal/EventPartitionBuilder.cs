@@ -1,9 +1,12 @@
+using Orleans;
+
 namespace Egil.Orleans.EventSourcing.Internal;
 
 internal class EventPartitionBuilder<TEventGrain, TProjection> : IEventPartitionBuilder<TEventGrain, TProjection>
+    where TEventGrain : IGrainBase
     where TProjection : notnull, IEventProjection<TProjection>
 {
-    private readonly List<IEventPartitionConfigurator<TEventGrain, TProjection>> configurators = [];
+    private readonly List<IEventPartitionConfigurator<TProjection>> configurators = [];
 
     public IEventPartitionConfigurator<TEventGrain, TEvent, TProjection> AddPartition<TEvent>() where TEvent : notnull
     {
@@ -12,7 +15,7 @@ internal class EventPartitionBuilder<TEventGrain, TProjection> : IEventPartition
         return configurator;
     }
 
-    internal IEventPartition<TEventGrain, TProjection>[] Build()
+    internal IEventPartition<TProjection>[] Build()
     {
         return configurators
             .Select(c => c.Build())

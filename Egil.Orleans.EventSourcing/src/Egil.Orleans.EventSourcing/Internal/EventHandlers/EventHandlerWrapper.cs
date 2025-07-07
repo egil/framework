@@ -1,4 +1,4 @@
-namespace Egil.Orleans.EventSourcing.Internal;
+namespace Egil.Orleans.EventSourcing.Internal.EventHandlers;
 
 internal class EventHandlerWrapper<TEvent, TProjection> : IEventHandler<TEvent, TProjection>, IEventHandler<TProjection>
     where TEvent : notnull
@@ -14,11 +14,21 @@ internal class EventHandlerWrapper<TEvent, TProjection> : IEventHandler<TEvent, 
     public ValueTask<TProjection> HandleAsync(TEvent @event, TProjection projection, IEventGrainContext context)
         => handler.HandleAsync(@event, projection, context);
 
-    public IEventHandler<TRequestedEvent, TProjection>? TryCast<TRequestedEvent>(TRequestedEvent @event) where TRequestedEvent : notnull
+    ValueTask<TProjection> IEventHandler<TProjection>.HandleAsync<TSpecificEvent>(TSpecificEvent @event, TProjection projection, IEventGrainContext context)
+    {
+        if (@event is TEvent castEvent)
+        {
+            return HandleAsync(castEvent, projection, context);
+        }
+
+        throw new InvalidOperationException($"Cannot handle event of type {typeof(TSpecificEvent)} with handler for {typeof(TEvent)}. This handler should never have been selected.");
+    }
+
+    public IEventHandler<TProjection>? TryCast<TRequestedEvent>(TRequestedEvent @event) where TRequestedEvent : notnull
     {
         if (@event is TEvent)
         {
-            return (IEventHandler<TRequestedEvent, TProjection>)this;
+            return this;
         }
 
         return null;
@@ -28,6 +38,5 @@ internal class EventHandlerWrapper<TEvent, TProjection> : IEventHandler<TEvent, 
         => new EventHandlerWrapper<TEvent, TProjection>(handler);
 
     internal static IEventHandler<TProjection> Create(Func<TEvent, TProjection, TProjection> func)
-        => new EventHandlerWrapper<TEvent, TProjection>(
-            new EventHandlerFunctionWrapper<TEvent, TProjection>((e, p, c) => ValueTask.FromResult(func(e, p))));
+        => new EventHandlerWrapper<TEvent, TProjection>(new EventHandlerFunctionWrapper<TEvent, TProjection>((e, p, c) => ValueTask.FromResult(func(e, p))));
 }

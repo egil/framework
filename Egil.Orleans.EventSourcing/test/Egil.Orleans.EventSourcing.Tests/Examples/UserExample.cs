@@ -20,7 +20,7 @@ public sealed record UserMessageReceived(string UserId, string Message, DateTime
 
 [JsonDerivedType(typeof(OffensiveLanguageDetectedEvent), "OffensiveLanguageDetectedEvent.V1")]
 [JsonDerivedType(typeof(UserWelcomeEvent), "UserWelcomeEvent.V1")]
-public interface IUserOutboxEvent : IUserEvent;
+public interface IUserOutboxEvent;
 
 [Immutable, GenerateSerializer, Alias("OffensiveLanguageDetectedEvent.V1")]
 public sealed record OffensiveLanguageDetectedEvent(string UserId, string Message, DateTimeOffset Timestamp)
@@ -35,6 +35,7 @@ public sealed record User(
     string UserId,
     string Name,
     string Email,
+    int EventsCount,
     int TotalMessagesCount,
     int BadWordsCount,
     bool IsDeactivated,
@@ -45,6 +46,7 @@ public sealed record User(
         UserId: string.Empty,
         Name: string.Empty,
         Email: string.Empty,
+        EventsCount: 0,
         TotalMessagesCount: 0,
         BadWordsCount: 0,
         IsDeactivated: false,
@@ -128,7 +130,8 @@ public sealed class UserGrain(IEventStorage storage, TimeProvider timeProvider)
         // A partition can have a base type and handlers for specific events.
         builder.AddPartition<IUserEvent>()
             .Handle<UserCreated>(ApplyUserCreated)
-            .Handle<UserDeactivated>(static grain => grain.ApplyUserDeactivated);
+            .Handle<UserDeactivated>(static grain => grain.ApplyUserDeactivated)
+            .Handle((@event, user) => user with { EventsCount = user.EventsCount + 1 });
 
         // A partition can also have multiple handlers for the same event type.
         builder.AddPartition<UserMessageReceived>()
@@ -145,7 +148,9 @@ public sealed class UserGrain(IEventStorage storage, TimeProvider timeProvider)
             });
 
         //// Events in a partition can be published. Similar to a handler, but the publisher is not expected to modify the projection.
-        //builder.AddPartition<IUserOutboxEvent>()
+        builder.AddPartition<IUserOutboxEvent>()
+            .Handle((@event, user) => user with { EventsCount = user.EventsCount + 1 });
+
         //    .KeepUntilProcessed()
         //    .Publish<UserWelcomeEvent, UserWelcomeEventPublisher>()
         //    .StreamPublish<OffensiveLanguageDetectedEvent>(

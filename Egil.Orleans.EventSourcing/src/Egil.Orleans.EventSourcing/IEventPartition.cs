@@ -2,17 +2,17 @@ using Egil.Orleans.EventSourcing.Internal;
 
 namespace Egil.Orleans.EventSourcing;
 
-internal interface IEventPartition<TEventGrain, TProjection> where TProjection : notnull, IEventProjection<TProjection>
+internal interface IEventPartition<TProjection>
+    where TProjection : notnull, IEventProjection<TProjection>
 {
-    IEventPartition<TEventGrain, TProjection>? TryCast<TEvent>(TEvent @event)
-        where TEvent : notnull;
+    IEventPartition<TProjection>? TryCast<TEvent>(TEvent @event) where TEvent : notnull;
 
-    IEventHandlerFactory<TEventGrain, TProjection>[] Handlers { get; }
+    IEventHandlerFactory<TProjection>[] Handlers { get; }
 
-    IEventPublisherFactory<TEventGrain, TProjection>[] Publishers { get; }
+    IEventPublisherFactory<TProjection>[] Publishers { get; }
 }
 
-internal interface IEventPartition<TEventGrain, TEvent, TProjection> : IEventPartition<TEventGrain, TProjection>
+internal interface IEventPartition<TEvent, TProjection> : IEventPartition<TProjection>
     where TEvent : notnull
     where TProjection : notnull, IEventProjection<TProjection>
 {
