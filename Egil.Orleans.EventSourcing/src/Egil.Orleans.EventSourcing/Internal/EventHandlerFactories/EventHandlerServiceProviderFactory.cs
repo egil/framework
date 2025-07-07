@@ -9,11 +9,14 @@ internal class EventHandlerServiceProviderFactory<TEventGrain, TEvent, TProjecti
     where TProjection : notnull, IEventProjection<TProjection>
     where TEventHandler : IEventHandler<TEvent, TProjection>
 {
+    private IEventHandler<TProjection>? handler;
+
     public IEventHandler<TProjection>? TryCreate<TRequestedEvent>(TRequestedEvent @event, IGrainBase grain, IServiceProvider serviceProvider) where TRequestedEvent : notnull
     {
         if (@event is TEvent)
         {
-            return EventHandlerWrapper<TEvent, TProjection>.Create(serviceProvider.GetRequiredService<TEventHandler>()).TryCast(@event);
+            handler ??= EventHandlerWrapper<TEvent, TProjection>.Create(serviceProvider.GetRequiredService<TEventHandler>());
+            return handler;
         }
 
         return null;

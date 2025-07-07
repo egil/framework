@@ -1,6 +1,6 @@
 namespace Egil.Orleans.EventSourcing.Internal;
 
-internal class EventPartitionRetention<TEvent>
+internal class EventStreamRetention<TEvent>
     where TEvent : notnull
 {
     public required bool UntilProcessed { get; init; } = false;

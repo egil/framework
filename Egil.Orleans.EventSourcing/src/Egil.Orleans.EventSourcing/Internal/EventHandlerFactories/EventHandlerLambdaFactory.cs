@@ -8,6 +8,7 @@ internal class EventHandlerLambdaFactory<TEventGrain, TEvent, TProjection> : IEv
     where TProjection : notnull, IEventProjection<TProjection>
 {
     private readonly Func<TEventGrain, Func<TEvent, TProjection, TProjection>> handlerFactory;
+    private IEventHandler<TProjection>? handler;
 
     public EventHandlerLambdaFactory(Func<TEvent, TProjection, TProjection> handlerLambda)
         : this(_ => handlerLambda)
@@ -23,7 +24,8 @@ internal class EventHandlerLambdaFactory<TEventGrain, TEvent, TProjection> : IEv
     {
         if (@event is TEvent && grain is TEventGrain eventGrain)
         {
-            return EventHandlerWrapper<TEvent, TProjection>.Create(handlerFactory(eventGrain));
+            handler ??= EventHandlerWrapper<TEvent, TProjection>.Create(handlerFactory(eventGrain));
+            return handler;
         }
 
         return null;

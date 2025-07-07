@@ -16,7 +16,7 @@ internal class EventHandlerInstanceFactory<TEventGrain, TEvent, TProjection>(IEv
     {
         if (@event is TEvent)
         {
-            return handler.TryCast(@event);
+            return handler;
         }
 
         return null;

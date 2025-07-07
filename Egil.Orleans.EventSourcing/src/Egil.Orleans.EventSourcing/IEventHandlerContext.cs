@@ -3,7 +3,7 @@ using Orleans.Runtime;
 
 namespace Egil.Orleans.EventSourcing;
 
-public interface IEventGrainContext
+public interface IEventHandlerContext
 {
     /// <summary>
     /// Appends an event to the grain's event stream.

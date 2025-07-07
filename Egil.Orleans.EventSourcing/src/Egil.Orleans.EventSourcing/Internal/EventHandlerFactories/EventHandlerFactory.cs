@@ -7,11 +7,14 @@ internal class EventHandlerFactory<TEventGrain, TEvent, TProjection>(Func<TEvent
     where TEvent : notnull
     where TProjection : notnull, IEventProjection<TProjection>
 {
+    private IEventHandler<TProjection>? handler;
+
     public IEventHandler<TProjection>? TryCreate<TRequestedEvent>(TRequestedEvent @event, IGrainBase grain, IServiceProvider serviceProvider) where TRequestedEvent : notnull
     {
         if (@event is TEvent && grain is TEventGrain eventGrain)
         {
-            return EventHandlerWrapper<TEvent, TProjection>.Create(handlerFactory(eventGrain));
+            handler ??= EventHandlerWrapper<TEvent, TProjection>.Create(handlerFactory(eventGrain));
+            return handler;
         }
 
         return null;

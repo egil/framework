@@ -11,21 +11,22 @@ public abstract class EventGrain<TEventGrain, TProjection> : Grain
     where TEventGrain : EventGrain<TEventGrain, TProjection>
     where TProjection : notnull, IEventProjection<TProjection>
 {
-    private readonly IEventStorage eventStorage;
+    private readonly IEventStore eventStorage;
     private readonly GrainId grainId;
-    private readonly IEventPartition<TProjection>[] partitions;
+    private readonly IEventStream<TProjection>[] streams;
+    private EventContext? activeContext;
 
-    protected EventGrain(IEventStorage eventStorage)
+    protected EventGrain(IEventStore eventStorage)
     {
         this.eventStorage = eventStorage ?? throw new ArgumentNullException(nameof(eventStorage));
         Projection = TProjection.CreateDefault();
         grainId = this.GetGrainId();
-        var builder = new EventPartitionBuilder<TEventGrain, TProjection>();
+        var builder = new EventStreamBuilder<TEventGrain, TProjection>();
         Configure(builder);
-        partitions = builder.Build();
+        streams = builder.Build();
     }
 
-    protected IEventStorage EventStorage => eventStorage;
+    protected IEventStore EventStorage => eventStorage;
 
     protected TProjection Projection { get; set; }
 
@@ -33,42 +34,73 @@ public abstract class EventGrain<TEventGrain, TProjection> : Grain
     {
     }
 
-    protected async Task ProcessEventAsync<TEvent>(TEvent @event) where TEvent : notnull
+    protected async ValueTask ProcessEventAsync<TEvent>(TEvent @event) where TEvent : notnull
     {
-        var partition = FindPartition<TEvent>(@event);
-        var context = new EventGrainContext(grainId, eventStorage, GrainFactory);
-        
-        foreach (var handlerFactory in partition.Handlers)
+        var topScope = activeContext is null;
+        activeContext ??= new EventContext(grainId, eventStorage, GrainFactory);
+
+        try
         {
-            if (handlerFactory.TryCreate(@event, this, ServiceProvider) is { } handler)
+            var partition = FindStream<TEvent>(@event);
+
+            foreach (var handlerFactory in partition.Handlers)
             {
-                Projection = await handler.HandleAsync(@event, Projection, context);
+                if (handlerFactory.TryCreate(@event, this, ServiceProvider) is { } handler)
+                {
+                    Projection = await handler.HandleAsync(@event, Projection, activeContext);
+                }
+            }
+
+            if (topScope)
+            {
+                // do stuff with activeContext
+            }
+        }
+        finally
+        {
+            if (topScope)
+            {
+                activeContext = null;
             }
         }
     }
 
-    private IEventPartition<TProjection> FindPartition<TEvent>(TEvent @event) where TEvent : notnull
+    protected async ValueTask ProcessEventAsync(Func<Task> processScope)
     {
-        IEventPartition<TProjection>? result = null;
-
-        foreach (var partition in partitions)
+        var context = new EventContext(grainId, eventStorage, GrainFactory);
+        try
         {
-            if (partition.TryCast(@event) is { } compatiblePartition)
+            await processScope.Invoke();
+            // do stuff with activeContext
+        }
+        finally
+        {
+            activeContext = null;
+        }
+    }
+
+    private IEventStream<TProjection> FindStream<TEvent>(TEvent @event) where TEvent : notnull
+    {
+        IEventStream<TProjection>? result = null;
+
+        foreach (var stream in streams)
+        {
+            if (stream.TryCast(@event) is { } compatibleStream)
             {
                 if (result is null)
                 {
-                    result = compatiblePartition;
+                    result = compatibleStream;
                 }
                 else
                 {
-                    throw new InvalidOperationException($"Multiple partitions found for event type {typeof(TEvent).Name}. Ensure only one partition handles this event type.");
+                    throw new InvalidOperationException($"Multiple streams found for event type {typeof(TEvent).Name}. Ensure only one stream handles this event type.");
                 }
             }
         }
 
         if (result is null)
         {
-            throw new InvalidOperationException($"No partition found for event type {typeof(TEvent).Name}. Ensure a partition is configured to handle this event type.");
+            throw new InvalidOperationException($"No stream found for event type {typeof(TEvent).Name}. Ensure a stream is configured to handle this event type.");
         }
 
         return result;
@@ -80,7 +112,7 @@ public abstract class EventGrain<TEventGrain, TProjection> : Grain
         return eventStorage.LoadEventsAsync<TEvent>(grainId, cancellationToken);
     }
 
-    protected abstract void Configure(IEventPartitionBuilder<TEventGrain, TProjection> builder);
+    protected abstract void Configure(IEventStreamBuilder<TEventGrain, TProjection> builder);
 
     //protected static void Configure<TEventGrain>(Action<IEventPartitionBuilder<TEventGrain, TEventBase, TProjection>> builderAction)
     //    where TEventGrain : IGrain

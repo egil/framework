@@ -4,7 +4,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <OutputType>Exe</OutputType>
-    <RootNamespace>Egil.Orleans.EventSourcing.Tests</RootNamespace>
+    <RootNamespace>Egil.Orleans.EventSourcing</RootNamespace>
     <TargetFramework>net9.0</TargetFramework>
     <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
   </PropertyGroup>

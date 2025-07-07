@@ -6,7 +6,7 @@ namespace Egil.Orleans.EventSourcing;
 /// Azure Table Storage-based event storage that provides atomic transactions
 /// for both event streams/partitions and projections.
 /// </summary>
-public interface IEventStorage
+public interface IEventStore
 {
     /// <summary>
     /// Loads a projection from Azure Table Storage for the specified grain.

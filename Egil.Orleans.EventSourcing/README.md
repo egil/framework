@@ -21,11 +21,9 @@ This library provides event sourcing capabilities for Orleans grains using **Azu
 - **IEventStorage Interface**: Unified interface for both events and projections with atomic operations
 - **Projection Loading**: Load projections from Azure Table Storage
 - **Event Stream Reading**: Read events from partitioned streams
-- **Atomic Operations**: `SaveAtomicallyAsync` ensures transactional consistency
+- **Atomic Operations**: `SaveAsync` ensures transactional consistency
 
 ### Internal Architecture ✅
-- **ProjectionLoader**: Internal service for loading projections from storage (delegates to IEventStorage)
-- **Error handling**: Graceful fallback for unit testing scenarios where Orleans runtime context is unavailable
 
 ## EventGrain behavior on activation:
 

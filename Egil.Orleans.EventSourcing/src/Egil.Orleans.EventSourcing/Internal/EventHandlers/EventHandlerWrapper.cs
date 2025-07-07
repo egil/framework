@@ -11,10 +11,10 @@ internal class EventHandlerWrapper<TEvent, TProjection> : IEventHandler<TEvent, 
         this.handler = handler;
     }
 
-    public ValueTask<TProjection> HandleAsync(TEvent @event, TProjection projection, IEventGrainContext context)
+    public ValueTask<TProjection> HandleAsync(TEvent @event, TProjection projection, IEventHandlerContext context)
         => handler.HandleAsync(@event, projection, context);
 
-    ValueTask<TProjection> IEventHandler<TProjection>.HandleAsync<TSpecificEvent>(TSpecificEvent @event, TProjection projection, IEventGrainContext context)
+    ValueTask<TProjection> IEventHandler<TProjection>.HandleAsync<TSpecificEvent>(TSpecificEvent @event, TProjection projection, IEventHandlerContext context)
     {
         if (@event is TEvent castEvent)
         {

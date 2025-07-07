@@ -1,6 +1,7 @@
+using Egil.Orleans.EventSourcing.Internal.EventHandlers;
 using Orleans;
 
-namespace Egil.Orleans.EventSourcing.Internal;
+namespace Egil.Orleans.EventSourcing.Internal.EventHandlerFactories;
 
 internal interface IEventHandlerFactory<TProjection> where TProjection : notnull, IEventProjection<TProjection>
 {

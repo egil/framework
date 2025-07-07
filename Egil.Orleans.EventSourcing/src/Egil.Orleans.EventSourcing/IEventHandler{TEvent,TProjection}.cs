@@ -7,5 +7,5 @@ public interface IEventHandler<TEvent, TProjection>
     where TEvent : notnull
     where TProjection : notnull, IEventProjection<TProjection>
 {
-    ValueTask<TProjection> HandleAsync(TEvent @event, TProjection projection, IEventGrainContext context);
+    ValueTask<TProjection> HandleAsync(TEvent @event, TProjection projection, IEventHandlerContext context);
 }
