@@ -1,6 +1,6 @@
 using Orleans;
-using Egil.Orleans.EventSourcing.Internal;
 using Orleans.Runtime;
+using Egil.Orleans.EventSourcing.Internals;
 
 namespace Egil.Orleans.EventSourcing;
 

@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
@@ -31,8 +31,6 @@
 
   <ItemGroup>
     <PackageReference Include="Azure.Data.Tables" />
-    <PackageReference Include="Azure.Storage.Blobs" />
-    <PackageReference Include="Streamstone" />
     <PackageReference Include="Microsoft.IO.RecyclableMemoryStream" />
     <PackageReference Include="Microsoft.Orleans.Runtime" />
     <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
@@ -51,6 +49,10 @@
       <Pack>True</Pack>
       <PackagePath>\</PackagePath>
     </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Egil.Orleans.EventSourcing.Tests"/>
   </ItemGroup>
 
 </Project>
