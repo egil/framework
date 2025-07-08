@@ -33,6 +33,8 @@
     <PackageReference Include="Azure.Data.Tables" />
     <PackageReference Include="Microsoft.IO.RecyclableMemoryStream" />
     <PackageReference Include="Microsoft.Orleans.Runtime" />
+    <PackageReference Include="Microsoft.Orleans.Persistence.AzureStorage" />
+    <PackageReference Include="Microsoft.Orleans.Streaming" />
     <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
     <PackageReference Include="DotNet.ReproducibleBuilds">
       <PrivateAssets>all</PrivateAssets>
@@ -52,7 +54,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="Egil.Orleans.EventSourcing.Tests"/>
+    <InternalsVisibleTo Include="Egil.Orleans.EventSourcing.Tests" />
   </ItemGroup>
 
 </Project>

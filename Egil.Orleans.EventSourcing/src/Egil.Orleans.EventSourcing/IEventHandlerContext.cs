@@ -15,7 +15,7 @@ public interface IEventHandlerContext
     /// Reads the current event partition of <typeparamref name="TEvent"/> events.
     /// This allows event handlers to read the current state of the partition and process events accordingly.
     /// </summary>
-    IAsyncEnumerable<TEvent> GetEventsAsync<TEvent>() where TEvent : notnull;
+    ValueTask<IEnumerable<TEvent>> GetEventsAsync<TEvent>() where TEvent : notnull;
 
     /// <summary>
     /// The ID of the grain that owns the event being processed.

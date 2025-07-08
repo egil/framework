@@ -1,5 +1,4 @@
 using Egil.Orleans.EventSourcing.Examples.EventHandlers;
-using Egil.Orleans.EventSourcing.Examples.EventReactors;
 using Egil.Orleans.EventSourcing.Examples.Events;
 using Microsoft.Extensions.DependencyInjection;
 using System.Collections.Immutable;
@@ -27,7 +26,7 @@ public sealed class UserGrain([FromKeyedServices("eventStoreProvider")] IEventSt
     /// - The projection is only saved once after all events are processed
     /// - This is more efficient for operations that create multiple related events
     /// </summary>
-    public ValueTask RegisterUser(string name, string email) => ProcessEventAsync(async () =>
+    public ValueTask RegisterUser(string name, string email) => ProcessEventsAsync(async () =>
     {
         var userId = this.GetPrimaryKeyString();
 
@@ -71,7 +70,7 @@ public sealed class UserGrain([FromKeyedServices("eventStoreProvider")] IEventSt
     /// - Ensures all-or-nothing semantics for the batch
     /// - The projection is updated once with the cumulative effect of all messages
     /// </summary>
-    public ValueTask SendMessage(ImmutableArray<string> messages) => ProcessEventAsync(async () =>
+    public ValueTask SendMessage(ImmutableArray<string> messages) => ProcessEventsAsync(async () =>
     {
         var userId = this.GetPrimaryKeyString();
 

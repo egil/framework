@@ -1,12 +1,11 @@
 using Orleans;
 using Orleans.Runtime;
-using Egil.Orleans.EventSourcing.Internals;
 
 namespace Egil.Orleans.EventSourcing;
 
 internal interface IEventGrain
 {
-    IAsyncEnumerable<TEvent> GetEventsAsync<TEvent>(CancellationToken cancellationToken = default) where TEvent : notnull;
+    ValueTask<IEnumerable<TEvent>> GetEventsAsync<TEvent>(CancellationToken cancellationToken = default) where TEvent : notnull;
 }
 
 /// <summary>
@@ -16,63 +15,62 @@ public abstract class EventGrain<TEventGrain, TProjection> : Grain, IEventGrain
     where TEventGrain : EventGrain<TEventGrain, TProjection>
     where TProjection : notnull, IEventProjection<TProjection>
 {
-    private readonly IEventStore eventstore;
+    private readonly IEventStore eventStore;
     private readonly GrainId grainId;
-    private readonly IEventStream<TProjection>[] streams;
+    private IEventStream<TProjection>[] streams = Array.Empty<IEventStream<TProjection>>();
+    private ProjectionEntry<TProjection> projectionEntry = ProjectionEntry<TProjection>.CreateDefault();
     private EventContext? activeContext;
 
-    protected EventGrain(IEventStore eventStorage)
+    protected IEventStore EventStorage => eventStore;
+
+    protected TProjection Projection
     {
-        this.eventstore = eventStorage ?? throw new ArgumentNullException(nameof(eventStorage));
-        Projection = TProjection.CreateDefault();
-        grainId = this.GetGrainId();
-        var builder = new EventStreamBuilder<TEventGrain, TProjection>();
-        Configure(builder);
-        streams = builder.Build();
+        get => projectionEntry.Projection;
+        private set => projectionEntry.Projection = value ?? TProjection.CreateDefault();
     }
 
-    protected IEventStore EventStorage => eventstore;
-
-    protected TProjection Projection { get; set; }
+    protected EventGrain(IEventStore eventStore)
+    {
+        this.eventStore = eventStore ?? throw new ArgumentNullException(nameof(eventStore));
+        Projection = TProjection.CreateDefault();
+        grainId = this.GetGrainId();
+    }
 
     public override async Task OnActivateAsync(CancellationToken cancellationToken)
     {
+        var builder = new EventStreamBuilder<TEventGrain, TProjection>((TEventGrain)this, ServiceProvider, eventStore);
+        Configure(builder);
+        streams = builder.Build();
+        projectionEntry = await eventStore.LoadProjectionAsync<TProjection>(grainId, cancellationToken);
     }
+
+    protected abstract void Configure(IEventStreamBuilder<TEventGrain, TProjection> builder);
 
     protected async ValueTask ProcessEventAsync<TEvent>(TEvent @event) where TEvent : notnull
     {
         var topScope = activeContext is null;
-        activeContext ??= new EventContext(grainId, this, GrainFactory);
+        activeContext ??= new EventContext(this);
+        await ProcessEventInternalAsync<TEvent>(@event, activeContext);
+    }
 
-        try
+    private async Task ProcessEventInternalAsync<TEvent>(TEvent @event, EventContext eventContext) where TEvent : notnull
+    {
+        var stream = FindStream(@event);
+        stream.AppendEvent(@event, projectionEntry.NextEventSequenceNumber++);
+        projectionEntry.Projection = await stream.ApplyEventsAsync(projectionEntry.Projection, eventContext);
+
+        while (streams.Any(x => x.HasUnreactedEvents))
         {
-            var partition = FindStream<TEvent>(@event);
-
-            foreach (var handlerFactory in partition.Handlers)
+            foreach (var s in streams)
             {
-                if (handlerFactory.TryCreate(@event, this, ServiceProvider) is { } handler)
-                {
-                    Projection = await handler.HandleAsync(@event, Projection, activeContext);
-                }
-            }
-
-            if (topScope)
-            {
-                // do stuff with activeContext
-            }
-        }
-        finally
-        {
-            if (topScope)
-            {
-                activeContext = null;
+                projectionEntry.Projection = await s.ApplyEventsAsync(projectionEntry.Projection, eventContext);
             }
         }
     }
 
-    protected async ValueTask ProcessEventAsync(Func<Task> processScope)
+    protected async ValueTask ProcessEventsAsync(Func<Task> processScope)
     {
-        var context = new EventContext(grainId, this, GrainFactory);
+        var context = new EventContext(this);
         try
         {
             await processScope.Invoke();
@@ -83,6 +81,16 @@ public abstract class EventGrain<TEventGrain, TProjection> : Grain, IEventGrain
             activeContext = null;
         }
     }
+
+    protected async ValueTask<IEnumerable<TEvent>> GetEventsAsync<TEvent>(CancellationToken cancellationToken = default)
+        where TEvent : notnull
+    {
+        var stream = FindStream<TEvent>(default);
+        var events = await stream.GetEventsAsync(cancellationToken);
+        return events.Select(x => x.TryCastEvent<TEvent>()).OfType<TEvent>();
+    }
+
+    ValueTask<IEnumerable<TEvent>> IEventGrain.GetEventsAsync<TEvent>(CancellationToken cancellationToken) => GetEventsAsync<TEvent>(cancellationToken);
 
     private IEventStream<TProjection> FindStream<TEvent>(TEvent? @event) where TEvent : notnull
     {
@@ -111,21 +119,29 @@ public abstract class EventGrain<TEventGrain, TProjection> : Grain, IEventGrain
         return result;
     }
 
-    protected IAsyncEnumerable<TEvent> GetEventsAsync<TEvent>(CancellationToken cancellationToken = default)
-        where TEvent : notnull
+    /// <summary>
+    /// Default implementation of <see cref="IEventHandlerContext"/> used during event processing.
+    /// It collects events appended by handlers and provides access to the grain id,
+    /// grain factory and event stream.
+    /// </summary>
+    private sealed class EventContext(EventGrain<TEventGrain, TProjection> eventGrain) : IEventHandlerContext, IEventReactContext
     {
-        var streamName = FindStream<TEvent>(default);
-        return eventstore.LoadEventsAsync<TEvent>(streamName.Name, grainId, cancellationToken);
+        /// <inheritdoc />
+        public void AppendEvent<TEvent>(TEvent @event) where TEvent : notnull
+        {
+            eventGrain.FindStream<TEvent>(@event).AppendEvent(@event, eventGrain.projectionEntry.NextEventSequenceNumber++);
+        }
+
+        /// <inheritdoc />
+        public ValueTask<IEnumerable<TEvent>> GetEventsAsync<TEvent>() where TEvent : notnull
+        {
+            return eventGrain.GetEventsAsync<TEvent>();
+        }
+
+        /// <inheritdoc />
+        public GrainId GrainId => eventGrain.grainId;
+
+        /// <inheritdoc />
+        public IGrainFactory GrainFactory => eventGrain.GrainFactory;
     }
-
-    IAsyncEnumerable<TEvent> IEventGrain.GetEventsAsync<TEvent>(CancellationToken cancellationToken) => GetEventsAsync<TEvent>(cancellationToken);
-
-    protected abstract void Configure(IEventStreamBuilder<TEventGrain, TProjection> builder);
-
-    //protected static void Configure<TEventGrain>(Action<IEventPartitionBuilder<TEventGrain, TEventBase, TProjection>> builderAction)
-    //    where TEventGrain : IGrain
-    //{
-    //    var builder = new EventPartitionBuilder<TEventGrain, TEventBase, TProjection>();
-    //    builderAction(builder);
-    //}
 }

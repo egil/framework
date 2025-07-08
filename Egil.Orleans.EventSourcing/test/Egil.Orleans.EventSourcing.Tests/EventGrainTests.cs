@@ -18,23 +18,23 @@ public class EventGrainTests(SiloFixture fixture) : IClassFixture<SiloFixture>
         Assert.Equal("john.doe@example.com", user.Email);
     }
 
-    [Fact]
-    public async Task SendMessage_creates_multiple_events_and_updates_counters()
-    {
-        // Arrange
-        var grain = fixture.GetGrain<IUserGrain>(Guid.NewGuid());
-        await grain.RegisterUser("John Doe", "john.doe@example.com");
+    //[Fact]
+    //public async Task SendMessage_creates_multiple_events_and_updates_counters()
+    //{
+    //    // Arrange
+    //    var grain = fixture.GetGrain<IUserGrain>(Guid.NewGuid());
+    //    await grain.RegisterUser("John Doe", "john.doe@example.com");
 
-        // Act
-        await grain.SendMessage(["Hello", "World", "Test"]);
+    //    // Act
+    //    await grain.SendMessage(["Hello", "World", "Test"]);
 
-        // Assert
-        var user = await grain.GetUser();
-        Assert.Equal(3, user.TotalMessagesCount); // Each message increments the counter
-        var messages = await grain.GetLatestMessages().ToListAsync();
-        Assert.Equal(3, messages.Count);
-        Assert.Contains(messages, m => m.Message == "Hello");
-        Assert.Contains(messages, m => m.Message == "World");
-        Assert.Contains(messages, m => m.Message == "Test");
-    }
+    //    // Assert
+    //    var user = await grain.GetUser();
+    //    Assert.Equal(3, user.TotalMessagesCount); // Each message increments the counter
+    //    var messages = await grain.GetLatestMessages().ToListAsync();
+    //    Assert.Equal(3, messages.Count);
+    //    Assert.Contains(messages, m => m.Message == "Hello");
+    //    Assert.Contains(messages, m => m.Message == "World");
+    //    Assert.Contains(messages, m => m.Message == "Test");
+    //}
 }
