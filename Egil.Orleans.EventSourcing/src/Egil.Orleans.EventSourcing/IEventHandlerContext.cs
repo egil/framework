@@ -1,6 +1,6 @@
 using Orleans.Runtime;
 
-namespace Egil.Orleans.EventSourcing.EventStores;
+namespace Egil.Orleans.EventSourcing;
 
 public interface IEventHandlerContext
 {
@@ -8,5 +8,5 @@ public interface IEventHandlerContext
 
     void AppendEvent<TEvent>(TEvent @event) where TEvent : notnull;
 
-    IAsyncEnumerable<TEvent> GetEventsAsync<TEvent>() where TEvent : notnull;
+    IAsyncEnumerable<TEvent> GetEventsAsync<TEvent>(CancellationToken cancellationToken = default) where TEvent : notnull;
 }

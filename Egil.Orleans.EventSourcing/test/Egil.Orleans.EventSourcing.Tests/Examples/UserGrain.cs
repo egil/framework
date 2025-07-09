@@ -14,31 +14,16 @@ namespace Egil.Orleans.EventSourcing.Examples;
 /// 3. The projection (User) is rebuilt by applying events through handlers
 /// 4. Events can be processed individually or in batches with different transactional scopes
 /// </summary>
-public sealed class UserGrain([FromKeyedServices("eventStoreProvider")] IEventStore storage, TimeProvider timeProvider)
+public sealed class UserGrain([FromKeyedServices("eventStoreProvider")] IEventStore<User> storage, TimeProvider timeProvider)
     : EventGrain<UserGrain, User>(storage), IUserGrain
 {
-    /// <summary>
-    /// Registers a new user by creating multiple events within a SINGLE processing scope.
-    /// 
-    /// KEY POINT: Uses ProcessEventAsync(Func{Task}) overload which creates a single
-    /// transactional scope for all events. This means:
-    /// - All events (UserCreated and UserWelcomeEvent) are saved together atomically
-    /// - If any handler fails, no events are persisted
-    /// - The projection is only saved once after all events are processed
-    /// - This is more efficient for operations that create multiple related events
-    /// </summary>
-    public ValueTask RegisterUser(string name, string email) => ProcessEventsAsync(async () =>
+    public async ValueTask RegisterUser(string name, string email)
     {
         var userId = this.GetPrimaryKeyString();
-
-        // These events are processed within the same scope created by the outer ProcessEventAsync
-        // They will be saved to storage together in a single atomic operation
-        var @event = new UserCreated(userId, name, email, timeProvider.GetUtcNow());
-        await ProcessEventAsync(@event);
-
-        var @event2 = new UserWelcomeEvent(email, name, timeProvider.GetUtcNow());
-        await ProcessEventAsync(@event2);
-    });
+        AppendEvent(new UserCreated(userId, name, email, timeProvider.GetUtcNow()));
+        AppendEvent(new UserWelcomeEvent(email, name, timeProvider.GetUtcNow()));
+        await ProcessEventsAsync();
+    }
 
     /// <summary>
     /// Deactivates a user by creating a single event.
@@ -71,7 +56,7 @@ public sealed class UserGrain([FromKeyedServices("eventStoreProvider")] IEventSt
     /// - Ensures all-or-nothing semantics for the batch
     /// - The projection is updated once with the cumulative effect of all messages
     /// </summary>
-    public ValueTask SendMessage(ImmutableArray<string> messages) => ProcessEventsAsync(async () =>
+    public async ValueTask SendMessage(ImmutableArray<string> messages)
     {
         var userId = this.GetPrimaryKeyString();
 
@@ -80,9 +65,11 @@ public sealed class UserGrain([FromKeyedServices("eventStoreProvider")] IEventSt
         foreach (var message in messages)
         {
             var @event = new UserMessageSent(userId, message, timeProvider.GetUtcNow());
-            await ProcessEventAsync(@event);
+            AppendEvent(@event);
         }
-    });
+
+        await ProcessEventsAsync();
+    }
 
     /// <summary>
     /// Returns the current projection (materialized view) of the user.
@@ -194,15 +181,15 @@ public sealed class UserGrain([FromKeyedServices("eventStoreProvider")] IEventSt
             // Track the number of outbox events
             .Handle((@event, user) => user with { OutboxEventsCount = user.OutboxEventsCount + 1 });
 
-            // Register a reactor that sends welcome emails
-            // Reactors handle side effects AFTER events are successfully saved
-            //.React<UserWelcomeEvent, UserWelcomeEmailSender>()
+        // Register a reactor that sends welcome emails
+        // Reactors handle side effects AFTER events are successfully saved
+        //.React<UserWelcomeEvent, UserWelcomeEmailSender>()
 
-            // Configure publishing to Orleans streams
-            // This enables other grains to subscribe to offensive language events
-            //.StreamPublish<OffensiveLanguageDetectedEvent>(
-            //    "stream-provider-name",
-            //    "offensive-words-namespace",
-            //    publishConfig => publishConfig.KeySelector(e => e.UserId));
+        // Configure publishing to Orleans streams
+        // This enables other grains to subscribe to offensive language events
+        //.StreamPublish<OffensiveLanguageDetectedEvent>(
+        //    "stream-provider-name",
+        //    "offensive-words-namespace",
+        //    publishConfig => publishConfig.KeySelector(e => e.UserId));
     }
 }

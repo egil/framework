@@ -1,5 +1,4 @@
 using Egil.Orleans.EventSourcing.EventStores;
-using Egil.Orleans.EventSourcing.Storage;
 using Orleans;
 
 namespace Egil.Orleans.EventSourcing;

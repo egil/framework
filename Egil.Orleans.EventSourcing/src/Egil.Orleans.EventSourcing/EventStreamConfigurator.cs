@@ -12,7 +12,7 @@ internal partial class EventStreamConfigurator<TEventGrain, TEventBase, TProject
 {
     private readonly TEventGrain eventGrain;
     private readonly IServiceProvider grainServiceProvider;
-    private readonly IEventStore<TEventGrain, TProjection> eventStore;
+    private readonly IEventStore eventStore;
     private bool untilProcessed;
     private int? keepCount;
     private TimeSpan? keepAge;
@@ -109,14 +109,14 @@ internal partial class EventStreamConfigurator<TEventGrain, TEventBase, TProject
         return this;
     }
 
-    public IEventStream Build()
+    public IEventStream<TEventBase> Build()
     {
         if (untilProcessed && (keepCount.HasValue || keepAge.HasValue || eventIdSelector != null))
         {
             throw new InvalidOperationException("Cannot combine KeepUntilProcessed with other keep settings.");
         }
 
-        return new EventStream<TEventGrain, TEventBase, TProjection>(
+        return new EventStream<TEventBase>(
             eventGrain.GetGrainId(),
             eventStore,
             StreamName,

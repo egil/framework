@@ -1,14 +1,13 @@
 using Azure;
 using Azure.Data.Tables;
 using Egil.Orleans.EventSourcing.EventStores;
-using Egil.Orleans.EventSourcing.Storage;
 using Orleans.Storage;
 using System.Collections.Immutable;
 using System.Text.Json;
 
 namespace Egil.Orleans.EventSourcing;
 
-public class EventEntry<TEvent> : IEventEntry
+internal class EventEntry<TEvent> : IEventEntry<TEvent>, IEventEntry
     where TEvent : notnull
 {
     public required TEvent Event { get; set; }
@@ -24,6 +23,8 @@ public class EventEntry<TEvent> : IEventEntry
     public ETag ETag { get; set; } = ETag.All;
 
     public ImmutableArray<ReactorState> ReactorStatus { get; set; } = ImmutableArray<ReactorState>.Empty;
+
+    object IEventEntry.Event => Event;
 
     public TRequestedEvent? TryCastEvent<TRequestedEvent>() where TRequestedEvent : notnull
         => Event is TRequestedEvent requestedEvent

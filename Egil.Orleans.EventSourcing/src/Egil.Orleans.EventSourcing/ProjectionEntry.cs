@@ -1,6 +1,5 @@
 using Azure;
 using Azure.Data.Tables;
-using Egil.Orleans.EventSourcing.Storage;
 using Orleans.Storage;
 
 namespace Egil.Orleans.EventSourcing;

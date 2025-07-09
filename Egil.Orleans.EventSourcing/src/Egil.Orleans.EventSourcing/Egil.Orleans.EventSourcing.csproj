@@ -30,6 +30,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="EventStores\**" />
+    <EmbeddedResource Remove="EventStores\**" />
+    <None Remove="EventStores\**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Azure.Data.Tables" />
     <PackageReference Include="Microsoft.IO.RecyclableMemoryStream" />
     <PackageReference Include="Microsoft.Orleans.Runtime" />
@@ -55,10 +61,6 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Egil.Orleans.EventSourcing.Tests" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="EventStores\" />
   </ItemGroup>
 
 </Project>

@@ -1,4 +1,3 @@
-using Egil.Orleans.EventSourcing.Storage;
 using Microsoft.Extensions.Options;
 using Orleans.Configuration;
 using System.Runtime.CompilerServices;

@@ -1,4 +1,4 @@
-namespace Egil.Orleans.EventSourcing.Storage;
+namespace Egil.Orleans.EventSourcing;
 
 internal static class EntityConstants
 {

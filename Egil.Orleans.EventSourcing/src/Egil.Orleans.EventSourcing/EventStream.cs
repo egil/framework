@@ -1,113 +1,35 @@
-//using Egil.Orleans.EventSourcing.EventHandlerFactories;
-//using Egil.Orleans.EventSourcing.EventReactorFactories;
-//using Egil.Orleans.EventSourcing.EventReactors;
-//using Egil.Orleans.EventSourcing.EventStores;
-//using Egil.Orleans.EventSourcing.Storage;
-//using Orleans.Runtime;
-//using System.Collections.Immutable;
+namespace Egil.Orleans.EventSourcing;
 
-//namespace Egil.Orleans.EventSourcing;
+internal class EventStream<TEvent>() : IEventStream<TEvent>
+    where TEvent : notnull
+{
+    private readonly List<EventEntry<TEvent>> uncommitted = [];
 
-//internal class EventStream<TEventGrain, TEvent, TProjection> : IEventStream
-//    where TEventGrain : IGrainBase
-//    where TEvent : notnull
-//    where TProjection : notnull, IEventProjection<TProjection>
-//{
-//    private readonly GrainId grainId;
-//    private readonly IEventStore eventStore;
-//    private readonly IReadOnlyList<IEventHandlerFactory<TEventGrain, TProjection>> handlerFactories;
-//    private readonly IReadOnlyList<IEventReactorFactory<TEventGrain, TProjection>> reactorFactories;
-//    private readonly EventStreamRetention<TEvent> retention;
+    public required string Name { get; set; }
 
-//    private IReadOnlyList<EventEntry<TEvent>>? confirmedEvents;
-//    private List<EventEntry<TEvent>>? unconfirmedEvents;
-//    private List<IEventHandler<TProjection>>? handlers;
-//    private List<IEventReactor<TProjection>>? reactors;
+    public long EventCount { get; }
 
-//    private IReadOnlyList<IEventReactor<TProjection>> Reactors
-//    {
-//        get
-//        {
-//            reactors ??= reactorFactories.Select(factory => factory.Create()).ToList();
-//            return reactors;
-//        }
-//    }
+    public long? LatestSequenceNumber { get; }
 
-//    private IReadOnlyList<IEventHandler<TProjection>> Handlers
-//    {
-//        get
-//        {
-//            handlers ??= handlerFactories.Select(factory => factory.Create()).ToList();
-//            return handlers;
-//        }
-//    }
+    public DateTimeOffset? LatestEventTimestamp { get; }
 
-//    public string Name { get; }
+    public bool HasUncommittedEvents => uncommitted.Count > 0;
 
-//    public bool HasUnconfirmedEvents => unconfirmedEvents is not null && unconfirmedEvents.Count > 0;
+    public bool HasUnreactedEvents { get; }
 
-//    public bool HasUnreactedEvents { get; }
+    public void AppendEvent(TEvent @event, long sequenceNumber) => uncommitted.Add(new EventEntry<TEvent>
+    {
+        Event = @event,
+        SequenceNumber = sequenceNumber,
+        // ...
+    });
 
-//    public IEnumerable<IEventEntry> ChangedEvents { get; }
+    public ValueTask<TProjection> ApplyEventsAsync<TProjection>(TProjection projection, IEventHandlerContext context, CancellationToken cancellationToken = default) where TProjection : notnull
+        => throw new NotImplementedException();
 
-//    public EventStream(
-//        GrainId grainId,
-//        IEventStore eventStore,
-//        string name,
-//        IReadOnlyList<IEventHandlerFactory<TEventGrain, TProjection>> handlerFactories,
-//        IReadOnlyList<IEventReactorFactory<TEventGrain, TProjection>> reactorFactories,
-//        EventStreamRetention<TEvent> retention)
-//    {
-//        this.grainId = grainId;
-//        this.eventStore = eventStore;
-//        Name = name;
-//        this.handlerFactories = handlerFactories;
-//        this.reactorFactories = reactorFactories;
-//        this.retention = retention;
-//    }
+    public IAsyncEnumerable<IEventEntry<TEvent>> GetEventsAsync(QueryOptions? options = null, CancellationToken cancellationToken = default) => throw new NotImplementedException();
 
-//    public bool Matches<TRequestedEvent>(TRequestedEvent? @event) where TRequestedEvent : notnull
-//    {
-//        if (@event is null)
-//        {
-//            return typeof(TRequestedEvent).IsAssignableTo(typeof(TEvent));
-//        }
+    public IEnumerable<IEventEntry<TEvent>> GetUncommittedEvents() => uncommitted.Select(e => new EventEntry<TEvent>(e));
 
-//        if (@event is TEvent)
-//        {
-//            return true;
-//        }
-
-//        return false;
-//    }
-
-//    public void AppendEvent<TRequestedEvent>(TRequestedEvent @event, long sequenceNumber) where TRequestedEvent : notnull
-//    {
-//        if (@event is not TEvent castEvent)
-//        {
-//            throw new InvalidOperationException($"Event of type {typeof(TRequestedEvent).FullName} cannot be appended to stream of type {typeof(TEvent).FullName}.");
-//        }
-
-//        unconfirmedEvents ??= [];
-//        unconfirmedEvents.Add(new EventEntry<TEvent>()
-//        {
-//            Event = castEvent,
-//            EventId = retention.EventIdSelector?.Invoke(castEvent),
-//            SequenceNumber = sequenceNumber,
-//            EventTimestamp = retention.TimestampSelector?.Invoke(castEvent),
-//            ReactorStatus = Reactors
-//                .Where(x => x.Identifier is not null && x.Matches(@event))
-//                .Select(x => ReactorState.Create(x.Identifier!)).ToImmutableArray(),
-//        });
-//    }
-
-//    public async ValueTask<IReadOnlyList<IEventEntry>> GetEventsAsync(CancellationToken cancellationToken = default)
-//    {
-//        confirmedEvents ??= await eventStore.LoadEventsAsync<TEvent>(grainId, retention, cancellationToken);
-//        return confirmedEvents;
-//    }
-
-//    public ValueTask<TProjection> ApplyEventsAsync(TProjection projection, IEventHandlerContext context, CancellationToken cancellationToken = default) => throw new NotImplementedException();
-
-//    public ValueTask ReactEventsAsync(TProjection projection, IEventReactContext context, CancellationToken cancellationToken = default) => throw new NotImplementedException(); 
-//}
+    public ValueTask ReactEventsAsync<TProjection>(TProjection projection, IEventReactContext context, CancellationToken cancellationToken = default) where TProjection : notnull => throw new NotImplementedException();
+}

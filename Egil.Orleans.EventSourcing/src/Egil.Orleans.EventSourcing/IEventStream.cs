@@ -1,24 +1,26 @@
-namespace Egil.Orleans.EventSourcing.EventStores;
+using Egil.Orleans.EventSourcing;
 
-public interface IEventStream
+namespace Egil.Orleans.EventSourcing;
+
+public interface IEventStream<TEvent> where TEvent: notnull
 {
     string Name { get; }
 
-    int EventCount { get; }
+    long EventCount { get; }
+
+    long? LatestSequenceNumber { get; }
 
     DateTimeOffset? LatestEventTimestamp { get; }
-
-    DateTimeOffset? OldestEventTimestamp { get; }
 
     bool HasUncommittedEvents { get; }
 
     bool HasUnreactedEvents { get; }
 
-    IEnumerable<EventEntry> GetUncommittedEvents();
+    IEnumerable<IEventEntry<TEvent>> GetUncommittedEvents();
 
-    bool Matches<TEvent>(TEvent? @event) where TEvent : notnull;
+    void AppendEvent(TEvent @event);
 
-    void AppendEvent<TEvent>(TEvent @event, long sequenceNumber) where TEvent : notnull;
+    IAsyncEnumerable<IEventEntry<TEvent>> GetEventsAsync(QueryOptions? options = null, CancellationToken cancellationToken = default);
 
     ValueTask<TProjection> ApplyEventsAsync<TProjection>(TProjection projection, IEventHandlerContext context, CancellationToken cancellationToken = default) where TProjection : notnull;
 

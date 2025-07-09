@@ -2,12 +2,10 @@ using Azure;
 using Azure.Data.Tables;
 using Orleans.Storage;
 
-namespace Egil.Orleans.EventSourcing.Storage;
+namespace Egil.Orleans.EventSourcing;
 
 public interface IEventEntry
 {
-    TableTransactionAction ToTableTransactionAction(string partitionKey, string rowKey, IGrainStorageSerializer serializer);
-
     long SequenceNumber { get; }
 
     string? EventId { get; }
@@ -18,5 +16,11 @@ public interface IEventEntry
 
     ETag ETag { get; set; }
 
-    TEvent? TryCastEvent<TEvent>() where TEvent : notnull;
+    object Event { get; }
+}
+
+public interface IEventEntry<TEvent> : IEventEntry
+    where TEvent : notnull
+{
+    new TEvent Event { get; }
 }
