@@ -1,9 +1,8 @@
-namespace Egil.Orleans.EventSourcing;
+namespace Egil.Orleans.EventSourcing.EventStores;
 
-internal interface IEventStreamConfigurator<TProjection>
-    where TProjection : notnull, IEventProjection<TProjection>
+internal interface IEventStreamConfigurator
 {
     string StreamName { get; }
 
-    IEventStream<TProjection> Build();
+    IEventStream Build();
 }

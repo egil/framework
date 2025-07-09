@@ -1,3 +1,4 @@
+using Egil.Orleans.EventSourcing.EventStores;
 using Egil.Orleans.EventSourcing.Examples.EventHandlers;
 using Egil.Orleans.EventSourcing.Examples.Events;
 using Microsoft.Extensions.DependencyInjection;
@@ -144,7 +145,7 @@ public sealed class UserGrain([FromKeyedServices("eventStoreProvider")] IEventSt
     /// - Configure retention policies for events
     /// - Set up event reactors for side effects
     /// </summary>
-    protected override void Configure(IEventStreamBuilder<UserGrain, User> builder)
+    protected override void Configure(IEventStoreConfigurator<UserGrain, User> builder)
     {
         // Configure a stream for user-related events (UserCreated, UserDeactivated)
         // A stream groups related events and can have its own retention policies

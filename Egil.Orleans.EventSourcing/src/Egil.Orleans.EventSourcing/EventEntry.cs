@@ -1,5 +1,6 @@
 using Azure;
 using Azure.Data.Tables;
+using Egil.Orleans.EventSourcing.EventStores;
 using Egil.Orleans.EventSourcing.Storage;
 using Orleans.Storage;
 using System.Collections.Immutable;

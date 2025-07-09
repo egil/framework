@@ -1,15 +1,22 @@
-using Orleans.Runtime;
+using Orleans;
 
-namespace Egil.Orleans.EventSourcing;
+namespace Egil.Orleans.EventSourcing.EventStores;
 
-/// <summary>
-/// Azure Table Storage-based event storage that provides atomic transactions
-/// for both event streams/partitions and projections.
-/// </summary>
-public interface IEventStore
+public interface IEventStore<TEventGrain, TProjection>
+    where TEventGrain : IGrainBase
+    where TProjection : notnull
 {
-    ValueTask<ProjectionEntry<TProjection>> LoadProjectionAsync<TProjection>(GrainId grainId, CancellationToken cancellationToken = default)
-        where TProjection : notnull, IEventProjection<TProjection>;
+    bool HasUncommittedEvents { get; }
 
-    ValueTask<IReadOnlyList<EventEntry<TEvent>>> LoadEventsAsync<TEvent>(GrainId grainId, string streamName, IEventStreamRetention retention, CancellationToken cancellationToken) where TEvent : notnull;
+    bool HasUnreactedEvents { get; }
+
+    ValueTask CommitAsync();
+
+    void AppendEvent<TEvent>(TEvent @event) where TEvent : notnull;
+
+    ValueTask<TProjection> ApplyEventsAsync(TProjection projection, IEventHandlerContext context, CancellationToken cancellationToken = default);
+
+    ValueTask ReactEventsAsync(TProjection projection, IEventReactContext context, CancellationToken cancellationToken = default);
+
+    void Configure(TEventGrain eventGrain, IServiceProvider serviceProvider, IEventStoreConfigurator<TEventGrain, TProjection> builder);
 }

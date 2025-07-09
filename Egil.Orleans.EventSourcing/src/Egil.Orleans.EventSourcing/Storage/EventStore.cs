@@ -1,4 +1,5 @@
 using Azure.Data.Tables;
+using Egil.Orleans.EventSourcing.EventStores;
 using Microsoft.Extensions.Options;
 using Orleans.Configuration;
 using Orleans.Runtime;

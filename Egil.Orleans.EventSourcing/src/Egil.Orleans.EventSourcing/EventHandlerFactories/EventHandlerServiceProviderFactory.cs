@@ -4,7 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Egil.Orleans.EventSourcing.EventHandlerFactories;
 
 internal class EventHandlerServiceProviderFactory<TEventGrain, TEvent, TProjection, TEventHandler>(IServiceProvider serviceProvider) : IEventHandlerFactory<TEventGrain, TProjection>
-    where TEventGrain : EventGrain<TEventGrain, TProjection>
+    where TEventGrain : IGrainBase
     where TEvent : notnull
     where TProjection : notnull, IEventProjection<TProjection>
     where TEventHandler : IEventHandler<TEvent, TProjection>

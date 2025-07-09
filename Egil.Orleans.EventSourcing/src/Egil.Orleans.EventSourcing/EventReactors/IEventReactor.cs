@@ -1,3 +1,5 @@
+using Egil.Orleans.EventSourcing.EventStores;
+
 namespace Egil.Orleans.EventSourcing.EventReactors;
 
 public interface IEventReactor<TProjection>

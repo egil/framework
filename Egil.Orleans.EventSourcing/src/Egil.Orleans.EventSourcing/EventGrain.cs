@@ -1,3 +1,4 @@
+using Egil.Orleans.EventSourcing.EventStores;
 using Orleans;
 using Orleans.Runtime;
 
@@ -12,7 +13,7 @@ internal interface IEventGrain
 /// Base class for event-sourced grains.
 /// </summary>
 public abstract class EventGrain<TEventGrain, TProjection> : Grain, IEventGrain
-    where TEventGrain : EventGrain<TEventGrain, TProjection>
+    where TEventGrain : IGrainBase
     where TProjection : notnull, IEventProjection<TProjection>
 {
     private readonly IEventStore eventStore;
@@ -44,7 +45,7 @@ public abstract class EventGrain<TEventGrain, TProjection> : Grain, IEventGrain
         projectionEntry = await eventStore.LoadProjectionAsync<TProjection>(grainId, cancellationToken);
     }
 
-    protected abstract void Configure(IEventStreamBuilder<TEventGrain, TProjection> builder);
+    protected abstract void Configure(IEventStoreConfigurator<TEventGrain, TProjection> builder);
 
     protected async ValueTask ProcessEventAsync<TEvent>(TEvent @event) where TEvent : notnull
     {

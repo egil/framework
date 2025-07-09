@@ -3,7 +3,7 @@ using Egil.Orleans.EventSourcing.EventHandlers;
 namespace Egil.Orleans.EventSourcing.EventHandlerFactories;
 
 internal class EventHandlerLambdaFactory<TEventGrain, TEvent, TProjection> : IEventHandlerFactory<TEventGrain, TProjection>
-    where TEventGrain : EventGrain<TEventGrain, TProjection>
+    where TEventGrain : IGrainBase
     where TEvent : notnull
     where TProjection : notnull, IEventProjection<TProjection>
 {

@@ -2,7 +2,7 @@ namespace Egil.Orleans.EventSourcing;
 
 public partial interface IEventStreamConfigurator<TEventGrain, TEventBase, TProjection>
     where TEventBase : notnull
-    where TProjection : notnull, IEventProjection<TProjection>
+    where TProjection : notnull
 {
     /// <summary>
     /// Stream only keeps the <typeparamref name="TEventBase"/> until all handlers and reactors have processed it successfully.
@@ -50,25 +50,6 @@ public partial interface IEventStreamConfigurator<TEventGrain, TEventBase, TProj
         where TEvent : notnull, TEventBase;
 
     /// <summary>
-    /// Registers a reactor factory that creates an event reactor instance for reacting to events with side effects.
-    /// </summary>
-    /// <param name="reactorFactory">Factory function that creates an event reactor from the grain instance.</param>
-    /// <returns>The configurator for method chaining.</returns>
-    IEventStreamConfigurator<TEventGrain, TEventBase, TProjection> React(Func<TEventGrain, IEventReactor<TEventBase, TProjection>> reactorFactory);
-
-    /// <summary>
-    /// Registers a reactor factory for a specific event type derived from <typeparamref name="TEventBase"/>.
-    /// </summary>
-    /// <typeparam name="TEvent">The specific event type to react to.</typeparam>
-    /// <param name="reactorFactory">Factory function that creates an event reactor from the grain instance.</param>
-    /// <returns>The configurator for method chaining.</returns>
-    IEventStreamConfigurator<TEventGrain, TEventBase, TProjection> React<TEvent>(Func<TEventGrain, IEventReactor<TEvent, TProjection>> reactorFactory)
-        where TEvent : notnull, TEventBase;
-}
-
-public partial interface IEventStreamConfigurator<TEventGrain, TEventBase, TProjection>
-{
-    /// <summary>
     /// Registers a handler factory that returns a function for processing a specific event type.
     /// </summary>
     /// <typeparam name="TEvent">The specific event type to handle.</typeparam>
@@ -97,4 +78,20 @@ public partial interface IEventStreamConfigurator<TEventGrain, TEventBase, TProj
     /// <param name="handler">Function that processes an event and updates the projection.</param>
     /// <returns>The configurator for method chaining.</returns>
     IEventStreamConfigurator<TEventGrain, TEventBase, TProjection> Handle<TEvent>(Func<TEvent, TProjection, TProjection> handler) where TEvent : TEventBase;
+
+    /// <summary>
+    /// Registers a reactor factory that creates an event reactor instance for reacting to events with side effects.
+    /// </summary>
+    /// <param name="reactorFactory">Factory function that creates an event reactor from the grain instance.</param>
+    /// <returns>The configurator for method chaining.</returns>
+    IEventStreamConfigurator<TEventGrain, TEventBase, TProjection> React(Func<TEventGrain, IEventReactor<TEventBase, TProjection>> reactorFactory);
+
+    /// <summary>
+    /// Registers a reactor factory for a specific event type derived from <typeparamref name="TEventBase"/>.
+    /// </summary>
+    /// <typeparam name="TEvent">The specific event type to react to.</typeparam>
+    /// <param name="reactorFactory">Factory function that creates an event reactor from the grain instance.</param>
+    /// <returns>The configurator for method chaining.</returns>
+    IEventStreamConfigurator<TEventGrain, TEventBase, TProjection> React<TEvent>(Func<TEventGrain, IEventReactor<TEvent, TProjection>> reactorFactory)
+        where TEvent : notnull, TEventBase;
 }

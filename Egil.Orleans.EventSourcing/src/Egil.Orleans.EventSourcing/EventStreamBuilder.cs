@@ -1,10 +1,11 @@
+using Egil.Orleans.EventSourcing.EventStores;
 using Egil.Orleans.EventSourcing.Storage;
 using Orleans;
 
 namespace Egil.Orleans.EventSourcing;
 
-internal class EventStreamBuilder<TEventGrain, TProjection>(TEventGrain eventGrain, IServiceProvider grainServiceProvider, IEventStore eventStore) : IEventStreamBuilder<TEventGrain, TProjection>
-    where TEventGrain : EventGrain<TEventGrain, TProjection>
+internal class EventStreamBuilder<TEventGrain, TProjection>(TEventGrain eventGrain, IServiceProvider grainServiceProvider, IEventStore<TEventGrain, TProjection> eventStore) : IEventStoreConfigurator<TEventGrain, TProjection>
+    where TEventGrain : IGrainBase
     where TProjection : notnull, IEventProjection<TProjection>
 {
     private readonly List<IEventStreamConfigurator<TProjection>> configurators = [];

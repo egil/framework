@@ -1,17 +1,18 @@
 using Egil.Orleans.EventSourcing.EventHandlerFactories;
 using Egil.Orleans.EventSourcing.EventReactorFactories;
+using Egil.Orleans.EventSourcing.EventStores;
 using Orleans;
 
 namespace Egil.Orleans.EventSourcing;
 
-internal partial class EventStreamConfigurator<TEventGrain, TEventBase, TProjection> : IEventStreamConfigurator<TEventGrain, TEventBase, TProjection>, IEventStreamConfigurator<TProjection>
-    where TEventGrain : EventGrain<TEventGrain, TProjection>, IGrainBase
+internal partial class EventStreamConfigurator<TEventGrain, TEventBase, TProjection> : IEventStreamConfigurator<TEventGrain, TEventBase, TProjection>, IEventStreamConfigurator
+    where TEventGrain : IGrainBase
     where TEventBase : notnull
     where TProjection : notnull, IEventProjection<TProjection>
 {
     private readonly TEventGrain eventGrain;
     private readonly IServiceProvider grainServiceProvider;
-    private readonly IEventStore eventStore;
+    private readonly IEventStore<TEventGrain, TProjection> eventStore;
     private bool untilProcessed;
     private int? keepCount;
     private TimeSpan? keepAge;
@@ -108,7 +109,7 @@ internal partial class EventStreamConfigurator<TEventGrain, TEventBase, TProject
         return this;
     }
 
-    public IEventStream<TProjection> Build()
+    public IEventStream Build()
     {
         if (untilProcessed && (keepCount.HasValue || keepAge.HasValue || eventIdSelector != null))
         {
