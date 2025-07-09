@@ -7,7 +7,7 @@ using System.Collections.Immutable;
 
 namespace Egil.Orleans.EventSourcing;
 
-internal class EventStream<TEventGrain, TEvent, TProjection> : IEventStream<TProjection>
+internal class EventStream<TEventGrain, TEvent, TProjection> : IEventStream
     where TEventGrain : EventGrain<TEventGrain, TProjection>
     where TEvent : notnull
     where TProjection : notnull, IEventProjection<TProjection>
@@ -46,6 +46,8 @@ internal class EventStream<TEventGrain, TEvent, TProjection> : IEventStream<TPro
     public bool HasUnconfirmedEvents => unconfirmedEvents is not null && unconfirmedEvents.Count > 0;
 
     public bool HasUnreactedEvents { get; }
+
+    public IEnumerable<IEventEntry> ChangedEvents { get; }
 
     public EventStream(
         GrainId grainId,
@@ -100,11 +102,11 @@ internal class EventStream<TEventGrain, TEvent, TProjection> : IEventStream<TPro
 
     public async ValueTask<IReadOnlyList<IEventEntry>> GetEventsAsync(CancellationToken cancellationToken = default)
     {
-        confirmedEvents ??= await eventStore.LoadEventsAsync<TEvent>(grainId, retention);
+        confirmedEvents ??= await eventStore.LoadEventsAsync<TEvent>(grainId, retention, cancellationToken);
         return confirmedEvents;
     }
 
     public ValueTask<TProjection> ApplyEventsAsync(TProjection projection, IEventHandlerContext context, CancellationToken cancellationToken = default) => throw new NotImplementedException();
 
-    public ValueTask ReactEventsAsync(TProjection projection, IEventReactContext context, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+    public ValueTask ReactEventsAsync(TProjection projection, IEventReactContext context, CancellationToken cancellationToken = default) => throw new NotImplementedException(); 
 }

@@ -5,14 +5,13 @@ using Orleans.Storage;
 
 namespace Egil.Orleans.EventSourcing;
 
-public class ProjectionEntry<TProjection> 
-    where TProjection : notnull, IEventProjection<TProjection>
+public class ProjectionEntry<TProjection> where TProjection : notnull, IEventProjection<TProjection>
 {
     public required TProjection Projection { get; set; }
 
     public required long NextEventSequenceNumber { get; set; }
 
-    public required long StreamEventCount { get; set; }
+    public required long StoreEventCount { get; set; }
 
     public DateTimeOffset? Timestamp { get; set; }
 
@@ -23,7 +22,7 @@ public class ProjectionEntry<TProjection>
         {
             Projection = TProjection.CreateDefault(),
             NextEventSequenceNumber = 0L,
-            StreamEventCount = 0L,
+            StoreEventCount = 0L,
             Timestamp = null,
             ETag = ETag.All
         };
@@ -34,7 +33,7 @@ public class ProjectionEntry<TProjection>
         {
             [EntityConstants.DataColumnName] = serializer.Serialize(Projection),
             [EntityConstants.NextEventSequenceNumberColumnName] = NextEventSequenceNumber,
-            [EntityConstants.StreamEventCountColumnName] = StreamEventCount,
+            [EntityConstants.StoreEventCountColumnName] = StoreEventCount,
         };
 
         if (ETag == default)
@@ -59,13 +58,13 @@ public class ProjectionEntry<TProjection>
 
         var nextEventSequenceNumber = entity.TryGetValue(EntityConstants.NextEventSequenceNumberColumnName, out var seq) && seq is long seqNum ? seqNum : 0L;
 
-        var streamEventCount = entity.TryGetValue(EntityConstants.StreamEventCountColumnName, out var count) && count is long eventCount ? eventCount : 0L;
+        var storeEventCount = entity.TryGetValue(EntityConstants.StoreEventCountColumnName, out var count) && count is long eventCount ? eventCount : 0L;
 
         return new ProjectionEntry<TProjection>
         {
             Projection = projection,
             NextEventSequenceNumber = nextEventSequenceNumber,
-            StreamEventCount = streamEventCount,
+            StoreEventCount = storeEventCount,
             Timestamp = entity.Timestamp,
             ETag = entity.ETag,
         };

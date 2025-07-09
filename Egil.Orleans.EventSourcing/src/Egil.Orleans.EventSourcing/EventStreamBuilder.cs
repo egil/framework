@@ -1,3 +1,4 @@
+using Egil.Orleans.EventSourcing.Storage;
 using Orleans;
 
 namespace Egil.Orleans.EventSourcing;
@@ -13,6 +14,29 @@ internal class EventStreamBuilder<TEventGrain, TProjection>(TEventGrain eventGra
         streamName = string.IsNullOrWhiteSpace(streamName)
             ? GetAliasOrFullName(typeof(TEvent)) ?? throw new InvalidOperationException($"Cannot determine stream name for event type {typeof(TEvent).FullName}.")
             : streamName;
+
+        if (streamName.ContainsDisallowedKeyFieldCharacters())
+        {
+            throw new ArgumentException($"""
+                Stream name '{streamName}' contains disallowed characters.
+                
+                - The forward slash(/) character
+                - The backslash(\) character
+                - The number sign(#) character
+                - The question mark(?) character
+                - Control characters from U+0000 to U + 001F, including:
+                    The horizontal tab(\t) character
+                    The linefeed(\n) character
+                    The carriage return (\r) character
+                - Control characters from U + 007F to U+009F
+                """,
+            nameof(streamName));
+        }
+
+        if (configurators.Any(c => c.StreamName.Equals(streamName, StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new ArgumentException($"Stream name '{streamName}' has already been used", nameof(streamName));
+        }
 
         var configurator = new EventStreamConfigurator<TEventGrain, TEvent, TProjection>(eventGrain, grainServiceProvider, eventStore, streamName);
         configurators.Add(configurator);

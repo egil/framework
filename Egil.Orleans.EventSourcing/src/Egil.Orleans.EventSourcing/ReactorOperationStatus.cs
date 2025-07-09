@@ -1,6 +1,6 @@
 namespace Egil.Orleans.EventSourcing;
 
-internal enum ReactorOperationStatus
+public enum ReactorOperationStatus
 {
     NotStarted = 0,
     CompleteSuccessful = 1,

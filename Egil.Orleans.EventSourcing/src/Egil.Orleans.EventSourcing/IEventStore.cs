@@ -11,5 +11,5 @@ public interface IEventStore
     ValueTask<ProjectionEntry<TProjection>> LoadProjectionAsync<TProjection>(GrainId grainId, CancellationToken cancellationToken = default)
         where TProjection : notnull, IEventProjection<TProjection>;
 
-    ValueTask<IReadOnlyList<EventEntry<TEvent>>> LoadEventsAsync<TEvent>(GrainId grainId, IEventStreamRetention retention) where TEvent : notnull;
+    ValueTask<IReadOnlyList<EventEntry<TEvent>>> LoadEventsAsync<TEvent>(GrainId grainId, string streamName, IEventStreamRetention retention, CancellationToken cancellationToken) where TEvent : notnull;
 }

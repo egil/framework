@@ -7,6 +7,7 @@ namespace Egil.Orleans.EventSourcing.Storage;
 public interface IEventEntry
 {
     TableTransactionAction ToTableTransactionAction(string partitionKey, string rowKey, IGrainStorageSerializer serializer);
+
     long SequenceNumber { get; }
 
     string? EventId { get; }

@@ -7,6 +7,8 @@ internal class EventReactorWrapper<TEvent, TProjection> : IEventReactor<TEvent, 
 
     private readonly IEventReactor<TEvent, TProjection> reactor;
 
+    public string? Identifier { get; }
+
     public EventReactorWrapper(IEventReactor<TEvent, TProjection> reactor)
     {
         this.reactor = reactor;
@@ -31,6 +33,7 @@ internal class EventReactorWrapper<TEvent, TProjection> : IEventReactor<TEvent, 
         {
             return true;
         }
+
         return false;
     }
 }

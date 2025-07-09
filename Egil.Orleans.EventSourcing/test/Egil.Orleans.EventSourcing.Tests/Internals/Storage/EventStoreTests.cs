@@ -39,7 +39,7 @@ public class EventStoreTests(AppHostFixture fixture) : IClassFixture<AppHostFixt
         var grainId = RandomGrainId();
         var sut = await CreateSut();
 
-        ProjectionEntry<Projection> projection = await sut.LoadEventsAsync(grainId, TestContext.Current.CancellationToken);
+         projection = await sut.LoadEventsAsync(grainId, TestContext.Current.CancellationToken);
 
         Assert.Equal(ProjectionEntry<Projection>.CreateDefault(), projection);
     }

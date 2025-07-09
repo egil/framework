@@ -9,7 +9,6 @@ internal partial class EventStreamConfigurator<TEventGrain, TEventBase, TProject
     where TEventBase : notnull
     where TProjection : notnull, IEventProjection<TProjection>
 {
-    private readonly string streamName;
     private readonly TEventGrain eventGrain;
     private readonly IServiceProvider grainServiceProvider;
     private readonly IEventStore eventStore;
@@ -21,12 +20,14 @@ internal partial class EventStreamConfigurator<TEventGrain, TEventBase, TProject
     private List<IEventHandlerFactory<TEventGrain, TProjection>> handlers = [];
     private List<IEventReactorFactory<TEventGrain, TProjection>> publishers = [];
 
+    public string StreamName { get; }
+
     public EventStreamConfigurator(TEventGrain eventGrain, IServiceProvider grainServiceProvider, IEventStore eventStore, string streamName)
     {
         this.eventGrain = eventGrain;
         this.grainServiceProvider = grainServiceProvider;
         this.eventStore = eventStore;
-        this.streamName = streamName;
+        StreamName = streamName;
     }
 
     public IEventStreamConfigurator<TEventGrain, TEventBase, TProjection> KeepUntilProcessed()
@@ -103,7 +104,7 @@ internal partial class EventStreamConfigurator<TEventGrain, TEventBase, TProject
         where TEvent : notnull, TEventBase
     {
         ArgumentNullException.ThrowIfNull(publisherFactory);
-        publishers.Add(new EventReactorFactory<TEventGrain, TEvent, TProjection>(publisherFactory));
+        publishers.Add(new EventReactorFactory<TEventGrain, TEvent, TProjection>(publisherFactory, eventGrain));
         return this;
     }
 
@@ -117,7 +118,7 @@ internal partial class EventStreamConfigurator<TEventGrain, TEventBase, TProject
         return new EventStream<TEventGrain, TEventBase, TProjection>(
             eventGrain.GetGrainId(),
             eventStore,
-            streamName,
+            StreamName,
             handlers.ToArray(),
             publishers.ToArray(),
             new EventStreamRetention<TEventBase>
