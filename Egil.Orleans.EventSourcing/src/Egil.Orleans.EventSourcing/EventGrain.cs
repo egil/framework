@@ -1,8 +1,7 @@
+using Egil.Orleans.EventSourcing.EventHandlers;
 using Egil.Orleans.EventSourcing.EventStores;
 using Orleans;
-using Orleans.Runtime;
 using System.Runtime.CompilerServices;
-using System.Threading.Tasks;
 
 namespace Egil.Orleans.EventSourcing;
 
@@ -26,6 +25,7 @@ public abstract class EventGrain<TEventGrain, TProjection> : Grain
     }
 
     protected abstract void Configure(IEventStoreConfigurator<TEventGrain, TProjection> builder);
+
     protected void AppendEvent<TEvent>(TEvent @event) where TEvent : notnull
         => eventStore.AppendEvent(@event);
 
@@ -63,21 +63,6 @@ public abstract class EventGrain<TEventGrain, TProjection> : Grain
     }
 
     protected async IAsyncEnumerable<TEvent> GetEventsAsync<TEvent>([EnumeratorCancellation] CancellationToken cancellationToken = default) where TEvent : notnull
-    {
-        await foreach (var entry in eventStore.GetEventsAsync<TEvent>(QueryOptions.Default, cancellationToken))
-        {
-            yield return entry.Event;
-        }
-    }
-}
-
-internal class EventHandlerContext(IEventStore eventStore, GrainId grainId) : IEventHandlerContext
-{
-    public GrainId GrainId { get; } = grainId;
-
-    public void AppendEvent<TEvent>(TEvent @event) where TEvent : notnull => eventStore.AppendEvent(@event);
-
-    public async IAsyncEnumerable<TEvent> GetEventsAsync<TEvent>([EnumeratorCancellation] CancellationToken cancellationToken = default) where TEvent : notnull
     {
         await foreach (var entry in eventStore.GetEventsAsync<TEvent>(QueryOptions.Default, cancellationToken))
         {

@@ -1,10 +1,8 @@
-using Egil.Orleans.EventSourcing.EventStores;
-
 namespace Egil.Orleans.EventSourcing.EventHandlers;
 
-internal class EventHandlerFunctionWrapper<TEvent, TProjection> : IEventHandler<TProjection>
+internal class EventHandlerFunctionWrapper<TEvent, TProjection> : IEventHandler<TEvent, TProjection>, IEventHandler<TProjection>
     where TEvent : notnull
-    where TProjection : notnull, IEventProjection<TProjection>
+    where TProjection : notnull
 {
     private readonly Func<TEvent, TProjection, IEventHandlerContext, ValueTask<TProjection>> handlerFunction;
 
@@ -18,11 +16,14 @@ internal class EventHandlerFunctionWrapper<TEvent, TProjection> : IEventHandler<
         this.handlerFunction = handlerFunction;
     }
 
+    public ValueTask<TProjection> HandleAsync(TEvent @event, TProjection projection, IEventHandlerContext context)
+        => handlerFunction.Invoke(@event, projection, context);
+
     public ValueTask<TProjection> HandleAsync<TRequestedEvent>(TRequestedEvent @event, TProjection projection, IEventHandlerContext context) where TRequestedEvent : notnull
     {
         if (@event is TEvent castEvent)
         {
-            return handlerFunction.Invoke(castEvent, projection, context); 
+            return HandleAsync(castEvent, projection, context); 
         }
 
         return ValueTask.FromResult(projection);

@@ -1,10 +1,8 @@
-using Egil.Orleans.EventSourcing.EventStores;
-
 namespace Egil.Orleans.EventSourcing.EventHandlers;
 
 internal class EventHandlerWrapper<TEvent, TProjection> : IEventHandler<TEvent, TProjection>, IEventHandler<TProjection>
     where TEvent : notnull
-    where TProjection : notnull, IEventProjection<TProjection>
+    where TProjection : notnull
 {
     private readonly IEventHandler<TEvent, TProjection> handler;
 

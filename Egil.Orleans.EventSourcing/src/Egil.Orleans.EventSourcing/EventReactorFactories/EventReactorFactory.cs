@@ -1,17 +1,18 @@
 using Egil.Orleans.EventSourcing.EventReactors;
+using Orleans;
 
 namespace Egil.Orleans.EventSourcing.EventReactorFactories;
 
-internal class EventReactorFactory<TEventGrain, TEvent, TProjection>(Func<TEventGrain, IEventReactor<TEvent, TProjection>> publisherFactory, TEventGrain eventGrain) : IEventReactorFactory<TEventGrain, TProjection>
+internal class EventReactorFactory<TEventGrain, TEvent, TProjection>(Func<TEventGrain, IEventReactor<TEvent, TProjection>> publisherFactory, TEventGrain eventGrain, string identifier) : IEventReactorFactory<TProjection>
     where TEventGrain : IGrainBase
     where TEvent : notnull
     where TProjection : notnull, IEventProjection<TProjection>
 {
     private IEventReactor<TProjection>? reactor;
 
-    public IEventReactor<TProjection>? Create()
+    public IEventReactor<TProjection> Create()
     {
-        reactor ??= new EventReactorWrapper<TEvent, TProjection>(publisherFactory(eventGrain));
+        reactor ??= new EventReactorWrapper<TEvent, TProjection>(publisherFactory(eventGrain), identifier);
         return reactor;
     }
 }

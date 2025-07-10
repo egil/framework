@@ -1,5 +1,7 @@
 using Egil.Orleans.EventSourcing.EventHandlerFactories;
+using Egil.Orleans.EventSourcing.EventHandlers;
 using Egil.Orleans.EventSourcing.EventReactorFactories;
+using Egil.Orleans.EventSourcing.EventReactors;
 using Egil.Orleans.EventSourcing.EventStores;
 using Orleans;
 
@@ -12,22 +14,20 @@ internal partial class EventStreamConfigurator<TEventGrain, TEventBase, TProject
 {
     private readonly TEventGrain eventGrain;
     private readonly IServiceProvider grainServiceProvider;
-    private readonly IEventStore eventStore;
     private bool untilProcessed;
     private int? keepCount;
     private TimeSpan? keepAge;
     private Func<TEventBase, DateTimeOffset>? timestampSelector;
     private Func<TEventBase, string>? eventIdSelector;
-    private List<IEventHandlerFactory<TEventGrain, TProjection>> handlers = [];
-    private List<IEventReactorFactory<TEventGrain, TProjection>> publishers = [];
+    private List<IEventHandlerFactory<TProjection>> handlers = [];
+    private List<IEventReactorFactory<TProjection>> publishers = [];
 
     public string StreamName { get; }
 
-    public EventStreamConfigurator(TEventGrain eventGrain, IServiceProvider grainServiceProvider, IEventStore eventStore, string streamName)
+    public EventStreamConfigurator(TEventGrain eventGrain, IServiceProvider grainServiceProvider, string streamName)
     {
         this.eventGrain = eventGrain;
         this.grainServiceProvider = grainServiceProvider;
-        this.eventStore = eventStore;
         StreamName = streamName;
     }
 
@@ -98,30 +98,28 @@ internal partial class EventStreamConfigurator<TEventGrain, TEventBase, TProject
         return this;
     }
 
-    public IEventStreamConfigurator<TEventGrain, TEventBase, TProjection> React(Func<TEventGrain, IEventReactor<TEventBase, TProjection>> publisherFactory)
-        => React<TEventBase>(publisherFactory);
+    public IEventStreamConfigurator<TEventGrain, TEventBase, TProjection> React(string name, Func<TEventGrain, IEventReactor<TEventBase, TProjection>> publisherFactory)
+        => React<TEventBase>(name, publisherFactory);
 
-    public IEventStreamConfigurator<TEventGrain, TEventBase, TProjection> React<TEvent>(Func<TEventGrain, IEventReactor<TEvent, TProjection>> publisherFactory)
+    public IEventStreamConfigurator<TEventGrain, TEventBase, TProjection> React<TEvent>(string name, Func<TEventGrain, IEventReactor<TEvent, TProjection>> publisherFactory)
         where TEvent : notnull, TEventBase
     {
         ArgumentNullException.ThrowIfNull(publisherFactory);
-        publishers.Add(new EventReactorFactory<TEventGrain, TEvent, TProjection>(publisherFactory, eventGrain));
+        publishers.Add(new EventReactorFactory<TEventGrain, TEvent, TProjection>(publisherFactory, eventGrain, name));
         return this;
     }
 
-    public IEventStream<TEventBase> Build()
+    public IEventStream Build()
     {
         if (untilProcessed && (keepCount.HasValue || keepAge.HasValue || eventIdSelector != null))
         {
             throw new InvalidOperationException("Cannot combine KeepUntilProcessed with other keep settings.");
         }
 
-        return new EventStream<TEventBase>(
-            eventGrain.GetGrainId(),
-            eventStore,
+        return new EventStream<TEventGrain, TEventBase, TProjection>(
             StreamName,
-            handlers.ToArray(),
-            publishers.ToArray(),
+            handlers,
+            publishers,
             new EventStreamRetention<TEventBase>
             {
                 UntilProcessed = untilProcessed,

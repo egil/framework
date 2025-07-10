@@ -1,3 +1,4 @@
+using Egil.Orleans.EventSourcing.EventHandlers;
 using Egil.Orleans.EventSourcing.EventStores;
 using Egil.Orleans.EventSourcing.Examples.Events;
 

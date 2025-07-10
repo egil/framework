@@ -1,8 +1,16 @@
-using Egil.Orleans.EventSourcing;
+using Egil.Orleans.EventSourcing.EventHandlers;
+using Egil.Orleans.EventSourcing.EventReactors;
 
 namespace Egil.Orleans.EventSourcing;
 
-public interface IEventStream<TEvent> where TEvent: notnull
+internal interface IEventStream
+{
+    bool Matches<TEvent>(TEvent @event) where TEvent : notnull;
+}
+
+internal interface IEventStream<TEvent, TProjection>
+    where TEvent : notnull
+    where TProjection : notnull
 {
     string Name { get; }
 
@@ -18,11 +26,11 @@ public interface IEventStream<TEvent> where TEvent: notnull
 
     IEnumerable<IEventEntry<TEvent>> GetUncommittedEvents();
 
-    void AppendEvent(TEvent @event);
+    void AppendEvent(TEvent @event, long sequenceNumber);
 
     IAsyncEnumerable<IEventEntry<TEvent>> GetEventsAsync(QueryOptions? options = null, CancellationToken cancellationToken = default);
 
-    ValueTask<TProjection> ApplyEventsAsync<TProjection>(TProjection projection, IEventHandlerContext context, CancellationToken cancellationToken = default) where TProjection : notnull;
+    ValueTask<TProjection> ApplyEventsAsync(TProjection projection, IEventHandlerContext context, CancellationToken cancellationToken = default);
 
-    ValueTask ReactEventsAsync<TProjection>(TProjection projection, IEventReactContext context, CancellationToken cancellationToken = default) where TProjection : notnull;
+    ValueTask ReactEventsAsync(TProjection projection, IEventReactContext context, CancellationToken cancellationToken = default);
 }

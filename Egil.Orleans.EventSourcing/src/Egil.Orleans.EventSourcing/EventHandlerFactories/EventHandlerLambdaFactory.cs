@@ -1,11 +1,12 @@
 using Egil.Orleans.EventSourcing.EventHandlers;
+using Orleans;
 
 namespace Egil.Orleans.EventSourcing.EventHandlerFactories;
 
-internal class EventHandlerLambdaFactory<TEventGrain, TEvent, TProjection> : IEventHandlerFactory<TEventGrain, TProjection>
+internal class EventHandlerLambdaFactory<TEventGrain, TEvent, TProjection> : IEventHandlerFactory<TProjection>
     where TEventGrain : IGrainBase
     where TEvent : notnull
-    where TProjection : notnull, IEventProjection<TProjection>
+    where TProjection : notnull
 {
     private readonly Func<TEventGrain, Func<TEvent, TProjection, TProjection>> handlerFactory;
     private readonly TEventGrain eventGrain;

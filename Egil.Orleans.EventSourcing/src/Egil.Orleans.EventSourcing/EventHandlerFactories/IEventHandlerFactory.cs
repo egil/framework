@@ -1,9 +1,8 @@
-using Orleans;
+using Egil.Orleans.EventSourcing.EventHandlers;
 
 namespace Egil.Orleans.EventSourcing.EventHandlerFactories;
 
-public interface IEventHandlerFactory<TEventGrain, TProjection>
-    where TEventGrain : IGrainBase
+internal interface IEventHandlerFactory<TProjection>
     where TProjection : notnull
 {
     IEventHandler<TProjection> Create();

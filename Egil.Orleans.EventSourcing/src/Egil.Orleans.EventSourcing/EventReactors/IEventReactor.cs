@@ -1,13 +1,10 @@
-using Egil.Orleans.EventSourcing.EventStores;
-
 namespace Egil.Orleans.EventSourcing.EventReactors;
 
-public interface IEventReactor<TProjection>
-    where TProjection : notnull, IEventProjection<TProjection>
+internal interface IEventReactor<TProjection> where TProjection : notnull
 {
     ValueTask ReactAsync<TRequestedEvent>(IEnumerable<TRequestedEvent> @event, TProjection projection, IEventReactContext context) where TRequestedEvent : notnull;
 
     bool Matches<TRequestedEvent>(TRequestedEvent @event) where TRequestedEvent : notnull;
 
-    string? Identifier { get; }
+    string Identifier { get; }
 }

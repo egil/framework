@@ -1,3 +1,6 @@
+using Egil.Orleans.EventSourcing.EventHandlers;
+using Egil.Orleans.EventSourcing.EventReactors;
+
 namespace Egil.Orleans.EventSourcing;
 
 public partial interface IEventStreamConfigurator<TEventGrain, TEventBase, TProjection>
@@ -84,7 +87,7 @@ public partial interface IEventStreamConfigurator<TEventGrain, TEventBase, TProj
     /// </summary>
     /// <param name="reactorFactory">Factory function that creates an event reactor from the grain instance.</param>
     /// <returns>The configurator for method chaining.</returns>
-    IEventStreamConfigurator<TEventGrain, TEventBase, TProjection> React(Func<TEventGrain, IEventReactor<TEventBase, TProjection>> reactorFactory);
+    IEventStreamConfigurator<TEventGrain, TEventBase, TProjection> React(string name, Func<TEventGrain, IEventReactor<TEventBase, TProjection>> reactorFactory);
 
     /// <summary>
     /// Registers a reactor factory for a specific event type derived from <typeparamref name="TEventBase"/>.
@@ -92,6 +95,6 @@ public partial interface IEventStreamConfigurator<TEventGrain, TEventBase, TProj
     /// <typeparam name="TEvent">The specific event type to react to.</typeparam>
     /// <param name="reactorFactory">Factory function that creates an event reactor from the grain instance.</param>
     /// <returns>The configurator for method chaining.</returns>
-    IEventStreamConfigurator<TEventGrain, TEventBase, TProjection> React<TEvent>(Func<TEventGrain, IEventReactor<TEvent, TProjection>> reactorFactory)
+    IEventStreamConfigurator<TEventGrain, TEventBase, TProjection> React<TEvent>(string name, Func<TEventGrain, IEventReactor<TEvent, TProjection>> reactorFactory)
         where TEvent : notnull, TEventBase;
 }

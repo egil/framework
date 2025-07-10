@@ -1,12 +1,13 @@
 using Egil.Orleans.EventSourcing.EventHandlers;
 using Microsoft.Extensions.DependencyInjection;
+using Orleans;
 
 namespace Egil.Orleans.EventSourcing.EventHandlerFactories;
 
-internal class EventHandlerServiceProviderFactory<TEventGrain, TEvent, TProjection, TEventHandler>(IServiceProvider serviceProvider) : IEventHandlerFactory<TEventGrain, TProjection>
+internal class EventHandlerServiceProviderFactory<TEventGrain, TEvent, TProjection, TEventHandler>(IServiceProvider serviceProvider) : IEventHandlerFactory<TProjection>
     where TEventGrain : IGrainBase
     where TEvent : notnull
-    where TProjection : notnull, IEventProjection<TProjection>
+    where TProjection : notnull
     where TEventHandler : IEventHandler<TEvent, TProjection>
 {
     private IEventHandler<TProjection>? handler;

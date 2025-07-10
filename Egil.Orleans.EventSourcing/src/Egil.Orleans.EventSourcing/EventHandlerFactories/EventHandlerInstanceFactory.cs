@@ -1,8 +1,18 @@
+using Egil.Orleans.EventSourcing.EventHandlers;
+using Orleans;
+
 namespace Egil.Orleans.EventSourcing.EventHandlerFactories;
 
-internal class EventHandlerInstanceFactory<TEventGrain, TProjection>(IEventHandler<TProjection> handler) : IEventHandlerFactory<TEventGrain, TProjection>
+internal class EventHandlerInstanceFactory<TEventGrain, TEvent, TProjection>(IEventHandler<TEvent, TProjection> handler) : IEventHandlerFactory<TProjection>
     where TEventGrain : IGrainBase
-    where TProjection : notnull, IEventProjection<TProjection>
+    where TEvent : notnull
+    where TProjection : notnull
 {
-    public IEventHandler<TProjection> Create() => handler;
+    private IEventHandler<TProjection>? handlerWrapper;
+
+    public IEventHandler<TProjection> Create()
+    {
+        handlerWrapper ??= new EventHandlerWrapper<TEvent, TProjection>(handler);
+        return handlerWrapper;
+    }
 }

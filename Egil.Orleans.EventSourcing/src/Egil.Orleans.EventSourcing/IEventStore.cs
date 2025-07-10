@@ -1,3 +1,5 @@
+using Egil.Orleans.EventSourcing.EventHandlers;
+using Egil.Orleans.EventSourcing.EventReactors;
 using Egil.Orleans.EventSourcing.EventStores;
 using Orleans;
 
@@ -16,8 +18,6 @@ public interface IEventStore
     DateTimeOffset? LatestEventTimestamp { get; }
 
     void AppendEvent<TEvent>(TEvent @event) where TEvent : notnull;
-
-    IEventStream<TEvent> GetStream<TEvent>() where TEvent : notnull;
 
     ValueTask CommitAsync();
 

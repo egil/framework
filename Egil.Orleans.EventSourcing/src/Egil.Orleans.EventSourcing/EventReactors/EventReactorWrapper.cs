@@ -1,19 +1,17 @@
-using Egil.Orleans.EventSourcing.EventStores;
-
 namespace Egil.Orleans.EventSourcing.EventReactors;
 
 internal class EventReactorWrapper<TEvent, TProjection> : IEventReactor<TEvent, TProjection>, IEventReactor<TProjection>
     where TEvent : notnull
     where TProjection : notnull, IEventProjection<TProjection>
 {
-
     private readonly IEventReactor<TEvent, TProjection> reactor;
 
-    public string? Identifier { get; }
+    public string Identifier { get; }
 
-    public EventReactorWrapper(IEventReactor<TEvent, TProjection> reactor)
+    public EventReactorWrapper(IEventReactor<TEvent, TProjection> reactor, string identifier)
     {
         this.reactor = reactor;
+        this.Identifier = identifier;
     }
 
     public ValueTask ReactAsync(IEnumerable<TEvent> @event, TProjection projection, IEventReactContext context)

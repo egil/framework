@@ -1,6 +1,6 @@
 using Orleans.Runtime;
 
-namespace Egil.Orleans.EventSourcing;
+namespace Egil.Orleans.EventSourcing.EventHandlers;
 
 public interface IEventHandlerContext
 {
