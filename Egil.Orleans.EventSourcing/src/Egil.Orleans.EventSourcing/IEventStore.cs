@@ -14,7 +14,7 @@ public interface IEventStore<TProjection> where TProjection : notnull, IEventPro
 
     void AppendEvent<TEvent>(TEvent @event) where TEvent : notnull;
 
-    ValueTask CommitAsync();
+    ValueTask CommitAsync(CancellationToken cancellationToken = default);
 
     IAsyncEnumerable<TEvent> GetEventsAsync<TEvent>(EventQueryOptions options, CancellationToken cancellationToken = default)
         where TEvent : notnull;

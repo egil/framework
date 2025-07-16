@@ -1,3 +1,4 @@
+using Azure;
 using Azure.Data.Tables;
 using Egil.Orleans.EventSourcing.Handlers;
 using Egil.Orleans.EventSourcing.Reactors;
@@ -38,12 +39,11 @@ internal class EventStore<TProjection> : IEventStore<TProjection>
     // https://docs.microsoft.com/en-us/rest/api/storageservices/performing-entity-group-transactions
     private const int MaxBatchSize = 100;
 
-    private readonly Dictionary<long, IEventEntry> uncommittedEvents = [];
+    private readonly SortedDictionary<long, IEventEntry> uncommittedEvents = [];
     private readonly TableClient tableClient;
     private readonly IGrainStorageSerializer serializer;
     private readonly IOptions<ClusterOptions> clusterOptions;
     private ProjectionEntry<TProjection> projectionEntry = ProjectionEntry<TProjection>.CreateDefault();
-
     private IEventStream<TProjection>[] streams = Array.Empty<IEventStream<TProjection>>();
     private GrainId grainId;
 
@@ -177,7 +177,7 @@ internal class EventStore<TProjection> : IEventStore<TProjection>
         }
     }
 
-    public async ValueTask CommitAsync()
+    public async ValueTask CommitAsync(CancellationToken cancellationToken = default)
     {
         if (uncommittedEvents.Count == 0)
         {
@@ -185,39 +185,88 @@ internal class EventStore<TProjection> : IEventStore<TProjection>
         }
 
         var partitionKey = CreatePartitionKey(grainId);
-        var batch = new List<TableTransactionAction>(uncommittedEvents.Count + 1);
-
-        // Add projection entry
-        batch.Add(
-            new TableTransactionAction(
-                TableTransactionActionType.UpsertMerge,
-                new TableEntity(partitionKey, ProjectionRowKey)
-                {
-                    ["Projection"] = serializer.Serialize(projectionEntry.Projection),
-                    ["ProjectionEventSequenceNumber"] = projectionEntry.EventSequenceNumber,
-                    ["LatestSequenceNumber"] = LatestSequenceNumber,
-                    ["UnreactedEventsCount"] = uncommittedEvents.Values.Count(events => events.ReactorStatus.Any(state => state.Value.Status is not ReactorOperationStatus.CompleteSuccessful)),
-                },
-                projectionEntry.ETag));
-
-        // Add each uncommitted event
-        foreach (var @event in uncommittedEvents.Values)
+        var batch = new List<TableTransactionAction>(uncommittedEvents.Count > MaxBatchSize ? MaxBatchSize : uncommittedEvents.Count + 1)
         {
-            var rowKey = CreateEventRowKey(@event.Stream, @event);
-            batch.Add(new TableTransactionAction(TableTransactionActionType.UpsertMerge, new TableEntity(partitionKey, rowKey)
+            CreateHeadRowTransactionAction(partitionKey, projectionEntry)
+        };
+
+        foreach (var eventEntry in uncommittedEvents.Where(x => x.Value.ETag == ETag.All))
+        {
+            if (batch.Count < MaxBatchSize)
             {
-                ["Event"] = serializer.Serialize(@event.Event),
-                ["SequenceNumber"] = @event.SequenceNumber,
-                ["EventId"] = @event.EventId,
-                ["Timestamp"] = @event.Timestamp,
-            }));
+                batch.Add(CreateEventTransactionAction(partitionKey, eventEntry.Value));
+            }
+            else
+            {
+                throw new InvalidOperationException($"The number of uncommitted new events exceeds Azure Table Storage limit of {MaxBatchSize} operations. Cannot create a single atomic batch operation that ensures all are saved.");
+            }
         }
-        // Execute the batch transaction
-        return new ValueTask(tableClient.SubmitTransactionAsync(batch, cancellationToken));
+
+        var updatedEvents = uncommittedEvents.Where(x => x.Value.ETag != ETag.All).GetEnumerator();
+        while (updatedEvents.MoveNext())
+        {
+            while (batch.Count < MaxBatchSize)
+            {
+                batch.Add(CreateEventTransactionAction(partitionKey, updatedEvents.Current.Value));
+            }
+
+            var response = await tableClient.SubmitTransactionAsync(batch, cancellationToken);
+            batch.Clear();
+        }
+
+        uncommittedEvents.Clear();
+    }
+
+    private TableTransactionAction CreateHeadRowTransactionAction(string partitionKey, ProjectionEntry<TProjection> projectionEntry) => new TableTransactionAction(
+        TableTransactionActionType.UpsertMerge,
+        new TableEntity(partitionKey, ProjectionRowKey)
+        {
+            ["Projection"] = serializer.Serialize(projectionEntry.Projection).ToMemory(),
+            ["ProjectionEventSequenceNumber"] = projectionEntry.EventSequenceNumber,
+            ["LatestSequenceNumber"] = LatestSequenceNumber,
+            ["UnreactedEventsCount"] = uncommittedEvents
+                .Values
+                .Count(events => events.ReactorStatus.Any(state => state.Value.Status is not ReactorOperationStatus.CompleteSuccessful)),
+        },
+        projectionEntry.ETag);
+
+    private TableTransactionAction CreateEventTransactionAction(string partitionKey, IEventEntry eventEntry)
+    {
+        var rowKey = CreateEventRowKey(eventEntry);
+        return new TableTransactionAction(
+            TableTransactionActionType.UpsertMerge,
+            new TableEntity(partitionKey, rowKey)
+            {
+                ["Event"] = eventEntry.Serialize(serializer).ToMemory(),
+                ["SequenceNumber"] = eventEntry.SequenceNumber,
+                ["EventId"] = eventEntry.EventId,
+                ["EventTimestamp"] = eventEntry.EventTimestamp,
+                ["ReactorStatus"] = serializer.Serialize(eventEntry.ReactorStatus).ToMemory(),
+                ["UnsuccessfulReactStatusCount"] = eventEntry.ReactorStatus.Count(x => x.Value.Status is not ReactorOperationStatus.CompleteSuccessful)
+            },
+            eventEntry.ETag);
     }
 
     private IAsyncEnumerable<IEventEntry> GetEventsAsync(EventQueryOptions options, CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
+    {
+        var partitionKey = CreatePartitionKey(grainId);
+        var query = tableClient.QueryAsync<TableEntity>(
+            filter: $"PartitionKey eq '{partitionKey}' and RowKey ge '{CreateStreamMetadataRowKey(options.StreamName)}'",
+            cancellationToken: cancellationToken);
+        return query.Select(entity =>
+        {
+            if (entity.RowKey.StartsWith(StreamMetadataPrefix))
+            {
+                // This is a stream metadata row, skip it
+                return null;
+            }
+            var eventEntry = new EventEntry(
+                entity,
+                serializer,
+                options.IncludeUncommitted || entity["SequenceNumber"] is not null ? ETag.All : entity.ETag);
+            return eventEntry;
+        }).Where(entry => entry is not null).Select(entry => entry!);
+    }
 
     private string CreatePartitionKey(GrainId grainId)
         => $"{clusterOptions.Value.ClusterId}{StreamSeparator}{grainId}".SanitizeKeyPropertyValue(StreamSeparator);
