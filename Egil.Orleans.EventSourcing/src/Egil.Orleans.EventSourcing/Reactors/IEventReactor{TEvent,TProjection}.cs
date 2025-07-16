@@ -1,10 +1,10 @@
-namespace Egil.Orleans.EventSourcing.EventReactors;
+namespace Egil.Orleans.EventSourcing.Reactors;
 
 public interface IEventReactor<TEvent, TProjection>
     where TEvent : notnull
     where TProjection : notnull
 {
-    string Identifier { get; }
+    string Id { get; }
 
     ValueTask ReactAsync(IEnumerable<TEvent> @event, TProjection projection, IEventReactContext context);
 }

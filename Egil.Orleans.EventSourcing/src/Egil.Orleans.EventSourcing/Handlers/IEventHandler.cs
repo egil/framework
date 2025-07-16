@@ -1,4 +1,4 @@
-namespace Egil.Orleans.EventSourcing.EventHandlers;
+namespace Egil.Orleans.EventSourcing.Handlers;
 
 public interface IEventHandler<TProjection>
     where TProjection : notnull

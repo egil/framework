@@ -1,22 +1,30 @@
 using Azure;
-using Azure.Data.Tables;
 using Orleans.Storage;
+using System.Collections.Immutable;
 
 namespace Egil.Orleans.EventSourcing;
 
 public interface IEventEntry
 {
+    string StreamName { get; }
+
     long SequenceNumber { get; }
 
     string? EventId { get; }
 
     DateTimeOffset? EventTimestamp { get; }
 
-    DateTimeOffset? Timestamp { get; set; }
+    DateTimeOffset? Timestamp { get; }
 
-    ETag ETag { get; set; }
+    ETag ETag { get; }
 
     object Event { get; }
+
+    ImmutableDictionary<string, ReactorState> ReactorStatus { get; }
+
+    IEventEntry SetReactorStatus(string reactorId, ReactorState state);
+
+    BinaryData Serialize(IGrainStorageSerializer serializer);
 }
 
 public interface IEventEntry<TEvent> : IEventEntry

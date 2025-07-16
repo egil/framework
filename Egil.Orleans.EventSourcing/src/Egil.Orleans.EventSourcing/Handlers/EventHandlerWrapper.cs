@@ -1,4 +1,4 @@
-namespace Egil.Orleans.EventSourcing.EventHandlers;
+namespace Egil.Orleans.EventSourcing.Handlers;
 
 internal class EventHandlerWrapper<TEvent, TProjection> : IEventHandler<TEvent, TProjection>, IEventHandler<TProjection>
     where TEvent : notnull

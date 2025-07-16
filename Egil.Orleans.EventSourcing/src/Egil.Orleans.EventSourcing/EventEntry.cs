@@ -1,28 +1,29 @@
 using Azure;
 using Azure.Data.Tables;
-using Egil.Orleans.EventSourcing.EventStores;
 using Orleans.Storage;
 using System.Collections.Immutable;
 using System.Text.Json;
 
 namespace Egil.Orleans.EventSourcing;
 
-internal class EventEntry<TEvent> : IEventEntry<TEvent>, IEventEntry
+internal record class EventEntry<TEvent> : IEventEntry<TEvent>, IEventEntry
     where TEvent : notnull
 {
-    public required TEvent Event { get; set; }
+    public required TEvent Event { get; init; }
 
-    public required long SequenceNumber { get; set; }
+    public required string StreamName { get; init; }
 
-    public string? EventId { get; set; }
+    public required long SequenceNumber { get; init; }
 
-    public DateTimeOffset? EventTimestamp { get; set; }
+    public string? EventId { get; init; }
 
-    public DateTimeOffset? Timestamp { get; set; }
+    public DateTimeOffset? EventTimestamp { get; init; }
 
-    public ETag ETag { get; set; } = ETag.All;
+    public DateTimeOffset? Timestamp { get; init; }
 
-    public ImmutableArray<ReactorState> ReactorStatus { get; set; } = ImmutableArray<ReactorState>.Empty;
+    public ETag ETag { get; init; } = ETag.All;
+
+    public ImmutableDictionary<string, ReactorState> ReactorStatus { get; init; } = ImmutableDictionary<string, ReactorState>.Empty;
 
     object IEventEntry.Event => Event;
 
@@ -30,6 +31,11 @@ internal class EventEntry<TEvent> : IEventEntry<TEvent>, IEventEntry
         => Event is TRequestedEvent requestedEvent
         ? requestedEvent
         : default;
+
+    public IEventEntry SetReactorStatus(string reactorId, ReactorState state)
+    {
+        return this with { ReactorStatus = ReactorStatus.SetItem(reactorId, state) };
+    }
 
     public TableTransactionAction ToTableTransactionAction(string partitionKey, string rowKey, IGrainStorageSerializer serializer)
     {
@@ -40,6 +46,7 @@ internal class EventEntry<TEvent> : IEventEntry<TEvent>, IEventEntry
             [EntityConstants.EventIdColumnName] = EventId,
             [EntityConstants.SequenceNumberColumnName] = SequenceNumber,
             [EntityConstants.EventTimestampColumnName] = EventTimestamp,
+            [EntityConstants.StreamNameColumnName] = StreamName,
         };
 
         // If ETag is default, this is a new event
@@ -66,12 +73,15 @@ internal class EventEntry<TEvent> : IEventEntry<TEvent>, IEventEntry
         if (!entity.TryGetValue(EntityConstants.SequenceNumberColumnName, out var seq) || seq is not long sequenceNumber)
             throw new Exception($"{EntityConstants.SequenceNumberColumnName} not found in table");
 
+        if (!entity.TryGetValue(EntityConstants.StreamNameColumnName, out var val) || val is not string streamName)
+            throw new Exception($"{EntityConstants.StreamNameColumnName} not found in table");
+
         // Deserialize reactor status for tracking side-effect processing
-        var reactorStatus = ImmutableArray<ReactorState>.Empty;
+        ImmutableDictionary<string, ReactorState> reactorStatus = ImmutableDictionary<string, ReactorState>.Empty;
         if (entity.TryGetValue(EntityConstants.ReactorStatusColumnName, out var status) && status is string reactorStatusJson)
         {
-            var states = JsonSerializer.Deserialize<ImmutableArray<ReactorState>>(reactorStatusJson);
-            if (!states.IsDefault)
+            var states = JsonSerializer.Deserialize<ImmutableDictionary<string, ReactorState>>(reactorStatusJson);
+            if (states is not null)
             {
                 reactorStatus = states;
             }
@@ -80,6 +90,7 @@ internal class EventEntry<TEvent> : IEventEntry<TEvent>, IEventEntry
         return new EventEntry<TEvent>
         {
             Event = @event,
+            StreamName = streamName,
             EventId = entity.TryGetValue(EntityConstants.EventIdColumnName, out var objId) && objId is string eventId ? eventId : null,
             SequenceNumber = sequenceNumber,
             EventTimestamp = entity.TryGetValue(EntityConstants.EventTimestampColumnName, out var objTs) && objTs is DateTimeOffset eventTimestamp ? eventTimestamp : null,

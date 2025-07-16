@@ -1,8 +1,7 @@
-using Egil.Orleans.EventSourcing.EventHandlers;
 using Microsoft.Extensions.DependencyInjection;
 using Orleans;
 
-namespace Egil.Orleans.EventSourcing.EventHandlerFactories;
+namespace Egil.Orleans.EventSourcing.Handlers;
 
 internal class EventHandlerServiceProviderFactory<TEventGrain, TEvent, TProjection, TEventHandler>(IServiceProvider serviceProvider) : IEventHandlerFactory<TProjection>
     where TEventGrain : IGrainBase

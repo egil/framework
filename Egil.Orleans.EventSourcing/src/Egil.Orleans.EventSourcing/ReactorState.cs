@@ -1,4 +1,4 @@
-namespace Egil.Orleans.EventSourcing.EventStores;
+namespace Egil.Orleans.EventSourcing;
 
 public readonly record struct ReactorState(
     string ReactorId,

@@ -1,55 +1,28 @@
-using Egil.Orleans.EventSourcing.EventHandlers;
-using Egil.Orleans.EventSourcing.EventReactors;
-using Egil.Orleans.EventSourcing.EventStores;
+using Egil.Orleans.EventSourcing.Handlers;
+using Egil.Orleans.EventSourcing.Reactors;
 using Orleans;
 
 namespace Egil.Orleans.EventSourcing;
 
-public interface IEventStore
+public interface IEventStore<TProjection> where TProjection : notnull, IEventProjection<TProjection>
 {
-    bool HasUncommittedEvents { get; }
+    TProjection Projection { get; }
+
+    bool HasUnappliedEvents { get; }
 
     bool HasUnreactedEvents { get; }
-
-    long EventCount { get; }
-
-    long? LatestSequenceNumber { get; }
-
-    DateTimeOffset? LatestEventTimestamp { get; }
 
     void AppendEvent<TEvent>(TEvent @event) where TEvent : notnull;
 
     ValueTask CommitAsync();
 
-    IAsyncEnumerable<IEventEntry> GetEventsAsync(QueryOptions? options = null, CancellationToken cancellationToken = default);
-
-    IAsyncEnumerable<IEventEntry<TEvent>> GetEventsAsync<TEvent>(QueryOptions? options = null, CancellationToken cancellationToken = default)
+    IAsyncEnumerable<TEvent> GetEventsAsync<TEvent>(EventQueryOptions options, CancellationToken cancellationToken = default)
         where TEvent : notnull;
 
-    ValueTask<TProjection> ApplyEventsAsync<TProjection>(TProjection projection, IEventHandlerContext context, CancellationToken cancellationToken = default)
-        where TProjection : notnull;
+    ValueTask ApplyEventsAsync(IEventHandlerContext context, CancellationToken cancellationToken = default);
 
-    ValueTask ReactEventsAsync<TProjection>(TProjection projection, IEventReactContext context, CancellationToken cancellationToken = default)
-        where TProjection : notnull;
+    ValueTask ReactEventsAsync(IEventReactContext context, CancellationToken cancellationToken = default);
 
-    void Configure<TEventGrain, TProjection>(TEventGrain eventGrain, IServiceProvider serviceProvider, Action<IEventStoreConfigurator<TEventGrain, TProjection>> builderAction)
-        where TEventGrain : IGrainBase
-        where TProjection : notnull;
-}
-
-public readonly record struct QueryOptions(
-    long? SequenceNumber = null,
-    DateTimeOffset? EventTimestamp = null)
-{
-    public static readonly QueryOptions Default = new();
-}
-
-public interface IEventStore<TProjection> : IEventStore
-    where TProjection : notnull, IEventProjection<TProjection>
-{
-    TProjection Projection { get; }
-
-    ValueTask ApplyEventsAsync(CancellationToken cancellationToken = default);
-
-    ValueTask ReactEventsAsync(CancellationToken cancellationToken = default);
+    void Configure<TEventGrain>(TEventGrain eventGrain, IServiceProvider serviceProvider, Action<IEventStoreConfigurator<TEventGrain, TProjection>> builderAction)
+        where TEventGrain : IGrainBase;
 }

@@ -1,4 +1,4 @@
-namespace Egil.Orleans.EventSourcing.EventStores;
+namespace Egil.Orleans.EventSourcing;
 
 public interface IEventStreamPublicationConfigurator<TEventGrain, TEventBase, TProjection>
     where TEventBase: notnull

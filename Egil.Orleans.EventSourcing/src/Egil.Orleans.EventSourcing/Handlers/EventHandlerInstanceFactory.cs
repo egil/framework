@@ -1,7 +1,6 @@
-using Egil.Orleans.EventSourcing.EventHandlers;
 using Orleans;
 
-namespace Egil.Orleans.EventSourcing.EventHandlerFactories;
+namespace Egil.Orleans.EventSourcing.Handlers;
 
 internal class EventHandlerInstanceFactory<TEventGrain, TEvent, TProjection>(IEventHandler<TEvent, TProjection> handler) : IEventHandlerFactory<TProjection>
     where TEventGrain : IGrainBase

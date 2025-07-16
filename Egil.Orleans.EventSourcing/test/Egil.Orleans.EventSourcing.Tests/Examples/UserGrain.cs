@@ -1,4 +1,3 @@
-using Egil.Orleans.EventSourcing.EventStores;
 using Egil.Orleans.EventSourcing.Examples.EventHandlers;
 using Egil.Orleans.EventSourcing.Examples.Events;
 using Microsoft.Extensions.DependencyInjection;

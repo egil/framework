@@ -1,6 +1,4 @@
-using Egil.Orleans.EventSourcing.EventReactors;
-
-namespace Egil.Orleans.EventSourcing.EventReactorFactories;
+namespace Egil.Orleans.EventSourcing.Reactors;
 
 internal interface IEventReactorFactory<TProjection>
     where TProjection : notnull

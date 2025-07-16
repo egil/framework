@@ -1,7 +1,5 @@
-using Egil.Orleans.EventSourcing.EventHandlers;
-using Egil.Orleans.EventSourcing.EventStores;
+using Egil.Orleans.EventSourcing.Handlers;
 using Orleans;
-using System.Runtime.CompilerServices;
 
 namespace Egil.Orleans.EventSourcing;
 
@@ -14,14 +12,14 @@ public abstract class EventGrain<TEventGrain, TProjection> : Grain
 {
     private readonly IEventStore<TProjection> eventStore;
 
-    protected IEventStore EventStorage => eventStore;
+    protected IEventStore<TProjection> EventStorage => eventStore;
 
     protected TProjection Projection => eventStore.Projection;
 
     protected EventGrain(IEventStore<TProjection> eventStore)
     {
         this.eventStore = eventStore ?? throw new ArgumentNullException(nameof(eventStore));
-        eventStore.Configure<TEventGrain, TProjection>((TEventGrain)this, ServiceProvider, Configure);
+        eventStore.Configure((TEventGrain)this, ServiceProvider, Configure);
     }
 
     protected abstract void Configure(IEventStoreConfigurator<TEventGrain, TProjection> builder);
@@ -43,12 +41,12 @@ public abstract class EventGrain<TEventGrain, TProjection> : Grain
 
     protected async ValueTask ApplyEventsAsync()
     {
-        if (!eventStore.HasUncommittedEvents)
+        if (!eventStore.HasUnappliedEvents)
             return;
 
-        while (eventStore.HasUncommittedEvents)
+        while (eventStore.HasUnappliedEvents)
         {
-            await eventStore.ApplyEventsAsync(Projection, new EventHandlerContext(eventStore, this.GetGrainId()));
+            await eventStore.ApplyEventsAsync(new EventHandlerContext<TProjection>(eventStore, this.GetGrainId()), CancellationToken.None);
         }
 
         await eventStore.CommitAsync();
@@ -59,14 +57,10 @@ public abstract class EventGrain<TEventGrain, TProjection> : Grain
         if (!eventStore.HasUnreactedEvents)
             return;
 
-        await eventStore.ReactEventsAsync();
+        await eventStore.ReactEventsAsync(new EventReactorContext<TProjection>(eventStore, this.GetGrainId()), CancellationToken.None);
+        await eventStore.CommitAsync();
     }
 
-    protected async IAsyncEnumerable<TEvent> GetEventsAsync<TEvent>([EnumeratorCancellation] CancellationToken cancellationToken = default) where TEvent : notnull
-    {
-        await foreach (var entry in eventStore.GetEventsAsync<TEvent>(QueryOptions.Default, cancellationToken))
-        {
-            yield return entry.Event;
-        }
-    }
+    protected IAsyncEnumerable<TEvent> GetEventsAsync<TEvent>(EventQueryOptions eventQueryOptions, CancellationToken cancellationToken = default) where TEvent : notnull
+        => eventStore.GetEventsAsync<TEvent>(eventQueryOptions, cancellationToken);
 }

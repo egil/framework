@@ -1,8 +1,6 @@
 using Egil.Orleans.EventSourcing.EventHandlerFactories;
-using Egil.Orleans.EventSourcing.EventHandlers;
-using Egil.Orleans.EventSourcing.EventReactorFactories;
-using Egil.Orleans.EventSourcing.EventReactors;
-using Egil.Orleans.EventSourcing.EventStores;
+using Egil.Orleans.EventSourcing.Handlers;
+using Egil.Orleans.EventSourcing.Reactors;
 using Orleans;
 
 namespace Egil.Orleans.EventSourcing;

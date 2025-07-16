@@ -1,6 +1,6 @@
-using Egil.Orleans.EventSourcing.EventHandlers;
 using Egil.Orleans.EventSourcing.EventStores;
 using Egil.Orleans.EventSourcing.Examples.Events;
+using Egil.Orleans.EventSourcing.Handlers;
 
 namespace Egil.Orleans.EventSourcing.Examples.EventHandlers;
 

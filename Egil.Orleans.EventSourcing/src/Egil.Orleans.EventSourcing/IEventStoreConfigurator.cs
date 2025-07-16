@@ -1,6 +1,6 @@
 using Orleans;
 
-namespace Egil.Orleans.EventSourcing.EventStores;
+namespace Egil.Orleans.EventSourcing;
 
 public interface IEventStoreConfigurator<TEventGrain, TProjection>
     where TEventGrain : IGrainBase

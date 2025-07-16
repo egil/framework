@@ -1,36 +1,20 @@
-using Egil.Orleans.EventSourcing.EventHandlers;
-using Egil.Orleans.EventSourcing.EventReactors;
+using Egil.Orleans.EventSourcing.Handlers;
+using Egil.Orleans.EventSourcing.Reactors;
+using System.Collections.Immutable;
 
 namespace Egil.Orleans.EventSourcing;
 
-internal interface IEventStream
-{
-    bool Matches<TEvent>(TEvent @event) where TEvent : notnull;
-}
-
-internal interface IEventStream<TEvent, TProjection>
-    where TEvent : notnull
-    where TProjection : notnull
+internal interface IEventStream<TProjection> where TProjection : notnull, IEventProjection<TProjection>
 {
     string Name { get; }
 
-    long EventCount { get; }
+    bool Matches<TEvent>(TEvent @event) where TEvent : notnull;
 
-    long? LatestSequenceNumber { get; }
+    IEventEntry CreateEventEntry<TEvent>(TEvent @event, long sequenceNumber)
+        where TEvent : notnull;
 
-    DateTimeOffset? LatestEventTimestamp { get; }
+    ValueTask<TProjection> ApplyEventsAsync<TEvent>(TEvent @event, TProjection projection, IEventHandlerContext context, CancellationToken cancellationToken = default)
+        where TEvent : notnull;
 
-    bool HasUncommittedEvents { get; }
-
-    bool HasUnreactedEvents { get; }
-
-    IEnumerable<IEventEntry<TEvent>> GetUncommittedEvents();
-
-    void AppendEvent(TEvent @event, long sequenceNumber);
-
-    IAsyncEnumerable<IEventEntry<TEvent>> GetEventsAsync(QueryOptions? options = null, CancellationToken cancellationToken = default);
-
-    ValueTask<TProjection> ApplyEventsAsync(TProjection projection, IEventHandlerContext context, CancellationToken cancellationToken = default);
-
-    ValueTask ReactEventsAsync(TProjection projection, IEventReactContext context, CancellationToken cancellationToken = default);
+    ValueTask<ImmutableArray<IEventEntry>> ReactEventsAsync(ImmutableArray<IEventEntry> events, TProjection projection, IEventReactContext context, CancellationToken cancellationToken = default);
 }

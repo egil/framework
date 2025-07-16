@@ -1,34 +1,54 @@
 namespace Egil.Orleans.EventSourcing;
 
-internal class EventQueryOptions
+public readonly record struct EventQueryOptions
 {
     /// <summary>
     /// Maximum number of events to return.
     /// </summary>
-    public int? MaxCount { get; init; }
+    public readonly int? MaxCount { get; init; }
 
     /// <summary>
     /// Return events with timestamp younger than this age.
     /// </summary>
-    public TimeSpan? MaxAge { get; init; }
+    public readonly TimeSpan? MaxAge { get; init; }
 
     /// <summary>
     /// Filter by specific event ID.
     /// </summary>
-    public string? EventId { get; init; }
+    public readonly string? EventId { get; init; }
 
     /// <summary>
     /// Return only distinct events by EventId (keeps latest).
     /// </summary>
-    public bool DistinctByEventId { get; init; }
+    public readonly bool DistinctByEventId { get; init; }
 
     /// <summary>
     /// Return events starting from this sequence number (inclusive).
     /// </summary>
-    public long? FromSequenceNumber { get; init; }
+    public readonly long? FromSequenceNumber { get; init; }
 
     /// <summary>
     /// Return events up to this sequence number (inclusive).
     /// </summary>
-    public long? ToSequenceNumber { get; init; }
+    public readonly long? ToSequenceNumber { get; init; }
+
+    /// <summary>
+    /// Return events starting from this sequence number (inclusive).
+    /// </summary>
+    public readonly long? FromTimestamp { get; init; }
+
+    /// <summary>
+    /// Return events up to this sequence number (inclusive).
+    /// </summary>
+    public readonly long? ToTimestamp { get; init; }
+
+    /// <summary>
+    /// Include uncommitted events in the query results.
+    /// </summary>
+    public readonly bool IncludeUncommitted { get; init; } = true;
+
+    /// <summary>
+    /// Include uncommitted events in the query results.
+    /// </summary>
+    public readonly bool? IncludeUnreacted { get; init; }
 }
