@@ -1,3 +1,4 @@
+using Azure;
 using Egil.Orleans.EventSourcing.Handlers;
 using Egil.Orleans.EventSourcing.Reactors;
 using System.Collections.Immutable;
@@ -8,10 +9,12 @@ internal interface IEventStream<TProjection> where TProjection : notnull, IEvent
 {
     string Name { get; }
 
-    bool Matches<TEvent>(TEvent @event) where TEvent : notnull;
+    bool Matches<TEvent>(TEvent? @event) where TEvent : notnull;
 
     IEventEntry CreateEventEntry<TEvent>(TEvent @event, long sequenceNumber)
         where TEvent : notnull;
+
+    IEventEntry CreateEventEntry(BinaryData binaryData, long sequenceNumber, ImmutableDictionary<string, ReactorState> reactorStatus, DateTimeOffset? timestamp, ETag etag);
 
     ValueTask<TProjection> ApplyEventsAsync<TEvent>(TEvent @event, TProjection projection, IEventHandlerContext context, CancellationToken cancellationToken = default)
         where TEvent : notnull;

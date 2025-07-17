@@ -23,6 +23,6 @@ public interface IEventStore<TProjection> where TProjection : notnull, IEventPro
 
     ValueTask ReactEventsAsync(IEventReactContext context, CancellationToken cancellationToken = default);
 
-    void Configure<TEventGrain>(TEventGrain eventGrain, IServiceProvider serviceProvider, Action<IEventStoreConfigurator<TEventGrain, TProjection>> builderAction)
+    ValueTask InitializeAsync<TEventGrain>(TEventGrain eventGrain, IServiceProvider serviceProvider, Action<IEventStoreConfigurator<TEventGrain, TProjection>> builderAction, CancellationToken cancellationToken = default)
         where TEventGrain : IGrainBase;
 }

@@ -1,5 +1,4 @@
 using Azure;
-using Azure.Data.Tables;
 using System.Net;
 
 namespace Egil.Orleans.EventSourcing;

@@ -1,17 +1,17 @@
-using Egil.Orleans.EventSourcing.EventHandlerFactories;
 using Egil.Orleans.EventSourcing.Handlers;
 using Egil.Orleans.EventSourcing.Reactors;
 using Orleans;
 
 namespace Egil.Orleans.EventSourcing;
 
-internal partial class EventStreamConfigurator<TEventGrain, TEventBase, TProjection> : IEventStreamConfigurator<TEventGrain, TEventBase, TProjection>, IEventStreamConfigurator
+internal partial class EventStreamConfigurator<TEventGrain, TEventBase, TProjection> : IEventStreamConfigurator<TEventGrain, TEventBase, TProjection>, IEventStreamConfigurator<TProjection>
     where TEventGrain : IGrainBase
     where TEventBase : notnull
     where TProjection : notnull, IEventProjection<TProjection>
 {
     private readonly TEventGrain eventGrain;
     private readonly IServiceProvider grainServiceProvider;
+    private readonly TimeProvider timeProvider;
     private bool untilProcessed;
     private int? keepCount;
     private TimeSpan? keepAge;
@@ -22,11 +22,12 @@ internal partial class EventStreamConfigurator<TEventGrain, TEventBase, TProject
 
     public string StreamName { get; }
 
-    public EventStreamConfigurator(TEventGrain eventGrain, IServiceProvider grainServiceProvider, string streamName)
+    public EventStreamConfigurator(TEventGrain eventGrain, IServiceProvider grainServiceProvider, string streamName, TimeProvider timeProvider)
     {
         this.eventGrain = eventGrain;
         this.grainServiceProvider = grainServiceProvider;
         StreamName = streamName;
+        this.timeProvider = timeProvider;
     }
 
     public IEventStreamConfigurator<TEventGrain, TEventBase, TProjection> KeepUntilProcessed()
@@ -107,7 +108,7 @@ internal partial class EventStreamConfigurator<TEventGrain, TEventBase, TProject
         return this;
     }
 
-    public IEventStream Build()
+    public IEventStream<TProjection> Build()
     {
         if (untilProcessed && (keepCount.HasValue || keepAge.HasValue || eventIdSelector != null))
         {
@@ -125,6 +126,7 @@ internal partial class EventStreamConfigurator<TEventGrain, TEventBase, TProject
                 MaxAge = keepAge,
                 TimestampSelector = timestampSelector,
                 EventIdSelector = eventIdSelector
-            });
+            },
+            timeProvider);
     }
 }

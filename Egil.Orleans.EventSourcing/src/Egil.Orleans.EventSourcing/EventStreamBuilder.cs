@@ -2,11 +2,11 @@ using Orleans;
 
 namespace Egil.Orleans.EventSourcing;
 
-internal class EventStreamBuilder<TEventGrain, TProjection>(TEventGrain eventGrain, IServiceProvider grainServiceProvider) : IEventStoreConfigurator<TEventGrain, TProjection>
+internal class EventStreamBuilder<TEventGrain, TProjection>(TEventGrain eventGrain, IServiceProvider grainServiceProvider, TimeProvider timeProvider) : IEventStoreConfigurator<TEventGrain, TProjection>
     where TEventGrain : IGrainBase
     where TProjection : notnull, IEventProjection<TProjection>
 {
-    private readonly List<IEventStreamConfigurator> configurators = [];
+    private readonly List<IEventStreamConfigurator<TProjection>> configurators = [];
 
     public IEventStreamConfigurator<TEventGrain, TEvent, TProjection> AddStream<TEvent>(string? streamName = null) where TEvent : notnull
     {
@@ -37,12 +37,12 @@ internal class EventStreamBuilder<TEventGrain, TProjection>(TEventGrain eventGra
             throw new ArgumentException($"Stream name '{streamName}' has already been used", nameof(streamName));
         }
 
-        var configurator = new EventStreamConfigurator<TEventGrain, TEvent, TProjection>(eventGrain, grainServiceProvider, streamName);
+        var configurator = new EventStreamConfigurator<TEventGrain, TEvent, TProjection>(eventGrain, grainServiceProvider, streamName, timeProvider);
         configurators.Add(configurator);
         return configurator;
     }
 
-    internal IEventStream[] Build()
+    internal IEventStream<TProjection>[] Build()
     {
         if (configurators.Count == 0)
         {

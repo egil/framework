@@ -19,7 +19,12 @@ public abstract class EventGrain<TEventGrain, TProjection> : Grain
     protected EventGrain(IEventStore<TProjection> eventStore)
     {
         this.eventStore = eventStore ?? throw new ArgumentNullException(nameof(eventStore));
-        eventStore.Configure((TEventGrain)this, ServiceProvider, Configure);
+    }
+
+    public override async Task OnActivateAsync(CancellationToken cancellationToken)
+    {
+        await base.OnActivateAsync(cancellationToken);
+        await eventStore.InitializeAsync((TEventGrain)this, ServiceProvider, Configure);
     }
 
     protected abstract void Configure(IEventStoreConfigurator<TEventGrain, TProjection> builder);

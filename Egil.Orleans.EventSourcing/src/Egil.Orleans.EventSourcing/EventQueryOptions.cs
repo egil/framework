@@ -15,10 +15,7 @@ public readonly record struct EventQueryOptions
     /// <summary>
     /// Include uncommitted events in the query results.
     /// </summary>
-    public readonly bool IncludeUncommitted { get; init; }
+    public readonly bool? IsUnreacted { get; init; }
 
-    /// <summary>
-    /// Include uncommitted events in the query results.
-    /// </summary>
-    public readonly bool? IncludeUnreacted { get; init; }
+    public readonly string? StreamName { get; init; }
 }

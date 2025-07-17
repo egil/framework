@@ -1,4 +1,3 @@
-using Egil.Orleans.EventSourcing.Examples.Events;
 using System.Collections.Immutable;
 
 namespace Egil.Orleans.EventSourcing.Examples;
