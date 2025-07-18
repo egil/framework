@@ -7,7 +7,7 @@ public interface IEventStoreConfigurator<TEventGrain, TProjection>
     where TProjection : notnull
 {
     /// <summary>
-    /// Creates a new stream in the grains <see cref="IEventStore"/> that by default keeps its events indefinitely.
+    /// Creates a new stream in the grains <see cref="IEventStore{TProjection}"/> that by default keeps its events indefinitely.
     /// Override this by calling one of the "keep" methods.
     /// </summary>
     /// <param name="streamName">

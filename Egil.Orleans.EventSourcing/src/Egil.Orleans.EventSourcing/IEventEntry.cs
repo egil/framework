@@ -27,7 +27,7 @@ public interface IEventEntry
     BinaryData Serialize(IGrainStorageSerializer serializer);
 }
 
-public interface IEventEntry<TEvent> : IEventEntry
+public interface IEventEntry<out TEvent> : IEventEntry
     where TEvent : notnull
 {
     new TEvent Event { get; }

@@ -1,6 +1,7 @@
 using Egil.Orleans.EventSourcing.Handlers;
 using Egil.Orleans.EventSourcing.Reactors;
 using Orleans;
+using Orleans.Runtime;
 
 namespace Egil.Orleans.EventSourcing;
 
@@ -23,6 +24,9 @@ public interface IEventStore<TProjection> where TProjection : notnull, IEventPro
 
     ValueTask ReactEventsAsync(IEventReactContext context, CancellationToken cancellationToken = default);
 
-    ValueTask InitializeAsync<TEventGrain>(TEventGrain eventGrain, IServiceProvider serviceProvider, Action<IEventStoreConfigurator<TEventGrain, TProjection>> builderAction, CancellationToken cancellationToken = default)
-        where TEventGrain : IGrainBase;
+    void Configure<TEventGrain>(
+        GrainId grainId,
+        TEventGrain eventGrain,
+        IServiceProvider grainServiceProvider,
+        Action<IEventStoreConfigurator<TEventGrain, TProjection>> builderAction) where TEventGrain : IGrainBase;
 }

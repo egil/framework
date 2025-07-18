@@ -1,7 +1,7 @@
 using Orleans.Storage;
 using System.Text.Json;
 
-namespace Egil.Orleans.EventSourcing.Internals.Storage;
+namespace Egil.Orleans.EventSourcing;
 
 public sealed class SystemTextJsonGrainStorageSerializer(JsonSerializerOptions? options = null) : IGrainStorageSerializer
 {

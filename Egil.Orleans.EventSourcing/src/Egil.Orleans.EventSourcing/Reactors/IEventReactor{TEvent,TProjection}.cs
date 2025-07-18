@@ -6,5 +6,5 @@ public interface IEventReactor<TEvent, TProjection>
 {
     string Id { get; }
 
-    ValueTask ReactAsync(IEnumerable<TEvent> @event, TProjection projection, IEventReactContext context);
+    ValueTask ReactAsync(IEnumerable<TEvent> @event, TProjection projection, IEventReactContext context, CancellationToken cancellationToken = default);
 }

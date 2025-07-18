@@ -8,7 +8,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Egil.Orleans.EventSourcing;
 
-public sealed class AppHostFixture : IAsyncLifetime
+public class AppHostFixture : IAsyncLifetime
 {
     private IDistributedApplicationTestingBuilder? appHost;
     private DistributedApplication? app;
@@ -26,7 +26,7 @@ public sealed class AppHostFixture : IAsyncLifetime
             .SetMinimumLevel(LogLevel.Trace));
     }
 
-    public async ValueTask InitializeAsync()
+    public virtual async ValueTask InitializeAsync()
     {
         appHost = await DistributedApplicationTestingBuilder.CreateAsync<Projects.Egil_Orleans_EventSourcing_Tests_AppHost>(TestContext.Current.CancellationToken);
         app = await appHost.BuildAsync(TestContext.Current.CancellationToken);
@@ -37,7 +37,7 @@ public sealed class AppHostFixture : IAsyncLifetime
             ?? throw new InvalidOperationException("Failed to get tableStorage connection string");
     }
 
-    public async ValueTask DisposeAsync()
+    public virtual async ValueTask DisposeAsync()
     {
         if (app is not null)
         {

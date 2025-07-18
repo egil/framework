@@ -1,5 +1,7 @@
 using Egil.Orleans.EventSourcing.Handlers;
+using Microsoft.Extensions.DependencyInjection;
 using Orleans;
+using Orleans.Runtime;
 
 namespace Egil.Orleans.EventSourcing;
 
@@ -12,19 +14,22 @@ public abstract class EventGrain<TEventGrain, TProjection> : Grain
 {
     private readonly IEventStore<TProjection> eventStore;
 
-    protected IEventStore<TProjection> EventStorage => eventStore;
+    protected IEventStore<TProjection> EventStore => eventStore;
 
     protected TProjection Projection => eventStore.Projection;
 
-    protected EventGrain(IEventStore<TProjection> eventStore)
+    protected EventGrain()
     {
-        this.eventStore = eventStore ?? throw new ArgumentNullException(nameof(eventStore));
-    }
+        eventStore = ServiceProvider
+            .GetRequiredService<IEventStoreFactory>()
+            .CreateEventStore<TProjection>(ServiceProvider);
 
-    public override async Task OnActivateAsync(CancellationToken cancellationToken)
-    {
-        await base.OnActivateAsync(cancellationToken);
-        await eventStore.InitializeAsync((TEventGrain)this, ServiceProvider, Configure);
+        eventStore.Configure(this.GetGrainId(), (TEventGrain)this, ServiceProvider, Configure);
+
+        if (eventStore is ILifecycleParticipant<IGrainLifecycle> participant)
+        {
+            participant.Participate(((IGrainBase)this).GrainContext.ObservableLifecycle);
+        }
     }
 
     protected abstract void Configure(IEventStoreConfigurator<TEventGrain, TProjection> builder);
@@ -66,6 +71,6 @@ public abstract class EventGrain<TEventGrain, TProjection> : Grain
         await eventStore.CommitAsync();
     }
 
-    protected IAsyncEnumerable<TEvent> GetEventsAsync<TEvent>(EventQueryOptions eventQueryOptions, CancellationToken cancellationToken = default) where TEvent : notnull
+    protected IAsyncEnumerable<TEvent> GetEventsAsync<TEvent>(EventQueryOptions eventQueryOptions = default, CancellationToken cancellationToken = default) where TEvent : notnull
         => eventStore.GetEventsAsync<TEvent>(eventQueryOptions, cancellationToken);
 }

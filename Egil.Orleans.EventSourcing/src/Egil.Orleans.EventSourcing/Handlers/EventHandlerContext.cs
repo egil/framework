@@ -2,7 +2,7 @@ using Orleans.Runtime;
 
 namespace Egil.Orleans.EventSourcing.Handlers;
 
-internal class EventHandlerContext<TProjection>(IEventStore<TProjection> eventStore, GrainId grainId) : IEventHandlerContext
+public class EventHandlerContext<TProjection>(IEventStore<TProjection> eventStore, GrainId grainId) : IEventHandlerContext
     where TProjection : notnull, IEventProjection<TProjection>
 {
     public GrainId GrainId { get; }

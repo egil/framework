@@ -24,7 +24,7 @@ namespace Egil.Orleans.EventSourcing;
 /// - Atomic transactions ensure consistency between events and projections
 /// - Optimistic concurrency via ETags prevents concurrent modifications
 /// </summary>
-internal class EventStore<TProjection> : IEventStore<TProjection>
+internal class EventStore<TProjection> : IEventStore<TProjection>, ILifecycleParticipant<IGrainLifecycle>, ILifecycleObserver
     where TProjection : notnull, IEventProjection<TProjection>
 {
     // RowKey prefixes - Using "!" ensures these sort first, before any event data
@@ -42,6 +42,7 @@ internal class EventStore<TProjection> : IEventStore<TProjection>
     private readonly TableClient tableClient;
     private readonly IGrainStorageSerializer serializer;
     private readonly IOptions<ClusterOptions> clusterOptions;
+    private readonly TimeProvider timeProvider;
     private ProjectionEntry<TProjection> projectionEntry = ProjectionEntry<TProjection>.CreateDefault();
     private Dictionary<string, IEventStream<TProjection>> streams = [];
     private GrainId grainId;
@@ -57,31 +58,42 @@ internal class EventStore<TProjection> : IEventStore<TProjection>
     public EventStore(
         TableClient tableClient,
         IGrainStorageSerializer serializer,
-        IOptions<ClusterOptions> clusterOptions)
+        IOptions<ClusterOptions> clusterOptions,
+        TimeProvider timeProvider)
     {
         this.tableClient = tableClient;
         this.serializer = serializer;
         this.clusterOptions = clusterOptions;
+        this.timeProvider = timeProvider;
     }
 
-    public async ValueTask InitializeAsync<TEventGrain>(
+    public void Configure<TEventGrain>(
+        GrainId grainId,
         TEventGrain eventGrain,
         IServiceProvider serviceProvider,
-        Action<IEventStoreConfigurator<TEventGrain, TProjection>> builderAction,
-        CancellationToken cancellationToken = default)
+        Action<IEventStoreConfigurator<TEventGrain, TProjection>> builderAction)
         where TEventGrain : IGrainBase
     {
-        var eventStreamBuilder = new EventStreamBuilder<TEventGrain, TProjection>(eventGrain, serviceProvider);
+        var eventStreamBuilder = new EventStreamBuilder<TEventGrain, TProjection>(eventGrain, serviceProvider, timeProvider);
         builderAction.Invoke(eventStreamBuilder);
         streams = eventStreamBuilder.Build().ToDictionary(x => x.Name, x => x);
-        grainId = eventGrain.GrainContext.GrainId;
+        this.grainId = grainId;
+    }
 
+    public async ValueTask InitializeAsync(CancellationToken cancellationToken = default)
+    {
         // Try to load the projection/head row
         var response = await tableClient.GetEntityIfExistsAsync<TableEntity>(
             CreatePartitionKey(grainId),
             ProjectionRowKey,
             select: ["Projection", "ProjectionEventSequenceNumber", "LatestSequenceNumber", "UnreactedEventsCount"],
             cancellationToken: cancellationToken);
+
+        if (!response.HasValue)
+        {
+            projectionEntry = ProjectionEntry<TProjection>.CreateDefault();
+            return;
+        }
 
         latestSequenceNumber = response.Value?.GetInt64("LatestSequenceNumber") ?? 0;
         uncompletedReactStatusCount = response.Value?.GetInt32("UnreactedEventsCount") ?? 0;
@@ -90,33 +102,6 @@ internal class EventStore<TProjection> : IEventStore<TProjection>
         if (HasUnappliedEvents)
         {
             await ApplyEventsAsync(new ReplayEventHandlerContext<TProjection>(this, grainId), cancellationToken);
-        }
-    }
-
-    private ProjectionEntry<TProjection> DeserializeProjectionEntity(NullableResponse<TableEntity> response)
-    {
-        if (!response.HasValue || !(response.Value is { } entity))
-        {
-            return ProjectionEntry<TProjection>.CreateDefault();
-        }
-
-        try
-        {
-            return entity.GetBinaryData("Projection") is { } projectionData
-                && entity.GetInt64("ProjectionEventSequenceNumber") is { } projectionEventSequenceNumber
-                && serializer.Deserialize<TProjection>(projectionData) is { } projection
-                ? new ProjectionEntry<TProjection>
-                {
-                    EventSequenceNumber = projectionEventSequenceNumber,
-                    Projection = projection,
-                    Timestamp = entity.Timestamp,
-                    ETag = ETag.All
-                }
-                : ProjectionEntry<TProjection>.CreateDefault();
-        }
-        catch
-        {
-            return ProjectionEntry<TProjection>.CreateDefault();
         }
     }
 
@@ -156,7 +141,7 @@ internal class EventStore<TProjection> : IEventStore<TProjection>
             throw new InvalidOperationException($"Event type {typeof(TEvent).FullName} matches multiple streams: {matchingStreams}. Please ensure only one stream matches each event type.");
         }
 
-        if (eventEntry is not null && eventStream is not null && uncommittedEvents.ContainsKey(eventEntry.SequenceNumber))
+        if (eventEntry is not null && eventStream is not null)
         {
             uncommittedEvents[eventEntry.SequenceNumber] = eventEntry;
             uncompletedReactStatusCount = uncommittedEvents.Values.Count(events => events.ReactorStatus.Any(state => state.Value.Status is not ReactorOperationStatus.CompleteSuccessful));
@@ -165,11 +150,6 @@ internal class EventStore<TProjection> : IEventStore<TProjection>
 
     public async ValueTask ApplyEventsAsync(IEventHandlerContext context, CancellationToken cancellationToken = default)
     {
-        if (uncommittedEvents.Count == 0)
-        {
-            return;
-        }
-
         var projection = projectionEntry.Projection;
         var projectionEventSequenceNumber = projectionEntry.EventSequenceNumber;
 
@@ -252,26 +232,47 @@ internal class EventStore<TProjection> : IEventStore<TProjection>
             }
         }
 
-        var updatedEvents = uncommittedEvents.Where(x => x.Value.ETag != ETag.All).GetEnumerator();
-        while (updatedEvents.MoveNext())
+        var response = await tableClient.SubmitTransactionAsync(batch, cancellationToken);
+        projectionEntry = projectionEntry with
         {
-            while (batch.Count < MaxBatchSize)
-            {
-                batch.Add(CreateEventTransactionAction(partitionKey, updatedEvents.Current.Value));
-            }
+            ETag = response.Value[0].Headers.ETag.GetValueOrDefault(ETag.All),
+            Timestamp = response.Value[0].Headers.Date,
+        };
+        uncommittedEvents.Clear();
+    }
 
-            var response = await tableClient.SubmitTransactionAsync(batch, cancellationToken);
-            batch.Clear();
+    private ProjectionEntry<TProjection> DeserializeProjectionEntity(NullableResponse<TableEntity> response)
+    {
+        if (!response.HasValue || !(response.Value is { } entity))
+        {
+            return ProjectionEntry<TProjection>.CreateDefault();
         }
 
-        uncommittedEvents.Clear();
+        try
+        {
+            return entity.GetBinaryData("Projection") is { } projectionData
+                && entity.GetInt64("ProjectionEventSequenceNumber") is { } projectionEventSequenceNumber
+                && serializer.Deserialize<TProjection>(projectionData) is { } projection
+                ? new ProjectionEntry<TProjection>
+                {
+                    EventSequenceNumber = projectionEventSequenceNumber,
+                    Projection = projection,
+                    Timestamp = entity.Timestamp,
+                    ETag = ETag.All
+                }
+                : ProjectionEntry<TProjection>.CreateDefault();
+        }
+        catch
+        {
+            return ProjectionEntry<TProjection>.CreateDefault();
+        }
     }
 
     private TableTransactionAction CreateHeadRowTransactionAction(string partitionKey, ProjectionEntry<TProjection> projectionEntry) => new TableTransactionAction(
         TableTransactionActionType.UpsertMerge,
         new TableEntity(partitionKey, ProjectionRowKey)
         {
-            ["Projection"] = serializer.Serialize(projectionEntry.Projection).ToMemory(),
+            ["Projection"] = serializer.Serialize(projectionEntry.Projection).ToArray(),
             ["ProjectionEventSequenceNumber"] = projectionEntry.EventSequenceNumber,
             ["LatestSequenceNumber"] = latestSequenceNumber,
             ["UnreactedEventsCount"] = uncompletedReactStatusCount,
@@ -286,11 +287,11 @@ internal class EventStore<TProjection> : IEventStore<TProjection>
             new TableEntity(partitionKey, rowKey)
             {
                 ["StreamName"] = eventEntry.StreamName,
-                ["Event"] = eventEntry.Serialize(serializer),
+                ["Event"] = streams[eventEntry.StreamName].SerializeEvent(serializer, eventEntry),
                 ["SequenceNumber"] = eventEntry.SequenceNumber,
                 ["EventId"] = eventEntry.EventId,
                 ["EventTimestamp"] = eventEntry.EventTimestamp,
-                ["ReactorStatus"] = serializer.Serialize(eventEntry.ReactorStatus).ToMemory(),
+                ["ReactorStatus"] = serializer.Serialize(eventEntry.ReactorStatus).ToArray(),
                 ["UnsuccessfulReactStatusCount"] = eventEntry.ReactorStatus.Count(x => x.Value.Status is not ReactorOperationStatus.CompleteSuccessful)
             },
             eventEntry.ETag);
@@ -324,7 +325,7 @@ internal class EventStore<TProjection> : IEventStore<TProjection>
 
             if (!streams.TryGetValue(streamName, out var stream))
             {
-                continue;
+                throw new InvalidOperationException($"Event in storage is associated with unconfigured stream '{streamName}'.");
             }
 
             var reactorStatus = ImmutableDictionary<string, ReactorState>.Empty;
@@ -350,7 +351,7 @@ internal class EventStore<TProjection> : IEventStore<TProjection>
             }
 
             lastReturnedSequenceNumber = sequenceNumber;
-            yield return stream.CreateEventEntry(BinaryData.FromBytes(eventBytes), sequenceNumber, reactorStatus, entity.Timestamp, entity.ETag);
+            yield return stream.CreateEventEntry(serializer, eventBytes, sequenceNumber, reactorStatus, entity.Timestamp, entity.ETag);
         }
 
         foreach (var uncommittedEventEntity in uncommitted.Where(x => x.SequenceNumber > lastReturnedSequenceNumber))
@@ -444,6 +445,12 @@ internal class EventStore<TProjection> : IEventStore<TProjection>
         // This allows querying from a specific sequence number onwards
         return $"{@event.StreamName}{StreamSeparator}{@event.SequenceNumber:D19}{StreamSeparator}{@event.EventId}".SanitizeKeyPropertyValue('*');
     }
+
+    void ILifecycleParticipant<IGrainLifecycle>.Participate(IGrainLifecycle observer) => observer.Subscribe(GrainLifecycleStage.SetupState, this);
+
+    Task ILifecycleObserver.OnStart(CancellationToken cancellationToken) => InitializeAsync(cancellationToken).AsTask();
+
+    Task ILifecycleObserver.OnStop(CancellationToken cancellationToken) => Task.CompletedTask;
 }
 
 file static class AsyncEnumerableExtensions

@@ -1,6 +1,5 @@
 using Egil.Orleans.EventSourcing.Examples.EventHandlers;
 using Egil.Orleans.EventSourcing.Examples.Events;
-using Microsoft.Extensions.DependencyInjection;
 using System.Collections.Immutable;
 
 namespace Egil.Orleans.EventSourcing.Examples;
@@ -13,8 +12,7 @@ namespace Egil.Orleans.EventSourcing.Examples;
 /// 3. The projection (User) is rebuilt by applying events through handlers
 /// 4. Events can be processed individually or in batches with different transactional scopes
 /// </summary>
-public sealed class UserGrain([FromKeyedServices("eventStoreProvider")] IEventStore<User> storage, TimeProvider timeProvider)
-    : EventGrain<UserGrain, User>(storage), IUserGrain
+public sealed class UserGrain(TimeProvider timeProvider) : EventGrain<UserGrain, User>(), IUserGrain
 {
     public async ValueTask RegisterUser(string name, string email)
     {

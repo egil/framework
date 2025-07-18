@@ -1,3 +1,4 @@
+
 namespace Egil.Orleans.EventSourcing.Reactors;
 
 internal class EventReactorWrapper<TEvent, TProjection> : IEventReactor<TEvent, TProjection>, IEventReactor<TProjection>
@@ -14,17 +15,16 @@ internal class EventReactorWrapper<TEvent, TProjection> : IEventReactor<TEvent, 
         Id = identifier;
     }
 
-    public ValueTask ReactAsync(IEnumerable<TEvent> @event, TProjection projection, IEventReactContext context)
-        => reactor.ReactAsync(@event, projection, context);
+    public ValueTask ReactAsync(IEnumerable<TEvent> @event, TProjection projection, IEventReactContext context, CancellationToken cancellationToken = default)
+        => reactor.ReactAsync(@event, projection, context, cancellationToken);
 
-    public ValueTask ReactAsync<TRequestedEvent>(IEnumerable<TRequestedEvent> @event, TProjection projection, IEventReactContext context) where TRequestedEvent : notnull
+    public ValueTask ReactAsync(IEnumerable<IEventEntry> eventEntries, TProjection projection, IEventReactContext context, CancellationToken cancellationToken = default)
     {
-        if (@event is IEnumerable<TEvent> castEvent)
-        {
-            return ReactAsync(castEvent, projection, context);
-        }
-
-        return ValueTask.CompletedTask;
+        return ReactAsync(
+            eventEntries.OfType<IEventEntry<TEvent>>().Select(x => x.Event),
+            projection,
+            context,
+            cancellationToken);
     }
 
     public bool Matches<TRequestedEvent>(TRequestedEvent @event) where TRequestedEvent : notnull

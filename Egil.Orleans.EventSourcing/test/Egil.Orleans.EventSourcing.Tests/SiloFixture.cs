@@ -1,30 +1,34 @@
+using Azure.Data.Tables;
 using Egil.Orleans.EventSourcing.Examples;
 using Egil.Orleans.EventSourcing.Examples.EventHandlers;
 using Microsoft.Extensions.DependencyInjection;
+using Orleans.Storage;
 using Orleans.TestingHost;
 
 namespace Egil.Orleans.EventSourcing.Tests;
 
-public sealed class SiloFixture : IAsyncLifetime, IGrainFactory
+public sealed class SiloFixture : AppHostFixture, IAsyncLifetime, IGrainFactory
 {
     private InProcessTestCluster? cluster;
     private IGrainFactory? grainFactory;
 
     public IServiceProvider Services => cluster?.GetSiloServiceProvider() ?? throw new InvalidOperationException("Test cluster not running.");
 
-    public FakeEventStore EventStorage { get; } = new();
-
     public IGrainFactory GrainFactory => grainFactory ?? throw new InvalidOperationException("Test cluster not running.");
 
-    public async ValueTask InitializeAsync()
+    public override async ValueTask InitializeAsync()
     {
+        await base.InitializeAsync();
+        var tableClient = await base.GetTableClientAsync();
         var builder = new InProcessTestClusterBuilder(initialSilosCount: 1);
 
         builder.ConfigureSilo((options, siloBuilder) =>
         {
-            siloBuilder.Services.AddKeyedSingleton<IEventStore>("eventStoreProvider", EventStorage);
+            siloBuilder.Services.AddSingleton<IEventStoreFactory, EventStoreFactory>();
+            siloBuilder.Services.AddSingleton<TableClient>(tableClient);
             siloBuilder.Services.AddSingleton<UserMessageReceivedHandler>();
             siloBuilder.Services.AddSingleton<BadWordsDetector>();
+            siloBuilder.Services.AddSingleton<IGrainStorageSerializer, SystemTextJsonGrainStorageSerializer>();
             siloBuilder.UseInMemoryReminderService();
         });
 
@@ -37,12 +41,14 @@ public sealed class SiloFixture : IAsyncLifetime, IGrainFactory
         grainFactory = cluster.Client;
     }
 
-    public async ValueTask DisposeAsync()
+    public override async ValueTask DisposeAsync()
     {
         if (cluster is not null)
         {
             await cluster.StopAllSilosAsync();
         }
+
+        await base.DisposeAsync();
     }
 
     #region IGrainFactory methods
