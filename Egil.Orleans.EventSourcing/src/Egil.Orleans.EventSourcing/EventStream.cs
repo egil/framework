@@ -22,7 +22,8 @@ internal class EventStream<TEventGrain, TEventBase, TProjection> : IEventStream<
     public EventStream(
         string name,
         IReadOnlyList<IEventHandlerFactory<TProjection>> handlerFactories,
-        List<IEventReactorFactory<TProjection>> reactorFactories, EventStreamRetention<TEventBase> retention,
+        IReadOnlyList<IEventReactorFactory<TProjection>> reactorFactories,
+        EventStreamRetention<TEventBase> retention,
         TimeProvider timeProvider)
     {
         Name = name;

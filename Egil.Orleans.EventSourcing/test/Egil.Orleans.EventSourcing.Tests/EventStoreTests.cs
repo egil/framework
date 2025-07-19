@@ -77,12 +77,12 @@ public class EventStoreTests(SiloFixture fixture) : IClassFixture<SiloFixture>
     private static GrainId RandomGrainId([CallerMemberName] string memberName = "")
         => GrainId.Create(GrainType.Create("TestEventGrain"), IdSpan.Create($"{memberName}-{Guid.NewGuid().ToString("N")[0..8]}"));
 
-    private EventStore<Projection> CreateSut()
-        => (EventStore<Projection>)fixture.Services
+    private AzureTableEventStore<Projection> CreateSut()
+        => (AzureTableEventStore<Projection>)fixture.Services
         .GetRequiredService<IEventStoreFactory>()
         .CreateEventStore<Projection>(fixture.Services);
 
-    private void ConfigureEventStoreDefaultStreamConfiguration(EventStore<Projection> sut, GrainId grainId)
+    private void ConfigureEventStoreDefaultStreamConfiguration(AzureTableEventStore<Projection> sut, GrainId grainId)
         => sut.Configure(
         grainId,
         new DummyGrain(),

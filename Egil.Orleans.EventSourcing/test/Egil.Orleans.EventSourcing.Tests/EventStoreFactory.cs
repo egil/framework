@@ -14,6 +14,6 @@ internal class EventStoreFactory : IEventStoreFactory
         var serializer = serviceProvider.GetRequiredService<IGrainStorageSerializer>();
         var options = serviceProvider.GetRequiredService<IOptions<ClusterOptions>>();
         var timeProvider = serviceProvider.GetRequiredService<TimeProvider>();
-        return new EventStore<TProjection>(tableClient, serializer, options, timeProvider);
+        return new AzureTableEventStore<TProjection>(tableClient, serializer, options, timeProvider);
     }
 }

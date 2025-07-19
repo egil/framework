@@ -1,6 +1,6 @@
 namespace Egil.Orleans.EventSourcing;
 
-public readonly record struct ReactorState(
+internal readonly record struct ReactorState(
     string ReactorId,
     int Attempts,
     ReactorOperationStatus Status,

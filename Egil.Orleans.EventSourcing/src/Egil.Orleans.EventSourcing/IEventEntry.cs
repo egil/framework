@@ -4,7 +4,7 @@ using System.Collections.Immutable;
 
 namespace Egil.Orleans.EventSourcing;
 
-public interface IEventEntry
+internal interface IEventEntry
 {
     string StreamName { get; }
 
@@ -27,8 +27,7 @@ public interface IEventEntry
     BinaryData Serialize(IGrainStorageSerializer serializer);
 }
 
-public interface IEventEntry<out TEvent> : IEventEntry
-    where TEvent : notnull
+internal interface IEventEntry<out TEvent> : IEventEntry where TEvent : notnull
 {
     new TEvent Event { get; }
 }

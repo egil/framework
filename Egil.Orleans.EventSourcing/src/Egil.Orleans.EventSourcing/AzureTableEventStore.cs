@@ -12,19 +12,7 @@ using System.Runtime.CompilerServices;
 
 namespace Egil.Orleans.EventSourcing;
 
-/// <summary>
-/// EventStore implementation using Azure Table Storage as the backing store.
-/// This class manages both event streams and projections within a single table partition
-/// per grain, enabling atomic transactions across both event and projection updates.
-/// 
-/// Design principles:
-/// - Each grain has its own partition (PartitionKey = GrainId)
-/// - Projections are stored at RowKey "~projection" (~ ensures it sorts first)
-/// - Events use RowKey format: "{streamName}#{sequenceNumber:D19}#{eventId}"
-/// - Atomic transactions ensure consistency between events and projections
-/// - Optimistic concurrency via ETags prevents concurrent modifications
-/// </summary>
-internal class EventStore<TProjection> : IEventStore<TProjection>, ILifecycleParticipant<IGrainLifecycle>, ILifecycleObserver
+internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILifecycleParticipant<IGrainLifecycle>, ILifecycleObserver
     where TProjection : notnull, IEventProjection<TProjection>
 {
     // RowKey prefixes - Using "!" ensures these sort first, before any event data
@@ -55,7 +43,7 @@ internal class EventStore<TProjection> : IEventStore<TProjection>, ILifecyclePar
 
     public TProjection Projection => projectionEntry.Projection;
 
-    public EventStore(
+    public AzureTableEventStore(
         TableClient tableClient,
         IGrainStorageSerializer serializer,
         IOptions<ClusterOptions> clusterOptions,
