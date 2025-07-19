@@ -1,6 +1,6 @@
 using Azure;
 
-namespace Egil.Orleans.EventSourcing;
+namespace Egil.Orleans.EventSourcing.Storage;
 
 internal record class ProjectionEntry<TProjection> where TProjection : notnull, IEventProjection<TProjection>
 {

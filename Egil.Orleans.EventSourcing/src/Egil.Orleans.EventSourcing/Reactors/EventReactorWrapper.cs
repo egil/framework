@@ -1,4 +1,6 @@
 
+using Egil.Orleans.EventSourcing.Storage;
+
 namespace Egil.Orleans.EventSourcing.Reactors;
 
 internal class EventReactorWrapper<TEvent, TProjection> : IEventReactor<TEvent, TProjection>, IEventReactor<TProjection>

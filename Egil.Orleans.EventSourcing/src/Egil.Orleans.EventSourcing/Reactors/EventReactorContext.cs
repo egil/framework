@@ -1,7 +1,6 @@
-using Egil.Orleans.EventSourcing.Reactors;
 using Orleans.Runtime;
 
-namespace Egil.Orleans.EventSourcing.Handlers;
+namespace Egil.Orleans.EventSourcing.Reactors;
 
 internal class EventReactorContext<TProjection>(IEventStore<TProjection> eventStore, GrainId grainId) : IEventReactContext
     where TProjection : notnull, IEventProjection<TProjection>

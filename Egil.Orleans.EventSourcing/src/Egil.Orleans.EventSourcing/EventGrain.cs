@@ -1,4 +1,6 @@
 using Egil.Orleans.EventSourcing.Handlers;
+using Egil.Orleans.EventSourcing.Reactors;
+using Egil.Orleans.EventSourcing.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Orleans;
 using Orleans.Runtime;

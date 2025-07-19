@@ -1,4 +1,4 @@
-namespace Egil.Orleans.EventSourcing;
+namespace Egil.Orleans.EventSourcing.Storage;
 
 internal enum ReactorOperationStatus
 {

@@ -1,6 +1,7 @@
 using Azure.Data.Tables;
 using Egil.Orleans.EventSourcing.Examples;
 using Egil.Orleans.EventSourcing.Examples.EventHandlers;
+using Egil.Orleans.EventSourcing.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Orleans.Storage;
 using Orleans.TestingHost;
@@ -24,7 +25,7 @@ public sealed class SiloFixture : AppHostFixture, IAsyncLifetime, IGrainFactory
 
         builder.ConfigureSilo((options, siloBuilder) =>
         {
-            siloBuilder.Services.AddSingleton<IEventStoreFactory, EventStoreFactory>();
+            siloBuilder.Services.AddSingleton<IEventStoreFactory, AzureTableEventStoreFactory>();
             siloBuilder.Services.AddSingleton<TableClient>(tableClient);
             siloBuilder.Services.AddSingleton<UserMessageReceivedHandler>();
             siloBuilder.Services.AddSingleton<BadWordsDetector>();

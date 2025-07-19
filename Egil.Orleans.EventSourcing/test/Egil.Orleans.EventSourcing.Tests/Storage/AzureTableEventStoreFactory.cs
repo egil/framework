@@ -4,9 +4,9 @@ using Microsoft.Extensions.Options;
 using Orleans.Configuration;
 using Orleans.Storage;
 
-namespace Egil.Orleans.EventSourcing;
+namespace Egil.Orleans.EventSourcing.Storage;
 
-internal class EventStoreFactory : IEventStoreFactory
+internal class AzureTableEventStoreFactory : IEventStoreFactory
 {
     public IEventStore<TProjection> CreateEventStore<TProjection>(IServiceProvider serviceProvider) where TProjection : notnull, IEventProjection<TProjection>
     {

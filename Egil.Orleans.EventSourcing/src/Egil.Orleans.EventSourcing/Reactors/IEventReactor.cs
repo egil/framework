@@ -1,3 +1,5 @@
+using Egil.Orleans.EventSourcing.Storage;
+
 namespace Egil.Orleans.EventSourcing.Reactors;
 
 internal interface IEventReactor<TProjection> where TProjection : notnull

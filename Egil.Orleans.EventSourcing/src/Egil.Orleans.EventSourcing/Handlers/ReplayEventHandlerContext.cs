@@ -1,7 +1,6 @@
-using Egil.Orleans.EventSourcing.Handlers;
 using Orleans.Runtime;
 
-namespace Egil.Orleans.EventSourcing;
+namespace Egil.Orleans.EventSourcing.Handlers;
 
 internal class ReplayEventHandlerContext<TProjection>(IEventStore<TProjection> eventStore, GrainId grainId) : IEventHandlerContext
     where TProjection : notnull, IEventProjection<TProjection>

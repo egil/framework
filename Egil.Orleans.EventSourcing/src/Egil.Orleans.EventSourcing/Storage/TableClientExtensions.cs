@@ -1,7 +1,7 @@
 using Azure;
 using System.Net;
 
-namespace Egil.Orleans.EventSourcing;
+namespace Egil.Orleans.EventSourcing.Storage;
 
 internal static class TableClientUtilities
 {

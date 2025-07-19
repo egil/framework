@@ -5,7 +5,7 @@ using Orleans;
 using Orleans.Storage;
 using System.Collections.Immutable;
 
-namespace Egil.Orleans.EventSourcing;
+namespace Egil.Orleans.EventSourcing.Storage;
 
 internal class EventStream<TEventGrain, TEventBase, TProjection> : IEventStream<TProjection>
     where TEventGrain : IGrainBase
@@ -27,8 +27,8 @@ internal class EventStream<TEventGrain, TEventBase, TProjection> : IEventStream<
         TimeProvider timeProvider)
     {
         Name = name;
-        this.handlers = new Lazy<IEventHandler<TProjection>[]>(() => handlerFactories.Select(x => x.Create()).ToArray());
-        this.reactors = new Lazy<IEventReactor<TProjection>[]>(() => reactorFactories.Select(x => x.Create()).ToArray());
+        handlers = new Lazy<IEventHandler<TProjection>[]>(() => handlerFactories.Select(x => x.Create()).ToArray());
+        reactors = new Lazy<IEventReactor<TProjection>[]>(() => reactorFactories.Select(x => x.Create()).ToArray());
         this.retention = retention;
         this.timeProvider = timeProvider;
     }
@@ -116,7 +116,7 @@ internal class EventStream<TEventGrain, TEventBase, TProjection> : IEventStream<
 
         bool MatchesReactor(IEventEntry eventEntry, string reactorId)
         {
-            return eventEntry.ReactorStatus.TryGetValue(reactorId, out ReactorState state)
+            return eventEntry.ReactorStatus.TryGetValue(reactorId, out var state)
                 && state.Status is not ReactorOperationStatus.CompleteSuccessful;
         }
 

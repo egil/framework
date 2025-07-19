@@ -5,9 +5,9 @@ using System.Runtime.CompilerServices;
 using System.Text.Json.Serialization;
 using Egil.Orleans.EventSourcing.Reactors;
 
-namespace Egil.Orleans.EventSourcing;
+namespace Egil.Orleans.EventSourcing.Storage;
 
-public class EventStoreTests(SiloFixture fixture) : IClassFixture<SiloFixture>
+public class AzureTableEventStoreTests(SiloFixture fixture) : IClassFixture<SiloFixture>
 {
     private record class Projection(string StrValue, int IntValue) : IEventProjection<Projection>
     {
@@ -406,7 +406,7 @@ public class EventStoreTests(SiloFixture fixture) : IClassFixture<SiloFixture>
                 .AddStream<IEvent>()
                 .Handle<StrEvent>((evt, pro) => pro with { StrValue = evt.Value })
                 .Handle<IntEvent>((evt, pro) => pro with { IntValue = evt.Value })
-                .React<StrEvent>("TestReactor", _ => testReactor));
+                .React("TestReactor", _ => testReactor));
         await sut.InitializeAsync(TestContext.Current.CancellationToken);
 
         Assert.False(sut.HasUnreactedEvents);
@@ -429,7 +429,7 @@ public class EventStoreTests(SiloFixture fixture) : IClassFixture<SiloFixture>
             fixture.Services,
             builder => builder
                 .AddStream<IEvent>()
-                .React<StrEvent>("TestReactor", _ => testReactor));
+                .React("TestReactor", _ => testReactor));
         await sut.InitializeAsync(TestContext.Current.CancellationToken);
 
         sut.AppendEvent(new StrEvent("Hello"));
@@ -456,7 +456,7 @@ public class EventStoreTests(SiloFixture fixture) : IClassFixture<SiloFixture>
             fixture.Services,
             builder => builder
                 .AddStream<IEvent>()
-                .React<StrEvent>("TestReactor", _ => testReactor));
+                .React("TestReactor", _ => testReactor));
         await sut.InitializeAsync(TestContext.Current.CancellationToken);
 
         sut.AppendEvent(new StrEvent("Hello"));
@@ -500,8 +500,8 @@ public class EventStoreTests(SiloFixture fixture) : IClassFixture<SiloFixture>
             fixture.Services,
             builder => builder
                 .AddStream<IEvent>()
-                .React<StrEvent>("FirstReactor", _ => firstReactor)
-                .React<StrEvent>("SecondReactor", _ => secondReactor));
+                .React("FirstReactor", _ => firstReactor)
+                .React("SecondReactor", _ => secondReactor));
         await sut.InitializeAsync(TestContext.Current.CancellationToken);
 
         sut.AppendEvent(new StrEvent("Hello"));
@@ -535,8 +535,8 @@ public class EventStoreTests(SiloFixture fixture) : IClassFixture<SiloFixture>
             fixture.Services,
             builder => builder
                 .AddStream<IEvent>()
-                .React<StrEvent>("SuccessfulReactor", _ => successfulReactor)
-                .React<StrEvent>("FailingReactor", _ => failingReactor));
+                .React("SuccessfulReactor", _ => successfulReactor)
+                .React("FailingReactor", _ => failingReactor));
         await sut.InitializeAsync(TestContext.Current.CancellationToken);
         sut.AppendEvent(new StrEvent("Hello"));
         Assert.True(sut.HasUnreactedEvents);
@@ -563,7 +563,7 @@ public class EventStoreTests(SiloFixture fixture) : IClassFixture<SiloFixture>
                 .AddStream<IEvent>()
                 .Handle<StrEvent>((evt, pro) => pro with { StrValue = evt.Value })
                 .Handle<IntEvent>((evt, pro) => pro with { IntValue = evt.Value })
-                .React<StrEvent>("TestReactor", _ => testReactor));
+                .React("TestReactor", _ => testReactor));
         await sut.InitializeAsync(TestContext.Current.CancellationToken);
 
         // Append events (uncommitted first)
@@ -594,7 +594,7 @@ public class EventStoreTests(SiloFixture fixture) : IClassFixture<SiloFixture>
                 .AddStream<IEvent>()
                 .Handle<StrEvent>((evt, pro) => pro with { StrValue = evt.Value })
                 .Handle<IntEvent>((evt, pro) => pro with { IntValue = evt.Value })
-                .React<StrEvent>("TestReactor", _ => testReactor2));
+                .React("TestReactor", _ => testReactor2));
         await sut2.InitializeAsync(TestContext.Current.CancellationToken);
 
         // Should not have unreacted events since they were processed and committed
@@ -615,7 +615,7 @@ public class EventStoreTests(SiloFixture fixture) : IClassFixture<SiloFixture>
             builder => builder
                 .AddStream<IEvent>()
                 .Handle<StrEvent>((evt, pro) => pro with { StrValue = evt.Value })
-                .Handle<IntEvent>(_ => failingHandler));
+                .Handle(_ => failingHandler));
         await sut.InitializeAsync(TestContext.Current.CancellationToken);
 
         // Set initial state
@@ -661,8 +661,8 @@ public class EventStoreTests(SiloFixture fixture) : IClassFixture<SiloFixture>
             builder => builder
                 .AddStream<IEvent>()
                 .Handle<StrEvent>((evt, pro) => pro with { StrValue = evt.Value })
-                .Handle<IntEvent>(_ => firstFailingHandler)
-                .Handle<IntEvent>(_ => secondFailingHandler));
+                .Handle(_ => firstFailingHandler)
+                .Handle(_ => secondFailingHandler));
         await sut.InitializeAsync(TestContext.Current.CancellationToken);
 
         // Set initial state and commit
@@ -706,7 +706,7 @@ public class EventStoreTests(SiloFixture fixture) : IClassFixture<SiloFixture>
                     appliedEvents.Add($"StrEvent:{evt.Value}");
                     return pro with { StrValue = evt.Value };
                 })
-                .Handle<IntEvent>(_ => failingHandler));
+                .Handle(_ => failingHandler));
         await sut.InitializeAsync(TestContext.Current.CancellationToken);
 
         // Set initial state and commit
@@ -914,7 +914,7 @@ public class EventStoreTests(SiloFixture fixture) : IClassFixture<SiloFixture>
             builder => builder
                 .AddStream<IEvent>()
                 .React<IEvent>("BaseReactor", _ => baseReactor) // Base reactor
-                .React<StrEvent>("StrReactor", _ => strReactor)); // Specific reactor for StrEvent
+                .React("StrReactor", _ => strReactor)); // Specific reactor for StrEvent
         await sut.InitializeAsync(TestContext.Current.CancellationToken);
 
         // Append different event types
@@ -1014,7 +1014,7 @@ public class EventStoreTests(SiloFixture fixture) : IClassFixture<SiloFixture>
             builder => builder
                 .AddStream<IBaseEvent>()
                 .Handle<IBaseEvent>(_ => baseHandler) // Should process all events
-                .Handle<IUserEvent>(_ => userHandler)); // Should process only user events
+                .Handle(_ => userHandler)); // Should process only user events
         await sut.InitializeAsync(TestContext.Current.CancellationToken);
 
         // Append events from different levels of the hierarchy
@@ -1052,7 +1052,7 @@ public class EventStoreTests(SiloFixture fixture) : IClassFixture<SiloFixture>
             builder => builder
                 .AddStream<IBaseEvent>()
                 .React<IBaseEvent>("BaseReactor", _ => baseReactor) // Should process all events
-                .React<IUserEvent>("UserReactor", _ => userReactor)); // Should process only user events
+                .React("UserReactor", _ => userReactor)); // Should process only user events
         await sut.InitializeAsync(TestContext.Current.CancellationToken);
 
         // Append events from different levels of the hierarchy

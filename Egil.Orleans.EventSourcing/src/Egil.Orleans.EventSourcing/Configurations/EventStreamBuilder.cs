@@ -1,6 +1,7 @@
+using Egil.Orleans.EventSourcing.Storage;
 using Orleans;
 
-namespace Egil.Orleans.EventSourcing;
+namespace Egil.Orleans.EventSourcing.Configurations;
 
 internal class EventStreamBuilder<TEventGrain, TProjection>(TEventGrain eventGrain, IServiceProvider grainServiceProvider, TimeProvider timeProvider) : IEventStoreConfigurator<TEventGrain, TProjection>
     where TEventGrain : IGrainBase

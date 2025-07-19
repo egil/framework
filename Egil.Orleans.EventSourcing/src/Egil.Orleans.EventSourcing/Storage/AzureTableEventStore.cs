@@ -1,5 +1,6 @@
 using Azure;
 using Azure.Data.Tables;
+using Egil.Orleans.EventSourcing.Configurations;
 using Egil.Orleans.EventSourcing.Handlers;
 using Egil.Orleans.EventSourcing.Reactors;
 using Microsoft.Extensions.Options;
@@ -10,7 +11,7 @@ using Orleans.Storage;
 using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 
-namespace Egil.Orleans.EventSourcing;
+namespace Egil.Orleans.EventSourcing.Storage;
 
 internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILifecycleParticipant<IGrainLifecycle>, ILifecycleObserver
     where TProjection : notnull, IEventProjection<TProjection>
@@ -202,7 +203,7 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
 
     public async IAsyncEnumerable<TEvent> GetEventsAsync<TEvent>(EventQueryOptions options, [EnumeratorCancellation] CancellationToken cancellationToken = default) where TEvent : notnull
     {
-        var streamName = streams.Values.FirstOrDefault(stream => stream.Matches<TEvent>(default(TEvent)))?.Name;
+        var streamName = streams.Values.FirstOrDefault(stream => stream.Matches(default(TEvent)))?.Name;
         await foreach (var eventEntry in GetEventsAsync(options with { StreamName = streamName }, cancellationToken))
         {
             if (eventEntry.Event is TEvent castEvent)

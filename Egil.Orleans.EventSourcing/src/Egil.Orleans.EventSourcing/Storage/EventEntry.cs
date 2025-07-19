@@ -2,7 +2,7 @@ using Azure;
 using Orleans.Storage;
 using System.Collections.Immutable;
 
-namespace Egil.Orleans.EventSourcing;
+namespace Egil.Orleans.EventSourcing.Storage;
 
 internal record class EventEntry<TEvent> : IEventEntry<TEvent>, IEventEntry
     where TEvent : notnull

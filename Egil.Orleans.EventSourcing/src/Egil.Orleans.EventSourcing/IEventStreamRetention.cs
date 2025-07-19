@@ -1,3 +1,5 @@
+using Egil.Orleans.EventSourcing.Storage;
+
 namespace Egil.Orleans.EventSourcing;
 
 public interface IEventStreamRetention

@@ -1,8 +1,9 @@
 using Egil.Orleans.EventSourcing.Handlers;
 using Egil.Orleans.EventSourcing.Reactors;
+using Egil.Orleans.EventSourcing.Storage;
 using Orleans;
 
-namespace Egil.Orleans.EventSourcing;
+namespace Egil.Orleans.EventSourcing.Configurations;
 
 internal partial class EventStreamConfigurator<TEventGrain, TEventBase, TProjection> : IEventStreamConfigurator<TEventGrain, TEventBase, TProjection>, IEventStreamConfigurator<TProjection>
     where TEventGrain : IGrainBase

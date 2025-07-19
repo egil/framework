@@ -1,4 +1,4 @@
-namespace Egil.Orleans.EventSourcing;
+namespace Egil.Orleans.EventSourcing.Storage;
 
 internal class EventStreamRetention<TEvent> : IEventStreamRetention
     where TEvent : notnull
