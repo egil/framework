@@ -150,26 +150,43 @@ internal class EventStore<TProjection> : IEventStore<TProjection>, ILifecyclePar
 
     public async ValueTask ApplyEventsAsync(IEventHandlerContext context, CancellationToken cancellationToken = default)
     {
+        // Store the original projection state before applying events
+        var originalProjection = projectionEntry.Projection;
+        var originalProjectionEventSequenceNumber = projectionEntry.EventSequenceNumber;
+        
         var projection = projectionEntry.Projection;
         var projectionEventSequenceNumber = projectionEntry.EventSequenceNumber;
 
-        await foreach (var eventEntry in GetEventsAsync(new EventQueryOptions { FromSequenceNumber = projectionEventSequenceNumber + 1 }, cancellationToken))
+        try
         {
-            var stream = streams.FirstOrDefault(s => s.Value.Matches(eventEntry.Event)).Value;
-            if (stream is null)
+            await foreach (var eventEntry in GetEventsAsync(new EventQueryOptions { FromSequenceNumber = projectionEventSequenceNumber + 1 }, cancellationToken))
             {
-                continue;
+                var stream = streams.FirstOrDefault(s => s.Value.Matches(eventEntry.Event)).Value;
+                if (stream is null)
+                {
+                    continue;
+                }
+
+                projection = await stream.ApplyEventsAsync(eventEntry.Event, projection, context, cancellationToken);
+                projectionEventSequenceNumber = eventEntry.SequenceNumber;
             }
 
-            projection = await stream.ApplyEventsAsync(eventEntry.Event, projection, context, cancellationToken);
-            projectionEventSequenceNumber = eventEntry.SequenceNumber;
+            projectionEntry = projectionEntry with
+            {
+                Projection = projection,
+                EventSequenceNumber = projectionEventSequenceNumber,
+            };
         }
-
-        projectionEntry = projectionEntry with
+        catch
         {
-            Projection = projection,
-            EventSequenceNumber = projectionEventSequenceNumber,
-        };
+            // Rollback: restore the projection to its original state before ApplyEventsAsync was called
+            projectionEntry = projectionEntry with
+            {
+                Projection = originalProjection,
+                EventSequenceNumber = originalProjectionEventSequenceNumber,
+            };
+            throw;
+        }
     }
 
     public async ValueTask ReactEventsAsync(IEventReactContext context, CancellationToken cancellationToken = default)
