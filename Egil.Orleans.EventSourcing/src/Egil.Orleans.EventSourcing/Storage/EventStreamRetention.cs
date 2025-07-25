@@ -3,7 +3,7 @@ namespace Egil.Orleans.EventSourcing.Storage;
 internal class EventStreamRetention<TEvent> : IEventStreamRetention
     where TEvent : notnull
 {
-    public required bool UntilProcessed { get; init; } = false;
+    public required bool UntilReactedSuccessfully { get; init; } = false;
 
     public required int? Count { get; init; } = null;
 

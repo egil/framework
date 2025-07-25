@@ -173,7 +173,7 @@ public sealed class UserGrain(TimeProvider timeProvider) : EventGrain<UserGrain,
         builder.AddStream<IUserOutboxEvent>()
             // Keep events until they've been successfully processed by all reactors
             // This ensures at-least-once delivery for published events
-            .KeepUntilProcessed()
+            .KeepUntilReactedSuccessfully()
 
             // Track the number of outbox events
             .Handle((@event, user) => user with { OutboxEventsCount = user.OutboxEventsCount + 1 });

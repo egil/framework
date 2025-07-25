@@ -9,7 +9,7 @@ public interface IEventStreamRetention
     /// <see cref="ReactorState.Status"/> are <see cref="ReactorOperationStatus.CompleteSuccessful"/>
     /// will be deleted.
     /// </summary>
-    bool UntilProcessed { get; init; }
+    bool UntilReactedSuccessfully { get; init; }
 
     /// <summary>
     /// Keeps only the latest event by <see cref="EventEntry{TEvent}.EventId"/>

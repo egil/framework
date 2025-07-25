@@ -10,7 +10,7 @@ public partial interface IEventStreamConfigurator<TEventGrain, TEventBase, TProj
     /// <summary>
     /// Stream only keeps the <typeparamref name="TEventBase"/> until all handlers and reactors have processed it successfully.
     /// </summary>
-    IEventStreamConfigurator<TEventGrain, TEventBase, TProjection> KeepUntilProcessed();
+    IEventStreamConfigurator<TEventGrain, TEventBase, TProjection> KeepUntilReactedSuccessfully();
 
     /// <summary>
     /// Stream keeps the latest <paramref name="count"/> <typeparamref name="TEventBase"/> events.
@@ -96,5 +96,15 @@ public partial interface IEventStreamConfigurator<TEventGrain, TEventBase, TProj
     /// <param name="reactorFactory">Factory function that creates an event reactor from the grain instance.</param>
     /// <returns>The configurator for method chaining.</returns>
     IEventStreamConfigurator<TEventGrain, TEventBase, TProjection> React<TEvent>(string name, Func<TEventGrain, IEventReactor<TEvent, TProjection>> reactorFactory)
+        where TEvent : notnull, TEventBase;
+
+    IEventStreamConfigurator<TEventGrain, TEventBase, TProjection> React(string name, Action<IEnumerable<TEventBase>, TProjection> reactor);
+
+    IEventStreamConfigurator<TEventGrain, TEventBase, TProjection> React<TEvent>(string name, Action<IEnumerable<TEvent>, TProjection> reactorFactory)
+        where TEvent : notnull, TEventBase;
+
+    IEventStreamConfigurator<TEventGrain, TEventBase, TProjection> React(string name, Func<IEnumerable<TEventBase>, TProjection, ValueTask> reactor);
+
+    IEventStreamConfigurator<TEventGrain, TEventBase, TProjection> React<TEvent>(string name, Func<IEnumerable<TEvent>, TProjection, ValueTask> reactorFactory)
         where TEvent : notnull, TEventBase;
 }

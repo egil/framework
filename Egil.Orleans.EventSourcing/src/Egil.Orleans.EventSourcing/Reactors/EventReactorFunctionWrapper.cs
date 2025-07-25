@@ -1,24 +1,29 @@
-
 using Egil.Orleans.EventSourcing.Storage;
 
 namespace Egil.Orleans.EventSourcing.Reactors;
 
-internal class EventReactorWrapper<TEvent, TProjection> : IEventReactor<TEvent, TProjection>, IEventReactor<TProjection>
+internal class EventReactorFunctionWrapper<TEvent, TProjection> : IEventReactor<TEvent, TProjection>, IEventReactor<TProjection>
     where TEvent : notnull
-    where TProjection : notnull, IEventProjection<TProjection>
+    where TProjection : notnull
 {
-    private readonly IEventReactor<TEvent, TProjection> reactor;
+    private readonly Func<IEnumerable<TEvent>, TProjection, IEventReactContext, CancellationToken, ValueTask> reactorFunction;
 
     public string Id { get; }
 
-    public EventReactorWrapper(IEventReactor<TEvent, TProjection> reactor, string id)
+    public EventReactorFunctionWrapper(string id, Func<IEnumerable<TEvent>, TProjection, ValueTask> reactorFunction)
+        : this(id, (e, p, c, ct) => { reactorFunction.Invoke(e, p); return ValueTask.CompletedTask; })
     {
-        this.reactor = reactor;
+    }
+
+
+    public EventReactorFunctionWrapper(string id, Func<IEnumerable<TEvent>, TProjection, IEventReactContext, CancellationToken, ValueTask> reactorFunction)
+    {
+        this.reactorFunction = reactorFunction;
         Id = id;
     }
 
     public ValueTask ReactAsync(IEnumerable<TEvent> @event, TProjection projection, IEventReactContext context, CancellationToken cancellationToken = default)
-        => reactor.ReactAsync(@event, projection, context, cancellationToken);
+        => reactorFunction.Invoke(@event, projection, context, cancellationToken);
 
     public ValueTask ReactAsync(IEnumerable<IEventEntry> eventEntries, TProjection projection, IEventReactContext context, CancellationToken cancellationToken = default)
     {
@@ -38,4 +43,5 @@ internal class EventReactorWrapper<TEvent, TProjection> : IEventReactor<TEvent, 
 
         return false;
     }
+
 }

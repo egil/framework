@@ -636,13 +636,13 @@ public class AzureTableEventStoreTests(SiloFixture fixture) : IClassFixture<Silo
         // Apply events should fail and reset projection to the state before ApplyEventsAsync
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(
             () => sut.ApplyEventsAsync(new EventHandlerContext<Projection>(sut, grainId), TestContext.Current.CancellationToken).AsTask());
-        
+
         Assert.Contains("Handler failed intentionally", exception.Message);
         Assert.Equal(1, failingHandler.CallCount);
 
         // Projection should be reset to the state it was in before ApplyEventsAsync was called
         Assert.Equal(expectedProjection, sut.Projection);
-        
+
         // Should still have unapplied events since ApplyEventsAsync failed
         Assert.True(sut.HasUnappliedEvents);
     }
@@ -694,14 +694,14 @@ public class AzureTableEventStoreTests(SiloFixture fixture) : IClassFixture<Silo
         var sut = CreateSut();
         var appliedEvents = new List<string>();
         var failingHandler = new FailingIntEventHandler();
-        
+
         sut.Configure(
             grainId,
             new DummyGrain(),
             fixture.Services,
             builder => builder
                 .AddStream<IEvent>()
-                .Handle<StrEvent>((evt, pro) => 
+                .Handle<StrEvent>((evt, pro) =>
                 {
                     appliedEvents.Add($"StrEvent:{evt.Value}");
                     return pro with { StrValue = evt.Value };
@@ -724,7 +724,7 @@ public class AzureTableEventStoreTests(SiloFixture fixture) : IClassFixture<Silo
         // Apply events should fail and reset entire projection
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(
             () => sut.ApplyEventsAsync(new EventHandlerContext<Projection>(sut, grainId), TestContext.Current.CancellationToken).AsTask());
-        
+
         Assert.Contains("Handler failed intentionally", exception.Message);
         Assert.Equal(1, failingHandler.CallCount);
 
@@ -735,7 +735,7 @@ public class AzureTableEventStoreTests(SiloFixture fixture) : IClassFixture<Silo
 
         // Projection should be completely reset to the original state
         Assert.Equal(originalProjection, sut.Projection);
-        
+
         // Should still have unapplied events
         Assert.True(sut.HasUnappliedEvents);
     }
@@ -752,7 +752,7 @@ public class AzureTableEventStoreTests(SiloFixture fixture) : IClassFixture<Silo
         public ValueTask<Projection> HandleAsync(IEvent @event, Projection projection, IEventHandlerContext context)
         {
             ProcessedEvents.Add(@event);
-            
+
             // Apply the event to the projection based on its concrete type
             return @event switch
             {
@@ -782,7 +782,7 @@ public class AzureTableEventStoreTests(SiloFixture fixture) : IClassFixture<Silo
         var grainId = RandomGrainId();
         var sut = CreateSut();
         var baseHandler = new IEventHandler();
-        
+
         sut.Configure(
             grainId,
             new DummyGrain(),
@@ -820,7 +820,7 @@ public class AzureTableEventStoreTests(SiloFixture fixture) : IClassFixture<Silo
         var grainId = RandomGrainId();
         var sut = CreateSut();
         var baseReactor = new IEventReactor();
-        
+
         sut.Configure(
             grainId,
             new DummyGrain(),
@@ -859,7 +859,7 @@ public class AzureTableEventStoreTests(SiloFixture fixture) : IClassFixture<Silo
         var sut = CreateSut();
         var baseHandler = new IEventHandler();
         var appliedEvents = new List<string>();
-        
+
         sut.Configure(
             grainId,
             new DummyGrain(),
@@ -906,7 +906,7 @@ public class AzureTableEventStoreTests(SiloFixture fixture) : IClassFixture<Silo
         var sut = CreateSut();
         var baseReactor = new IEventReactor();
         var strReactor = new TestStrEventReactor();
-        
+
         sut.Configure(
             grainId,
             new DummyGrain(),
@@ -945,7 +945,7 @@ public class AzureTableEventStoreTests(SiloFixture fixture) : IClassFixture<Silo
     private interface IBaseEvent;
     private interface IUserEvent : IBaseEvent;
     private interface ISystemEvent : IBaseEvent;
-    
+
     [JsonDerivedType(typeof(UserLoginEvent), "UserLoginEvent.V1")]
     [JsonDerivedType(typeof(UserLogoutEvent), "UserLogoutEvent.V1")]
     [JsonDerivedType(typeof(SystemStartEvent), "SystemStartEvent.V1")]
@@ -1006,7 +1006,7 @@ public class AzureTableEventStoreTests(SiloFixture fixture) : IClassFixture<Silo
         var sut = CreateSut();
         var baseHandler = new HierarchyTestHandler();
         var userHandler = new UserEventHandler();
-        
+
         sut.Configure(
             grainId,
             new DummyGrain(),
@@ -1044,7 +1044,7 @@ public class AzureTableEventStoreTests(SiloFixture fixture) : IClassFixture<Silo
         var sut = CreateSut();
         var baseReactor = new HierarchyTestReactor();
         var userReactor = new UserEventReactor();
-        
+
         sut.Configure(
             grainId,
             new DummyGrain(),
@@ -1085,7 +1085,7 @@ public class AzureTableEventStoreTests(SiloFixture fixture) : IClassFixture<Silo
         var grainId = RandomGrainId();
         var sut = CreateSut();
         var objectHandler = new List<object>();
-        
+
         sut.Configure(
             grainId,
             new DummyGrain(),
@@ -1119,7 +1119,7 @@ public class AzureTableEventStoreTests(SiloFixture fixture) : IClassFixture<Silo
         var grainId = RandomGrainId();
         var sut = CreateSut();
         var processedEventTypes = new List<string>();
-        
+
         sut.Configure(
             grainId,
             new DummyGrain(),
@@ -1146,9 +1146,176 @@ public class AzureTableEventStoreTests(SiloFixture fixture) : IClassFixture<Silo
         // Both handlers should process the StrEvent
         Assert.Contains("IEvent:StrEvent", processedEventTypes);
         Assert.Contains("StrEvent:Test", processedEventTypes);
-        
+
         // Only the base handler should process the IntEvent
         Assert.Contains("IEvent:IntEvent", processedEventTypes);
         Assert.DoesNotContain("StrEvent:100", processedEventTypes); // This shouldn't exist as IntEvent isn't StrEvent
+    }
+
+    [Fact]
+    public async Task GetEventsAsync_filters_events_based_on_UntilReactedSuccessfully_policy()
+    {
+        var grainId = RandomGrainId();
+        var sut = CreateSut();
+        var testReactor = new TestStrEventReactor();
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<IEvent>()
+                .React("TestReactor", (_, _) => { })
+                .KeepUntilReactedSuccessfully()); // This sets retention policy
+        sut.AppendEvent(new IntEvent(1)); // No reactor for IntEvent
+        sut.AppendEvent(new StrEvent("Hello")); // Has reactor
+        var eventsBeforeReact = await sut.GetEventsAsync<IEvent>(default, TestContext.Current.CancellationToken).ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
+
+        await sut.ReactEventsAsync(new EventReactorContext<Projection>(sut, grainId), TestContext.Current.CancellationToken);
+
+        Assert.Equal([new IntEvent(1), new StrEvent("Hello")], eventsBeforeReact);
+        var eventsAfterReact = await sut.GetEventsAsync<IEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Empty(eventsAfterReact);
+    }
+
+    [Fact]
+    public async Task RetentionPredicate_with_failing_reactor_keeps_events()
+    {
+        var grainId = RandomGrainId();
+        var sut = CreateSut();
+        var failingReactor = new FailingTestReactor();
+
+        // Configure with UntilReactedSuccessfully retention and a failing reactor
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<IEvent>()
+                .React("FailingReactor", _ => failingReactor)
+                .KeepUntilReactedSuccessfully());
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        // Add event and attempt to react (will fail)
+        sut.AppendEvent(new StrEvent("WillFail"));
+        await sut.ReactEventsAsync(new EventReactorContext<Projection>(sut, grainId), TestContext.Current.CancellationToken);
+
+        // Commit with failed reactor status
+        await sut.CommitAsync(TestContext.Current.CancellationToken);
+
+        // Create new instance and verify event is still present (not filtered by RetentionPredicate)
+        sut = CreateSut();
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<IEvent>()
+                .Handle<StrEvent>((evt, pro) => pro with { StrValue = evt.Value })
+                .React("FailingReactor", _ => new FailingTestReactor())
+                .KeepUntilReactedSuccessfully());
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        var events = await sut.GetEventsAsync<StrEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Single(events);
+        Assert.Equal("WillFail", events[0].Value);
+
+        // Event should still be marked as unreacted
+        var unreactedEvents = await sut.GetEventsAsync<StrEvent>(new EventQueryOptions { IsUnreacted = true }, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Single(unreactedEvents);
+    }
+
+    [Fact]
+    public async Task RetentionPredicate_with_multiple_reactors_keeps_event_until_all_succeed()
+    {
+        var grainId = RandomGrainId();
+        var sut = CreateSut();
+        var successfulReactor = new TestStrEventReactor();
+        var failingReactor = new FailingTestReactor();
+
+        // Configure with multiple reactors and UntilReactedSuccessfully
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<IEvent>()
+                .Handle<StrEvent>((evt, pro) => pro with { StrValue = evt.Value })
+                .React("SuccessfulReactor", _ => successfulReactor)
+                .React("FailingReactor", _ => failingReactor)
+                .KeepUntilReactedSuccessfully());
+
+        // Add event and react (one reactor succeeds, one fails)
+        sut.AppendEvent(new StrEvent("MixedResults"));
+        await sut.ReactEventsAsync(new EventReactorContext<Projection>(sut, grainId), TestContext.Current.CancellationToken);
+        await sut.CommitAsync(TestContext.Current.CancellationToken);
+
+        // Create new instance
+        sut = CreateSut();
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<IEvent>()
+                .Handle<StrEvent>((evt, pro) => pro with { StrValue = evt.Value })
+                .React("SuccessfulReactor", _ => successfulReactor)
+                .React("FailingReactor", _ => failingReactor)
+                .KeepUntilReactedSuccessfully());
+
+        await sut.ReactEventsAsync(new EventReactorContext<Projection>(sut, grainId), TestContext.Current.CancellationToken);
+        await sut.CommitAsync(TestContext.Current.CancellationToken);
+
+        // Should still be marked as unreacted
+        var unreactedEvents = await sut.GetEventsAsync<StrEvent>(new EventQueryOptions { IsUnreacted = true }, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Single(unreactedEvents);
+    }
+
+    [Fact]
+    public async Task RetentionPredicate_removes_event_only_after_all_reactors_succeed()
+    {
+        var grainId = RandomGrainId();
+        var sut = CreateSut();
+        var firstReactor = new TestStrEventReactor();
+        var secondReactor = new SecondTestStrEventReactor();
+
+        // Configure with multiple successful reactors and UntilReactedSuccessfully
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<IEvent>()
+                .Handle<StrEvent>((evt, pro) => pro with { StrValue = evt.Value })
+                .React("FirstReactor", _ => firstReactor)
+                .React("SecondReactor", _ => secondReactor)
+                .KeepUntilReactedSuccessfully());
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        // Add event and react (all reactors succeed)
+        sut.AppendEvent(new StrEvent("AllSucceed"));
+        await sut.ReactEventsAsync(new EventReactorContext<Projection>(sut, grainId), TestContext.Current.CancellationToken);
+        await sut.CommitAsync(TestContext.Current.CancellationToken);
+
+        // Create new instance
+        sut = CreateSut();
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<IEvent>()
+                .Handle<StrEvent>((evt, pro) => pro with { StrValue = evt.Value })
+                .React("FirstReactor", _ => new TestStrEventReactor())
+                .React("SecondReactor", _ => new SecondTestStrEventReactor())
+                .KeepUntilReactedSuccessfully());
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        // Event should be filtered out because all reactors completed successfully
+        var events = await sut.GetEventsAsync<StrEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Empty(events);
+
+        // No unreacted events
+        var unreactedEvents = await sut.GetEventsAsync<StrEvent>(new EventQueryOptions { IsUnreacted = true }, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Empty(unreactedEvents);
     }
 }

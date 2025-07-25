@@ -13,7 +13,7 @@ internal partial class EventStreamConfigurator<TEventGrain, TEventBase, TProject
     private readonly TEventGrain eventGrain;
     private readonly IServiceProvider grainServiceProvider;
     private readonly TimeProvider timeProvider;
-    private bool untilProcessed;
+    private bool untilReactedSuccessfully;
     private int? keepCount;
     private TimeSpan? keepAge;
     private Func<TEventBase, DateTimeOffset>? timestampSelector;
@@ -31,9 +31,9 @@ internal partial class EventStreamConfigurator<TEventGrain, TEventBase, TProject
         this.timeProvider = timeProvider;
     }
 
-    public IEventStreamConfigurator<TEventGrain, TEventBase, TProjection> KeepUntilProcessed()
+    public IEventStreamConfigurator<TEventGrain, TEventBase, TProjection> KeepUntilReactedSuccessfully()
     {
-        untilProcessed = true;
+        untilReactedSuccessfully = true;
         return this;
     }
 
@@ -109,11 +109,63 @@ internal partial class EventStreamConfigurator<TEventGrain, TEventBase, TProject
         return this;
     }
 
+    public IEventStreamConfigurator<TEventGrain, TEventBase, TProjection> React(string name, Action<IEnumerable<TEventBase>, TProjection> reactor)
+    {
+        ArgumentNullException.ThrowIfNull(reactor);
+        var reactorFactory = new EventReactorLambdaFactory<TEventGrain, TEventBase, TProjection>(
+            name,
+            (grain) => (events, projection, context, cancellationToken) =>
+            {
+                reactor(events, projection);
+                return ValueTask.CompletedTask;
+            },
+            eventGrain);
+        publishers.Add(reactorFactory);
+        return this;
+    }
+
+    public IEventStreamConfigurator<TEventGrain, TEventBase, TProjection> React<TEvent>(string name, Action<IEnumerable<TEvent>, TProjection> reactorFactory) where TEvent : notnull, TEventBase
+    {
+        ArgumentNullException.ThrowIfNull(reactorFactory);
+        var reactor = new EventReactorLambdaFactory<TEventGrain, TEvent, TProjection>(
+            name,
+            (grain) => (events, projection, context, cancellationToken) =>
+            {
+                reactorFactory(events, projection);
+                return ValueTask.CompletedTask;
+            },
+            eventGrain);
+        publishers.Add(reactor);
+        return this;
+    }
+
+    public IEventStreamConfigurator<TEventGrain, TEventBase, TProjection> React(string name, Func<IEnumerable<TEventBase>, TProjection, ValueTask> reactor)
+    {
+        ArgumentNullException.ThrowIfNull(reactor);
+        var reactorFactory = new EventReactorLambdaFactory<TEventGrain, TEventBase, TProjection>(
+            name,
+            (grain) => (events, projection, context, cancellationToken) => reactor(events, projection),
+            eventGrain);
+        publishers.Add(reactorFactory);
+        return this;
+    }
+
+    public IEventStreamConfigurator<TEventGrain, TEventBase, TProjection> React<TEvent>(string name, Func<IEnumerable<TEvent>, TProjection, ValueTask> reactorFactory) where TEvent : notnull, TEventBase
+    {
+        ArgumentNullException.ThrowIfNull(reactorFactory);
+        var reactor = new EventReactorLambdaFactory<TEventGrain, TEvent, TProjection>(
+            name,
+            (grain) => (events, projection, context, cancellationToken) => reactorFactory(events, projection),
+            eventGrain);
+        publishers.Add(reactor);
+        return this;
+    }
+
     public IEventStream<TProjection> Build()
     {
-        if (untilProcessed && (keepCount.HasValue || keepAge.HasValue || eventIdSelector != null))
+        if (untilReactedSuccessfully && (keepCount.HasValue || keepAge.HasValue || eventIdSelector != null))
         {
-            throw new InvalidOperationException("Cannot combine KeepUntilProcessed with other keep settings.");
+            throw new InvalidOperationException($"Cannot combine {nameof(KeepUntilReactedSuccessfully)} with other keep settings.");
         }
 
         return new EventStream<TEventGrain, TEventBase, TProjection>(
@@ -122,7 +174,8 @@ internal partial class EventStreamConfigurator<TEventGrain, TEventBase, TProject
             publishers,
             new EventStreamRetention<TEventBase>
             {
-                UntilProcessed = untilProcessed,
+                UntilReactedSuccessfully = untilReactedSuccessfully,
+                LatestDistinct = eventIdSelector != null,
                 Count = keepCount,
                 MaxAge = keepAge,
                 TimestampSelector = timestampSelector,
@@ -130,4 +183,5 @@ internal partial class EventStreamConfigurator<TEventGrain, TEventBase, TProject
             },
             timeProvider);
     }
+
 }

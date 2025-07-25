@@ -19,6 +19,8 @@ internal class EventStream<TEventGrain, TEventBase, TProjection> : IEventStream<
 
     public string Name { get; }
 
+    public IEventStreamRetention Retention => retention;
+
     public EventStream(
         string name,
         IReadOnlyList<IEventHandlerFactory<TProjection>> handlerFactories,

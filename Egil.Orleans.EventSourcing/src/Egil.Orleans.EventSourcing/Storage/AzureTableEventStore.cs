@@ -142,7 +142,7 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
         // Store the original projection state before applying events
         var originalProjection = projectionEntry.Projection;
         var originalProjectionEventSequenceNumber = projectionEntry.EventSequenceNumber;
-        
+
         var projection = projectionEntry.Projection;
         var projectionEventSequenceNumber = projectionEntry.EventSequenceNumber;
 
@@ -228,6 +228,11 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
 
         foreach (var eventEntry in uncommittedEvents.Where(x => x.Value.ETag == ETag.All))
         {
+            if (!RetentionPredicate(eventEntry.Value, streams[eventEntry.Value.StreamName].Retention))
+            {
+                continue;
+            }
+
             if (batch.Count < MaxBatchSize)
             {
                 batch.Add(CreateEventTransactionAction(partitionKey, eventEntry.Value));
@@ -347,7 +352,11 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
             foreach (var uncommittedEventEntity in uncommitted.Where(x => x.SequenceNumber < sequenceNumber))
             {
                 lastReturnedSequenceNumber = uncommittedEventEntity.SequenceNumber;
-                yield return uncommittedEventEntity;
+
+                if (RetentionPredicate(uncommittedEventEntity, streams[uncommittedEventEntity.StreamName].Retention))
+                {
+                    yield return uncommittedEventEntity;
+                }
             }
 
             if (uncommittedEvents.ContainsKey(sequenceNumber))
@@ -357,12 +366,20 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
             }
 
             lastReturnedSequenceNumber = sequenceNumber;
-            yield return stream.CreateEventEntry(serializer, eventBytes, sequenceNumber, reactorStatus, entity.Timestamp, entity.ETag);
+
+            var eventEntity = stream.CreateEventEntry(serializer, eventBytes, sequenceNumber, reactorStatus, entity.Timestamp, entity.ETag);
+            if (RetentionPredicate(eventEntity, stream.Retention))
+            {
+                yield return eventEntity;
+            }
         }
 
         foreach (var uncommittedEventEntity in uncommitted.Where(x => x.SequenceNumber > lastReturnedSequenceNumber))
         {
-            yield return uncommittedEventEntity;
+            if (RetentionPredicate(uncommittedEventEntity, streams[uncommittedEventEntity.StreamName].Retention))
+            {
+                yield return uncommittedEventEntity;
+            }
         }
     }
 
@@ -440,6 +457,16 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
 
             yield return entry;
         }
+    }
+
+    private bool RetentionPredicate(IEventEntry entry, IEventStreamRetention retention)
+    {
+        if ((entry.ReactorStatus.IsEmpty || entry.ReactorStatus.Values.All(x => x.Status is ReactorOperationStatus.CompleteSuccessful)) && retention.UntilReactedSuccessfully)
+        {
+            return false;
+        }
+
+        return true;
     }
 
     private string CreatePartitionKey(GrainId grainId)
