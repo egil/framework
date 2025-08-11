@@ -59,7 +59,7 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
     }
     
     public int CompareTo(Foo other)
-        => Value.CompareTo(other.Value);
+        => (Value ?? string.Empty).CompareTo(other.Value);
     
     public int CompareTo(object? obj)
     {
@@ -70,10 +70,10 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
 
         if (obj is Foo other)
         {
-            return Value.CompareTo(other.Value);
+            return (Value ?? string.Empty).CompareTo(other.Value);
         }
 
-        return ((System.IComparable)Value).CompareTo(obj);
+        return ((System.IComparable)(Value ?? string.Empty)).CompareTo(obj);
     }
     
     public static bool operator > (Foo a, Foo b) => a.CompareTo(b) > 0;                

@@ -47,7 +47,8 @@ namespace Egil.StronglyTypedPrimitives
             Assert.True(new StronglyTypedStringWithConstraints("cbbbbb") <= new StronglyTypedStringWithConstraints("cbbbbb"));
             Assert.True(new StronglyTypedStringWithConstraints("cbbbbb") >= new StronglyTypedStringWithConstraints("cbbbbb"));
             Assert.Equal("bbbbbb".CompareTo("cbbbbb"), new StronglyTypedStringWithConstraints("bbbbbb").CompareTo("cbbbbb"));
-            Assert.Throws<ArgumentException>(() => new StronglyTypedStringWithConstraints("bbbbbb").CompareTo(42));
+            Assert.Throws<ArgumentException>(() => new StronglyTypedStringWithConstraints(goodString).CompareTo(42));
+            Assert.Equal(string.Empty.CompareTo(goodString), default(StronglyTypedStringWithConstraints).CompareTo(new StronglyTypedStringWithConstraints(goodString)));
 
             Assert.Equal(new StronglyTypedStringWithConstraints(goodString), JsonSerializer.Deserialize<StronglyTypedStringWithConstraints>(JsonSerializer.Serialize(new StronglyTypedStringWithConstraints(goodString))));
             Assert.Equal(StronglyTypedStringWithConstraints.Empty, JsonSerializer.Deserialize<StronglyTypedStringWithConstraints>($"\"{tooShortString}\""));
@@ -95,6 +96,7 @@ namespace Egil.StronglyTypedPrimitives
             Assert.True(new StronglyTypedString("cbbbbb") >= new StronglyTypedString("cbbbbb"));
             Assert.Equal("bbbbbb".CompareTo("cbbbbb"), new StronglyTypedString("bbbbbb").CompareTo("cbbbbb"));
             Assert.Throws<ArgumentException>(() => new StronglyTypedString("bbbbbb").CompareTo(42));
+            Assert.Equal(string.Empty.CompareTo(goodString), default(StronglyTypedString).CompareTo(new StronglyTypedString(goodString)));
 
             Assert.Equal(new StronglyTypedString(goodString), JsonSerializer.Deserialize<StronglyTypedString>(JsonSerializer.Serialize(new StronglyTypedString(goodString))));
             Assert.Equal(StronglyTypedString.Empty, JsonSerializer.Deserialize<StronglyTypedString>("null"));

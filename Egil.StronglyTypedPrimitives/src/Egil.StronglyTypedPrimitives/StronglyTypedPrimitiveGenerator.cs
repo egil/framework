@@ -324,6 +324,9 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
                 { Name: "Parse", Parameters: { Length: 2 } } => GetParse(info, method, underlyingTypeSymbol),
                 { Name: "TryParse", Parameters: { Length: 3 } } => GetTryParse(info, method, underlyingTypeSymbol),
 
+                { Name: "CompareTo", ContainingType: { IsGenericType: true } } when underlyingTypeSymbol.SpecialType is SpecialType.System_String => GetStringCompareToOfT(info, method, underlyingTypeSymbol),
+                { Name: "CompareTo", ContainingType: { IsGenericType: false } } when underlyingTypeSymbol.SpecialType is SpecialType.System_String => GetStringCompareTo(info, method, underlyingTypeSymbol),
+
                 { Name: "CompareTo", ContainingType: { IsGenericType: true } } => GetCompareToOfT(info, method, underlyingTypeSymbol),
                 { Name: "CompareTo", ContainingType: { IsGenericType: false } } => GetCompareTo(info, method, underlyingTypeSymbol),
                 { Name: "ToString", Parameters: { Length: 2 } } => GetToString(info, method, underlyingTypeSymbol),
@@ -410,6 +413,32 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             }
         """;
     }
+
+    private static string GetStringCompareToOfT(StronglyTypedTypeInfo info, IMethodSymbol method, ITypeSymbol underlyingTypeSymbol)
+    => $$"""
+        
+        public int CompareTo({{method.Parameters[0]}})
+            => ({{info.Parameter.Identifier}} ?? string.Empty).CompareTo({{method.Parameters[0].Name}}.{{info.Parameter.Identifier}});
+    """;
+
+    private static string GetStringCompareTo(StronglyTypedTypeInfo info, IMethodSymbol method, ITypeSymbol underlyingTypeSymbol)
+        => $$"""
+        
+        public int CompareTo({{method.Parameters[0]}})
+        {
+            if ({{method.Parameters[0].Name}} is null)
+            {
+                return 1;
+            }
+
+            if ({{method.Parameters[0].Name}} is {{info.Target.Identifier}} other)
+            {
+                return ({{info.Parameter.Identifier}} ?? string.Empty).CompareTo(other.{{info.Parameter.Identifier}});
+            }
+
+            return (({{method.ContainingType.ToDisplayString()}})({{info.Parameter.Identifier}} ?? string.Empty)).CompareTo({{method.Parameters[0].Name}});
+        }
+    """;
 
     private static string GetCompareToOfT(StronglyTypedTypeInfo info, IMethodSymbol method, ITypeSymbol underlyingTypeSymbol)
         => $$"""
