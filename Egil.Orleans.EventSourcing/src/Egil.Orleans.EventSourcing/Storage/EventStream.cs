@@ -48,8 +48,8 @@ internal class EventStream<TEventGrain, TEventBase, TProjection> : IEventStream<
         }
 
         var eventId = retention.EventIdSelector?.Invoke(castEvent);
-        
-        // If KeepDistinct retention is configured (EventIdSelector is not null), 
+
+        // If KeepDistinct retention is configured (EventIdSelector is not null),
         // EventId must not be null
         if (retention.EventIdSelector is not null && eventId is null)
         {
@@ -70,20 +70,19 @@ internal class EventStream<TEventGrain, TEventBase, TProjection> : IEventStream<
         };
     }
 
-
     public IEventEntry CreateEventEntry(IGrainStorageSerializer serializer, byte[] binaryData, long sequenceNumber, ImmutableDictionary<string, ReactorState> reactorStatus, DateTimeOffset? timestamp, ETag etag)
     {
         var @event = serializer.Deserialize<TEventBase>(BinaryData.FromBytes(binaryData));
-        
+
         var eventId = retention.EventIdSelector?.Invoke(@event);
-        
-        // If KeepDistinct retention is configured (EventIdSelector is not null), 
+
+        // If KeepDistinct retention is configured (EventIdSelector is not null),
         // EventId must not be null
         if (retention.EventIdSelector is not null && eventId is null)
         {
             throw new InvalidOperationException($"Event ID selector returned null for event type {typeof(TEventBase).FullName} in stream '{Name}'. When KeepDistinct retention is configured, the event ID selector must return a non-null string.");
         }
-        
+
         return new EventEntry<TEventBase>
         {
             Event = @event,

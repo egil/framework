@@ -247,7 +247,7 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
                 // For streams with LatestDistinct, we need to check for existing events in storage
                 var filteredEvents = await ApplyDistinctRetentionWithStorageCheck(filteredByRetention, retention, partitionKey, cancellationToken);
                 eventsToCommit.AddRange(filteredEvents);
-                
+
                 // Clean up any previously stored events with null EventId when KeepDistinct is configured
                 await CleanupNullEventIdsAsync(streamGroup.Key, partitionKey, batch, cancellationToken);
             }
@@ -553,10 +553,8 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
         return events
             .Where(e => e.EventId is not null)
             .GroupBy(e => e.EventId)
-            .Select(group => group
-                .OrderByDescending(e => e.EventTimestamp ?? e.Timestamp ?? DateTimeOffset.MinValue)
-                .First())
-            .Concat(events.Where(e => e.EventId is null));
+            .Select(group => group.MaxBy(e => e.SequenceNumber))
+            .OfType<IEventEntry>();
     }
 
     private async ValueTask<IEnumerable<IEventEntry>> ApplyDistinctRetentionWithStorageCheck(
@@ -615,10 +613,9 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
 
                 var existingEvent = stream.CreateEventEntry(serializer, eventBytes, sequenceNumber, reactorStatus, entity.Timestamp, entity.ETag);
 
-                // Keep the latest version based on timestamp
+                // Keep the latest version based on sequence number
                 if (!existingEvents.TryGetValue(eventId, out var current) ||
-                    (existingEvent.EventTimestamp ?? existingEvent.Timestamp ?? DateTimeOffset.MinValue) >
-                    (current.EventTimestamp ?? current.Timestamp ?? DateTimeOffset.MinValue))
+                    existingEvent.SequenceNumber > current.SequenceNumber)
                 {
                     existingEvents[eventId] = existingEvent;
                 }
@@ -632,16 +629,13 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
         {
             if (existingEvents.TryGetValue(newEvent.EventId!, out var existingEvent))
             {
-                // Compare timestamps to decide which one to keep
-                var newTimestamp = newEvent.EventTimestamp ?? newEvent.Timestamp ?? DateTimeOffset.MinValue;
-                var existingTimestamp = existingEvent.EventTimestamp ?? existingEvent.Timestamp ?? DateTimeOffset.MinValue;
-
-                if (newTimestamp > existingTimestamp)
+                // Compare sequence numbers to decide which one to keep
+                if (newEvent.SequenceNumber > existingEvent.SequenceNumber)
                 {
-                    // The new event is newer, keep it
+                    // The new event has a higher sequence number, keep it
                     result.Add(newEvent);
                 }
-                // If existing is newer or equal, don't add the new event (it will be filtered out)
+                // If existing has higher or equal sequence number, don't add the new event (it will be filtered out)
             }
             else
             {

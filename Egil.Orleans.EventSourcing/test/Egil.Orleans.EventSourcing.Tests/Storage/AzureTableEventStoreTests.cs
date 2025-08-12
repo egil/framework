@@ -1628,8 +1628,8 @@ public class AzureTableEventStoreTests(SiloFixture fixture) : IClassFixture<Silo
 
         var orderedEvents = events.OrderBy(e => events.IndexOf(e)).ToList();
         Assert.Equal("Key1", orderedEvents[0].Value); // Latest Key1 (sequence 3)
-        Assert.Equal("Key2", orderedEvents[1].Value); // Latest Key2 (sequence 5)
-        Assert.Equal("Key3", orderedEvents[2].Value); // Key3 (sequence 4)
+        Assert.Equal("Key3", orderedEvents[1].Value); // Key3 (sequence 4)
+        Assert.Equal("Key2", orderedEvents[2].Value); // Latest Key2 (sequence 5)
     }
 
     [Fact]
