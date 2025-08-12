@@ -1,4 +1,3 @@
-using Egil.Orleans.EventSourcing.Handlers;
 using Orleans;
 
 namespace Egil.Orleans.EventSourcing.Reactors;

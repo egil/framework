@@ -384,16 +384,22 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
         {
             var stream = streams[streamGroup.Key];
             var retention = stream.Retention;
-            
+
             // First filter by retention predicate (UntilReactedSuccessfully)
             var filteredEvents = streamGroup.Where(e => RetentionPredicate(e, retention));
-            
+
             // Then apply LatestDistinct retention if configured
             if (retention.LatestDistinct)
             {
                 filteredEvents = ApplyDistinctRetention(filteredEvents, retention);
             }
-            
+
+            // Finally apply Count retention if configured (KeepLast) - this should be last
+            if (retention.Count.HasValue)
+            {
+                filteredEvents = ApplyCountRetention(filteredEvents, retention.Count.Value);
+            }
+
             eventsToYield.AddRange(filteredEvents);
         }
 
@@ -494,6 +500,12 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
 
         // Event passes retention policy
         return true;
+    }
+
+    private IEnumerable<IEventEntry> ApplyCountRetention(IEnumerable<IEventEntry> events, int count)
+    {
+        // Keep only the latest 'count' events ordered by sequence number (descending)
+        return events.TakeLast(count);
     }
 
     private IEnumerable<IEventEntry> ApplyDistinctRetention(IEnumerable<IEventEntry> events, IEventStreamRetention retention)
