@@ -234,7 +234,7 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
             .GroupBy(e => e.StreamName))
         {
             var retention = streams[streamGroup.Key].Retention;
-            var filteredByRetention = streamGroup.Where(e => RetentionPredicate(e, retention));
+            var filteredByRetention = ApplyUntilReactedSuccessfullyRetention(streamGroup, retention);
 
             // Apply MaxAge retention if configured
             if (retention.MaxAge.HasValue)
@@ -394,8 +394,8 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
             var stream = streams[streamGroup.Key];
             var retention = stream.Retention;
 
-            // First filter by retention predicate (UntilReactedSuccessfully)
-            var filteredEvents = streamGroup.Where(e => RetentionPredicate(e, retention));
+            // First apply UntilReactedSuccessfully retention
+            var filteredEvents = ApplyUntilReactedSuccessfullyRetention(streamGroup, retention);
 
             // Then apply LatestDistinct retention if configured
             if (retention.LatestDistinct)
@@ -501,20 +501,23 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
         }
     }
 
-    private bool RetentionPredicate(IEventEntry entry, IEventStreamRetention retention)
+    private IEnumerable<IEventEntry> ApplyUntilReactedSuccessfullyRetention(IEnumerable<IEventEntry> events, IEventStreamRetention retention)
     {
-        // Check if event should be filtered out based on UntilReactedSuccessfully policy
-        if (retention.UntilReactedSuccessfully)
+        if (!retention.UntilReactedSuccessfully)
         {
+            return events;
+        }
+
+        return events.Where(entry =>
+        {
+            // Keep events that have not been fully reacted to successfully
             // If all reactors have completed successfully, filter out the event
             if (entry.ReactorStatus.IsEmpty || entry.ReactorStatus.Values.All(x => x.Status is ReactorOperationStatus.CompleteSuccessful))
             {
                 return false;
             }
-        }
-
-        // Event passes retention policy
-        return true;
+            return true;
+        });
     }
 
     private IEnumerable<IEventEntry> ApplyCountRetention(IEnumerable<IEventEntry> events, int count)
