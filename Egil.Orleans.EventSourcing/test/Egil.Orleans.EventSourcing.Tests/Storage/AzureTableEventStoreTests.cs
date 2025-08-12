@@ -2333,8 +2333,339 @@ public class AzureTableEventStoreTests(SiloFixture fixture) : IClassFixture<Silo
 
         var eventsAfterCleanup = await sut.GetEventsAsync<StrEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
         
-        // Should only have the new event, old events with null EventIds should be cleaned up
+        // Should have all distinct events (old events get re-evaluated EventIds based on their values)
+        Assert.Equal(3, eventsAfterCleanup.Count);
+        var values = eventsAfterCleanup.Select(e => e.Value).OrderBy(v => v).ToList();
+        Assert.Equal(new[] { "NewEvent", "OldEvent1", "OldEvent2" }, values);
+    }
+
+    [Fact]
+    public async Task CommitAsync_cleans_up_events_violating_UntilReactedSuccessfully_retention()
+    {
+        // Arrange
+        var grainId = RandomGrainId();
+        var sut = CreateSut();
+        var reactor = new TestStrEventReactor();
+
+        // Configure without retention first
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<StrEvent>()
+                .Handle((evt, pro) => pro with { StrValue = evt.Value })
+                .React("test-reactor", _ => reactor));
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        // Add events and react to them
+        sut.AppendEvent(new StrEvent("Event1"));
+        sut.AppendEvent(new StrEvent("Event2"));
+        await sut.ReactEventsAsync(new EventReactorContext<Projection>(sut, grainId), TestContext.Current.CancellationToken);
+        await sut.CommitAsync(TestContext.Current.CancellationToken);
+
+        // Verify events were stored
+        var eventsBeforeRetention = await sut.GetEventsAsync<StrEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(2, eventsBeforeRetention.Count);
+
+        // Now reconfigure with UntilReactedSuccessfully and add new events
+        sut = CreateSut();
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<StrEvent>()
+                .Handle((evt, pro) => pro with { StrValue = evt.Value })
+                .React("test-reactor", _ => reactor)
+                .KeepUntilReactedSuccessfully()); // Now with UntilReactedSuccessfully
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        sut.AppendEvent(new StrEvent("NewEvent"));
+        
+        // Act - Commit should clean up old successfully reacted events
+        await sut.CommitAsync(TestContext.Current.CancellationToken);
+
+        // Assert - Only the new unreacted event should remain
+        sut = CreateSut();
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<StrEvent>()
+                .Handle((evt, pro) => pro with { StrValue = evt.Value })
+                .React("test-reactor", _ => reactor)
+                .KeepUntilReactedSuccessfully());
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        var eventsAfterCleanup = await sut.GetEventsAsync<StrEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
+        
+        // Should only have the new unreacted event, old reacted events should be cleaned up
         Assert.Single(eventsAfterCleanup);
         Assert.Equal("NewEvent", eventsAfterCleanup[0].Value);
+    }
+
+    [Fact]
+    public async Task CommitAsync_cleans_up_events_violating_MaxAge_retention()
+    {
+        // Arrange
+        var grainId = RandomGrainId();
+        var sut = CreateSut();
+        var oldTime = DateTimeOffset.UtcNow.AddHours(-2);
+        var newTime = DateTimeOffset.UtcNow;
+
+        // Configure without MaxAge retention first
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<TimestampedEvent>()
+                .Handle((evt, pro) => pro with { StrValue = evt.Value }));
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        // Add old events
+        sut.AppendEvent(new TimestampedEvent("OldEvent1", oldTime));
+        sut.AppendEvent(new TimestampedEvent("OldEvent2", oldTime));
+        await sut.CommitAsync(TestContext.Current.CancellationToken);
+
+        // Verify events were stored
+        var eventsBeforeRetention = await sut.GetEventsAsync<TimestampedEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(2, eventsBeforeRetention.Count);
+
+        // Now reconfigure with MaxAge and add new events
+        sut = CreateSut();
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<TimestampedEvent>()
+                .Handle((evt, pro) => pro with { StrValue = evt.Value })
+                .KeepUntil(TimeSpan.FromHours(1), evt => evt.Timestamp)); // Only keep events from last hour
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        sut.AppendEvent(new TimestampedEvent("NewEvent", newTime));
+        
+        // Act - Commit should clean up old events that exceed MaxAge
+        await sut.CommitAsync(TestContext.Current.CancellationToken);
+
+        // Assert - Only the new event within MaxAge should remain
+        sut = CreateSut();
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<TimestampedEvent>()
+                .Handle((evt, pro) => pro with { StrValue = evt.Value })
+                .KeepUntil(TimeSpan.FromHours(1), evt => evt.Timestamp));
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        var eventsAfterCleanup = await sut.GetEventsAsync<TimestampedEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
+        
+        // Should only have the new event, old events exceeding MaxAge should be cleaned up
+        Assert.Single(eventsAfterCleanup);
+        Assert.Equal("NewEvent", eventsAfterCleanup[0].Value);
+    }
+
+    [Fact]
+    public async Task CommitAsync_cleans_up_events_violating_Count_retention()
+    {
+        // Arrange
+        var grainId = RandomGrainId();
+        var sut = CreateSut();
+
+        // Configure without Count retention first
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<StrEvent>()
+                .Handle((evt, pro) => pro with { StrValue = evt.Value }));
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        // Add several events
+        sut.AppendEvent(new StrEvent("Event1"));
+        sut.AppendEvent(new StrEvent("Event2"));
+        sut.AppendEvent(new StrEvent("Event3"));
+        sut.AppendEvent(new StrEvent("Event4"));
+        await sut.CommitAsync(TestContext.Current.CancellationToken);
+
+        // Verify events were stored
+        var eventsBeforeRetention = await sut.GetEventsAsync<StrEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(4, eventsBeforeRetention.Count);
+
+        // Now reconfigure with Count and add new events
+        sut = CreateSut();
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<StrEvent>()
+                .Handle((evt, pro) => pro with { StrValue = evt.Value })
+                .KeepLast(2)); // Only keep latest 2 events
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        sut.AppendEvent(new StrEvent("NewEvent"));
+        
+        // Act - Commit should clean up old events that exceed Count limit
+        await sut.CommitAsync(TestContext.Current.CancellationToken);
+
+        // Assert - Only the latest 2 events should remain
+        sut = CreateSut();
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<StrEvent>()
+                .Handle((evt, pro) => pro with { StrValue = evt.Value })
+                .KeepLast(2));
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        var eventsAfterCleanup = await sut.GetEventsAsync<StrEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
+        
+        // Should only have the latest 2 events (Event4 and NewEvent)
+        Assert.Equal(2, eventsAfterCleanup.Count);
+        Assert.Equal("Event4", eventsAfterCleanup[0].Value);
+        Assert.Equal("NewEvent", eventsAfterCleanup[1].Value);
+    }
+
+    [Fact]
+    public async Task CommitAsync_cleans_up_events_violating_multiple_retention_policies()
+    {
+        // Arrange
+        var grainId = RandomGrainId();
+        var sut = CreateSut();
+        var oldTime = DateTimeOffset.UtcNow.AddHours(-2);
+        var newTime = DateTimeOffset.UtcNow;
+
+        // Configure without retention first
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<TimestampedEvent>()
+                .Handle((evt, pro) => pro with { StrValue = evt.Value }));
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        // Add several old events and some recent ones
+        sut.AppendEvent(new TimestampedEvent("OldEvent1", oldTime));
+        sut.AppendEvent(new TimestampedEvent("OldEvent2", oldTime));
+        sut.AppendEvent(new TimestampedEvent("RecentEvent1", newTime));
+        sut.AppendEvent(new TimestampedEvent("RecentEvent2", newTime));
+        sut.AppendEvent(new TimestampedEvent("RecentEvent3", newTime));
+        await sut.CommitAsync(TestContext.Current.CancellationToken);
+
+        // Verify events were stored
+        var eventsBeforeRetention = await sut.GetEventsAsync<TimestampedEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(5, eventsBeforeRetention.Count);
+
+        // Now reconfigure with both MaxAge and Count retention
+        sut = CreateSut();
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<TimestampedEvent>()
+                .Handle((evt, pro) => pro with { StrValue = evt.Value })
+                .KeepUntil(TimeSpan.FromHours(1), evt => evt.Timestamp) // Remove events older than 1 hour
+                .KeepLast(2)); // Keep only latest 2 events
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        sut.AppendEvent(new TimestampedEvent("NewEvent", newTime));
+        
+        // Act - Commit should apply both retention policies
+        await sut.CommitAsync(TestContext.Current.CancellationToken);
+
+        // Assert - Should apply MaxAge first (removing old events), then Count (keeping latest 2)
+        sut = CreateSut();
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<TimestampedEvent>()
+                .Handle((evt, pro) => pro with { StrValue = evt.Value })
+                .KeepUntil(TimeSpan.FromHours(1), evt => evt.Timestamp)
+                .KeepLast(2));
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        var eventsAfterCleanup = await sut.GetEventsAsync<TimestampedEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
+        
+        // Should only have 2 events: RecentEvent3 and NewEvent (latest 2 within time range)
+        Assert.Equal(2, eventsAfterCleanup.Count);
+        Assert.Equal("RecentEvent3", eventsAfterCleanup[0].Value);
+        Assert.Equal("NewEvent", eventsAfterCleanup[1].Value);
+    }
+
+    [Fact]
+    public async Task CommitAsync_cleans_up_events_violating_LatestDistinct_retention()
+    {
+        // Arrange
+        var grainId = RandomGrainId();
+        var sut = CreateSut();
+
+        // Configure without LatestDistinct retention first
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<StrEvent>()
+                .Handle((evt, pro) => pro with { StrValue = evt.Value }));
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        // Add duplicate events (same value but different sequence numbers)
+        sut.AppendEvent(new StrEvent("DuplicateValue"));
+        sut.AppendEvent(new StrEvent("UniqueValue"));
+        sut.AppendEvent(new StrEvent("DuplicateValue")); // Another event with same value
+        await sut.CommitAsync(TestContext.Current.CancellationToken);
+
+        // Verify events were stored
+        var eventsBeforeRetention = await sut.GetEventsAsync<StrEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(3, eventsBeforeRetention.Count);
+
+        // Now reconfigure with LatestDistinct and add new events
+        sut = CreateSut();
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<StrEvent>()
+                .Handle((evt, pro) => pro with { StrValue = evt.Value })
+                .KeepDistinct(evt => evt.Value)); // Keep only latest version of each distinct value
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        sut.AppendEvent(new StrEvent("NewValue"));
+        
+        // Act - Commit should clean up older duplicate events
+        await sut.CommitAsync(TestContext.Current.CancellationToken);
+
+        // Assert - Should have latest version of DuplicateValue, UniqueValue, and NewValue
+        sut = CreateSut();
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<StrEvent>()
+                .Handle((evt, pro) => pro with { StrValue = evt.Value })
+                .KeepDistinct(evt => evt.Value));
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        var eventsAfterCleanup = await sut.GetEventsAsync<StrEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
+        
+        // Should have 3 events: latest DuplicateValue, UniqueValue, and NewValue
+        Assert.Equal(3, eventsAfterCleanup.Count);
+        var values = eventsAfterCleanup.Select(e => e.Value).OrderBy(v => v).ToList();
+        Assert.Equal(new[] { "DuplicateValue", "NewValue", "UniqueValue" }, values);
     }
 }

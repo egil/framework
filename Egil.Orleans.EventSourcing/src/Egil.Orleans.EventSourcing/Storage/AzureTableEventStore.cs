@@ -248,13 +248,16 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
                 var filteredEvents = await ApplyDistinctRetentionWithStorageCheck(filteredByRetention, retention, partitionKey, cancellationToken);
                 eventsToCommit.AddRange(filteredEvents);
 
-                // Clean up any previously stored events with null EventId when KeepDistinct is configured
-                await CleanupNullEventIdsAsync(streamGroup.Key, partitionKey, batch, cancellationToken);
+                // Note: CleanupNullEventIdsAsync is not needed here as CleanupRetentionViolationsAsync
+                // will handle null EventId cleanup when KeepDistinct is configured
             }
             else
             {
                 eventsToCommit.AddRange(ApplyDistinctRetention(filteredByRetention, retention));
             }
+            
+            // Clean up any previously stored events that no longer match the current retention policies
+            await CleanupRetentionViolationsAsync(streamGroup.Key, streams[streamGroup.Key], partitionKey, batch, cancellationToken);
         }
 
         foreach (var eventEntry in eventsToCommit)
@@ -557,6 +560,47 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
             .OfType<IEventEntry>();
     }
 
+    private IEnumerable<IEventEntry> ApplyDistinctRetentionForCleanup(IEnumerable<IEventEntry> events, IEventStream<TProjection> stream)
+    {
+        var retention = stream.Retention;
+        if (!retention.LatestDistinct)
+        {
+            return events;
+        }
+
+        // For cleanup, we need to compute EventIds for events that have null EventIds
+        // based on the current retention configuration by using the stream to re-evaluate EventIds
+        var eventGroups = new Dictionary<string, List<IEventEntry>>();
+
+        foreach (var eventEntry in events)
+        {
+            string? eventId = eventEntry.EventId;
+            
+            // If EventId is null, try to compute it by creating a new event entry with the current stream configuration
+            if (eventId is null && stream.Matches(eventEntry.Event))
+            {
+                // Use a dummy sequence number since we only care about the EventId
+                var tempEntry = stream.CreateEventEntry(eventEntry.Event, eventEntry.SequenceNumber);
+                eventId = tempEntry.EventId;
+            }
+
+            // Only keep events that have a valid EventId (either original or computed)
+            if (eventId is not null)
+            {
+                if (!eventGroups.ContainsKey(eventId))
+                {
+                    eventGroups[eventId] = new List<IEventEntry>();
+                }
+                eventGroups[eventId].Add(eventEntry);
+            }
+        }
+
+        // Return the latest event from each distinct group
+        return eventGroups.Values
+            .Select(group => group.MaxBy(e => e.SequenceNumber))
+            .OfType<IEventEntry>();
+    }
+
     private async ValueTask<IEnumerable<IEventEntry>> ApplyDistinctRetentionWithStorageCheck(
         IEnumerable<IEventEntry> newEvents,
         IEventStreamRetention retention,
@@ -673,6 +717,106 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
                 // If we would exceed the batch size, we need to commit what we have first
                 // and start a new batch for the deletions
                 throw new InvalidOperationException($"Cannot clean up null EventId events and commit new events in single batch due to Azure Table Storage limit of {MaxBatchSize} operations.");
+            }
+        }
+    }
+
+    private async ValueTask CleanupRetentionViolationsAsync(string streamName, IEventStream<TProjection> stream, string partitionKey, List<TableTransactionAction> batch, CancellationToken cancellationToken)
+    {
+        // Query for all existing events in this stream
+        var filter = $"PartitionKey eq '{partitionKey}' and RowKey gt '{ProjectionRowKey}' and RowKey ge '{streamName}{StreamSeparator}' and RowKey lt '{streamName}{StreamSeparator}\uffff'";
+
+        var existingEvents = new List<IEventEntry>();
+        var entityMap = new Dictionary<long, TableEntity>(); // Map sequence number to original entity
+        await foreach (var entity in tableClient.QueryAsync<TableEntity>(
+            filter: filter,
+            maxPerPage: 100,
+            cancellationToken: cancellationToken))
+        {
+            if (!entity.TryGetValue("SequenceNumber", out var seqObj) || seqObj is not long sequenceNumber)
+                continue;
+
+            if (!entity.TryGetValue("StreamName", out var streamNameObj) || streamNameObj is not string entityStreamName)
+                continue;
+
+            if (!entity.TryGetValue("Event", out var eventData) || eventData is not byte[] eventBytes)
+                continue;
+
+            if (!streams.TryGetValue(entityStreamName, out var eventStream))
+                continue;
+
+            var reactorStatus = ImmutableDictionary<string, ReactorState>.Empty;
+            if (entity.TryGetValue("ReactorStatus", out var statusData) && statusData is byte[] statusBytes)
+            {
+                var status = serializer.Deserialize<ImmutableDictionary<string, ReactorState>>(BinaryData.FromBytes(statusBytes));
+                if (status is not null)
+                    reactorStatus = status;
+            }
+
+            var existingEvent = eventStream.CreateEventEntry(serializer, eventBytes, sequenceNumber, reactorStatus, entity.Timestamp, entity.ETag);
+            existingEvents.Add(existingEvent);
+            entityMap[sequenceNumber] = entity;
+        }
+
+        if (existingEvents.Count == 0)
+            return;
+
+        var retention = stream.Retention;
+
+        // Apply all retention policies to determine which events should be kept
+        var eventsToKeep = existingEvents.AsEnumerable();
+        
+        // Apply UntilReactedSuccessfully retention
+        eventsToKeep = ApplyUntilReactedSuccessfullyRetention(eventsToKeep, retention);
+        
+        // Apply LatestDistinct retention if configured
+        if (retention.LatestDistinct)
+        {
+            eventsToKeep = ApplyDistinctRetentionForCleanup(eventsToKeep, stream);
+        }
+        
+        // Apply MaxAge retention if configured
+        if (retention.MaxAge.HasValue)
+        {
+            eventsToKeep = ApplyMaxAgeRetention(eventsToKeep, retention);
+        }
+        
+        // Apply Count retention if configured
+        if (retention.Count.HasValue)
+        {
+            eventsToKeep = ApplyCountRetention(eventsToKeep, retention.Count.Value);
+        }
+
+        var eventsToKeepSet = eventsToKeep.Select(e => e.SequenceNumber).ToHashSet();
+        
+        // Track which row keys are already marked for deletion in the batch
+        var alreadyDeletedRowKeys = batch
+            .Where(action => action.ActionType == TableTransactionActionType.Delete)
+            .Select(action => action.Entity.RowKey)
+            .ToHashSet();
+
+        // Delete events that should not be kept according to current retention policies
+        foreach (var existingEvent in existingEvents)
+        {
+            if (!eventsToKeepSet.Contains(existingEvent.SequenceNumber))
+            {
+                if (batch.Count < MaxBatchSize)
+                {
+                    // Use the original entity from storage for deletion to ensure correct ETag and RowKey
+                    if (entityMap.TryGetValue(existingEvent.SequenceNumber, out var originalEntity))
+                    {
+                        // Avoid duplicate delete operations on the same row
+                        if (!alreadyDeletedRowKeys.Contains(originalEntity.RowKey))
+                        {
+                            batch.Add(new TableTransactionAction(TableTransactionActionType.Delete, originalEntity));
+                            alreadyDeletedRowKeys.Add(originalEntity.RowKey);
+                        }
+                    }
+                }
+                else
+                {
+                    throw new InvalidOperationException($"Cannot clean up retention violations and commit new events in single batch due to Azure Table Storage limit of {MaxBatchSize} operations.");
+                }
             }
         }
     }
