@@ -402,3 +402,6 @@ FodyWeavers.xsd
 # Verify
 *.received.*
 *.received/
+
+# Claude Code local settings
+*/.claude/settings.local.json

@@ -375,16 +375,32 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
         // Now merge committed and uncommitted events in sequence order
         var allEvents = committedEvents
             .Concat(uncommittedEvents)
-            .OrderBy(e => e.SequenceNumber);
+            .OrderBy(e => e.SequenceNumber)
+            .ToList();
 
-        // Yield events that pass the retention predicate
-        foreach (var eventEntry in allEvents)
+        // Group events by stream to apply stream-specific retention
+        var eventsToYield = new List<IEventEntry>();
+        foreach (var streamGroup in allEvents.GroupBy(e => e.StreamName))
         {
-            var stream = streams[eventEntry.StreamName];
-            if (RetentionPredicate(eventEntry, stream.Retention))
+            var stream = streams[streamGroup.Key];
+            var retention = stream.Retention;
+            
+            // First filter by retention predicate (UntilReactedSuccessfully)
+            var filteredEvents = streamGroup.Where(e => RetentionPredicate(e, retention));
+            
+            // Then apply LatestDistinct retention if configured
+            if (retention.LatestDistinct)
             {
-                yield return eventEntry;
+                filteredEvents = ApplyDistinctRetention(filteredEvents, retention);
             }
+            
+            eventsToYield.AddRange(filteredEvents);
+        }
+
+        // Yield events in sequence order
+        foreach (var eventEntry in eventsToYield.OrderBy(e => e.SequenceNumber))
+        {
+            yield return eventEntry;
         }
     }
 
@@ -466,11 +482,17 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
 
     private bool RetentionPredicate(IEventEntry entry, IEventStreamRetention retention)
     {
-        if ((entry.ReactorStatus.IsEmpty || entry.ReactorStatus.Values.All(x => x.Status is ReactorOperationStatus.CompleteSuccessful)) && retention.UntilReactedSuccessfully)
+        // Check if event should be filtered out based on UntilReactedSuccessfully policy
+        if (retention.UntilReactedSuccessfully)
         {
-            return false;
+            // If all reactors have completed successfully, filter out the event
+            if (entry.ReactorStatus.IsEmpty || entry.ReactorStatus.Values.All(x => x.Status is ReactorOperationStatus.CompleteSuccessful))
+            {
+                return false;
+            }
         }
 
+        // Event passes retention policy
         return true;
     }
 
