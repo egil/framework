@@ -24,6 +24,8 @@ public class AzureTableEventStoreTests(SiloFixture fixture) : IClassFixture<Silo
 
     private record class IntEvent(int Value) : IEvent;
 
+    private record class TimestampedEvent(string Value, DateTimeOffset Timestamp) : IEvent;
+
     // Test reactor for testing purposes
     private class TestStrEventReactor : IEventReactor<StrEvent, Projection>
     {
@@ -1504,8 +1506,9 @@ public class AzureTableEventStoreTests(SiloFixture fixture) : IClassFixture<Silo
     }
 
     [Fact]
-    public async Task KeepDistinct_handles_events_with_null_EventId()
+    public void KeepDistinct_throws_when_EventId_selector_returns_null()
     {
+        // Arrange
         var grainId = RandomGrainId();
         var sut = CreateSut();
 
@@ -1522,21 +1525,17 @@ public class AzureTableEventStoreTests(SiloFixture fixture) : IClassFixture<Silo
                     StrEvent strEvt => strEvt.Value,
                     _ => evt.GetType().Name
                 }));
-        await sut.InitializeAsync(TestContext.Current.CancellationToken);
 
-        // Add events where some will have null EventId
-        sut.AppendEvent(new StrEvent("key1"));
-        sut.AppendEvent(new StrEvent("no-id")); // Will have null EventId
-        sut.AppendEvent(new StrEvent("no-id")); // Another with null EventId
-        sut.AppendEvent(new StrEvent("key1")); // Should replace first key1
+        // Act & Assert
+        sut.AppendEvent(new StrEvent("key1")); // Should work fine
+        
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+        {
+            sut.AppendEvent(new StrEvent("no-id")); // Should throw due to null EventId
+        });
 
-        await sut.CommitAsync(TestContext.Current.CancellationToken);
-
-        // Should have 3 events: latest key1 and both no-id events (since they have null EventId)
-        var events = await sut.GetEventsAsync<StrEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
-        Assert.Equal(3, events.Count);
-        Assert.Single(events, e => e.Value == "key1");
-        Assert.Equal(2, events.Count(e => e.Value == "no-id"));
+        Assert.Contains("Event ID selector returned null", exception.Message);
+        Assert.Contains("When KeepDistinct retention is configured", exception.Message);
     }
 
     [Fact]
@@ -1982,5 +1981,360 @@ public class AzureTableEventStoreTests(SiloFixture fixture) : IClassFixture<Silo
         });
 
         Assert.Contains("Cannot combine KeepUntilReactedSuccessfully with other keep settings", exception.Message);
+    }
+
+    [Fact]
+    public async Task GetEventsAsync_applies_KeepUntil_retention_with_MaxAge()
+    {
+        // Arrange
+        var grainId = RandomGrainId();
+        var sut = CreateSut();
+        var baseTime = DateTimeOffset.UtcNow;
+
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<TimestampedEvent>()
+                .Handle((evt, pro) => pro with { StrValue = evt.Value })
+                .KeepUntil(TimeSpan.FromHours(1), evt => evt.Timestamp));
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        // Add events with different timestamps
+        sut.AppendEvent(new TimestampedEvent("Old1", baseTime.AddHours(-2))); // Should be filtered out
+        sut.AppendEvent(new TimestampedEvent("Old2", baseTime.AddMinutes(-90))); // Should be filtered out  
+        sut.AppendEvent(new TimestampedEvent("Recent1", baseTime.AddMinutes(-30))); // Should be kept
+        sut.AppendEvent(new TimestampedEvent("Recent2", baseTime.AddMinutes(-10))); // Should be kept
+        sut.AppendEvent(new TimestampedEvent("Current", baseTime)); // Should be kept
+
+        // Act
+        var events = await sut.GetEventsAsync<TimestampedEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(3, events.Count);
+        Assert.DoesNotContain(events, e => e.Value == "Old1");
+        Assert.DoesNotContain(events, e => e.Value == "Old2");
+        Assert.Contains(events, e => e.Value == "Recent1");
+        Assert.Contains(events, e => e.Value == "Recent2");
+        Assert.Contains(events, e => e.Value == "Current");
+    }
+
+    [Fact]
+    public async Task GetEventsAsync_KeepUntil_retention_persists_after_commit_and_reload()
+    {
+        // Arrange
+        var grainId = RandomGrainId();
+        var sut = CreateSut();
+        var baseTime = DateTimeOffset.UtcNow;
+
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<TimestampedEvent>()
+                .Handle((evt, pro) => pro with { StrValue = evt.Value })
+                .KeepUntil(TimeSpan.FromMinutes(30), evt => evt.Timestamp));
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        sut.AppendEvent(new TimestampedEvent("Old", baseTime.AddHours(-1))); // Should be filtered out
+        sut.AppendEvent(new TimestampedEvent("Recent", baseTime.AddMinutes(-15))); // Should be kept
+        sut.AppendEvent(new TimestampedEvent("Current", baseTime)); // Should be kept
+
+        await sut.CommitAsync(TestContext.Current.CancellationToken);
+
+        // Create new instance and reload from storage
+        sut = CreateSut();
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<TimestampedEvent>()
+                .Handle((evt, pro) => pro with { StrValue = evt.Value })
+                .KeepUntil(TimeSpan.FromMinutes(30), evt => evt.Timestamp));
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        // Act
+        var eventsFromStorage = await sut.GetEventsAsync<TimestampedEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(2, eventsFromStorage.Count);
+        Assert.DoesNotContain(eventsFromStorage, e => e.Value == "Old");
+        Assert.Contains(eventsFromStorage, e => e.Value == "Recent");
+        Assert.Contains(eventsFromStorage, e => e.Value == "Current");
+    }
+
+    [Fact]
+    public async Task GetEventsAsync_KeepUntil_works_with_mixed_stream_types()
+    {
+        // Arrange
+        var grainId = RandomGrainId();
+        var sut = CreateSut();
+        var baseTime = DateTimeOffset.UtcNow;
+
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder =>
+            {
+                builder.AddStream<TimestampedEvent>()
+                    .Handle((evt, pro) => pro with { StrValue = evt.Value })
+                    .KeepUntil(TimeSpan.FromHours(1), evt => evt.Timestamp);
+                builder.AddStream<IntEvent>()
+                    .Handle((evt, pro) => pro with { IntValue = evt.Value })
+                    .KeepUntil(TimeSpan.FromMinutes(30), evt => baseTime.AddMinutes(-evt.Value));
+            });
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        // Add events with different retention periods
+        sut.AppendEvent(new TimestampedEvent("Str1", baseTime.AddHours(-2))); // Should be filtered out (> 1 hour)
+        sut.AppendEvent(new IntEvent(45)); // Should be filtered out (45 min old > 30 min)
+        sut.AppendEvent(new TimestampedEvent("Str2", baseTime.AddMinutes(-30))); // Should be kept (< 1 hour)
+        sut.AppendEvent(new IntEvent(15)); // Should be kept (15 min old < 30 min)
+
+        // Act
+        var strEvents = await sut.GetEventsAsync<TimestampedEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
+        var intEvents = await sut.GetEventsAsync<IntEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Single(strEvents);
+        Assert.Equal("Str2", strEvents[0].Value);
+        
+        Assert.Single(intEvents);
+        Assert.Equal(15, intEvents[0].Value);
+    }
+
+    [Fact]
+    public async Task GetEventsAsync_KeepUntil_combined_with_KeepLast_applies_both_retentions()
+    {
+        // Arrange
+        var grainId = RandomGrainId();
+        var sut = CreateSut();
+        var baseTime = DateTimeOffset.UtcNow;
+
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<TimestampedEvent>()
+                .Handle((evt, pro) => pro with { StrValue = evt.Value })
+                .KeepUntil(TimeSpan.FromHours(1), evt => evt.Timestamp)
+                .KeepLast(2));
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        sut.AppendEvent(new TimestampedEvent("Old", baseTime.AddHours(-2))); // Filtered by MaxAge
+        sut.AppendEvent(new TimestampedEvent("Recent1", baseTime.AddMinutes(-30))); // Kept by MaxAge
+        sut.AppendEvent(new TimestampedEvent("Recent2", baseTime.AddMinutes(-20))); // Kept by MaxAge  
+        sut.AppendEvent(new TimestampedEvent("Recent3", baseTime.AddMinutes(-10))); // Kept by MaxAge
+        sut.AppendEvent(new TimestampedEvent("Current", baseTime)); // Kept by MaxAge
+
+        // Act
+        var events = await sut.GetEventsAsync<TimestampedEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
+
+        // Assert
+        // After MaxAge: Recent1, Recent2, Recent3, Current (4 events)
+        // After KeepLast(2): Recent3, Current (latest 2 events)
+        Assert.Equal(2, events.Count);
+        Assert.DoesNotContain(events, e => e.Value == "Old");
+        Assert.DoesNotContain(events, e => e.Value == "Recent1");
+        Assert.DoesNotContain(events, e => e.Value == "Recent2");
+        Assert.Contains(events, e => e.Value == "Recent3");
+        Assert.Contains(events, e => e.Value == "Current");
+    }
+
+    [Fact]
+    public void GetEventsAsync_respects_retention_configuration_constraints_with_KeepUntil()
+    {
+        // Arrange
+        var grainId = RandomGrainId();
+        var sut = CreateSut();
+
+        // Act & Assert
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+        {
+            sut.Configure(
+                grainId,
+                new DummyGrain(),
+                fixture.Services,
+                builder => builder
+                    .AddStream<TimestampedEvent>()
+                    .Handle((evt, pro) => pro with { StrValue = evt.Value })
+                    .KeepUntilReactedSuccessfully()
+                    .KeepUntil(TimeSpan.FromHours(1), evt => evt.Timestamp));
+        });
+
+        Assert.Contains("Cannot combine KeepUntilReactedSuccessfully with other keep settings", exception.Message);
+    }
+
+    [Fact] 
+    public async Task GetEventsAsync_KeepUntil_handles_events_without_EventTimestamp()
+    {
+        // Arrange
+        var grainId = RandomGrainId();
+        var sut = CreateSut();
+        var baseTime = DateTimeOffset.UtcNow;
+
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<StrEvent>()
+                .Handle((evt, pro) => pro with { StrValue = evt.Value })
+                .KeepUntil(TimeSpan.FromHours(1), evt => baseTime.AddMinutes(-30))); // All events get same timestamp
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        sut.AppendEvent(new StrEvent("Event1")); // Uses configured timestamp (30 min ago)
+        sut.AppendEvent(new StrEvent("Event2")); // Uses configured timestamp (30 min ago)
+
+        // Act
+        var events = await sut.GetEventsAsync<StrEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
+
+        // Assert
+        // Both events should be kept since timestamp (30 min ago) is within retention period (1 hour)
+        Assert.Equal(2, events.Count);
+        Assert.Contains(events, e => e.Value == "Event1");
+        Assert.Contains(events, e => e.Value == "Event2");
+    }
+
+    [Fact]
+    public void AppendEvent_throws_when_KeepDistinct_eventId_selector_returns_null()
+    {
+        // Arrange
+        var grainId = RandomGrainId();
+        var sut = CreateSut();
+
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<StrEvent>()
+                .Handle((evt, pro) => pro with { StrValue = evt.Value })
+                .KeepDistinct(evt => null!)); // EventId selector returns null
+
+        // Act & Assert
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+        {
+            sut.AppendEvent(new StrEvent("Test"));
+        });
+
+        Assert.Contains("Event ID selector returned null", exception.Message);
+        Assert.Contains("When KeepDistinct retention is configured", exception.Message);
+        Assert.Contains("must return a non-null string", exception.Message);
+    }
+
+    [Fact]
+    public async Task AppendEvent_succeeds_when_KeepDistinct_eventId_selector_returns_valid_string()
+    {
+        // Arrange
+        var grainId = RandomGrainId();
+        var sut = CreateSut();
+
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<StrEvent>()
+                .Handle((evt, pro) => pro with { StrValue = evt.Value })
+                .KeepDistinct(evt => evt.Value)); // Valid EventId selector
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        // Act - Should not throw
+        sut.AppendEvent(new StrEvent("Test"));
+
+        // Assert
+        var events = await sut.GetEventsAsync<StrEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Single(events);
+        Assert.Equal("Test", events[0].Value);
+    }
+
+    [Fact]
+    public void AppendEvent_allows_null_eventId_when_KeepDistinct_not_configured()
+    {
+        // Arrange
+        var grainId = RandomGrainId();
+        var sut = CreateSut();
+
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<StrEvent>()
+                .Handle((evt, pro) => pro with { StrValue = evt.Value }));
+        // No KeepDistinct configured, so EventId selector is null
+
+        // Act - Should not throw even though EventId will be null
+        sut.AppendEvent(new StrEvent("Test"));
+
+        // Assert - No exception should be thrown
+        Assert.True(true); // Test passes if no exception is thrown
+    }
+
+    [Fact]
+    public async Task CommitAsync_cleans_up_null_EventId_events_when_KeepDistinct_configured()
+    {
+        // Arrange
+        var grainId = RandomGrainId();
+        var sut = CreateSut();
+
+        // First, create some events without KeepDistinct (they will have null EventIds)
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<StrEvent>()
+                .Handle((evt, pro) => pro with { StrValue = evt.Value }));
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        sut.AppendEvent(new StrEvent("OldEvent1"));
+        sut.AppendEvent(new StrEvent("OldEvent2"));
+        await sut.CommitAsync(TestContext.Current.CancellationToken);
+
+        // Verify events were stored
+        var eventsBeforeDistinct = await sut.GetEventsAsync<StrEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(2, eventsBeforeDistinct.Count);
+
+        // Now reconfigure with KeepDistinct and add new events
+        sut = CreateSut();
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<StrEvent>()
+                .Handle((evt, pro) => pro with { StrValue = evt.Value })
+                .KeepDistinct(evt => evt.Value)); // Now with KeepDistinct
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        sut.AppendEvent(new StrEvent("NewEvent"));
+        
+        // Act - Commit should clean up old events with null EventIds
+        await sut.CommitAsync(TestContext.Current.CancellationToken);
+
+        // Assert - Only the new event with proper EventId should remain
+        sut = CreateSut();
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<StrEvent>()
+                .Handle((evt, pro) => pro with { StrValue = evt.Value })
+                .KeepDistinct(evt => evt.Value));
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        var eventsAfterCleanup = await sut.GetEventsAsync<StrEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
+        
+        // Should only have the new event, old events with null EventIds should be cleaned up
+        Assert.Single(eventsAfterCleanup);
+        Assert.Equal("NewEvent", eventsAfterCleanup[0].Value);
     }
 }

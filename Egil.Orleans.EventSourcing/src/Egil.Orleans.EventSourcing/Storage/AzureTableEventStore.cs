@@ -236,11 +236,20 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
             var retention = streams[streamGroup.Key].Retention;
             var filteredByRetention = streamGroup.Where(e => RetentionPredicate(e, retention));
 
+            // Apply MaxAge retention if configured
+            if (retention.MaxAge.HasValue)
+            {
+                filteredByRetention = ApplyMaxAgeRetention(filteredByRetention, retention);
+            }
+
             if (retention.LatestDistinct)
             {
                 // For streams with LatestDistinct, we need to check for existing events in storage
                 var filteredEvents = await ApplyDistinctRetentionWithStorageCheck(filteredByRetention, retention, partitionKey, cancellationToken);
                 eventsToCommit.AddRange(filteredEvents);
+                
+                // Clean up any previously stored events with null EventId when KeepDistinct is configured
+                await CleanupNullEventIdsAsync(streamGroup.Key, partitionKey, batch, cancellationToken);
             }
             else
             {
@@ -394,6 +403,12 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
                 filteredEvents = ApplyDistinctRetention(filteredEvents, retention);
             }
 
+            // Then apply MaxAge retention if configured (KeepUntil)
+            if (retention.MaxAge.HasValue)
+            {
+                filteredEvents = ApplyMaxAgeRetention(filteredEvents, retention);
+            }
+
             // Finally apply Count retention if configured (KeepLast) - this should be last
             if (retention.Count.HasValue)
             {
@@ -506,6 +521,23 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
     {
         // Keep only the latest 'count' events ordered by sequence number (descending)
         return events.TakeLast(count);
+    }
+
+    private IEnumerable<IEventEntry> ApplyMaxAgeRetention(IEnumerable<IEventEntry> events, IEventStreamRetention retention)
+    {
+        if (!retention.MaxAge.HasValue)
+        {
+            return events;
+        }
+
+        var cutoffTime = timeProvider.GetUtcNow() - retention.MaxAge.Value;
+
+        return events.Where(eventEntry =>
+        {
+            // Use EventTimestamp if available, otherwise fall back to Timestamp
+            var eventTime = eventEntry.EventTimestamp ?? eventEntry.Timestamp ?? DateTimeOffset.MinValue;
+            return eventTime >= cutoffTime;
+        });
     }
 
     private IEnumerable<IEventEntry> ApplyDistinctRetention(IEnumerable<IEventEntry> events, IEventStreamRetention retention)
@@ -622,6 +654,30 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
         result.AddRange(eventsWithoutIds);
 
         return result;
+    }
+
+    private async ValueTask CleanupNullEventIdsAsync(string streamName, string partitionKey, List<TableTransactionAction> batch, CancellationToken cancellationToken)
+    {
+        // Query for existing events in this stream that have null EventId
+        var filter = $"PartitionKey eq '{partitionKey}' and RowKey gt '{ProjectionRowKey}' and RowKey ge '{streamName}{StreamSeparator}' and RowKey lt '{streamName}{StreamSeparator}\uffff' and EventId eq null";
+
+        await foreach (var entity in tableClient.QueryAsync<TableEntity>(
+            filter: filter,
+            maxPerPage: 100,
+            cancellationToken: cancellationToken))
+        {
+            // Add delete action to the batch if we haven't hit the limit
+            if (batch.Count < MaxBatchSize)
+            {
+                batch.Add(new TableTransactionAction(TableTransactionActionType.Delete, entity));
+            }
+            else
+            {
+                // If we would exceed the batch size, we need to commit what we have first
+                // and start a new batch for the deletions
+                throw new InvalidOperationException($"Cannot clean up null EventId events and commit new events in single batch due to Azure Table Storage limit of {MaxBatchSize} operations.");
+            }
+        }
     }
 
     private string CreatePartitionKey(GrainId grainId)

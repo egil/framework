@@ -41,31 +41,55 @@ internal class EventStream<TEventGrain, TEventBase, TProjection> : IEventStream<
         : typeof(TEventBase).IsAssignableFrom(typeof(TEvent));
 
     public IEventEntry CreateEventEntry<TEvent>(TEvent @event, long sequenceNumber) where TEvent : notnull
-        => @event is TEventBase castEvent
-        ? new EventEntry<TEvent>
+    {
+        if (@event is not TEventBase castEvent)
+        {
+            throw new InvalidOperationException($"Event type {typeof(TEvent).FullName} does not match the stream's event type {typeof(TEventBase).FullName}.");
+        }
+
+        var eventId = retention.EventIdSelector?.Invoke(castEvent);
+        
+        // If KeepDistinct retention is configured (EventIdSelector is not null), 
+        // EventId must not be null
+        if (retention.EventIdSelector is not null && eventId is null)
+        {
+            throw new InvalidOperationException($"Event ID selector returned null for event type {typeof(TEvent).FullName} in stream '{Name}'. When KeepDistinct retention is configured, the event ID selector must return a non-null string.");
+        }
+
+        return new EventEntry<TEvent>
         {
             Event = @event,
             StreamName = Name,
             SequenceNumber = sequenceNumber,
-            EventId = retention.EventIdSelector?.Invoke(castEvent),
+            EventId = eventId,
             EventTimestamp = retention.TimestampSelector?.Invoke(castEvent),
             ReactorStatus = reactors.Value
                 .Where(x => x.Matches(@event))
                 .Select(x => ReactorState.Create(x.Id))
                 .ToImmutableDictionary(x => x.ReactorId, x => x),
-        }
-        : throw new InvalidOperationException($"Event type {typeof(TEvent).FullName} does not match the stream's event type {typeof(TEventBase).FullName}.");
+        };
+    }
 
 
     public IEventEntry CreateEventEntry(IGrainStorageSerializer serializer, byte[] binaryData, long sequenceNumber, ImmutableDictionary<string, ReactorState> reactorStatus, DateTimeOffset? timestamp, ETag etag)
     {
         var @event = serializer.Deserialize<TEventBase>(BinaryData.FromBytes(binaryData));
+        
+        var eventId = retention.EventIdSelector?.Invoke(@event);
+        
+        // If KeepDistinct retention is configured (EventIdSelector is not null), 
+        // EventId must not be null
+        if (retention.EventIdSelector is not null && eventId is null)
+        {
+            throw new InvalidOperationException($"Event ID selector returned null for event type {typeof(TEventBase).FullName} in stream '{Name}'. When KeepDistinct retention is configured, the event ID selector must return a non-null string.");
+        }
+        
         return new EventEntry<TEventBase>
         {
             Event = @event,
             StreamName = Name,
             SequenceNumber = sequenceNumber,
-            EventId = retention.EventIdSelector?.Invoke(@event),
+            EventId = eventId,
             EventTimestamp = retention.TimestampSelector?.Invoke(@event),
             Timestamp = timestamp,
             ETag = etag,
