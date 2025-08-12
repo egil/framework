@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Serialization;
 using Egil.Orleans.EventSourcing.Reactors;
+using System.Globalization;
 
 namespace Egil.Orleans.EventSourcing.Storage;
 
@@ -1545,7 +1546,7 @@ public class AzureTableEventStoreTests(SiloFixture fixture) : IClassFixture<Silo
         var grainId = RandomGrainId();
         var sut = CreateSut();
         var successfulReactor = new TestStrEventReactor();
-        
+
         sut.Configure(
             grainId,
             new DummyGrain(),
@@ -1560,14 +1561,14 @@ public class AzureTableEventStoreTests(SiloFixture fixture) : IClassFixture<Silo
         sut.AppendEvent(new StrEvent("Event1"));
         sut.AppendEvent(new StrEvent("Event2"));
         sut.AppendEvent(new StrEvent("Event3"));
-        
+
         // Act
         var eventsBeforeReact = await sut.GetEventsAsync<StrEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
         await sut.ReactEventsAsync(new EventReactorContext<Projection>(sut, grainId), TestContext.Current.CancellationToken);
         var eventsAfterReact = await sut.GetEventsAsync<StrEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
-        
+
         await sut.CommitAsync(TestContext.Current.CancellationToken);
-        
+
         sut = CreateSut();
         sut.Configure(
             grainId,
@@ -1579,9 +1580,9 @@ public class AzureTableEventStoreTests(SiloFixture fixture) : IClassFixture<Silo
                 .React("TestReactor", _ => new TestStrEventReactor())
                 .KeepUntilReactedSuccessfully());
         await sut.InitializeAsync(TestContext.Current.CancellationToken);
-        
+
         var eventsFromStorage = await sut.GetEventsAsync<StrEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
-        
+
         // Assert
         Assert.Equal(3, eventsBeforeReact.Count);
         Assert.Empty(eventsAfterReact);
@@ -1594,7 +1595,7 @@ public class AzureTableEventStoreTests(SiloFixture fixture) : IClassFixture<Silo
         // Arrange
         var grainId = RandomGrainId();
         var sut = CreateSut();
-        
+
         sut.Configure(
             grainId,
             new DummyGrain(),
@@ -1604,7 +1605,7 @@ public class AzureTableEventStoreTests(SiloFixture fixture) : IClassFixture<Silo
                 .Handle<StrEvent>((evt, pro) => pro with { StrValue = evt.Value })
                 .KeepDistinct(evt => ((StrEvent)evt).Value));
         await sut.InitializeAsync(TestContext.Current.CancellationToken);
-        
+
         sut.AppendEvent(new StrEvent("Key1"));
         await Task.Delay(10, TestContext.Current.CancellationToken);
         sut.AppendEvent(new StrEvent("Key2"));
@@ -1614,21 +1615,21 @@ public class AzureTableEventStoreTests(SiloFixture fixture) : IClassFixture<Silo
         sut.AppendEvent(new StrEvent("Key3"));
         await Task.Delay(10, TestContext.Current.CancellationToken);
         sut.AppendEvent(new StrEvent("Key2")); // Newer event with same key
-        
+
         // Act
         var events = await sut.GetEventsAsync<StrEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
-        
+
         // Assert
         Assert.Equal(3, events.Count);
-        
+
         var eventValues = events.Select(e => e.Value).ToList();
         Assert.Contains("Key1", eventValues);
         Assert.Contains("Key2", eventValues);
         Assert.Contains("Key3", eventValues);
-        
+
         var orderedEvents = events.OrderBy(e => events.IndexOf(e)).ToList();
         Assert.Equal("Key1", orderedEvents[0].Value); // Latest Key1 (sequence 3)
-        Assert.Equal("Key2", orderedEvents[1].Value); // Latest Key2 (sequence 5)  
+        Assert.Equal("Key2", orderedEvents[1].Value); // Latest Key2 (sequence 5)
         Assert.Equal("Key3", orderedEvents[2].Value); // Key3 (sequence 4)
     }
 
@@ -1637,7 +1638,7 @@ public class AzureTableEventStoreTests(SiloFixture fixture) : IClassFixture<Silo
     {
         var grainId = RandomGrainId();
         var sut = CreateSut();
-        
+
         var exception = Assert.Throws<InvalidOperationException>(() =>
         {
             sut.Configure(
@@ -1651,7 +1652,7 @@ public class AzureTableEventStoreTests(SiloFixture fixture) : IClassFixture<Silo
                     .KeepDistinct(evt => ((StrEvent)evt).Value)
                     .KeepUntilReactedSuccessfully());
         });
-        
+
         Assert.Contains("Cannot combine KeepUntilReactedSuccessfully with other keep settings", exception.Message);
     }
 
@@ -1662,7 +1663,7 @@ public class AzureTableEventStoreTests(SiloFixture fixture) : IClassFixture<Silo
         var grainId = RandomGrainId();
         var sut = CreateSut();
         var strReactor = new TestStrEventReactor();
-        
+
         sut.Configure(
             grainId,
             new DummyGrain(),
@@ -1673,28 +1674,28 @@ public class AzureTableEventStoreTests(SiloFixture fixture) : IClassFixture<Silo
                     .Handle<StrEvent>((evt, pro) => pro with { StrValue = evt.Value })
                     .React("StrReactor", _ => strReactor)
                     .KeepUntilReactedSuccessfully();
-                
+
                 builder.AddStream<IntEvent>()
                     .Handle<IntEvent>((evt, pro) => pro with { IntValue = evt.Value })
-                    .KeepDistinct(evt => ((IntEvent)evt).Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    .KeepDistinct(evt => evt.Value.ToString(CultureInfo.InvariantCulture));
             });
         await sut.InitializeAsync(TestContext.Current.CancellationToken);
-        
+
         sut.AppendEvent(new StrEvent("String1"));
         sut.AppendEvent(new IntEvent(1));
         sut.AppendEvent(new StrEvent("String2"));
         sut.AppendEvent(new IntEvent(2));
         sut.AppendEvent(new IntEvent(1)); // Duplicate key for IntEvent
-        
+
         // Act
         var strEventsBeforeReact = await sut.GetEventsAsync<StrEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
         var intEventsBeforeReact = await sut.GetEventsAsync<IntEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
-        
+
         await sut.ReactEventsAsync(new EventReactorContext<Projection>(sut, grainId), TestContext.Current.CancellationToken);
-        
+
         var strEventsAfterReact = await sut.GetEventsAsync<StrEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
         var intEventsAfterReact = await sut.GetEventsAsync<IntEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
-        
+
         // Assert
         Assert.Equal(2, strEventsBeforeReact.Count);
         Assert.Equal(2, intEventsBeforeReact.Count);
@@ -1709,7 +1710,7 @@ public class AzureTableEventStoreTests(SiloFixture fixture) : IClassFixture<Silo
         var grainId = RandomGrainId();
         var sut = CreateSut();
         var failingReactor = new FailingTestReactor();
-        
+
         sut.Configure(
             grainId,
             new DummyGrain(),
@@ -1720,17 +1721,17 @@ public class AzureTableEventStoreTests(SiloFixture fixture) : IClassFixture<Silo
                 .React("FailingReactor", _ => failingReactor)
                 .KeepUntilReactedSuccessfully());
         await sut.InitializeAsync(TestContext.Current.CancellationToken);
-        
+
         sut.AppendEvent(new StrEvent("Event1"));
         sut.AppendEvent(new StrEvent("Event2"));
-        
+
         // Act
         await sut.ReactEventsAsync(new EventReactorContext<Projection>(sut, grainId), TestContext.Current.CancellationToken);
         var eventsAfterFailedReact = await sut.GetEventsAsync<StrEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
         var hasUnreactedAfterFailure = sut.HasUnreactedEvents;
-        
+
         await sut.CommitAsync(TestContext.Current.CancellationToken);
-        
+
         sut = CreateSut();
         sut.Configure(
             grainId,
@@ -1742,10 +1743,10 @@ public class AzureTableEventStoreTests(SiloFixture fixture) : IClassFixture<Silo
                 .React("FailingReactor", _ => new FailingTestReactor())
                 .KeepUntilReactedSuccessfully());
         await sut.InitializeAsync(TestContext.Current.CancellationToken);
-        
+
         var eventsAfterReload = await sut.GetEventsAsync<StrEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
         var hasUnreactedAfterReload = sut.HasUnreactedEvents;
-        
+
         // Assert
         Assert.Equal(1, failingReactor.CallCount);
         Assert.Equal(2, eventsAfterFailedReact.Count);
@@ -1760,34 +1761,31 @@ public class AzureTableEventStoreTests(SiloFixture fixture) : IClassFixture<Silo
         // Arrange
         var grainId = RandomGrainId();
         var sut = CreateSut();
-        
+
         sut.Configure(
             grainId,
             new DummyGrain(),
             fixture.Services,
             builder => builder
-                .AddStream<IEvent>()
-                .Handle<StrEvent>((evt, pro) => pro with { StrValue = evt.Value })
-                .KeepDistinct(evt => ((StrEvent)evt).Value));
+                .AddStream<StrEvent>()
+                .Handle((evt, pro) => pro with { StrValue = evt.Value })
+                .KeepDistinct(evt => evt.Value));
         await sut.InitializeAsync(TestContext.Current.CancellationToken);
-        
+
         sut.AppendEvent(new StrEvent("Key1"));
         sut.AppendEvent(new StrEvent("Key2"));
         await sut.CommitAsync(TestContext.Current.CancellationToken);
-        
-        await Task.Delay(10, TestContext.Current.CancellationToken);
+
         sut.AppendEvent(new StrEvent("Key1")); // Should override committed Key1
         sut.AppendEvent(new StrEvent("Key3")); // New key
-        
+
         // Act
         var events = await sut.GetEventsAsync<StrEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
-        
+
         // Assert
         Assert.Equal(3, events.Count);
-        
-        var key1Events = events.Where(e => e.Value == "Key1").ToList();
-        Assert.Single(key1Events);
-        Assert.Contains(events, e => e.Value == "Key2");
-        Assert.Contains(events, e => e.Value == "Key3");
+        Assert.Single(events, e => e.Value == "Key1");
+        Assert.Single(events, e => e.Value == "Key2");
+        Assert.Single(events, e => e.Value == "Key3");
     }
 }
