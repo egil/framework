@@ -717,7 +717,7 @@ public class AzureTableEventStoreTests(SiloFixture fixture) : IClassFixture<Silo
 
         // Add multiple events - some will succeed, one will fail
         sut.AppendEvent(new StrEvent("First"));   // Should succeed but be rolled back
-        sut.AppendEvent(new StrEvent("Second"));  // Should succeed but be rolled back  
+        sut.AppendEvent(new StrEvent("Second"));  // Should succeed but be rolled back
         sut.AppendEvent(new IntEvent(42));        // Should fail
         sut.AppendEvent(new StrEvent("Third"));   // Should not be processed due to early exit
 
@@ -1317,5 +1317,224 @@ public class AzureTableEventStoreTests(SiloFixture fixture) : IClassFixture<Silo
         // No unreacted events
         var unreactedEvents = await sut.GetEventsAsync<StrEvent>(new EventQueryOptions { IsUnreacted = true }, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
         Assert.Empty(unreactedEvents);
+    }
+
+    [Fact]
+    public async Task KeepDistinct_retains_only_latest_event_per_distinct_key()
+    {
+        var grainId = RandomGrainId();
+        var sut = CreateSut();
+
+        // Configure with KeepDistinct using the Value as the key
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<IEvent>()
+                .Handle<StrEvent>((evt, pro) => pro with { StrValue = evt.Value })
+                .KeepDistinct(evt => ((StrEvent)evt).Value));
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        // Add multiple events with same key but different timestamps
+        sut.AppendEvent(new StrEvent("Key1"));
+        await Task.Delay(10, TestContext.Current.CancellationToken); // Ensure different timestamps
+        sut.AppendEvent(new StrEvent("Key2"));
+        await Task.Delay(10, TestContext.Current.CancellationToken);
+        sut.AppendEvent(new StrEvent("Key1")); // Should replace first event with same key
+
+        await sut.CommitAsync(TestContext.Current.CancellationToken);
+
+        // Should only have 2 events: latest Key1 and Key2
+        var events = await sut.GetEventsAsync<StrEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(2, events.Count);
+        Assert.Contains(events, e => e.Value == "Key1");
+        Assert.Contains(events, e => e.Value == "Key2");
+    }
+
+    [Fact]
+    public async Task KeepDistinct_with_different_keys_keeps_all_events()
+    {
+        var grainId = RandomGrainId();
+        var sut = CreateSut();
+
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<IEvent>()
+                .Handle<StrEvent>((evt, pro) => pro with { StrValue = evt.Value })
+                .KeepDistinct(evt => ((StrEvent)evt).Value));
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        // Add events with different keys
+        sut.AppendEvent(new StrEvent("Unique1"));
+        sut.AppendEvent(new StrEvent("Unique2"));
+        sut.AppendEvent(new StrEvent("Unique3"));
+
+        await sut.CommitAsync(TestContext.Current.CancellationToken);
+
+        // Should have all 3 events since they have different keys
+        var events = await sut.GetEventsAsync<StrEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(3, events.Count);
+        Assert.Contains(events, e => e.Value == "Unique1");
+        Assert.Contains(events, e => e.Value == "Unique2");
+        Assert.Contains(events, e => e.Value == "Unique3");
+    }
+
+    [Fact]
+    public async Task KeepDistinct_filters_during_retrieval_from_storage()
+    {
+        var grainId = RandomGrainId();
+        var sut = CreateSut();
+
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<IEvent>()
+                .Handle<StrEvent>((evt, pro) => pro with { StrValue = evt.Value })
+                .KeepDistinct(evt => ((StrEvent)evt).Value));
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        // Add first batch of events
+        sut.AppendEvent(new StrEvent("Key1"));
+        sut.AppendEvent(new StrEvent("Key2"));
+        await sut.CommitAsync(TestContext.Current.CancellationToken);
+
+        // Create new instance and add more events with same keys
+        sut = CreateSut();
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<IEvent>()
+                .Handle<StrEvent>((evt, pro) => pro with { StrValue = evt.Value })
+                .KeepDistinct(evt => ((StrEvent)evt).Value));
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        // Add newer events with same keys
+        await Task.Delay(10, TestContext.Current.CancellationToken); // Ensure different timestamps
+        sut.AppendEvent(new StrEvent("Key1")); // Should replace older Key1
+        sut.AppendEvent(new StrEvent("Key3")); // New key
+        await sut.CommitAsync(TestContext.Current.CancellationToken);
+
+        // Should have latest Key1, Key2, and Key3
+        var events = await sut.GetEventsAsync<StrEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(3, events.Count);
+        Assert.Contains(events, e => e.Value == "Key1");
+        Assert.Contains(events, e => e.Value == "Key2");
+        Assert.Contains(events, e => e.Value == "Key3");
+    }
+
+    [Fact]
+    public async Task KeepDistinct_works_with_uncommitted_events()
+    {
+        var grainId = RandomGrainId();
+        var sut = CreateSut();
+
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<IEvent>()
+                .Handle<StrEvent>((evt, pro) => pro with { StrValue = evt.Value })
+                .KeepDistinct(evt => ((StrEvent)evt).Value));
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        // Add committed events
+        sut.AppendEvent(new StrEvent("Key1"));
+        sut.AppendEvent(new StrEvent("Key2"));
+        await sut.CommitAsync(TestContext.Current.CancellationToken);
+
+        // Add uncommitted events
+        await Task.Delay(10, TestContext.Current.CancellationToken); // Ensure different timestamps
+        sut.AppendEvent(new StrEvent("Key1")); // Should override committed Key1
+        sut.AppendEvent(new StrEvent("Key3")); // New key
+
+        // Should show latest events including uncommitted
+        var events = await sut.GetEventsAsync<StrEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(3, events.Count);
+        Assert.Contains(events, e => e.Value == "Key1");
+        Assert.Contains(events, e => e.Value == "Key2");
+        Assert.Contains(events, e => e.Value == "Key3");
+    }
+
+    [Fact]
+    public async Task KeepDistinct_with_multiple_event_types_in_single_stream()
+    {
+        var grainId = RandomGrainId();
+        var sut = CreateSut();
+
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<IEvent>()
+                .Handle<StrEvent>((evt, pro) => pro with { StrValue = evt.Value })
+                .Handle<IntEvent>((evt, pro) => pro with { IntValue = evt.Value })
+                .KeepDistinct(evt => evt switch
+                {
+                    StrEvent strEvt => $"str:{strEvt.Value}",
+                    IntEvent intEvt => $"int:{intEvt.Value}",
+                    _ => evt.GetType().Name
+                }));
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        // Add events of different types with overlapping keys
+        sut.AppendEvent(new StrEvent("same"));
+        sut.AppendEvent(new IntEvent(42));
+        await Task.Delay(10, TestContext.Current.CancellationToken);
+        sut.AppendEvent(new StrEvent("same")); // Should replace first StrEvent
+        sut.AppendEvent(new IntEvent(42)); // Should replace first IntEvent
+
+        await sut.CommitAsync(TestContext.Current.CancellationToken);
+
+        // Should have 2 events: latest StrEvent and latest IntEvent
+        var allEvents = await sut.GetEventsAsync<IEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(2, allEvents.Count);
+        Assert.Single(allEvents.OfType<StrEvent>());
+        Assert.Single(allEvents.OfType<IntEvent>());
+    }
+
+    [Fact]
+    public async Task KeepDistinct_handles_events_with_null_EventId()
+    {
+        var grainId = RandomGrainId();
+        var sut = CreateSut();
+
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<IEvent>()
+                .Handle<StrEvent>((evt, pro) => pro with { StrValue = evt.Value })
+                .KeepDistinct(evt => evt switch
+                {
+                    StrEvent strEvt when strEvt.Value == "no-id" => null!, // This will result in null EventId
+                    StrEvent strEvt => strEvt.Value,
+                    _ => evt.GetType().Name
+                }));
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        // Add events where some will have null EventId
+        sut.AppendEvent(new StrEvent("key1"));
+        sut.AppendEvent(new StrEvent("no-id")); // Will have null EventId
+        sut.AppendEvent(new StrEvent("no-id")); // Another with null EventId
+        sut.AppendEvent(new StrEvent("key1")); // Should replace first key1
+
+        await sut.CommitAsync(TestContext.Current.CancellationToken);
+
+        // Should have 3 events: latest key1 and both no-id events (since they have null EventId)
+        var events = await sut.GetEventsAsync<StrEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(3, events.Count);
+        Assert.Single(events, e => e.Value == "key1");
+        Assert.Equal(2, events.Count(e => e.Value == "no-id"));
     }
 }

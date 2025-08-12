@@ -226,16 +226,33 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
             CreateHeadRowTransactionAction(partitionKey, projectionEntry)
         };
 
-        foreach (var eventEntry in uncommittedEvents.Where(x => x.Value.ETag == ETag.All))
-        {
-            if (!RetentionPredicate(eventEntry.Value, streams[eventEntry.Value.StreamName].Retention))
-            {
-                continue;
-            }
+        // Group events by stream and apply distinct retention per stream
+        var eventsToCommit = new List<IEventEntry>();
 
+        foreach (var streamGroup in uncommittedEvents.Values
+            .Where(x => x.ETag == ETag.All)
+            .GroupBy(e => e.StreamName))
+        {
+            var retention = streams[streamGroup.Key].Retention;
+            var filteredByRetention = streamGroup.Where(e => RetentionPredicate(e, retention));
+
+            if (retention.LatestDistinct)
+            {
+                // For streams with LatestDistinct, we need to check for existing events in storage
+                var filteredEvents = await ApplyDistinctRetentionWithStorageCheck(filteredByRetention, retention, partitionKey, cancellationToken);
+                eventsToCommit.AddRange(filteredEvents);
+            }
+            else
+            {
+                eventsToCommit.AddRange(ApplyDistinctRetention(filteredByRetention, retention));
+            }
+        }
+
+        foreach (var eventEntry in eventsToCommit)
+        {
             if (batch.Count < MaxBatchSize)
             {
-                batch.Add(CreateEventTransactionAction(partitionKey, eventEntry.Value));
+                batch.Add(CreateEventTransactionAction(partitionKey, eventEntry));
             }
             else
             {
@@ -311,74 +328,62 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
     private async IAsyncEnumerable<IEventEntry> GetEventsAsync(EventQueryOptions options, [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var filter = CreateTableQueryFilter(options);
-        var uncommitted = FilterUncommittedEvents(options);
-        long lastReturnedSequenceNumber = 0;
+        var uncommittedEvents = FilterUncommittedEvents(options).OrderBy(e => e.SequenceNumber).ToList();
 
+        // Create a set of EventIds from uncommitted events for efficient lookup
+        var uncommittedEventIds = new HashSet<string>(
+            uncommittedEvents
+                .Where(e => e.EventId is not null)
+                .Select(e => e.EventId!));
+
+        // Collect all committed events from storage first
+        var committedEvents = new List<IEventEntry>();
         await foreach (var entity in tableClient.QueryAsync<TableEntity>(
             filter: filter,
             maxPerPage: 100,
             cancellationToken: cancellationToken))
         {
             if (!entity.TryGetValue("SequenceNumber", out var seqObj) || seqObj is not long sequenceNumber)
-            {
                 continue;
-            }
 
             if (!entity.TryGetValue("StreamName", out var streamNameObj) || streamNameObj is not string streamName)
-            {
                 continue;
-            }
 
             if (!entity.TryGetValue("Event", out var eventData) || eventData is not byte[] eventBytes)
-            {
                 continue;
-            }
 
             if (!streams.TryGetValue(streamName, out var stream))
-            {
                 throw new InvalidOperationException($"Event in storage is associated with unconfigured stream '{streamName}'.");
-            }
 
             var reactorStatus = ImmutableDictionary<string, ReactorState>.Empty;
             if (entity.TryGetValue("ReactorStatus", out var statusData) && statusData is byte[] statusBytes)
             {
                 var status = serializer.Deserialize<ImmutableDictionary<string, ReactorState>>(BinaryData.FromBytes(statusBytes));
                 if (status is not null)
-                {
                     reactorStatus = status;
-                }
             }
-
-            foreach (var uncommittedEventEntity in uncommitted.Where(x => x.SequenceNumber < sequenceNumber))
-            {
-                lastReturnedSequenceNumber = uncommittedEventEntity.SequenceNumber;
-
-                if (RetentionPredicate(uncommittedEventEntity, streams[uncommittedEventEntity.StreamName].Retention))
-                {
-                    yield return uncommittedEventEntity;
-                }
-            }
-
-            if (uncommittedEvents.ContainsKey(sequenceNumber))
-            {
-                // If the event is already in uncommitted, skip it
-                continue;
-            }
-
-            lastReturnedSequenceNumber = sequenceNumber;
 
             var eventEntity = stream.CreateEventEntry(serializer, eventBytes, sequenceNumber, reactorStatus, entity.Timestamp, entity.ETag);
-            if (RetentionPredicate(eventEntity, stream.Retention))
-            {
-                yield return eventEntity;
-            }
+
+            // Skip storage events if we have a newer version in uncommitted events
+            if (eventEntity.EventId is not null && uncommittedEventIds.Contains(eventEntity.EventId))
+                continue;
+
+            committedEvents.Add(eventEntity);
         }
 
-        foreach (var uncommittedEventEntity in uncommitted.Where(x => x.SequenceNumber > lastReturnedSequenceNumber))
+        // Now merge committed and uncommitted events in sequence order
+        var allEvents = committedEvents
+            .Concat(uncommittedEvents)
+            .OrderBy(e => e.SequenceNumber);
+
+        // Yield events that pass the retention predicate
+        foreach (var eventEntry in allEvents)
         {
-            if (RetentionPredicate(uncommittedEventEntity, streams[uncommittedEventEntity.StreamName].Retention))
+            var stream = streams[eventEntry.StreamName];
+            if (RetentionPredicate(eventEntry, stream.Retention))
             {
-                yield return uncommittedEventEntity;
+                yield return eventEntry;
             }
         }
     }
@@ -467,6 +472,122 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
         }
 
         return true;
+    }
+
+    private IEnumerable<IEventEntry> ApplyDistinctRetention(IEnumerable<IEventEntry> events, IEventStreamRetention retention)
+    {
+        if (!retention.LatestDistinct)
+        {
+            return events;
+        }
+
+        return events
+            .Where(e => e.EventId is not null)
+            .GroupBy(e => e.EventId)
+            .Select(group => group
+                .OrderByDescending(e => e.EventTimestamp ?? e.Timestamp ?? DateTimeOffset.MinValue)
+                .First())
+            .Concat(events.Where(e => e.EventId is null));
+    }
+
+    private async ValueTask<IEnumerable<IEventEntry>> ApplyDistinctRetentionWithStorageCheck(
+        IEnumerable<IEventEntry> newEvents,
+        IEventStreamRetention retention,
+        string partitionKey,
+        CancellationToken cancellationToken)
+    {
+        if (!retention.LatestDistinct)
+        {
+            return newEvents;
+        }
+
+        var eventsWithIds = newEvents.Where(e => e.EventId is not null).ToList();
+        var eventsWithoutIds = newEvents.Where(e => e.EventId is null).ToList();
+
+        if (eventsWithIds.Count == 0)
+        {
+            return eventsWithoutIds;
+        }
+
+        // Query storage for existing events with the same EventIds
+        var eventIdsToCheck = eventsWithIds.Select(e => e.EventId!).Distinct().ToList();
+        var existingEvents = new Dictionary<string, IEventEntry>();
+
+        // Build a query to find existing events with matching EventIds
+        // We'll query by EventId column which should be indexed
+        foreach (var eventId in eventIdsToCheck)
+        {
+            var filter = $"PartitionKey eq '{partitionKey}' and EventId eq '{eventId}' and RowKey gt '{ProjectionRowKey}'";
+
+            await foreach (var entity in tableClient.QueryAsync<TableEntity>(
+                filter: filter,
+                maxPerPage: 100,
+                cancellationToken: cancellationToken))
+            {
+                if (!entity.TryGetValue("SequenceNumber", out var seqObj) || seqObj is not long sequenceNumber)
+                    continue;
+
+                if (!entity.TryGetValue("StreamName", out var streamNameObj) || streamNameObj is not string streamName)
+                    continue;
+
+                if (!entity.TryGetValue("Event", out var eventData) || eventData is not byte[] eventBytes)
+                    continue;
+
+                if (!streams.TryGetValue(streamName, out var stream))
+                    continue;
+
+                var reactorStatus = ImmutableDictionary<string, ReactorState>.Empty;
+                if (entity.TryGetValue("ReactorStatus", out var statusData) && statusData is byte[] statusBytes)
+                {
+                    var status = serializer.Deserialize<ImmutableDictionary<string, ReactorState>>(BinaryData.FromBytes(statusBytes));
+                    if (status is not null)
+                        reactorStatus = status;
+                }
+
+                var existingEvent = stream.CreateEventEntry(serializer, eventBytes, sequenceNumber, reactorStatus, entity.Timestamp, entity.ETag);
+
+                // Keep the latest version based on timestamp
+                if (!existingEvents.TryGetValue(eventId, out var current) ||
+                    (existingEvent.EventTimestamp ?? existingEvent.Timestamp ?? DateTimeOffset.MinValue) >
+                    (current.EventTimestamp ?? current.Timestamp ?? DateTimeOffset.MinValue))
+                {
+                    existingEvents[eventId] = existingEvent;
+                }
+            }
+        }
+
+        // Now filter new events - only keep those that are newer than existing ones
+        var result = new List<IEventEntry>();
+
+        foreach (var newEvent in eventsWithIds)
+        {
+            if (existingEvents.TryGetValue(newEvent.EventId!, out var existingEvent))
+            {
+                // Compare timestamps to decide which one to keep
+                var newTimestamp = newEvent.EventTimestamp ?? newEvent.Timestamp ?? DateTimeOffset.MinValue;
+                var existingTimestamp = existingEvent.EventTimestamp ?? existingEvent.Timestamp ?? DateTimeOffset.MinValue;
+
+                if (newTimestamp > existingTimestamp)
+                {
+                    // The new event is newer, keep it
+                    result.Add(newEvent);
+                }
+                // If existing is newer or equal, don't add the new event (it will be filtered out)
+            }
+            else
+            {
+                // No existing event with this EventId, keep the new one
+                result.Add(newEvent);
+            }
+        }
+
+        // Apply regular distinct retention to handle duplicates within the new events
+        result = ApplyDistinctRetention(result, retention).ToList();
+
+        // Add events without EventIds
+        result.AddRange(eventsWithoutIds);
+
+        return result;
     }
 
     private string CreatePartitionKey(GrainId grainId)
