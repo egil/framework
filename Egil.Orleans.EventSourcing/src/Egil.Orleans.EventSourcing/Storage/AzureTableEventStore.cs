@@ -221,13 +221,10 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
         }
 
         var partitionKey = CreatePartitionKey(grainId);
-        var batch = new List<TableTransactionAction>(uncommittedEvents.Count > MaxBatchSize ? MaxBatchSize : uncommittedEvents.Count + 1)
-        {
-            CreateHeadRowTransactionAction(partitionKey, projectionEntry)
-        };
 
-        // Group events by stream and apply distinct retention per stream
+        // Step 1: Calculate all events to commit (apply retention filters)
         var eventsToCommit = new List<IEventEntry>();
+        var allDeleteActions = new List<TableTransactionAction>();
 
         foreach (var streamGroup in uncommittedEvents.Values
             .Where(x => x.ETag == ETag.All)
@@ -255,30 +252,60 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
             {
                 eventsToCommit.AddRange(ApplyDistinctRetention(filteredByRetention, retention));
             }
-            
-            // Clean up any previously stored events that no longer match the current retention policies
-            await CleanupRetentionViolationsAsync(streamGroup.Key, streams[streamGroup.Key], partitionKey, batch, cancellationToken);
+
+            // Collect delete actions for cleanup (but don't add to batch yet)
+            await CollectRetentionCleanupActions(streamGroup.Key, streams[streamGroup.Key], partitionKey, allDeleteActions, cancellationToken);
         }
+
+        // Step 2: Ensure all new events can fit in one atomic batch
+        var requiredSlots = 1 + eventsToCommit.Count; // 1 for head row + events
+        if (requiredSlots > MaxBatchSize)
+        {
+            throw new InvalidOperationException($"The number of uncommitted new events ({eventsToCommit.Count}) plus head row exceeds Azure Table Storage limit of {MaxBatchSize} operations. Cannot create a single atomic batch operation that ensures all are saved.");
+        }
+
+        // Step 3: Create primary batch with head row and all events
+        var primaryBatch = new List<TableTransactionAction>(requiredSlots)
+        {
+            CreateHeadRowTransactionAction(partitionKey, projectionEntry)
+        };
 
         foreach (var eventEntry in eventsToCommit)
         {
-            if (batch.Count < MaxBatchSize)
+            primaryBatch.Add(CreateEventTransactionAction(partitionKey, eventEntry));
+        }
+
+        // Step 4: Add as many deletes as possible to the primary batch
+        var deletesToDefer = new List<TableTransactionAction>();
+        var availableSlots = MaxBatchSize - primaryBatch.Count;
+
+        foreach (var deleteAction in allDeleteActions)
+        {
+            if (availableSlots > 0)
             {
-                batch.Add(CreateEventTransactionAction(partitionKey, eventEntry));
+                primaryBatch.Add(deleteAction);
+                availableSlots--;
             }
             else
             {
-                throw new InvalidOperationException($"The number of uncommitted new events exceeds Azure Table Storage limit of {MaxBatchSize} operations. Cannot create a single atomic batch operation that ensures all are saved.");
+                deletesToDefer.Add(deleteAction);
             }
         }
 
-        var response = await tableClient.SubmitTransactionAsync(batch, cancellationToken);
+        // Step 5: Execute primary batch atomically
+        var response = await tableClient.SubmitTransactionAsync(primaryBatch, cancellationToken);
         projectionEntry = projectionEntry with
         {
             ETag = response.Value[0].Headers.ETag.GetValueOrDefault(ETag.All),
             Timestamp = response.Value[0].Headers.Date,
         };
         uncommittedEvents.Clear();
+
+        // Step 6: Execute remaining deletes asynchronously in separate batches
+        if (deletesToDefer.Count > 0)
+        {
+            await ExecuteDeferredDeletes(deletesToDefer, cancellationToken);
+        }
     }
 
     private ProjectionEntry<TProjection> DeserializeProjectionEntity(NullableResponse<TableEntity> response)
@@ -435,11 +462,10 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
         // Build the query filter
         var filters = new List<string>
         {
-            $"PartitionKey eq '{partitionKey}'"
+            $"PartitionKey eq '{partitionKey}'",
+            // Exclude projection row
+            $"RowKey gt '{ProjectionRowKey}'"
         };
-
-        // Exclude projection row
-        filters.Add($"RowKey gt '{ProjectionRowKey}'");
 
         // Apply row key range filters when stream name is specified
         if (options.StreamName is not null)
@@ -575,7 +601,7 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
         foreach (var eventEntry in events)
         {
             string? eventId = eventEntry.EventId;
-            
+
             // If EventId is null, try to compute it by creating a new event entry with the current stream configuration
             if (eventId is null && stream.Matches(eventEntry.Event))
             {
@@ -697,31 +723,7 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
         return result;
     }
 
-    private async ValueTask CleanupNullEventIdsAsync(string streamName, string partitionKey, List<TableTransactionAction> batch, CancellationToken cancellationToken)
-    {
-        // Query for existing events in this stream that have null EventId
-        var filter = $"PartitionKey eq '{partitionKey}' and RowKey gt '{ProjectionRowKey}' and RowKey ge '{streamName}{StreamSeparator}' and RowKey lt '{streamName}{StreamSeparator}\uffff' and EventId eq null";
-
-        await foreach (var entity in tableClient.QueryAsync<TableEntity>(
-            filter: filter,
-            maxPerPage: 100,
-            cancellationToken: cancellationToken))
-        {
-            // Add delete action to the batch if we haven't hit the limit
-            if (batch.Count < MaxBatchSize)
-            {
-                batch.Add(new TableTransactionAction(TableTransactionActionType.Delete, entity));
-            }
-            else
-            {
-                // If we would exceed the batch size, we need to commit what we have first
-                // and start a new batch for the deletions
-                throw new InvalidOperationException($"Cannot clean up null EventId events and commit new events in single batch due to Azure Table Storage limit of {MaxBatchSize} operations.");
-            }
-        }
-    }
-
-    private async ValueTask CleanupRetentionViolationsAsync(string streamName, IEventStream<TProjection> stream, string partitionKey, List<TableTransactionAction> batch, CancellationToken cancellationToken)
+    private async ValueTask CollectRetentionCleanupActions(string streamName, IEventStream<TProjection> stream, string partitionKey, List<TableTransactionAction> deleteActions, CancellationToken cancellationToken)
     {
         // Query for all existing events in this stream
         var filter = $"PartitionKey eq '{partitionKey}' and RowKey gt '{ProjectionRowKey}' and RowKey ge '{streamName}{StreamSeparator}' and RowKey lt '{streamName}{StreamSeparator}\uffff'";
@@ -765,22 +767,22 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
 
         // Apply all retention policies to determine which events should be kept
         var eventsToKeep = existingEvents.AsEnumerable();
-        
+
         // Apply UntilReactedSuccessfully retention
         eventsToKeep = ApplyUntilReactedSuccessfullyRetention(eventsToKeep, retention);
-        
+
         // Apply LatestDistinct retention if configured
         if (retention.LatestDistinct)
         {
             eventsToKeep = ApplyDistinctRetentionForCleanup(eventsToKeep, stream);
         }
-        
+
         // Apply MaxAge retention if configured
         if (retention.MaxAge.HasValue)
         {
             eventsToKeep = ApplyMaxAgeRetention(eventsToKeep, retention);
         }
-        
+
         // Apply Count retention if configured
         if (retention.Count.HasValue)
         {
@@ -788,35 +790,49 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
         }
 
         var eventsToKeepSet = eventsToKeep.Select(e => e.SequenceNumber).ToHashSet();
-        
-        // Track which row keys are already marked for deletion in the batch
-        var alreadyDeletedRowKeys = batch
+
+        // Track which row keys are already marked for deletion to avoid duplicates
+        var alreadyDeletedRowKeys = deleteActions
             .Where(action => action.ActionType == TableTransactionActionType.Delete)
             .Select(action => action.Entity.RowKey)
             .ToHashSet();
 
-        // Delete events that should not be kept according to current retention policies
+        // Collect delete actions for events that should not be kept according to current retention policies
         foreach (var existingEvent in existingEvents)
         {
             if (!eventsToKeepSet.Contains(existingEvent.SequenceNumber))
             {
-                if (batch.Count < MaxBatchSize)
+                // Use the original entity from storage for deletion to ensure correct ETag and RowKey
+                if (entityMap.TryGetValue(existingEvent.SequenceNumber, out var originalEntity))
                 {
-                    // Use the original entity from storage for deletion to ensure correct ETag and RowKey
-                    if (entityMap.TryGetValue(existingEvent.SequenceNumber, out var originalEntity))
+                    // Avoid duplicate delete operations on the same row
+                    if (!alreadyDeletedRowKeys.Contains(originalEntity.RowKey))
                     {
-                        // Avoid duplicate delete operations on the same row
-                        if (!alreadyDeletedRowKeys.Contains(originalEntity.RowKey))
-                        {
-                            batch.Add(new TableTransactionAction(TableTransactionActionType.Delete, originalEntity));
-                            alreadyDeletedRowKeys.Add(originalEntity.RowKey);
-                        }
+                        deleteActions.Add(new TableTransactionAction(TableTransactionActionType.Delete, originalEntity));
+                        alreadyDeletedRowKeys.Add(originalEntity.RowKey);
                     }
                 }
-                else
-                {
-                    throw new InvalidOperationException($"Cannot clean up retention violations and commit new events in single batch due to Azure Table Storage limit of {MaxBatchSize} operations.");
-                }
+            }
+        }
+    }
+
+    private async ValueTask ExecuteDeferredDeletes(List<TableTransactionAction> deletesToDefer, CancellationToken cancellationToken)
+    {
+        // Execute deletes in batches of MaxBatchSize
+        for (int i = 0; i < deletesToDefer.Count; i += MaxBatchSize)
+        {
+            var batchSize = Math.Min(MaxBatchSize, deletesToDefer.Count - i);
+            var deleteBatch = deletesToDefer.GetRange(i, batchSize);
+
+            try
+            {
+                await tableClient.SubmitTransactionAsync(deleteBatch, cancellationToken);
+            }
+            catch (Exception)
+            {
+                // Deletes are best-effort/eventual consistency - if they fail, we continue
+                // This could happen if entities were already deleted or ETags are stale
+                // Since deletes are for cleanup, we don't fail the entire operation
             }
         }
     }

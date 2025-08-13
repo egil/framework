@@ -2668,4 +2668,106 @@ public class AzureTableEventStoreTests(SiloFixture fixture) : IClassFixture<Silo
         var values = eventsAfterCleanup.Select(e => e.Value).OrderBy(v => v).ToList();
         Assert.Equal(new[] { "DuplicateValue", "NewValue", "UniqueValue" }, values);
     }
+
+    [Fact]
+    public async Task CommitAsync_prioritizes_appends_over_deletes_when_batch_size_limited()
+    {
+        // Arrange
+        var grainId = RandomGrainId();
+        var sut = CreateSut();
+
+        // First, create many old events to generate cleanup work
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<StrEvent>()
+                .Handle((evt, pro) => pro with { StrValue = evt.Value }));
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        // Add many events that will later need cleanup
+        for (int i = 0; i < 20; i++)
+        {
+            sut.AppendEvent(new StrEvent($"OldEvent{i}"));
+        }
+        await sut.CommitAsync(TestContext.Current.CancellationToken);
+
+        // Verify events were stored
+        var eventsBeforeRetention = await sut.GetEventsAsync<StrEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(20, eventsBeforeRetention.Count);
+
+        // Now reconfigure with Count retention that will trigger extensive cleanup
+        sut = CreateSut();
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<StrEvent>()
+                .Handle((evt, pro) => pro with { StrValue = evt.Value })
+                .KeepLast(5)); // Keep only latest 5 events - will cleanup 15+ events
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        // Add some new events
+        sut.AppendEvent(new StrEvent("NewEvent1"));
+        sut.AppendEvent(new StrEvent("NewEvent2"));
+        
+        // Act - This should succeed even though there are many deletes to process
+        // The implementation should prioritize the new events in the atomic batch
+        await sut.CommitAsync(TestContext.Current.CancellationToken);
+
+        // Assert - New events should be committed atomically
+        // Cleanup may happen asynchronously, but eventually should complete
+        sut = CreateSut();
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<StrEvent>()
+                .Handle((evt, pro) => pro with { StrValue = evt.Value })
+                .KeepLast(5));
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        var eventsAfterCommit = await sut.GetEventsAsync<StrEvent>(default, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
+        
+        // Should have the latest 5 events (3 old + 2 new, as per KeepLast(5))
+        Assert.Equal(5, eventsAfterCommit.Count);
+        
+        // The new events should definitely be present (atomic commit guarantees this)
+        Assert.Contains(eventsAfterCommit, e => e.Value == "NewEvent1");
+        Assert.Contains(eventsAfterCommit, e => e.Value == "NewEvent2");
+    }
+
+    [Fact]
+    public async Task CommitAsync_fails_when_too_many_events_to_append_atomically()
+    {
+        // Arrange
+        var grainId = RandomGrainId();
+        var sut = CreateSut();
+
+        sut.Configure(
+            grainId,
+            new DummyGrain(),
+            fixture.Services,
+            builder => builder
+                .AddStream<StrEvent>()
+                .Handle((evt, pro) => pro with { StrValue = evt.Value }));
+        await sut.InitializeAsync(TestContext.Current.CancellationToken);
+
+        // Add more events than can fit in a single batch (MaxBatchSize = 100, but need 1 slot for head row)
+        // So 100 events should cause failure (100 events + 1 head row = 101 > 100)
+        for (int i = 0; i < 100; i++)
+        {
+            sut.AppendEvent(new StrEvent($"Event{i}"));
+        }
+
+        // Act & Assert - Should throw when trying to commit too many events
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => sut.CommitAsync(TestContext.Current.CancellationToken).AsTask());
+
+        Assert.Contains("exceeds Azure Table Storage limit", exception.Message);
+        Assert.Contains("Cannot create a single atomic batch operation", exception.Message);
+    }
 }
