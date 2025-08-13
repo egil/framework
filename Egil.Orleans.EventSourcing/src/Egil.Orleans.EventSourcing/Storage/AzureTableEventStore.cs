@@ -27,6 +27,16 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
     // https://docs.microsoft.com/en-us/rest/api/storageservices/performing-entity-group-transactions
     private const int MaxBatchSize = 100;
 
+    // Internal record for lightweight event metadata (no event data) used in retention calculations
+    private record EventMetadata(
+        long SequenceNumber,
+        string StreamName,
+        string? EventId,
+        DateTimeOffset? EventTimestamp,
+        DateTimeOffset? Timestamp,
+        ImmutableDictionary<string, ReactorState> ReactorStatus,
+        TableEntity OriginalEntity);
+
     private readonly SortedDictionary<long, IEventEntry> uncommittedEvents = [];
     private readonly TableClient tableClient;
     private readonly IGrainStorageSerializer serializer;
@@ -370,10 +380,7 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
         var uncommittedEvents = FilterUncommittedEvents(options).OrderBy(e => e.SequenceNumber).ToList();
 
         // Create a set of EventIds from uncommitted events for efficient lookup
-        var uncommittedEventIds = new HashSet<string>(
-            uncommittedEvents
-                .Where(e => e.EventId is not null)
-                .Select(e => e.EventId!));
+        var uncommittedEventIds = new HashSet<string>(uncommittedEvents.Select(e => e.EventId).OfType<string>());
 
         // Collect all committed events from storage first
         var committedEvents = new List<IEventEntry>();
@@ -382,33 +389,15 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
             maxPerPage: 100,
             cancellationToken: cancellationToken))
         {
-            if (!entity.TryGetValue("SequenceNumber", out var seqObj) || seqObj is not long sequenceNumber)
+            var eventEntry = ParseFullEventEntry(entity);
+            if (eventEntry is null)
                 continue;
-
-            if (!entity.TryGetValue("StreamName", out var streamNameObj) || streamNameObj is not string streamName)
-                continue;
-
-            if (!entity.TryGetValue("Event", out var eventData) || eventData is not byte[] eventBytes)
-                continue;
-
-            if (!streams.TryGetValue(streamName, out var stream))
-                throw new InvalidOperationException($"Event in storage is associated with unconfigured stream '{streamName}'.");
-
-            var reactorStatus = ImmutableDictionary<string, ReactorState>.Empty;
-            if (entity.TryGetValue("ReactorStatus", out var statusData) && statusData is byte[] statusBytes)
-            {
-                var status = serializer.Deserialize<ImmutableDictionary<string, ReactorState>>(BinaryData.FromBytes(statusBytes));
-                if (status is not null)
-                    reactorStatus = status;
-            }
-
-            var eventEntity = stream.CreateEventEntry(serializer, eventBytes, sequenceNumber, reactorStatus, entity.Timestamp, entity.ETag);
 
             // Skip storage events if we have a newer version in uncommitted events
-            if (eventEntity.EventId is not null && uncommittedEventIds.Contains(eventEntity.EventId))
+            if (eventEntry.EventId is not null && uncommittedEventIds.Contains(eventEntry.EventId))
                 continue;
 
-            committedEvents.Add(eventEntity);
+            committedEvents.Add(eventEntry);
         }
 
         // Now merge committed and uncommitted events in sequence order
@@ -458,7 +447,11 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
     private string CreateTableQueryFilter(EventQueryOptions options)
     {
         var partitionKey = CreatePartitionKey(grainId);
+        return CreateTableQueryFilter(partitionKey, options);
+    }
 
+    private string CreateTableQueryFilter(string partitionKey, EventQueryOptions options)
+    {
         // Build the query filter
         var filters = new List<string>
         {
@@ -505,6 +498,63 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
 
         var filter = string.Join(" and ", filters);
         return filter;
+    }
+
+    // Common helper to parse reactor status from table entity
+    private ImmutableDictionary<string, ReactorState> ParseReactorStatus(TableEntity entity)
+    {
+        if (entity.TryGetValue("ReactorStatus", out var statusData) && statusData is byte[] statusBytes)
+        {
+            var status = serializer.Deserialize<ImmutableDictionary<string, ReactorState>>(
+                BinaryData.FromBytes(statusBytes));
+            return status ?? ImmutableDictionary<string, ReactorState>.Empty;
+        }
+        return ImmutableDictionary<string, ReactorState>.Empty;
+    }
+
+    // Parse lightweight metadata without deserializing event data
+    private EventMetadata? ParseEventMetadata(TableEntity entity)
+    {
+        if (!entity.TryGetValue("SequenceNumber", out var seqObj) || seqObj is not long sequenceNumber)
+            return null;
+
+        if (!entity.TryGetValue("StreamName", out var streamNameObj) || streamNameObj is not string streamName)
+            return null;
+
+        var reactorStatus = ParseReactorStatus(entity);
+
+        return new EventMetadata(
+            sequenceNumber,
+            streamName,
+            entity.TryGetValue("EventId", out var eventId) ? eventId as string : null,
+            entity.TryGetValue("EventTimestamp", out var eventTs) ? eventTs as DateTimeOffset? : null,
+            entity.Timestamp,
+            reactorStatus,
+            entity);
+    }
+
+    // Parse full event entry including event data
+    private IEventEntry? ParseFullEventEntry(TableEntity entity)
+    {
+        // First parse metadata
+        var metadata = ParseEventMetadata(entity);
+        if (metadata is null)
+            return null;
+
+        // Then parse the event data
+        if (!entity.TryGetValue("Event", out var eventData) || eventData is not byte[] eventBytes)
+            return null;
+
+        if (!streams.TryGetValue(metadata.StreamName, out var stream))
+            throw new InvalidOperationException($"Event in storage is associated with unconfigured stream '{metadata.StreamName}'.");
+
+        return stream.CreateEventEntry(
+            serializer,
+            eventBytes,
+            metadata.SequenceNumber,
+            metadata.ReactorStatus,
+            metadata.Timestamp,
+            entity.ETag);
     }
 
     private IEnumerable<IEventEntry> FilterUncommittedEvents(EventQueryOptions options)
@@ -723,41 +773,165 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
         return result;
     }
 
-    private async ValueTask CollectRetentionCleanupActions(string streamName, IEventStream<TProjection> stream, string partitionKey, List<TableTransactionAction> deleteActions, CancellationToken cancellationToken)
+    // Helper to apply all retention policies to metadata
+    private IEnumerable<EventMetadata> ApplyRetentionToMetadata(
+        IEnumerable<EventMetadata> metadata,
+        IEventStream<TProjection> stream)
     {
-        // Query for all existing events in this stream
-        var filter = $"PartitionKey eq '{partitionKey}' and RowKey gt '{ProjectionRowKey}' and RowKey ge '{streamName}{StreamSeparator}' and RowKey lt '{streamName}{StreamSeparator}\uffff'";
+        var retention = stream.Retention;
+        var filtered = metadata.AsEnumerable();
+
+        // Apply UntilReactedSuccessfully using metadata
+        if (retention.UntilReactedSuccessfully)
+        {
+            filtered = filtered.Where(m =>
+                !m.ReactorStatus.IsEmpty &&
+                m.ReactorStatus.Values.Any(x => x.Status is not ReactorOperationStatus.CompleteSuccessful));
+        }
+
+        // Apply LatestDistinct using EventId metadata
+        if (retention.LatestDistinct)
+        {
+            // For cleanup, re-evaluate EventIds for events with null EventIds
+            var withEvaluatedIds = filtered.Select(m =>
+            {
+                if (m.EventId is null && stream.Matches(m.OriginalEntity))
+                {
+                    // Try to compute EventId from the entity if possible
+                    // This requires having the event data, so we can't do it with metadata alone
+                    // For now, filter out null EventIds
+                    return m;
+                }
+                return m;
+            });
+
+            filtered = withEvaluatedIds
+                .Where(m => m.EventId is not null)
+                .GroupBy(m => m.EventId)
+                .Select(g => g.MaxBy(m => m.SequenceNumber))
+                .OfType<EventMetadata>();
+        }
+
+        // Apply MaxAge using metadata timestamps
+        if (retention.MaxAge.HasValue)
+        {
+            var cutoffTime = timeProvider.GetUtcNow() - retention.MaxAge.Value;
+            filtered = filtered.Where(m =>
+                (m.EventTimestamp ?? m.Timestamp ?? DateTimeOffset.MinValue) >= cutoffTime);
+        }
+
+        // Apply Count retention
+        if (retention.Count.HasValue)
+        {
+            filtered = filtered
+                .OrderBy(m => m.SequenceNumber)
+                .TakeLast(retention.Count.Value);
+        }
+
+        return filtered;
+    }
+
+    private async ValueTask CollectRetentionCleanupActions(
+        string streamName,
+        IEventStream<TProjection> stream,
+        string partitionKey,
+        List<TableTransactionAction> deleteActions,
+        CancellationToken cancellationToken)
+    {
+        // Use CreateTableQueryFilter for consistent query building
+        var queryOptions = new EventQueryOptions { StreamName = streamName };
+        var filter = CreateTableQueryFilter(partitionKey, queryOptions);
+
+        // Query only metadata fields (no Event data) to save bandwidth
+        // Note: PartitionKey and RowKey must be explicitly included for delete operations
+        var selectColumns = new[] {
+            "PartitionKey",
+            "RowKey",
+            "SequenceNumber",
+            "StreamName",
+            "EventId",
+            "EventTimestamp",
+            "ReactorStatus",
+            "Timestamp"
+        };
+
+        var metadata = new List<EventMetadata>();
+        await foreach (var entity in tableClient.QueryAsync<TableEntity>(
+            filter: filter,
+            select: selectColumns, // Key optimization: no Event blob
+            maxPerPage: 100,
+            cancellationToken: cancellationToken))
+        {
+            var parsed = ParseEventMetadata(entity);
+            if (parsed != null)
+                metadata.Add(parsed);
+        }
+
+        if (metadata.Count == 0)
+            return;
+
+        // For LatestDistinct with null EventIds, we need the full event data
+        // So handle this case separately if needed
+        var retention = stream.Retention;
+        if (retention.LatestDistinct && metadata.Any(m => m.EventId is null))
+        {
+            // Fall back to querying with event data for proper EventId evaluation
+            await CollectRetentionCleanupActionsWithFullData(
+                streamName, stream, partitionKey, deleteActions, cancellationToken);
+            return;
+        }
+
+        // Apply retention policies using metadata only
+        var metadataToKeep = ApplyRetentionToMetadata(metadata, stream);
+        var sequencesToKeep = metadataToKeep.Select(m => m.SequenceNumber).ToHashSet();
+
+        // Track which row keys are already marked for deletion to avoid duplicates
+        var alreadyDeletedRowKeys = deleteActions
+            .Where(action => action.ActionType == TableTransactionActionType.Delete)
+            .Select(action => action.Entity.RowKey)
+            .ToHashSet();
+
+        // Collect delete actions
+        foreach (var m in metadata)
+        {
+            if (!sequencesToKeep.Contains(m.SequenceNumber))
+            {
+                var originalEntity = m.OriginalEntity;
+                // Avoid duplicate delete operations on the same row
+                if (!alreadyDeletedRowKeys.Contains(originalEntity.RowKey))
+                {
+                    deleteActions.Add(new TableTransactionAction(TableTransactionActionType.Delete, originalEntity));
+                    alreadyDeletedRowKeys.Add(originalEntity.RowKey);
+                }
+            }
+        }
+    }
+
+    // Fallback method when we need full event data for EventId evaluation
+    private async ValueTask CollectRetentionCleanupActionsWithFullData(
+        string streamName,
+        IEventStream<TProjection> stream,
+        string partitionKey,
+        List<TableTransactionAction> deleteActions,
+        CancellationToken cancellationToken)
+    {
+        var queryOptions = new EventQueryOptions { StreamName = streamName };
+        var filter = CreateTableQueryFilter(partitionKey, queryOptions);
 
         var existingEvents = new List<IEventEntry>();
-        var entityMap = new Dictionary<long, TableEntity>(); // Map sequence number to original entity
+        var entityMap = new Dictionary<long, TableEntity>();
+
         await foreach (var entity in tableClient.QueryAsync<TableEntity>(
             filter: filter,
             maxPerPage: 100,
             cancellationToken: cancellationToken))
         {
-            if (!entity.TryGetValue("SequenceNumber", out var seqObj) || seqObj is not long sequenceNumber)
-                continue;
-
-            if (!entity.TryGetValue("StreamName", out var streamNameObj) || streamNameObj is not string entityStreamName)
-                continue;
-
-            if (!entity.TryGetValue("Event", out var eventData) || eventData is not byte[] eventBytes)
-                continue;
-
-            if (!streams.TryGetValue(entityStreamName, out var eventStream))
-                continue;
-
-            var reactorStatus = ImmutableDictionary<string, ReactorState>.Empty;
-            if (entity.TryGetValue("ReactorStatus", out var statusData) && statusData is byte[] statusBytes)
+            var eventEntry = ParseFullEventEntry(entity);
+            if (eventEntry != null)
             {
-                var status = serializer.Deserialize<ImmutableDictionary<string, ReactorState>>(BinaryData.FromBytes(statusBytes));
-                if (status is not null)
-                    reactorStatus = status;
+                existingEvents.Add(eventEntry);
+                entityMap[eventEntry.SequenceNumber] = entity;
             }
-
-            var existingEvent = eventStream.CreateEventEntry(serializer, eventBytes, sequenceNumber, reactorStatus, entity.Timestamp, entity.ETag);
-            existingEvents.Add(existingEvent);
-            entityMap[sequenceNumber] = entity;
         }
 
         if (existingEvents.Count == 0)
@@ -797,15 +971,13 @@ internal class AzureTableEventStore<TProjection> : IEventStore<TProjection>, ILi
             .Select(action => action.Entity.RowKey)
             .ToHashSet();
 
-        // Collect delete actions for events that should not be kept according to current retention policies
+        // Collect delete actions
         foreach (var existingEvent in existingEvents)
         {
             if (!eventsToKeepSet.Contains(existingEvent.SequenceNumber))
             {
-                // Use the original entity from storage for deletion to ensure correct ETag and RowKey
                 if (entityMap.TryGetValue(existingEvent.SequenceNumber, out var originalEntity))
                 {
-                    // Avoid duplicate delete operations on the same row
                     if (!alreadyDeletedRowKeys.Contains(originalEntity.RowKey))
                     {
                         deleteActions.Add(new TableTransactionAction(TableTransactionActionType.Delete, originalEntity));
