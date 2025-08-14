@@ -24,7 +24,7 @@ public sealed class UserGrain(TimeProvider timeProvider) : EventGrain<UserGrain,
 
     /// <summary>
     /// Deactivates a user by creating a single event.
-    /// 
+    ///
     /// KEY POINT: Uses ProcessEventAsync{TEvent} directly, which means:
     /// - This single event gets its own processing scope
     /// - The event and updated projection are saved immediately
@@ -45,7 +45,7 @@ public sealed class UserGrain(TimeProvider timeProvider) : EventGrain<UserGrain,
 
     /// <summary>
     /// Sends multiple messages by creating multiple events in a SINGLE processing scope.
-    /// 
+    ///
     /// KEY POINT: Like RegisterUser, this uses ProcessEventAsync(Func{Task}) to batch
     /// multiple events together. Benefits:
     /// - All message events are saved in one atomic transaction
@@ -143,7 +143,14 @@ public sealed class UserGrain(TimeProvider timeProvider) : EventGrain<UserGrain,
 
             // Register a generic handler that runs for all IUserEvent events
             // This demonstrates how to track metrics across all events in a stream
-            .Handle((@event, user) => user with { EventsCount = user.EventsCount + 1 });
+            .Handle((@event, user) => user with { EventsCount = user.EventsCount + 1 })
+
+            // Configure publishing to Orleans streams
+            // This enables other grains to subscribe to user events
+            .StreamPublish<UserCreated>(
+               "test-stream-provider",
+               "user-events-namespace",
+               publishConfig => publishConfig.KeySelector<UserCreated>(e => e.UserId));
 
         // Configure a separate stream for message events
         // Different streams can have different retention policies and handlers
@@ -181,12 +188,5 @@ public sealed class UserGrain(TimeProvider timeProvider) : EventGrain<UserGrain,
         // Register a reactor that sends welcome emails
         // Reactors handle side effects AFTER events are successfully saved
         //.React<UserWelcomeEvent, UserWelcomeEmailSender>()
-
-        // Configure publishing to Orleans streams
-        // This enables other grains to subscribe to offensive language events
-        //.StreamPublish<OffensiveLanguageDetectedEvent>(
-        //    "stream-provider-name",
-        //    "offensive-words-namespace",
-        //    publishConfig => publishConfig.KeySelector(e => e.UserId));
     }
 }

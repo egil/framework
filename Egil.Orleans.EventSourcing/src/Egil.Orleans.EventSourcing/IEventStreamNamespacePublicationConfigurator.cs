@@ -2,7 +2,7 @@ namespace Egil.Orleans.EventSourcing;
 
 public interface IEventStreamNamespacePublicationConfigurator<TEventGrain, TEventBase, TProjection>
     where TEventBase : notnull
-    where TProjection : notnull, IEventProjection<TProjection>
+    where TProjection : notnull
 {
     IEventStreamNamespacePublicationConfigurator<TEventGrain, TEventBase, TProjection> Key(string key);
     IEventStreamNamespacePublicationConfigurator<TEventGrain, TEventBase, TProjection> Key(Guid key);

@@ -107,4 +107,18 @@ public partial interface IEventStreamConfigurator<TEventGrain, TEventBase, TProj
 
     IEventStreamConfigurator<TEventGrain, TEventBase, TProjection> React<TEvent>(string name, Func<IEnumerable<TEvent>, TProjection, ValueTask> reactorFactory)
         where TEvent : notnull, TEventBase;
+
+    /// <summary>
+    /// Configures publishing of specific event types to Orleans streams.
+    /// </summary>
+    /// <typeparam name="TEvent">The specific event type to publish.</typeparam>
+    /// <param name="streamProvider">The name of the Orleans stream provider to use.</param>
+    /// <param name="streamNamespace">The namespace for the Orleans stream.</param>
+    /// <param name="configurePublication">Function to configure the publication settings, such as key selectors.</param>
+    /// <returns>The configurator for method chaining.</returns>
+    IEventStreamConfigurator<TEventGrain, TEventBase, TProjection> StreamPublish<TEvent>(
+        string streamProvider,
+        string streamNamespace,
+        Action<IEventStreamNamespacePublicationConfigurator<TEventGrain, TEventBase, TProjection>> configurePublication)
+        where TEvent : notnull, TEventBase;
 }

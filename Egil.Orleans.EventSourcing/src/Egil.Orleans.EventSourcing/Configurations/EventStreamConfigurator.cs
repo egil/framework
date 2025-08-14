@@ -18,8 +18,8 @@ internal partial class EventStreamConfigurator<TEventGrain, TEventBase, TProject
     private TimeSpan? keepAge;
     private Func<TEventBase, DateTimeOffset>? timestampSelector;
     private Func<TEventBase, string>? eventIdSelector;
-    private List<IEventHandlerFactory<TProjection>> handlers = [];
-    private List<IEventReactorFactory<TProjection>> publishers = [];
+    private List<IEventHandlerFactory<TProjection>> handlerFactories = [];
+    private List<IEventReactorFactory<TProjection>> reactorFactories = [];
 
     public string StreamName { get; }
 
@@ -66,14 +66,14 @@ internal partial class EventStreamConfigurator<TEventGrain, TEventBase, TProject
         where TEvent : notnull, TEventBase
     {
         ArgumentNullException.ThrowIfNull(handlerFactory);
-        handlers.Add(new EventHandlerFactory<TEventGrain, TEvent, TProjection>(handlerFactory, eventGrain));
+        handlerFactories.Add(new EventHandlerFactory<TEventGrain, TEvent, TProjection>(handlerFactory, eventGrain));
         return this;
     }
 
     public IEventStreamConfigurator<TEventGrain, TEventBase, TProjection> Handle(Func<TEventBase, TProjection, TProjection> handler)
     {
         ArgumentNullException.ThrowIfNull(handler);
-        handlers.Add(new EventHandlerLambdaFactory<TEventGrain, TEventBase, TProjection>(handler, eventGrain));
+        handlerFactories.Add(new EventHandlerLambdaFactory<TEventGrain, TEventBase, TProjection>(handler, eventGrain));
         return this;
     }
 
@@ -81,20 +81,20 @@ internal partial class EventStreamConfigurator<TEventGrain, TEventBase, TProject
         where TEvent : TEventBase
     {
         ArgumentNullException.ThrowIfNull(handlerFactory);
-        handlers.Add(new EventHandlerLambdaFactory<TEventGrain, TEvent, TProjection>(handlerFactory, eventGrain));
+        handlerFactories.Add(new EventHandlerLambdaFactory<TEventGrain, TEvent, TProjection>(handlerFactory, eventGrain));
         return this;
     }
 
     public IEventStreamConfigurator<TEventGrain, TEventBase, TProjection> Handle<TEventHandler>() where TEventHandler : IEventHandler<TEventBase, TProjection>
     {
-        handlers.Add(new EventHandlerServiceProviderFactory<TEventGrain, TEventBase, TProjection, TEventHandler>(grainServiceProvider));
+        handlerFactories.Add(new EventHandlerServiceProviderFactory<TEventGrain, TEventBase, TProjection, TEventHandler>(grainServiceProvider));
         return this;
     }
 
     public IEventStreamConfigurator<TEventGrain, TEventBase, TProjection> Handle<TEvent>(Func<TEvent, TProjection, TProjection> handler) where TEvent : TEventBase
     {
         ArgumentNullException.ThrowIfNull(handler);
-        handlers.Add(new EventHandlerLambdaFactory<TEventGrain, TEvent, TProjection>(handler, eventGrain));
+        handlerFactories.Add(new EventHandlerLambdaFactory<TEventGrain, TEvent, TProjection>(handler, eventGrain));
         return this;
     }
 
@@ -105,7 +105,7 @@ internal partial class EventStreamConfigurator<TEventGrain, TEventBase, TProject
         where TEvent : notnull, TEventBase
     {
         ArgumentNullException.ThrowIfNull(publisherFactory);
-        publishers.Add(new EventReactorFactory<TEventGrain, TEvent, TProjection>(publisherFactory, eventGrain, name));
+        reactorFactories.Add(new EventReactorFactory<TEventGrain, TEvent, TProjection>(publisherFactory, eventGrain, name));
         return this;
     }
 
@@ -120,7 +120,7 @@ internal partial class EventStreamConfigurator<TEventGrain, TEventBase, TProject
                 return ValueTask.CompletedTask;
             },
             eventGrain);
-        publishers.Add(reactorFactory);
+        reactorFactories.Add(reactorFactory);
         return this;
     }
 
@@ -135,7 +135,7 @@ internal partial class EventStreamConfigurator<TEventGrain, TEventBase, TProject
                 return ValueTask.CompletedTask;
             },
             eventGrain);
-        publishers.Add(reactor);
+        reactorFactories.Add(reactor);
         return this;
     }
 
@@ -146,7 +146,7 @@ internal partial class EventStreamConfigurator<TEventGrain, TEventBase, TProject
             name,
             (grain) => (events, projection, context, cancellationToken) => reactor(events, projection),
             eventGrain);
-        publishers.Add(reactorFactory);
+        reactorFactories.Add(reactorFactory);
         return this;
     }
 
@@ -157,7 +157,41 @@ internal partial class EventStreamConfigurator<TEventGrain, TEventBase, TProject
             name,
             (grain) => (events, projection, context, cancellationToken) => reactorFactory(events, projection),
             eventGrain);
-        publishers.Add(reactor);
+        reactorFactories.Add(reactor);
+        return this;
+    }
+
+    public IEventStreamConfigurator<TEventGrain, TEventBase, TProjection> StreamPublish<TEvent>(
+        string streamProvider,
+        string streamNamespace,
+        Action<IEventStreamNamespacePublicationConfigurator<TEventGrain, TEventBase, TProjection>> configurePublication)
+        where TEvent : notnull, TEventBase
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(streamProvider);
+        ArgumentException.ThrowIfNullOrWhiteSpace(streamNamespace);
+        ArgumentNullException.ThrowIfNull(configurePublication);
+
+        var configurator = new EventStreamNamespacePublicationConfigurator<TEventGrain, TEventBase, TProjection>();
+        configurePublication(configurator);
+
+        var publication = new StreamPublicationConfiguration
+        {
+            EventType = typeof(TEvent),
+            StreamProvider = streamProvider,
+            StreamNamespace = streamNamespace,
+            KeySelector = configurator.StreamKeySelector
+        };
+
+        // Create a unique reactor ID for this stream publication
+        var reactorId = $"StreamPublisher-{streamProvider}-{streamNamespace}-{typeof(TEvent).Name}";
+
+        // Register a stream publishing reactor for this configuration
+        var reactorFactory = new StreamPublishingReactorFactory<TEvent, TProjection>(
+            grainServiceProvider,
+            publication,
+            reactorId);
+
+        reactorFactories.Add(reactorFactory);
         return this;
     }
 
@@ -170,8 +204,8 @@ internal partial class EventStreamConfigurator<TEventGrain, TEventBase, TProject
 
         return new EventStream<TEventGrain, TEventBase, TProjection>(
             StreamName,
-            handlers,
-            publishers,
+            handlerFactories,
+            reactorFactories,
             new EventStreamRetention<TEventBase>
             {
                 UntilReactedSuccessfully = untilReactedSuccessfully,
