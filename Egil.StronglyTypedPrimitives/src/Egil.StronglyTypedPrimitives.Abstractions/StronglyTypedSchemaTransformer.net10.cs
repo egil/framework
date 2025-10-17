@@ -5,8 +5,7 @@ using Microsoft.OpenApi;
 
 namespace Egil.StronglyTypedPrimitives;
 
-
-public sealed class StronglyTypedSchemaTransformer3 : IOpenApiSchemaTransformer
+public sealed class StronglyTypedSchemaTransformer : IOpenApiSchemaTransformer
 {
     public Task TransformAsync(OpenApiSchema schema, OpenApiSchemaTransformerContext context, CancellationToken cancellationToken)
     {
