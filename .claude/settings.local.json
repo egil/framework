@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet build)",
+      "Bash(rm:*)",
+      "Bash(dotnet test)",
+      "WebFetch(domain:github.com)",
+      "WebSearch",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(dotnet list:*)",
+      "Bash(dotnet build:*)",
+      "Bash(dotnet test:*)",
+      "Bash(dotnet new:*)",
+      "Bash(dotnet tool install:*)",
+      "Bash(dotnet stryker:*)",
+      "Bash(del:*)",
+      "Bash(Remove-Item \"D:\\egil\\framework\\Egil.Orleans.EventSourcing\\test\\Egil.Orleans.EventSourcing.Tests\\Storage\\DebugPartitionKeyTest.cs\")",
+      "Bash(grep:*)",
+      "Bash(pkill:*)",
+      "Bash(find:*)"
+    ],
+    "deny": [],
+    "ask": [],
+    "defaultMode": "acceptEdits"
+  }
+}
