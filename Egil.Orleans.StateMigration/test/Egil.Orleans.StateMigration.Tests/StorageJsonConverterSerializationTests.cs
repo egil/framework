@@ -68,6 +68,23 @@ public sealed class StorageJsonConverterSerializationTests
         Assert.Equal("alice", roundtrip.Value.Name);
         Assert.False(roundtrip.MigratedDuringDeserialization);
     }
+
+    [Fact]
+    public void Serialization_uses_configured_type_property_name()
+    {
+        JsonSerializerOptions options = new JsonSerializerOptions().AddStateMigrationSupport("_type");
+        var value = new Storage<AliasedState>
+        {
+            Value = new AliasedState { Name = "alice" },
+        };
+
+        string json = JsonSerializer.Serialize(value, options);
+        using JsonDocument document = JsonDocument.Parse(json);
+
+        Assert.True(document.RootElement.TryGetProperty("_type", out JsonElement typeProperty));
+        Assert.Equal("serialization/aliased-state", typeProperty.GetString());
+    }
+
     [Alias("serialization/aliased-state")]
     public sealed class AliasedState
     {

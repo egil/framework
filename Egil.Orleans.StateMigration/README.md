@@ -35,7 +35,7 @@ If migration happens during deserialization, set `Storage<TStateType>.MigratedDu
 ## Type identity contract
 
 When serializing `Storage<T>`:
-- Always write `$type`.
+- By default, write `$type` (configurable via `AddStateMigrationSupport(options, typePropertyName)`).
 - If `T` has Orleans `[Alias]`, use the alias value.
 - Otherwise use the full CLR type name (compatibility fallback, same spirit as Orleans serialization behavior).
 

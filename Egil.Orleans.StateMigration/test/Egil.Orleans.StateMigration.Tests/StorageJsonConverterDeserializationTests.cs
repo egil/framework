@@ -32,9 +32,39 @@ public sealed class StorageJsonConverterDeserializationTests
         Assert.True(result.MigratedDuringDeserialization);
     }
 
+    [Fact]
+    public void Matching_custom_type_property_name_uses_current_type_fast_path()
+    {
+        JsonSerializerOptions options = new JsonSerializerOptions().AddStateMigrationSupport("_type");
+        string json = """
+            {"_type":"deserialization/current-state","DisplayName":"alice"}
+            """;
+
+        Storage<CurrentState>? result = JsonSerializer.Deserialize<Storage<CurrentState>>(json, options);
+
+        Assert.NotNull(result);
+        Assert.Equal("alice", result.Value.DisplayName);
+        Assert.False(result.MigratedDuringDeserialization);
+    }
+
+    [Fact]
+    public void Known_older_type_with_custom_type_property_name_triggers_migration()
+    {
+        JsonSerializerOptions options = new JsonSerializerOptions().AddStateMigrationSupport("_type");
+        string json = """
+            {"_type":"deserialization/legacy-state","Name":"alice"}
+            """;
+
+        Storage<CurrentState>? result = JsonSerializer.Deserialize<Storage<CurrentState>>(json, options);
+
+        Assert.NotNull(result);
+        Assert.Equal("migrated:alice", result.Value.DisplayName);
+        Assert.True(result.MigratedDuringDeserialization);
+    }
+
     [Theory]
-    [InlineData("""{"$type":null,"Name":"alice"}""", "$type cannot be null or empty")]
-    [InlineData("""{"$type":"","Name":"alice"}""", "$type cannot be null or empty")]
+    [InlineData("""{"$type":null,"Name":"alice"}""", "cannot be null or empty")]
+    [InlineData("""{"$type":"","Name":"alice"}""", "cannot be null or empty")]
     [InlineData("""{"$type":"deserialization/unknown-state","Name":"alice"}""", "is unknown")]
     public void Malformed_or_unknown_type_metadata_fails_fast_with_clear_exception(string json, string messageFragment)
     {

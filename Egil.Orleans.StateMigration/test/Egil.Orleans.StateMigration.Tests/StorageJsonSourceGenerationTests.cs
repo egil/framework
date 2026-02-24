@@ -52,9 +52,34 @@ public sealed class StorageJsonSourceGenerationTests
         Assert.True(result.MigratedDuringDeserialization);
     }
 
+    [Fact]
+    public void State_only_source_generated_context_supports_custom_type_property_name()
+    {
+        JsonSerializerOptions options = CreateOptions("_type");
+        string json = """
+            {"_type":"sourcegen/legacy-state","Name":"alice"}
+            """;
+
+        Storage<SourceGenCurrentState>? result = JsonSerializer.Deserialize<Storage<SourceGenCurrentState>>(json, options);
+
+        Assert.NotNull(result);
+        Assert.Equal("migrated:alice", result.Value.DisplayName);
+        Assert.True(result.MigratedDuringDeserialization);
+    }
+
     private static JsonSerializerOptions CreateOptions()
-        => new JsonSerializerOptions(StorageJsonSourceGenerationContext.Default.Options)
-            .AddStateMigrationSupport();
+        => CreateOptions(typePropertyName: null);
+
+    private static JsonSerializerOptions CreateOptions(string? typePropertyName)
+    {
+        JsonSerializerOptions options = new JsonSerializerOptions(StorageJsonSourceGenerationContext.Default.Options);
+        if (typePropertyName is null)
+        {
+            return options.AddStateMigrationSupport();
+        }
+
+        return options.AddStateMigrationSupport(typePropertyName);
+    }
 }
 
 [Alias("sourcegen/legacy-state")]
