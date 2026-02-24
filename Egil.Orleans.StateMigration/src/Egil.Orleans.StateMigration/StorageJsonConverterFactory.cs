@@ -85,22 +85,42 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
                 }
 
                 string targetIdentity = StateTypeIdentity.GetIdentity(typeof(TStateType));
-                if (!string.Equals(sourceIdentity, targetIdentity, StringComparison.Ordinal))
+                if (string.Equals(sourceIdentity, targetIdentity, StringComparison.Ordinal))
                 {
-                    throw new JsonException(
-                        $"Storage payload type '{sourceIdentity}' does not match target type '{targetIdentity}'.");
+                    TStateType? state = JsonSerializer.Deserialize<TStateType>(ref reader, options);
+                    if (state is null)
+                    {
+                        throw new JsonException("Storage payload produced a null state for the current type.");
+                    }
+
+                    return new Storage<TStateType>
+                    {
+                        State = state,
+                        MigratedDuringDeserialization = false,
+                    };
                 }
 
-                TStateType? state = JsonSerializer.Deserialize<TStateType>(ref reader, options);
-                if (state is null)
+                if (!StateTypeIdentity.TryResolve(sourceIdentity, out Type? sourceType))
                 {
-                    throw new JsonException("Storage payload produced a null state for the current type.");
+                    throw new JsonException($"Storage payload type '{sourceIdentity}' is unknown.");
+                }
+
+                object? source = JsonSerializer.Deserialize(ref reader, sourceType, options);
+                if (source is null)
+                {
+                    throw new JsonException($"Storage payload could not deserialize source type '{sourceIdentity}'.");
+                }
+
+                if (!StateMigrationInvoker.TryMigrate(source, sourceType, typeof(TStateType), out object? migratedState))
+                {
+                    throw new JsonException(
+                        $"No direct migration exists from '{sourceIdentity}' to '{targetIdentity}'.");
                 }
 
                 return new Storage<TStateType>
                 {
-                    State = state,
-                    MigratedDuringDeserialization = false,
+                    State = (TStateType)migratedState!,
+                    MigratedDuringDeserialization = true,
                 };
             }
 
