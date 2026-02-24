@@ -34,7 +34,7 @@ public sealed class StorageJsonConverterSerializationTests
         string json = JsonSerializer.Serialize(value);
         using JsonDocument document = JsonDocument.Parse(json);
 
-        Assert.True(document.RootElement.TryGetProperty("value", out JsonElement stateElement));
+        Assert.True(document.RootElement.TryGetProperty("$value", out JsonElement stateElement));
         Assert.Equal("alice", stateElement.GetProperty("Name").GetString());
     }
 
@@ -49,7 +49,7 @@ public sealed class StorageJsonConverterSerializationTests
         string json = JsonSerializer.Serialize(value);
         using JsonDocument document = JsonDocument.Parse(json);
 
-        Assert.True(document.RootElement.TryGetProperty("value", out JsonElement stateElement));
+        Assert.True(document.RootElement.TryGetProperty("$value", out JsonElement stateElement));
         Assert.Equal(JsonValueKind.Array, stateElement.ValueKind);
         Assert.Equal("alice", stateElement[0].GetString());
         Assert.Equal("bob", stateElement[1].GetString());
@@ -115,7 +115,24 @@ public sealed class StorageJsonConverterSerializationTests
 
         Assert.True(document.RootElement.TryGetProperty("_type", out JsonElement typeProperty));
         Assert.Equal("serialization/aliased-state", typeProperty.GetString());
-        Assert.True(document.RootElement.TryGetProperty("value", out _));
+        Assert.True(document.RootElement.TryGetProperty("$value", out _));
+    }
+
+    [Fact]
+    public void Serialization_uses_configured_value_property_name()
+    {
+        JsonSerializerOptions options = new JsonSerializerOptions().AddStateMigrationSupport("$type", "_value");
+        var value = new Storage<AliasedState>
+        {
+            Value = new AliasedState { Name = "alice" },
+        };
+
+        string json = JsonSerializer.Serialize(value, options);
+        using JsonDocument document = JsonDocument.Parse(json);
+
+        Assert.True(document.RootElement.TryGetProperty("_value", out JsonElement stateElement));
+        Assert.Equal("alice", stateElement.GetProperty("Name").GetString());
+        Assert.False(document.RootElement.TryGetProperty("$value", out _));
     }
 
     [Fact]
@@ -133,7 +150,7 @@ public sealed class StorageJsonConverterSerializationTests
 
         Assert.Equal("serialization/aliased-state", document.RootElement.GetProperty("$type").GetString());
         Assert.Equal("alice", document.RootElement.GetProperty("Name").GetString());
-        Assert.False(document.RootElement.TryGetProperty("value", out _));
+        Assert.False(document.RootElement.TryGetProperty("$value", out _));
     }
 
     [Fact]

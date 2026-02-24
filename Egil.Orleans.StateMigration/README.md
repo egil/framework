@@ -36,8 +36,8 @@ The same flag is also set when payload layout differs from configured output lay
 ## Type identity contract
 
 When serializing `Storage<T>`:
-- By default, write `$type` (configurable via `AddStateMigrationSupport(options, typePropertyName)`).
-- By default, write an envelope payload shape: `{"$type":"...","value": ...state...}`.
+- By default, write `$type` and `$value` (both configurable via `AddStateMigrationSupport(options, typePropertyName, valuePropertyName)`).
+- By default, write an envelope payload shape: `{"$type":"...","$value": ...state...}`.
 - Optional compatibility mode can write the legacy flattened shape: `{"$type":"...", ...state object properties...}`.
 - If `T` has Orleans `[Alias]`, use the alias value.
 - Otherwise use the full CLR type name (compatibility fallback, same spirit as Orleans serialization behavior).
@@ -60,7 +60,8 @@ Guidance:
 Proposed flow:
 1. Copy `Utf8JsonReader` and inspect only the first property.
 2. If first property is `$type` with a non-empty string:
-   - If payload is enveloped (`$type` + `value`), deserialize `value`.
+   - If payload is enveloped (`$type` + `$value`), deserialize `$value`.
+   - Legacy envelopes with `value` are still accepted for backward compatibility and can be rewritten.
    - If payload is flattened (legacy), deserialize full object as state/source type.
    - If value matches target `T`, fast-path deserialize current type.
    - If value is another known type, deserialize that type, resolve migration for `(sourceType, T)`, then set `MigratedDuringDeserialization = true`.

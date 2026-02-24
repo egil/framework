@@ -10,7 +10,7 @@ public sealed class StorageJsonConverterOnDeserializedTests
     public void On_deserialized_callback_is_invoked_for_current_type_path()
     {
         string json = """
-            {"$type":"on-deserialized/current-state","value":{"Name":"alice"}}
+            {"$type":"on-deserialized/current-state","$value":{"Name":"alice"}}
             """;
 
         Storage<CurrentState>? result = JsonSerializer.Deserialize<Storage<CurrentState>>(json);
@@ -25,7 +25,7 @@ public sealed class StorageJsonConverterOnDeserializedTests
     public void On_deserialized_callback_is_invoked_for_migration_path()
     {
         string json = """
-            {"$type":"on-deserialized/legacy-state","value":{"Name":"alice"}}
+            {"$type":"on-deserialized/legacy-state","$value":{"Name":"alice"}}
             """;
 
         Storage<CurrentState>? result = JsonSerializer.Deserialize<Storage<CurrentState>>(json);
@@ -40,7 +40,7 @@ public sealed class StorageJsonConverterOnDeserializedTests
     public void On_deserialized_callback_is_invoked_only_once_per_deserialization()
     {
         string json = """
-            {"$type":"on-deserialized/current-state","value":{"Name":"alice"}}
+            {"$type":"on-deserialized/current-state","$value":{"Name":"alice"}}
             """;
 
         Storage<CurrentState>? result = JsonSerializer.Deserialize<Storage<CurrentState>>(json);

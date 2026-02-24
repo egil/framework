@@ -8,7 +8,7 @@ public sealed class StorageJsonConverterDeserializationTests
     public void Matching_enveloped_type_metadata_uses_current_type_fast_path()
     {
         string json = """
-            {"$type":"deserialization/current-state","value":{"DisplayName":"alice"}}
+            {"$type":"deserialization/current-state","$value":{"DisplayName":"alice"}}
             """;
 
         Storage<CurrentState>? result = JsonSerializer.Deserialize<Storage<CurrentState>>(json);
@@ -22,7 +22,7 @@ public sealed class StorageJsonConverterDeserializationTests
     public void Known_older_enveloped_type_triggers_migration_and_marks_payload_as_migrated()
     {
         string json = """
-            {"$type":"deserialization/legacy-state","value":{"Name":"alice"}}
+            {"$type":"deserialization/legacy-state","$value":{"Name":"alice"}}
             """;
 
         Storage<CurrentState>? result = JsonSerializer.Deserialize<Storage<CurrentState>>(json);
@@ -37,7 +37,7 @@ public sealed class StorageJsonConverterDeserializationTests
     {
         JsonSerializerOptions options = new JsonSerializerOptions().AddStateMigrationSupport("_type");
         string json = """
-            {"_type":"deserialization/current-state","value":{"DisplayName":"alice"}}
+            {"_type":"deserialization/current-state","$value":{"DisplayName":"alice"}}
             """;
 
         Storage<CurrentState>? result = JsonSerializer.Deserialize<Storage<CurrentState>>(json, options);
@@ -52,7 +52,7 @@ public sealed class StorageJsonConverterDeserializationTests
     {
         JsonSerializerOptions options = new JsonSerializerOptions().AddStateMigrationSupport("_type");
         string json = """
-            {"_type":"deserialization/legacy-state","value":{"Name":"alice"}}
+            {"_type":"deserialization/legacy-state","$value":{"Name":"alice"}}
             """;
 
         Storage<CurrentState>? result = JsonSerializer.Deserialize<Storage<CurrentState>>(json, options);
@@ -60,6 +60,21 @@ public sealed class StorageJsonConverterDeserializationTests
         Assert.NotNull(result);
         Assert.Equal("migrated:alice", result.Value.DisplayName);
         Assert.True(result.MigratedDuringDeserialization);
+    }
+
+    [Fact]
+    public void Matching_enveloped_payload_with_custom_value_property_name_uses_current_type_fast_path()
+    {
+        JsonSerializerOptions options = new JsonSerializerOptions().AddStateMigrationSupport("$type", "_value");
+        string json = """
+            {"$type":"deserialization/current-state","_value":{"DisplayName":"alice"}}
+            """;
+
+        Storage<CurrentState>? result = JsonSerializer.Deserialize<Storage<CurrentState>>(json, options);
+
+        Assert.NotNull(result);
+        Assert.Equal("alice", result.Value.DisplayName);
+        Assert.False(result.MigratedDuringDeserialization);
     }
 
     [Theory]
@@ -110,7 +125,7 @@ public sealed class StorageJsonConverterDeserializationTests
         JsonSerializerOptions options = new JsonSerializerOptions()
             .AddStateMigrationSupport(payloadLayout: StoragePayloadLayout.Flattened);
         string json = """
-            {"$type":"deserialization/current-state","value":{"DisplayName":"alice"}}
+            {"$type":"deserialization/current-state","$value":{"DisplayName":"alice"}}
             """;
 
         Storage<CurrentState>? result = JsonSerializer.Deserialize<Storage<CurrentState>>(json, options);
@@ -167,7 +182,7 @@ public sealed class StorageJsonConverterDeserializationTests
     {
         string typeIdentity = typeof(List<string>).FullName!;
         string json = $$"""
-            {"$type":"{{typeIdentity}}","value":["alice","bob"]}
+            {"$type":"{{typeIdentity}}","$value":["alice","bob"]}
             """;
 
         Storage<List<string>>? result = JsonSerializer.Deserialize<Storage<List<string>>>(json);
@@ -175,6 +190,20 @@ public sealed class StorageJsonConverterDeserializationTests
         Assert.NotNull(result);
         Assert.Equal(["alice", "bob"], result.Value);
         Assert.False(result.MigratedDuringDeserialization);
+    }
+
+    [Fact]
+    public void Legacy_enveloped_value_property_deserializes_and_marks_migrated_for_rewrite()
+    {
+        string json = """
+            {"$type":"deserialization/current-state","value":{"DisplayName":"alice"}}
+            """;
+
+        Storage<CurrentState>? result = JsonSerializer.Deserialize<Storage<CurrentState>>(json);
+
+        Assert.NotNull(result);
+        Assert.Equal("alice", result.Value.DisplayName);
+        Assert.True(result.MigratedDuringDeserialization);
     }
 
     [Fact]

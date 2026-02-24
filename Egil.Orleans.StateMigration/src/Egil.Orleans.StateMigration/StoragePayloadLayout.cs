@@ -19,7 +19,7 @@ public enum StoragePayloadLayout
 {
     /// <summary>
     /// Writes metadata and state as:
-    /// <c>{ "&lt;typePropertyName&gt;": "identity", "value": ... }</c>.
+    /// <c>{ "&lt;typePropertyName&gt;": "identity", "&lt;valuePropertyName&gt;": ... }</c>.
     /// </summary>
     Enveloped = 0,
 

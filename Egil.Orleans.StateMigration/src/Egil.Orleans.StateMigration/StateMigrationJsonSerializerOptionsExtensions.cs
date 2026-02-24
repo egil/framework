@@ -10,6 +10,7 @@ namespace Egil.Orleans.StateMigration;
 public static class StateMigrationJsonSerializerOptionsExtensions
 {
     internal const string DefaultTypePropertyName = "$type";
+    internal const string DefaultValuePropertyName = "$value";
 
     /// <summary>
     /// Adds the <see cref="StorageJsonConverterFactory"/> if it is not already registered.
@@ -28,7 +29,11 @@ public static class StateMigrationJsonSerializerOptionsExtensions
     /// ]]></code>
     /// </example>
     public static JsonSerializerOptions AddStateMigrationSupport(this JsonSerializerOptions options)
-        => AddStateMigrationSupport(options, DefaultTypePropertyName, StoragePayloadLayout.Enveloped);
+        => AddStateMigrationSupport(
+            options,
+            DefaultTypePropertyName,
+            DefaultValuePropertyName,
+            StoragePayloadLayout.Enveloped);
 
     /// <summary>
     /// Adds state migration serializer support and configures payload layout.
@@ -40,7 +45,7 @@ public static class StateMigrationJsonSerializerOptionsExtensions
     /// </param>
     /// <returns>The same <paramref name="options"/> instance for chaining.</returns>
     public static JsonSerializerOptions AddStateMigrationSupport(this JsonSerializerOptions options, StoragePayloadLayout payloadLayout)
-        => AddStateMigrationSupport(options, DefaultTypePropertyName, payloadLayout);
+        => AddStateMigrationSupport(options, DefaultTypePropertyName, DefaultValuePropertyName, payloadLayout);
 
     /// <summary>
     /// Adds state migration serializer support and configures the metadata property name used for state type identity.
@@ -48,22 +53,44 @@ public static class StateMigrationJsonSerializerOptionsExtensions
     /// <param name="options">The serializer options to configure.</param>
     /// <param name="typePropertyName">
     /// The JSON property name containing type identity metadata. Defaults to <c>$type</c>.
+    /// Enveloped payload state remains under the default <c>$value</c> property unless explicitly configured.
     /// </param>
     /// <returns>The same <paramref name="options"/> instance for chaining.</returns>
     /// <exception cref="ArgumentException"><paramref name="typePropertyName"/> is null, empty, or whitespace.</exception>
     /// <exception cref="InvalidOperationException">
-    /// Conflicting type property names are configured on the same <see cref="JsonSerializerOptions"/> instance.
+    /// Conflicting metadata configuration is detected on the same <see cref="JsonSerializerOptions"/> instance.
     /// </exception>
     public static JsonSerializerOptions AddStateMigrationSupport(this JsonSerializerOptions options, string typePropertyName)
-        => AddStateMigrationSupport(options, typePropertyName, StoragePayloadLayout.Enveloped);
+        => AddStateMigrationSupport(
+            options,
+            typePropertyName,
+            DefaultValuePropertyName,
+            StoragePayloadLayout.Enveloped);
 
     /// <summary>
-    /// Adds state migration serializer support and configures both metadata property name and payload layout.
+    /// Adds state migration serializer support and configures both metadata property names.
     /// </summary>
     /// <param name="options">The serializer options to configure.</param>
-    /// <param name="typePropertyName">
-    /// The JSON property name containing type identity metadata.
-    /// </param>
+    /// <param name="typePropertyName">The JSON property name containing type identity metadata.</param>
+    /// <param name="valuePropertyName">The JSON property name containing wrapped state in enveloped layout.</param>
+    /// <returns>The same <paramref name="options"/> instance for chaining.</returns>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="typePropertyName"/> or <paramref name="valuePropertyName"/> is null, empty, or whitespace.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">
+    /// Conflicting property names are configured on the same <see cref="JsonSerializerOptions"/> instance.
+    /// </exception>
+    public static JsonSerializerOptions AddStateMigrationSupport(
+        this JsonSerializerOptions options,
+        string typePropertyName,
+        string valuePropertyName)
+        => AddStateMigrationSupport(options, typePropertyName, valuePropertyName, StoragePayloadLayout.Enveloped);
+
+    /// <summary>
+    /// Adds state migration serializer support and configures metadata property name and payload layout.
+    /// </summary>
+    /// <param name="options">The serializer options to configure.</param>
+    /// <param name="typePropertyName">The JSON property name containing type identity metadata.</param>
     /// <param name="payloadLayout">
     /// The JSON payload layout for <see cref="Storage{TStateType}"/>. Use
     /// <see cref="StoragePayloadLayout.Flattened"/> only when legacy shape compatibility is required.
@@ -71,12 +98,37 @@ public static class StateMigrationJsonSerializerOptionsExtensions
     /// <returns>The same <paramref name="options"/> instance for chaining.</returns>
     /// <exception cref="ArgumentException"><paramref name="typePropertyName"/> is null, empty, or whitespace.</exception>
     /// <exception cref="InvalidOperationException">
-    /// Conflicting type property names or payload layouts are configured on the same
+    /// Conflicting metadata configuration or payload layout is detected on the same
     /// <see cref="JsonSerializerOptions"/> instance.
     /// </exception>
     public static JsonSerializerOptions AddStateMigrationSupport(
         this JsonSerializerOptions options,
         string typePropertyName,
+        StoragePayloadLayout payloadLayout)
+        => AddStateMigrationSupport(options, typePropertyName, DefaultValuePropertyName, payloadLayout);
+
+    /// <summary>
+    /// Adds state migration serializer support and configures metadata property names and payload layout.
+    /// </summary>
+    /// <param name="options">The serializer options to configure.</param>
+    /// <param name="typePropertyName">The JSON property name containing type identity metadata.</param>
+    /// <param name="valuePropertyName">The JSON property name containing wrapped state in enveloped layout.</param>
+    /// <param name="payloadLayout">
+    /// The JSON payload layout for <see cref="Storage{TStateType}"/>. Use
+    /// <see cref="StoragePayloadLayout.Flattened"/> only when legacy shape compatibility is required.
+    /// </param>
+    /// <returns>The same <paramref name="options"/> instance for chaining.</returns>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="typePropertyName"/> or <paramref name="valuePropertyName"/> is null, empty, or whitespace.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">
+    /// Conflicting type/value property names or payload layouts are configured on the same
+    /// <see cref="JsonSerializerOptions"/> instance.
+    /// </exception>
+    public static JsonSerializerOptions AddStateMigrationSupport(
+        this JsonSerializerOptions options,
+        string typePropertyName,
+        string valuePropertyName,
         StoragePayloadLayout payloadLayout)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -85,12 +137,17 @@ public static class StateMigrationJsonSerializerOptionsExtensions
             throw new ArgumentException("Type property name cannot be null or whitespace.", nameof(typePropertyName));
         }
 
+        if (string.IsNullOrWhiteSpace(valuePropertyName))
+        {
+            throw new ArgumentException("Value property name cannot be null or whitespace.", nameof(valuePropertyName));
+        }
+
         if (!options.Converters.OfType<StorageJsonConverterFactory>().Any())
         {
             options.Converters.Add(new StorageJsonConverterFactory());
         }
 
-        EnsureConfigurationConfigured(options, typePropertyName, payloadLayout);
+        EnsureConfigurationConfigured(options, typePropertyName, valuePropertyName, payloadLayout);
 
         EnsureBaselineTypeInfoResolver(options);
 
@@ -108,6 +165,10 @@ public static class StateMigrationJsonSerializerOptionsExtensions
         => options.Converters.OfType<StateMigrationJsonConfigurationMarker>().FirstOrDefault()?.TypePropertyName
            ?? DefaultTypePropertyName;
 
+    internal static string GetConfiguredValuePropertyName(JsonSerializerOptions options)
+        => options.Converters.OfType<StateMigrationJsonConfigurationMarker>().FirstOrDefault()?.ValuePropertyName
+           ?? DefaultValuePropertyName;
+
     internal static StoragePayloadLayout GetConfiguredPayloadLayout(JsonSerializerOptions options)
         => options.Converters.OfType<StateMigrationJsonConfigurationMarker>().FirstOrDefault()?.PayloadLayout
            ?? StoragePayloadLayout.Enveloped;
@@ -115,6 +176,7 @@ public static class StateMigrationJsonSerializerOptionsExtensions
     private static void EnsureConfigurationConfigured(
         JsonSerializerOptions options,
         string typePropertyName,
+        string valuePropertyName,
         StoragePayloadLayout payloadLayout)
     {
         StateMigrationJsonConfigurationMarker? marker =
@@ -123,7 +185,8 @@ public static class StateMigrationJsonSerializerOptionsExtensions
         if (marker is null)
         {
             // Use a converter marker because JsonSerializerOptions has no generic extension-data bag.
-            options.Converters.Add(new StateMigrationJsonConfigurationMarker(typePropertyName, payloadLayout));
+            options.Converters.Add(
+                new StateMigrationJsonConfigurationMarker(typePropertyName, valuePropertyName, payloadLayout));
             return;
         }
 
@@ -131,6 +194,12 @@ public static class StateMigrationJsonSerializerOptionsExtensions
         {
             throw new InvalidOperationException(
                 $"Type property name is already configured as '{marker.TypePropertyName}' for this JsonSerializerOptions instance.");
+        }
+
+        if (!string.Equals(marker.ValuePropertyName, valuePropertyName, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Value property name is already configured as '{marker.ValuePropertyName}' for this JsonSerializerOptions instance.");
         }
 
         if (marker.PayloadLayout != payloadLayout)
@@ -168,9 +237,11 @@ public static class StateMigrationJsonSerializerOptionsExtensions
 
     private sealed class StateMigrationJsonConfigurationMarker(
         string typePropertyName,
+        string valuePropertyName,
         StoragePayloadLayout payloadLayout) : JsonConverterFactory
     {
         public string TypePropertyName { get; } = typePropertyName;
+        public string ValuePropertyName { get; } = valuePropertyName;
         public StoragePayloadLayout PayloadLayout { get; } = payloadLayout;
 
         public override bool CanConvert(Type typeToConvert) => false;
