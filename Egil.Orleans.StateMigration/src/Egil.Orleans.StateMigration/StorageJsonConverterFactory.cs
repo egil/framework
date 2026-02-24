@@ -95,7 +95,7 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
 
                     return new Storage<TStateType>
                     {
-                        State = InvokeOnDeserializedCallback(state),
+                        Value = InvokeOnDeserializedCallback(state),
                         MigratedDuringDeserialization = false,
                     };
                 }
@@ -119,7 +119,7 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
 
                 return new Storage<TStateType>
                 {
-                    State = InvokeOnDeserializedCallback((TStateType)migratedState!),
+                    Value = InvokeOnDeserializedCallback((TStateType)migratedState!),
                     MigratedDuringDeserialization = true,
                 };
             }
@@ -133,14 +133,14 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
 
             return new Storage<TStateType>
             {
-                State = InvokeOnDeserializedCallback(legacyState),
+                Value = InvokeOnDeserializedCallback(legacyState),
                 MigratedDuringDeserialization = true,
             };
         }
 
         public override void Write(Utf8JsonWriter writer, Storage<TStateType> value, JsonSerializerOptions options)
         {
-            JsonElement stateElement = JsonSerializer.SerializeToElement(value.State, options);
+            JsonElement stateElement = JsonSerializer.SerializeToElement(value.Value, options);
             if (stateElement.ValueKind != JsonValueKind.Object)
             {
                 throw new JsonException("Storage state must serialize to a JSON object.");

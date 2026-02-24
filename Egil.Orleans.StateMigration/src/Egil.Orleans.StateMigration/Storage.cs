@@ -17,6 +17,12 @@ namespace Egil.Orleans.StateMigration;
 /// {
 ///     private readonly IPersistentState<Storage<CartStateV2>> _state;
 ///
+///     public Task SetStateAsync(CartStateV2 state)
+///     {
+///         _state.State.Value = state;
+///         return _state.WriteStateAsync();
+///     }
+///
 ///     public override async Task OnActivateAsync(CancellationToken cancellationToken)
 ///     {
 ///         if (_state.State.MigratedDuringDeserialization)
@@ -31,9 +37,13 @@ namespace Egil.Orleans.StateMigration;
 public sealed class Storage<TStateType>
 {
     /// <summary>
-    /// Gets the current state value.
+    /// Gets or sets the wrapped state value.
     /// </summary>
-    public required TStateType State { get; init; }
+    /// <remarks>
+    /// This property is intentionally mutable so callers can assign a new state instance without rebuilding
+    /// the wrapper object.
+    /// </remarks>
+    public required TStateType Value { get; set; }
 
     /// <summary>
     /// Gets a value indicating whether migration occurred during deserialization.

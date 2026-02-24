@@ -15,8 +15,8 @@ public sealed class StorageJsonConverterOnDeserializedTests
         Storage<CurrentState>? result = JsonSerializer.Deserialize<Storage<CurrentState>>(json);
 
         Assert.NotNull(result);
-        Assert.Equal("alice", result.State.Name);
-        Assert.Equal(1, result.State.OnDeserializedCount);
+        Assert.Equal("alice", result.Value.Name);
+        Assert.Equal(1, result.Value.OnDeserializedCount);
         Assert.False(result.MigratedDuringDeserialization);
     }
 
@@ -30,8 +30,8 @@ public sealed class StorageJsonConverterOnDeserializedTests
         Storage<CurrentState>? result = JsonSerializer.Deserialize<Storage<CurrentState>>(json);
 
         Assert.NotNull(result);
-        Assert.Equal("migrated:alice", result.State.Name);
-        Assert.Equal(1, result.State.OnDeserializedCount);
+        Assert.Equal("migrated:alice", result.Value.Name);
+        Assert.Equal(1, result.Value.OnDeserializedCount);
         Assert.True(result.MigratedDuringDeserialization);
     }
 
@@ -45,7 +45,7 @@ public sealed class StorageJsonConverterOnDeserializedTests
         Storage<CurrentState>? result = JsonSerializer.Deserialize<Storage<CurrentState>>(json);
 
         Assert.NotNull(result);
-        Assert.Equal(1, result.State.OnDeserializedCount);
+        Assert.Equal(1, result.Value.OnDeserializedCount);
     }
     [global::Orleans.Alias("on-deserialized/legacy-state")]
     public sealed class LegacyState

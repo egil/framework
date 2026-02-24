@@ -100,7 +100,7 @@ public interface IMigrate<in TSource, out TTarget>
 [JsonConverter(typeof(StorageJsonConverterFactory))]
 public class Storage<TStateType>
 {
-    public required TStateType State { get; set; }
+    public required TStateType Value { get; set; }
 
     public bool MigratedDuringDeserialization { get; init; }
 }
@@ -176,6 +176,12 @@ public sealed class CartGrain : Grain
 
     public CartGrain([PersistentState("cart")] IPersistentState<Storage<CartStateV2>> state)
         => _state = state;
+
+    public Task Update(CartStateV2 state)
+    {
+        _state.State.Value = state;
+        return _state.WriteStateAsync();
+    }
 
     public override async Task OnActivateAsync(CancellationToken cancellationToken)
     {

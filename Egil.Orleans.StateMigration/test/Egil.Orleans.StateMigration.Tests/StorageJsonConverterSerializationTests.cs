@@ -10,7 +10,7 @@ public sealed class StorageJsonConverterSerializationTests
     {
         var value = new Storage<NonAliasedState>
         {
-            State = new NonAliasedState { Name = "alice" },
+            Value = new NonAliasedState { Name = "alice" },
         };
 
         string json = JsonSerializer.Serialize(value);
@@ -28,7 +28,7 @@ public sealed class StorageJsonConverterSerializationTests
     {
         var value = new Storage<AliasedState>
         {
-            State = new AliasedState { Name = "alice" },
+            Value = new AliasedState { Name = "alice" },
         };
 
         string json = JsonSerializer.Serialize(value);
@@ -43,7 +43,7 @@ public sealed class StorageJsonConverterSerializationTests
     {
         var value = new Storage<NonAliasedState>
         {
-            State = new NonAliasedState { Name = "alice" },
+            Value = new NonAliasedState { Name = "alice" },
         };
 
         string json = JsonSerializer.Serialize(value);
@@ -58,14 +58,14 @@ public sealed class StorageJsonConverterSerializationTests
     {
         var value = new Storage<AliasedState>
         {
-            State = new AliasedState { Name = "alice" },
+            Value = new AliasedState { Name = "alice" },
         };
 
         string json = JsonSerializer.Serialize(value);
         Storage<AliasedState>? roundtrip = JsonSerializer.Deserialize<Storage<AliasedState>>(json);
 
         Assert.NotNull(roundtrip);
-        Assert.Equal("alice", roundtrip.State.Name);
+        Assert.Equal("alice", roundtrip.Value.Name);
         Assert.False(roundtrip.MigratedDuringDeserialization);
     }
     [global::Orleans.Alias("serialization/aliased-state")]
