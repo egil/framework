@@ -26,6 +26,9 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
     /// otherwise <see langword="false"/>.
     /// </returns>
     public override bool CanConvert(Type typeToConvert)
+        => IsStorageType(typeToConvert);
+
+    internal static bool IsStorageType(Type typeToConvert)
         => typeToConvert.IsGenericType
            && typeToConvert.GetGenericTypeDefinition() == typeof(Storage<>);
 
