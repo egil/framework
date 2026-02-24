@@ -22,6 +22,14 @@ internal static class StateTypeIdentity
                ?? throw new InvalidOperationException($"Unable to determine a stable identity for '{type}'.");
     }
 
+    public static void RegisterRange(IEnumerable<Type> types)
+    {
+        foreach (Type type in types)
+        {
+            Register(type);
+        }
+    }
+
     public static bool TryResolve(string identity, [NotNullWhen(true)] out Type? type)
     {
         if (string.IsNullOrWhiteSpace(identity))
@@ -64,6 +72,18 @@ internal static class StateTypeIdentity
         TypesByIdentity.TryAdd(identity, found);
         type = found;
         return true;
+    }
+
+    private static void Register(Type type)
+    {
+        string identity = GetIdentity(type);
+        if (TypesByIdentity.TryGetValue(identity, out Type? existingType) && existingType != type)
+        {
+            throw new InvalidOperationException(
+                $"Multiple types resolve to the same state identity '{identity}'.");
+        }
+
+        TypesByIdentity.TryAdd(identity, type);
     }
 
     private static IEnumerable<Type> GetLoadableTypes(Assembly assembly)
