@@ -44,10 +44,101 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
 
     private sealed class StorageJsonConverter<TStateType> : JsonConverter<Storage<TStateType>>
     {
+        private const string TypePropertyName = "$type";
+
         public override Storage<TStateType>? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-            => throw new NotImplementedException("Storage deserialization is implemented in a later phase.");
+        {
+            if (reader.TokenType != JsonTokenType.StartObject)
+            {
+                throw new JsonException("Expected JSON object for storage payload.");
+            }
+
+            var probe = reader;
+            if (!probe.Read() || probe.TokenType == JsonTokenType.EndObject)
+            {
+                throw new JsonException("Storage payload cannot be empty.");
+            }
+
+            if (probe.TokenType != JsonTokenType.PropertyName)
+            {
+                throw new JsonException("Storage payload must begin with a property name.");
+            }
+
+            string? firstPropertyName = probe.GetString();
+            if (string.Equals(firstPropertyName, TypePropertyName, StringComparison.Ordinal))
+            {
+                if (!probe.Read())
+                {
+                    throw new JsonException("Storage payload is missing a $type value.");
+                }
+
+                string? sourceIdentity = probe.TokenType switch
+                {
+                    JsonTokenType.String => probe.GetString(),
+                    JsonTokenType.Null => null,
+                    _ => throw new JsonException("Storage payload $type must be a string."),
+                };
+
+                if (string.IsNullOrWhiteSpace(sourceIdentity))
+                {
+                    throw new JsonException("Storage payload $type cannot be null or empty.");
+                }
+
+                string targetIdentity = StateTypeIdentity.GetIdentity(typeof(TStateType));
+                if (!string.Equals(sourceIdentity, targetIdentity, StringComparison.Ordinal))
+                {
+                    throw new JsonException(
+                        $"Storage payload type '{sourceIdentity}' does not match target type '{targetIdentity}'.");
+                }
+
+                TStateType? state = JsonSerializer.Deserialize<TStateType>(ref reader, options);
+                if (state is null)
+                {
+                    throw new JsonException("Storage payload produced a null state for the current type.");
+                }
+
+                return new Storage<TStateType>
+                {
+                    State = state,
+                    MigratedDuringDeserialization = false,
+                };
+            }
+
+            // Missing leading $type means legacy/unversioned payload. Mark migrated so callers can persist versioned format.
+            TStateType? legacyState = JsonSerializer.Deserialize<TStateType>(ref reader, options);
+            if (legacyState is null)
+            {
+                throw new JsonException("Legacy storage payload produced a null state.");
+            }
+
+            return new Storage<TStateType>
+            {
+                State = legacyState,
+                MigratedDuringDeserialization = true,
+            };
+        }
 
         public override void Write(Utf8JsonWriter writer, Storage<TStateType> value, JsonSerializerOptions options)
-            => throw new NotImplementedException("Storage serialization is implemented in a later phase.");
+        {
+            JsonElement stateElement = JsonSerializer.SerializeToElement(value.State, options);
+            if (stateElement.ValueKind != JsonValueKind.Object)
+            {
+                throw new JsonException("Storage state must serialize to a JSON object.");
+            }
+
+            // Reserve $type as metadata contract to keep read-path probing deterministic.
+            if (stateElement.TryGetProperty(TypePropertyName, out _))
+            {
+                throw new JsonException("State payload cannot define a '$type' property.");
+            }
+
+            writer.WriteStartObject();
+            writer.WriteString(TypePropertyName, StateTypeIdentity.GetIdentity(typeof(TStateType)));
+            foreach (JsonProperty property in stateElement.EnumerateObject())
+            {
+                property.WriteTo(writer);
+            }
+            writer.WriteEndObject();
+        }
     }
 }
