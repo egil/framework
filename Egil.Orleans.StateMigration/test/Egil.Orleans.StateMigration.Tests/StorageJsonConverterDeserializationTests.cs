@@ -45,7 +45,7 @@ public sealed class StorageJsonConverterDeserializationTests
     }
 
     [Fact]
-    public void Legacy_payload_without_type_metadata_deserializes_as_current_and_marks_migrated()
+    public void Current_payload_without_type_metadata_deserializes_as_current()
     {
         string json = """
             {"DisplayName":"alice"}
@@ -55,6 +55,20 @@ public sealed class StorageJsonConverterDeserializationTests
 
         Assert.NotNull(result);
         Assert.Equal("alice", result.Value.DisplayName);
+        Assert.True(result.MigratedDuringDeserialization);
+    }
+
+    [Fact]
+    public void Legacy_payload_without_type_metadata_deserializes_as_current_and_marks_migrated()
+    {
+        string json = """
+            {"Name":"alice"}
+            """;
+
+        Storage<CurrentState>? result = JsonSerializer.Deserialize<Storage<CurrentState>>(json);
+
+        Assert.NotNull(result);
+        Assert.Equal(string.Empty, result.Value.DisplayName);
         Assert.True(result.MigratedDuringDeserialization);
     }
     [global::Orleans.Alias("deserialization/legacy-state")]
