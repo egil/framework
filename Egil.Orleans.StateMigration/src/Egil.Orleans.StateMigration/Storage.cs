@@ -13,21 +13,19 @@ namespace Egil.Orleans.StateMigration;
 /// </remarks>
 /// <example>
 /// <code><![CDATA[
-/// public sealed class CartGrain : Grain
+/// public sealed class CartGrain(IPersistentState<Storage<CartStateV2>> state) : Grain
 /// {
-///     private readonly IPersistentState<Storage<CartStateV2>> _state;
-///
-///     public Task SetStateAsync(CartStateV2 state)
+///     public Task SetStateAsync(CartStateV2 nextState)
 ///     {
-///         _state.State.Value = state;
-///         return _state.WriteStateAsync();
+///         state.State.Value = nextState;
+///         return state.WriteStateAsync();
 ///     }
 ///
 ///     public override async Task OnActivateAsync(CancellationToken cancellationToken)
 ///     {
-///         if (_state.State.MigratedDuringDeserialization)
+///         if (state.State.MigratedDuringDeserialization)
 ///         {
-///             await _state.WriteStateAsync();
+///             await state.WriteStateAsync();
 ///         }
 ///     }
 /// }
