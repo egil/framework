@@ -95,7 +95,7 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
 
                     return new Storage<TStateType>
                     {
-                        State = state,
+                        State = InvokeOnDeserializedCallback(state),
                         MigratedDuringDeserialization = false,
                     };
                 }
@@ -119,7 +119,7 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
 
                 return new Storage<TStateType>
                 {
-                    State = (TStateType)migratedState!,
+                    State = InvokeOnDeserializedCallback((TStateType)migratedState!),
                     MigratedDuringDeserialization = true,
                 };
             }
@@ -133,7 +133,7 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
 
             return new Storage<TStateType>
             {
-                State = legacyState,
+                State = InvokeOnDeserializedCallback(legacyState),
                 MigratedDuringDeserialization = true,
             };
         }
@@ -159,6 +159,17 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
                 property.WriteTo(writer);
             }
             writer.WriteEndObject();
+        }
+
+        private static TStateType InvokeOnDeserializedCallback(TStateType state)
+        {
+            if (state is global::Orleans.Serialization.IOnDeserialized callback)
+            {
+                // Use Orleans callback hook after materialization so states can perform post-deserialization fixups.
+                callback.OnDeserialized(default!);
+            }
+
+            return state;
         }
     }
 }
