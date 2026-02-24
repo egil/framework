@@ -26,4 +26,16 @@ public sealed class StateMigrationJsonSerializerOptionsExtensionsTests
 
         Assert.Contains("already configured", exception.Message, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void Add_state_migration_support_throws_for_conflicting_payload_layout()
+    {
+        var options = new JsonSerializerOptions();
+        options.AddStateMigrationSupport(StoragePayloadLayout.Enveloped);
+
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(
+            () => options.AddStateMigrationSupport(StoragePayloadLayout.Flattened));
+
+        Assert.Contains("already configured", exception.Message, StringComparison.Ordinal);
+    }
 }

@@ -31,13 +31,20 @@ External migrator registration/lifetime:
 - Fail startup if multiple external migrators are registered for the same `(TSource, TTarget)` pair.
 
 If migration happens during deserialization, set `Storage<TStateType>.MigratedDuringDeserialization = true` so callers know they should write the updated format back.
+The same flag is also set when payload layout differs from configured output layout (for example legacy flattened payload read while enveloped output is configured).
 
 ## Type identity contract
 
 When serializing `Storage<T>`:
 - By default, write `$type` (configurable via `AddStateMigrationSupport(options, typePropertyName)`).
+- By default, write an envelope payload shape: `{"$type":"...","value": ...state...}`.
+- Optional compatibility mode can write the legacy flattened shape: `{"$type":"...", ...state object properties...}`.
 - If `T` has Orleans `[Alias]`, use the alias value.
 - Otherwise use the full CLR type name (compatibility fallback, same spirit as Orleans serialization behavior).
+
+Performance guidance:
+- `Enveloped` layout is the default and optimized hot path. When no migration is needed, this path targets near-plain STJ cost.
+- `Flattened` layout is compatibility-focused and may allocate more during serialization because state properties must be merged into the root object.
 
 Guidance:
 - Aliases should be treated as immutable once data is persisted.
@@ -53,6 +60,8 @@ Guidance:
 Proposed flow:
 1. Copy `Utf8JsonReader` and inspect only the first property.
 2. If first property is `$type` with a non-empty string:
+   - If payload is enveloped (`$type` + `value`), deserialize `value`.
+   - If payload is flattened (legacy), deserialize full object as state/source type.
    - If value matches target `T`, fast-path deserialize current type.
    - If value is another known type, deserialize that type, resolve migration for `(sourceType, T)`, then set `MigratedDuringDeserialization = true`.
    - If value is null/empty/unknown, fail fast with a clear exception.
@@ -170,24 +179,19 @@ public sealed class CartItem
 Grain usage:
 
 ```csharp
-public sealed class CartGrain : Grain
+public sealed class CartGrain([PersistentState("cart")] IPersistentState<Storage<CartStateV2>> state) : Grain
 {
-    private readonly IPersistentState<Storage<CartStateV2>> _state;
-
-    public CartGrain([PersistentState("cart")] IPersistentState<Storage<CartStateV2>> state)
-        => _state = state;
-
     public Task Update(CartStateV2 state)
     {
-        _state.State.Value = state;
-        return _state.WriteStateAsync();
+        this.state.State.Value = state;
+        return this.state.WriteStateAsync();
     }
 
     public override async Task OnActivateAsync(CancellationToken cancellationToken)
     {
-        if (_state.State.MigratedDuringDeserialization)
+        if (state.State.MigratedDuringDeserialization)
         {
-            await _state.WriteStateAsync();
+            await state.WriteStateAsync();
         }
     }
 }

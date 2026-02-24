@@ -43,16 +43,23 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
         Type stateType = typeToConvert.GetGenericArguments()[0];
         Type converterType = typeof(StorageJsonConverter<>).MakeGenericType(stateType);
         string typePropertyName = StateMigrationJsonSerializerOptionsExtensions.GetConfiguredTypePropertyName(options);
-        return (JsonConverter)Activator.CreateInstance(converterType, typePropertyName)!;
+        StoragePayloadLayout payloadLayout =
+            StateMigrationJsonSerializerOptionsExtensions.GetConfiguredPayloadLayout(options);
+        return (JsonConverter)Activator.CreateInstance(converterType, typePropertyName, payloadLayout)!;
     }
 
     private sealed class StorageJsonConverter<TStateType> : JsonConverter<Storage<TStateType>>
     {
+        private const string ValuePropertyName = "value";
         private static readonly string TargetTypeIdentity = StateTypeIdentity.GetIdentity(typeof(TStateType));
         private readonly string _typePropertyName;
+        private readonly StoragePayloadLayout _payloadLayout;
 
-        public StorageJsonConverter(string typePropertyName)
-            => _typePropertyName = typePropertyName;
+        public StorageJsonConverter(string typePropertyName, StoragePayloadLayout payloadLayout)
+        {
+            _typePropertyName = typePropertyName;
+            _payloadLayout = payloadLayout;
+        }
 
         public override Storage<TStateType>? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
         {
@@ -81,21 +88,23 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
                     throw new JsonException($"Storage payload is missing a '{_typePropertyName}' value.");
                 }
 
-                string? sourceIdentity = probe.TokenType switch
-                {
-                    JsonTokenType.String => probe.GetString(),
-                    JsonTokenType.Null => null,
-                    _ => throw new JsonException($"Storage payload '{_typePropertyName}' must be a string."),
-                };
+                string? sourceIdentity = ParseTypeIdentity(ref probe);
 
                 if (string.IsNullOrWhiteSpace(sourceIdentity))
                 {
                     throw new JsonException($"Storage payload '{_typePropertyName}' cannot be null or empty.");
                 }
 
+                bool isEnvelopedPayload = IsEnvelopedPayload(ref probe);
+                StoragePayloadLayout incomingLayout = isEnvelopedPayload
+                    ? StoragePayloadLayout.Enveloped
+                    : StoragePayloadLayout.Flattened;
+
                 if (string.Equals(sourceIdentity, TargetTypeIdentity, StringComparison.Ordinal))
                 {
-                    TStateType? state = JsonSerializer.Deserialize<TStateType>(ref reader, options);
+                    TStateType? state = isEnvelopedPayload
+                        ? DeserializeEnvelopedState(ref reader, sourceIdentity, options)
+                        : DeserializeCurrentFlattenedPayload(ref reader, options);
                     if (state is null)
                     {
                         throw new JsonException("Storage payload produced a null state for the current type.");
@@ -104,7 +113,8 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
                     return new Storage<TStateType>
                     {
                         Value = InvokeOnDeserializedCallback(state),
-                        MigratedDuringDeserialization = false,
+                        // Rewrite when incoming payload shape differs from the configured writer output shape.
+                        MigratedDuringDeserialization = incomingLayout != _payloadLayout,
                     };
                 }
 
@@ -113,7 +123,9 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
                     throw new JsonException($"Storage payload type '{sourceIdentity}' is unknown.");
                 }
 
-                object? source = JsonSerializer.Deserialize(ref reader, sourceType, options);
+                object? source = isEnvelopedPayload
+                    ? DeserializeEnvelopedState(ref reader, sourceIdentity, sourceType, options)
+                    : JsonSerializer.Deserialize(ref reader, sourceType, options);
                 if (source is null)
                 {
                     throw new JsonException($"Storage payload could not deserialize source type '{sourceIdentity}'.");
@@ -137,13 +149,122 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
 
         public override void Write(Utf8JsonWriter writer, Storage<TStateType> value, JsonSerializerOptions options)
         {
+            if (_payloadLayout == StoragePayloadLayout.Enveloped)
+            {
+                writer.WriteStartObject();
+                writer.WriteString(_typePropertyName, TargetTypeIdentity);
+                writer.WritePropertyName(ValuePropertyName);
+                // Envelope payload avoids JsonElement materialization and supports any JSON shape for TStateType.
+                JsonSerializer.Serialize(writer, value.Value, options);
+                writer.WriteEndObject();
+                return;
+            }
+
+            WriteFlattenedPayload(writer, value, options);
+        }
+
+        private string? ParseTypeIdentity(ref Utf8JsonReader reader)
+            => reader.TokenType switch
+            {
+                JsonTokenType.String => reader.GetString(),
+                JsonTokenType.Null => null,
+                _ => throw new JsonException($"Storage payload '{_typePropertyName}' must be a string."),
+            };
+
+        private bool IsEnvelopedPayload(ref Utf8JsonReader probe)
+        {
+            if (!probe.Read() || probe.TokenType != JsonTokenType.PropertyName)
+            {
+                return false;
+            }
+
+            if (!string.Equals(probe.GetString(), ValuePropertyName, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            if (!probe.Read())
+            {
+                throw new JsonException($"Storage envelope payload is missing a '{ValuePropertyName}' value.");
+            }
+
+            probe.Skip();
+            return probe.Read() && probe.TokenType == JsonTokenType.EndObject;
+        }
+
+        private TStateType? DeserializeCurrentFlattenedPayload(ref Utf8JsonReader reader, JsonSerializerOptions options)
+            => JsonSerializer.Deserialize<TStateType>(ref reader, options);
+
+        private TStateType? DeserializeEnvelopedState(
+            ref Utf8JsonReader reader,
+            string expectedSourceIdentity,
+            JsonSerializerOptions options)
+            => (TStateType?)DeserializeEnvelopedState(ref reader, expectedSourceIdentity, typeof(TStateType), options);
+
+        private object? DeserializeEnvelopedState(
+            ref Utf8JsonReader reader,
+            string expectedSourceIdentity,
+            Type stateType,
+            JsonSerializerOptions options)
+        {
+            if (!reader.Read() || reader.TokenType != JsonTokenType.PropertyName)
+            {
+                throw new JsonException("Storage payload is malformed.");
+            }
+
+            if (!string.Equals(reader.GetString(), _typePropertyName, StringComparison.Ordinal))
+            {
+                throw new JsonException($"Storage payload must start with '{_typePropertyName}'.");
+            }
+
+            if (!reader.Read())
+            {
+                throw new JsonException($"Storage payload is missing a '{_typePropertyName}' value.");
+            }
+
+            string? sourceIdentity = ParseTypeIdentity(ref reader);
+            if (!string.Equals(sourceIdentity, expectedSourceIdentity, StringComparison.Ordinal))
+            {
+                throw new JsonException("Storage payload type metadata changed while parsing.");
+            }
+
+            if (!reader.Read() || reader.TokenType != JsonTokenType.PropertyName)
+            {
+                throw new JsonException($"Storage payload is missing a '{ValuePropertyName}' property.");
+            }
+
+            if (!string.Equals(reader.GetString(), ValuePropertyName, StringComparison.Ordinal))
+            {
+                throw new JsonException($"Storage payload must use '{ValuePropertyName}' as the state property name.");
+            }
+
+            if (!reader.Read())
+            {
+                throw new JsonException($"Storage payload is missing a '{ValuePropertyName}' value.");
+            }
+
+            object? state = JsonSerializer.Deserialize(ref reader, stateType, options);
+            if (!reader.Read() || reader.TokenType != JsonTokenType.EndObject)
+            {
+                throw new JsonException("Storage envelope payload contains unexpected properties.");
+            }
+
+            return state;
+        }
+
+        private void WriteFlattenedPayload(
+            Utf8JsonWriter writer,
+            Storage<TStateType> value,
+            JsonSerializerOptions options)
+        {
             JsonElement stateElement = JsonSerializer.SerializeToElement(value.Value, options);
             if (stateElement.ValueKind != JsonValueKind.Object)
             {
-                throw new JsonException("Storage state must serialize to a JSON object.");
+                throw new JsonException(
+                    $"Flattened storage payload requires '{typeof(TStateType)}' to serialize as a JSON object. " +
+                    $"Use '{nameof(StoragePayloadLayout)}.{nameof(StoragePayloadLayout.Enveloped)}' for non-object states.");
             }
 
-            // Reserve $type as metadata contract to keep read-path probing deterministic.
             if (stateElement.TryGetProperty(_typePropertyName, out _))
             {
                 throw new JsonException($"State payload cannot define a '{_typePropertyName}' property.");
@@ -155,6 +276,7 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
             {
                 property.WriteTo(writer);
             }
+
             writer.WriteEndObject();
         }
 

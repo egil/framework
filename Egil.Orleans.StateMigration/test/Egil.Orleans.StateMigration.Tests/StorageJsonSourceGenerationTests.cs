@@ -27,7 +27,7 @@ public sealed class StorageJsonSourceGenerationTests
     {
         JsonSerializerOptions options = CreateOptions();
         string json = """
-            {"$type":"sourcegen/legacy-state","Name":"alice"}
+            {"$type":"sourcegen/legacy-state","value":{"Name":"alice"}}
             """;
 
         Storage<SourceGenCurrentState>? result = JsonSerializer.Deserialize<Storage<SourceGenCurrentState>>(json, options);
@@ -57,7 +57,7 @@ public sealed class StorageJsonSourceGenerationTests
     {
         JsonSerializerOptions options = CreateOptions("_type");
         string json = """
-            {"_type":"sourcegen/legacy-state","Name":"alice"}
+            {"_type":"sourcegen/legacy-state","value":{"Name":"alice"}}
             """;
 
         Storage<SourceGenCurrentState>? result = JsonSerializer.Deserialize<Storage<SourceGenCurrentState>>(json, options);

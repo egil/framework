@@ -24,6 +24,38 @@ public sealed class StorageJsonConverterSerializationTests
     }
 
     [Fact]
+    public void Serialization_wraps_state_in_value_property()
+    {
+        var value = new Storage<NonAliasedState>
+        {
+            Value = new NonAliasedState { Name = "alice" },
+        };
+
+        string json = JsonSerializer.Serialize(value);
+        using JsonDocument document = JsonDocument.Parse(json);
+
+        Assert.True(document.RootElement.TryGetProperty("value", out JsonElement stateElement));
+        Assert.Equal("alice", stateElement.GetProperty("Name").GetString());
+    }
+
+    [Fact]
+    public void Serialization_supports_non_object_state_shapes()
+    {
+        var value = new Storage<List<string>>
+        {
+            Value = ["alice", "bob"],
+        };
+
+        string json = JsonSerializer.Serialize(value);
+        using JsonDocument document = JsonDocument.Parse(json);
+
+        Assert.True(document.RootElement.TryGetProperty("value", out JsonElement stateElement));
+        Assert.Equal(JsonValueKind.Array, stateElement.ValueKind);
+        Assert.Equal("alice", stateElement[0].GetString());
+        Assert.Equal("bob", stateElement[1].GetString());
+    }
+
+    [Fact]
     public void Serialization_uses_orleans_alias_when_present()
     {
         var value = new Storage<AliasedState>
@@ -83,6 +115,41 @@ public sealed class StorageJsonConverterSerializationTests
 
         Assert.True(document.RootElement.TryGetProperty("_type", out JsonElement typeProperty));
         Assert.Equal("serialization/aliased-state", typeProperty.GetString());
+        Assert.True(document.RootElement.TryGetProperty("value", out _));
+    }
+
+    [Fact]
+    public void Serialization_can_write_flattened_payload_when_configured()
+    {
+        JsonSerializerOptions options = new JsonSerializerOptions()
+            .AddStateMigrationSupport(payloadLayout: StoragePayloadLayout.Flattened);
+        var value = new Storage<AliasedState>
+        {
+            Value = new AliasedState { Name = "alice" },
+        };
+
+        string json = JsonSerializer.Serialize(value, options);
+        using JsonDocument document = JsonDocument.Parse(json);
+
+        Assert.Equal("serialization/aliased-state", document.RootElement.GetProperty("$type").GetString());
+        Assert.Equal("alice", document.RootElement.GetProperty("Name").GetString());
+        Assert.False(document.RootElement.TryGetProperty("value", out _));
+    }
+
+    [Fact]
+    public void Flattened_serialization_rejects_non_object_state_shapes()
+    {
+        JsonSerializerOptions options = new JsonSerializerOptions()
+            .AddStateMigrationSupport(payloadLayout: StoragePayloadLayout.Flattened);
+        var value = new Storage<List<string>>
+        {
+            Value = ["alice", "bob"],
+        };
+
+        JsonException exception = Assert.Throws<JsonException>(
+            () => JsonSerializer.Serialize(value, options));
+
+        Assert.Contains("Flattened storage payload requires", exception.Message, StringComparison.Ordinal);
     }
 
     [Alias("serialization/aliased-state")]
