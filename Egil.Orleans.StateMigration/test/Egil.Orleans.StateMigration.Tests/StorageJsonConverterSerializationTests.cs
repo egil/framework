@@ -68,7 +68,7 @@ public sealed class StorageJsonConverterSerializationTests
         Assert.Equal("alice", roundtrip.Value.Name);
         Assert.False(roundtrip.MigratedDuringDeserialization);
     }
-    [global::Orleans.Alias("serialization/aliased-state")]
+    [Alias("serialization/aliased-state")]
     public sealed class AliasedState
     {
         public string Name { get; init; } = string.Empty;

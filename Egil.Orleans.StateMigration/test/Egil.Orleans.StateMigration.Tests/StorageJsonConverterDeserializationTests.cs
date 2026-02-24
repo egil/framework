@@ -71,13 +71,13 @@ public sealed class StorageJsonConverterDeserializationTests
         Assert.Equal(string.Empty, result.Value.DisplayName);
         Assert.True(result.MigratedDuringDeserialization);
     }
-    [global::Orleans.Alias("deserialization/legacy-state")]
+    [Alias("deserialization/legacy-state")]
     public sealed class LegacyState
     {
         public string Name { get; init; } = string.Empty;
     }
 
-    [global::Orleans.Alias("deserialization/current-state")]
+    [Alias("deserialization/current-state")]
     public sealed class CurrentState : IMigrateFrom<LegacyState, CurrentState>
     {
         public string DisplayName { get; init; } = string.Empty;

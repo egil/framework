@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Orleans.Serialization;
 
 namespace Egil.Orleans.StateMigration.Tests;
 
@@ -47,16 +48,16 @@ public sealed class StorageJsonConverterOnDeserializedTests
         Assert.NotNull(result);
         Assert.Equal(1, result.Value.OnDeserializedCount);
     }
-    [global::Orleans.Alias("on-deserialized/legacy-state")]
+    [Alias("on-deserialized/legacy-state")]
     public sealed class LegacyState
     {
         public string Name { get; init; } = string.Empty;
     }
 
-    [global::Orleans.Alias("on-deserialized/current-state")]
+    [Alias("on-deserialized/current-state")]
     public sealed class CurrentState :
         IMigrateFrom<LegacyState, CurrentState>,
-        global::Orleans.Serialization.IOnDeserialized
+        IOnDeserialized
     {
         public string Name { get; init; } = string.Empty;
 
@@ -66,7 +67,7 @@ public sealed class StorageJsonConverterOnDeserializedTests
         public static CurrentState From(LegacyState source)
             => new() { Name = $"migrated:{source.Name}" };
 
-        public void OnDeserialized(global::Orleans.Serialization.DeserializationContext context)
+        public void OnDeserialized(DeserializationContext context)
             => OnDeserializedCount++;
     }
 }
