@@ -48,6 +48,7 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
 
     private sealed class StorageJsonConverter<TStateType> : JsonConverter<Storage<TStateType>>
     {
+        private static readonly string TargetTypeIdentity = StateTypeIdentity.GetIdentity(typeof(TStateType));
         private readonly string _typePropertyName;
 
         public StorageJsonConverter(string typePropertyName)
@@ -92,8 +93,7 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
                     throw new JsonException($"Storage payload '{_typePropertyName}' cannot be null or empty.");
                 }
 
-                string targetIdentity = StateTypeIdentity.GetIdentity(typeof(TStateType));
-                if (string.Equals(sourceIdentity, targetIdentity, StringComparison.Ordinal))
+                if (string.Equals(sourceIdentity, TargetTypeIdentity, StringComparison.Ordinal))
                 {
                     TStateType? state = JsonSerializer.Deserialize<TStateType>(ref reader, options);
                     if (state is null)
@@ -122,7 +122,7 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
                 if (!StateMigrationInvoker.TryMigrate(source, sourceType, typeof(TStateType), out object? migratedState))
                 {
                     throw new JsonException(
-                        $"No direct migration exists from '{sourceIdentity}' to '{targetIdentity}'.");
+                        $"No direct migration exists from '{sourceIdentity}' to '{TargetTypeIdentity}'.");
                 }
 
                 return new Storage<TStateType>
@@ -150,7 +150,7 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
             }
 
             writer.WriteStartObject();
-            writer.WriteString(_typePropertyName, StateTypeIdentity.GetIdentity(typeof(TStateType)));
+            writer.WriteString(_typePropertyName, TargetTypeIdentity);
             foreach (JsonProperty property in stateElement.EnumerateObject())
             {
                 property.WriteTo(writer);
