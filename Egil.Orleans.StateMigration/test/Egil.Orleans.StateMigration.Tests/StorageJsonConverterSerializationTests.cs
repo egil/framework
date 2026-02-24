@@ -3,7 +3,7 @@ using System.Text.Json;
 
 namespace Egil.Orleans.StateMigration.Tests;
 
-public sealed class StorageJsonConverterPhase2Tests
+public sealed class StorageJsonConverterSerializationTests
 {
     [Fact]
     public void Serialization_writes_type_metadata_as_the_first_property()
@@ -35,7 +35,7 @@ public sealed class StorageJsonConverterPhase2Tests
         using JsonDocument document = JsonDocument.Parse(json);
 
         string? identity = document.RootElement.GetProperty("$type").GetString();
-        Assert.Equal("phase2/aliased-state", identity);
+        Assert.Equal("serialization/aliased-state", identity);
     }
 
     [Fact]
@@ -68,16 +68,14 @@ public sealed class StorageJsonConverterPhase2Tests
         Assert.Equal("alice", roundtrip.State.Name);
         Assert.False(roundtrip.MigratedDuringDeserialization);
     }
+    [global::Orleans.Alias("serialization/aliased-state")]
+    public sealed class AliasedState
+    {
+        public string Name { get; init; } = string.Empty;
+    }
 
-}
-
-[global::Orleans.Alias("phase2/aliased-state")]
-public sealed class AliasedState
-{
-    public string Name { get; init; } = string.Empty;
-}
-
-public sealed class NonAliasedState
-{
-    public string Name { get; init; } = string.Empty;
+    private sealed class NonAliasedState
+    {
+        public string Name { get; init; } = string.Empty;
+    }
 }
