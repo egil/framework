@@ -42,14 +42,19 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
     {
         Type stateType = typeToConvert.GetGenericArguments()[0];
         Type converterType = typeof(StorageJsonConverter<>).MakeGenericType(stateType);
-        return (JsonConverter)Activator.CreateInstance(converterType)!;
+        string typePropertyName = StateMigrationJsonSerializerOptionsExtensions.GetConfiguredTypePropertyName(options);
+        return (JsonConverter)Activator.CreateInstance(converterType, typePropertyName)!;
     }
 
     private sealed class StorageJsonConverter<TStateType> : JsonConverter<Storage<TStateType>>
     {
+        private readonly string _typePropertyName;
+
+        public StorageJsonConverter(string typePropertyName)
+            => _typePropertyName = typePropertyName;
+
         public override Storage<TStateType>? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
         {
-            string typePropertyName = StateMigrationJsonSerializerOptionsExtensions.GetConfiguredTypePropertyName(options);
             if (reader.TokenType != JsonTokenType.StartObject)
             {
                 // Legacy payloads for collection/primitive states are often non-object JSON (for example arrays, numbers, strings).
@@ -68,23 +73,23 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
             }
 
             string? firstPropertyName = probe.GetString();
-            if (string.Equals(firstPropertyName, typePropertyName, StringComparison.Ordinal))
+            if (string.Equals(firstPropertyName, _typePropertyName, StringComparison.Ordinal))
             {
                 if (!probe.Read())
                 {
-                    throw new JsonException($"Storage payload is missing a '{typePropertyName}' value.");
+                    throw new JsonException($"Storage payload is missing a '{_typePropertyName}' value.");
                 }
 
                 string? sourceIdentity = probe.TokenType switch
                 {
                     JsonTokenType.String => probe.GetString(),
                     JsonTokenType.Null => null,
-                    _ => throw new JsonException($"Storage payload '{typePropertyName}' must be a string."),
+                    _ => throw new JsonException($"Storage payload '{_typePropertyName}' must be a string."),
                 };
 
                 if (string.IsNullOrWhiteSpace(sourceIdentity))
                 {
-                    throw new JsonException($"Storage payload '{typePropertyName}' cannot be null or empty.");
+                    throw new JsonException($"Storage payload '{_typePropertyName}' cannot be null or empty.");
                 }
 
                 string targetIdentity = StateTypeIdentity.GetIdentity(typeof(TStateType));
@@ -132,7 +137,6 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
 
         public override void Write(Utf8JsonWriter writer, Storage<TStateType> value, JsonSerializerOptions options)
         {
-            string typePropertyName = StateMigrationJsonSerializerOptionsExtensions.GetConfiguredTypePropertyName(options);
             JsonElement stateElement = JsonSerializer.SerializeToElement(value.Value, options);
             if (stateElement.ValueKind != JsonValueKind.Object)
             {
@@ -140,13 +144,13 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
             }
 
             // Reserve $type as metadata contract to keep read-path probing deterministic.
-            if (stateElement.TryGetProperty(typePropertyName, out _))
+            if (stateElement.TryGetProperty(_typePropertyName, out _))
             {
-                throw new JsonException($"State payload cannot define a '{typePropertyName}' property.");
+                throw new JsonException($"State payload cannot define a '{_typePropertyName}' property.");
             }
 
             writer.WriteStartObject();
-            writer.WriteString(typePropertyName, StateTypeIdentity.GetIdentity(typeof(TStateType)));
+            writer.WriteString(_typePropertyName, StateTypeIdentity.GetIdentity(typeof(TStateType)));
             foreach (JsonProperty property in stateElement.EnumerateObject())
             {
                 property.WriteTo(writer);
