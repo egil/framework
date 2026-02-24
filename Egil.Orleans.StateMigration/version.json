@@ -1,0 +1,30 @@
+{
+  "$schema": "https://raw.githubusercontent.com/dotnet/Nerdbank.GitVersioning/main/src/NerdBank.GitVersioning/version.schema.json",
+  "version": "0.1-alpha",
+  "publicReleaseRefSpec": [
+    "^refs/heads/main$",
+    "^refs/heads/release/egil-orleans-statemigration/v\\d+(?:\\.\\d+)?$"
+  ],
+  "cloudBuild": {
+    "setAllVariables": true,
+    "buildNumber": {
+      "enabled": true
+    }
+  },
+  "release": {
+    "tagName": "egil-orleans-statemigration/v{version}",
+    "branchName": "release/egil-orleans-statemigration/v{version}"
+  },
+  "pathFilters": [
+    "./",
+    "Directory.Packages.props",
+    "../.github/workflows/egil-orleans-statemigration-ci.yml",
+    "../.editorconfig",
+    "../.gitattributes",
+    "../.gitignore",
+    "../Directory.Build.props",
+    "../LICENSE",
+    "../version.json",
+    "../xunit.runner.json"
+  ]
+}
