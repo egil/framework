@@ -3,12 +3,36 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Egil.Orleans.StateMigration;
 
+/// <summary>
+/// Dependency-injection registration helpers for state migration services.
+/// </summary>
+/// <remarks>
+/// Registration validates external migrator uniqueness per source/target pair to fail fast at startup
+/// instead of surfacing ambiguity at runtime during state deserialization.
+/// </remarks>
 public static class StateMigrationServiceCollectionExtensions
 {
+    /// <summary>
+    /// Registers state migration services required by this library.
+    /// </summary>
+    /// <param name="services">The service collection to update.</param>
+    /// <returns>The same <paramref name="services"/> instance for chaining.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="services"/> is <see langword="null"/>.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// More than one external <see cref="IMigrate{TSource, TTarget}"/> is registered for the same
+    /// source/target pair.
+    /// </exception>
+    /// <example>
+    /// <code><![CDATA[
+    /// services.AddSingleton<IMigrate<ProfileV1, ProfileV2>, ProfileV1ToV2Migrator>();
+    /// services.AddStateMigration();
+    /// ]]></code>
+    /// </example>
     public static IServiceCollection AddStateMigration(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
 
+        // Validate on startup because duplicate migrators are an application wiring error, not a runtime fallback.
         ValidateDuplicateExternalMigrators(services);
         services.TryAddSingleton<IMigrationResolver, MigrationResolver>();
         return services;

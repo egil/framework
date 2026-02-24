@@ -9,6 +9,16 @@
 - Follow existing repository structure, naming, and coding style conventions.
 - Apply TDD: write failing tests first, then implement, then refactor.
 
+## Cross-cutting standards
+
+- Before each implementation phase, run `dotnet outdated --upgrade` for the library and test projects and keep all package references on latest stable versions.
+- Add comments that explain why non-obvious code paths exist, especially around migration resolution and serialization contracts.
+- Add XML documentation (`///`) for all public API surfaces:
+  - include purpose and behavior expectations
+  - include a usage example where relevant
+  - describe implicit constraints (for example: static migration precedence, duplicate external migrator validation, direct migration only)
+- Use Conventional Commits for all new commits in this library (for example: `feat(state-migration): add type identity resolution`).
+
 ## Project scaffold
 
 1. Create `Egil.Orleans.StateMigration.sln`.

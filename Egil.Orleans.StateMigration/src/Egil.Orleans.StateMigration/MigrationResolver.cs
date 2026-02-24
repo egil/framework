@@ -7,11 +7,13 @@ internal sealed class MigrationResolver(IServiceProvider serviceProvider) : IMig
 {
     public TTarget Migrate<TSource, TTarget>(TSource source)
     {
+        // Prefer static migration to keep versioning logic colocated with the target type and avoid DI lookup overhead.
         if (StaticMigrator<TSource, TTarget>.TryMigrate(source, out TTarget? migrated))
         {
             return migrated;
         }
 
+        // External migrators are fallback-only, resolved from DI for cases where migration cannot live on the target type.
         IMigrate<TSource, TTarget>[] migrators = [.. serviceProvider.GetServices<IMigrate<TSource, TTarget>>()];
 
         return migrators.Length switch
@@ -26,6 +28,7 @@ internal sealed class MigrationResolver(IServiceProvider serviceProvider) : IMig
 
     private static class StaticMigrator<TSource, TTarget>
     {
+        // Cache the delegate once per generic pair so hot-path migrations avoid repeated reflection.
         private static readonly Func<TSource, TTarget>? Migrator = CreateMigrator();
 
         public static bool TryMigrate(TSource source, out TTarget result)
@@ -57,6 +60,7 @@ internal sealed class MigrationResolver(IServiceProvider serviceProvider) : IMig
                     $"Type '{typeof(TTarget).FullName}' implements '{typeof(IMigrateFrom<TSource, TTarget>).FullName}' but no valid static From method was found.");
             }
 
+            // Compile once to strongly-typed delegate so subsequent invocations are allocation-free and fast.
             ParameterExpression sourceParameter = Expression.Parameter(typeof(TSource), "source");
             MethodCallExpression call = Expression.Call(fromMethod, sourceParameter);
             return Expression.Lambda<Func<TSource, TTarget>>(call, sourceParameter).Compile();
