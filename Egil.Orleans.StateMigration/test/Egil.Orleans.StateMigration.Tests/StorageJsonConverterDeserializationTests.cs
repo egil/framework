@@ -71,6 +71,78 @@ public sealed class StorageJsonConverterDeserializationTests
         Assert.Equal(string.Empty, result.Value.DisplayName);
         Assert.True(result.MigratedDuringDeserialization);
     }
+
+    [Fact]
+    public void Current_list_payload_without_type_metadata_deserializes_as_current()
+    {
+        string json = """
+            ["alice","bob"]
+            """;
+
+        Storage<List<string>>? result = JsonSerializer.Deserialize<Storage<List<string>>>(json);
+
+        Assert.NotNull(result);
+        Assert.Equal(["alice", "bob"], result.Value);
+        Assert.True(result.MigratedDuringDeserialization);
+    }
+
+    [Fact]
+    public void Current_array_payload_without_type_metadata_deserializes_as_current()
+    {
+        string json = """
+            ["alice","bob"]
+            """;
+
+        Storage<string[]>? result = JsonSerializer.Deserialize<Storage<string[]>>(json);
+
+        Assert.NotNull(result);
+        Assert.Equal(["alice", "bob"], result.Value);
+        Assert.True(result.MigratedDuringDeserialization);
+    }
+
+    [Fact]
+    public void Current_set_payload_without_type_metadata_deserializes_as_current()
+    {
+        string json = """
+            ["alice","bob"]
+            """;
+
+        Storage<HashSet<string>>? result = JsonSerializer.Deserialize<Storage<HashSet<string>>>(json);
+
+        Assert.NotNull(result);
+        Assert.Equal(2, result.Value.Count);
+        Assert.Contains("alice", result.Value);
+        Assert.Contains("bob", result.Value);
+        Assert.True(result.MigratedDuringDeserialization);
+    }
+
+    [Fact]
+    public void Current_dictionary_payload_without_type_metadata_deserializes_as_current()
+    {
+        string json = """
+            {"alice":1,"bob":2}
+            """;
+
+        Storage<Dictionary<string, int>>? result = JsonSerializer.Deserialize<Storage<Dictionary<string, int>>>(json);
+
+        Assert.NotNull(result);
+        Assert.Equal(2, result.Value.Count);
+        Assert.Equal(1, result.Value["alice"]);
+        Assert.Equal(2, result.Value["bob"]);
+        Assert.True(result.MigratedDuringDeserialization);
+    }
+
+    [Fact]
+    public void Current_builtin_primitive_payload_without_type_metadata_deserializes_as_current()
+    {
+        string json = "42";
+
+        Storage<int>? result = JsonSerializer.Deserialize<Storage<int>>(json);
+
+        Assert.NotNull(result);
+        Assert.Equal(42, result.Value);
+        Assert.True(result.MigratedDuringDeserialization);
+    }
     [Alias("deserialization/legacy-state")]
     public sealed class LegacyState
     {

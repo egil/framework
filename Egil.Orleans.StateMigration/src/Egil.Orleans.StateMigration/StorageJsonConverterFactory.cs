@@ -50,18 +50,19 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
         {
             if (reader.TokenType != JsonTokenType.StartObject)
             {
-                throw new JsonException("Expected JSON object for storage payload.");
+                // Legacy payloads for collection/primitive states are often non-object JSON (for example arrays, numbers, strings).
+                return DeserializeLegacyPayload(ref reader, options);
             }
 
             var probe = reader;
             if (!probe.Read() || probe.TokenType == JsonTokenType.EndObject)
             {
-                throw new JsonException("Storage payload cannot be empty.");
+                return DeserializeLegacyPayload(ref reader, options);
             }
 
             if (probe.TokenType != JsonTokenType.PropertyName)
             {
-                throw new JsonException("Storage payload must begin with a property name.");
+                return DeserializeLegacyPayload(ref reader, options);
             }
 
             string? firstPropertyName = probe.GetString();
@@ -124,18 +125,7 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
                 };
             }
 
-            // Missing leading $type means legacy/unversioned payload. Mark migrated so callers can persist versioned format.
-            TStateType? legacyState = JsonSerializer.Deserialize<TStateType>(ref reader, options);
-            if (legacyState is null)
-            {
-                throw new JsonException("Legacy storage payload produced a null state.");
-            }
-
-            return new Storage<TStateType>
-            {
-                Value = InvokeOnDeserializedCallback(legacyState),
-                MigratedDuringDeserialization = true,
-            };
+            return DeserializeLegacyPayload(ref reader, options);
         }
 
         public override void Write(Utf8JsonWriter writer, Storage<TStateType> value, JsonSerializerOptions options)
@@ -170,6 +160,22 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
             }
 
             return state;
+        }
+
+        private static Storage<TStateType> DeserializeLegacyPayload(ref Utf8JsonReader reader, JsonSerializerOptions options)
+        {
+            // Missing leading $type means legacy/unversioned payload. Mark migrated so callers can persist versioned format.
+            TStateType? legacyState = JsonSerializer.Deserialize<TStateType>(ref reader, options);
+            if (legacyState is null)
+            {
+                throw new JsonException("Legacy storage payload produced a null state.");
+            }
+
+            return new Storage<TStateType>
+            {
+                Value = InvokeOnDeserializedCallback(legacyState),
+                MigratedDuringDeserialization = true,
+            };
         }
     }
 }
