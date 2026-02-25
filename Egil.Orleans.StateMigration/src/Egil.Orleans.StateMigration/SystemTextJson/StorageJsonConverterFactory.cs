@@ -87,6 +87,11 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
                 return DeserializeLegacyPayload(ref reader, options);
             }
 
+            if (TryDeserializeCurrentEnvelopedPayload(ref reader, out Storage<TStateType>? currentEnvelopedPayload))
+            {
+                return currentEnvelopedPayload;
+            }
+
             var probe = reader;
             if (!probe.Read() || probe.TokenType == JsonTokenType.EndObject)
             {
@@ -203,6 +208,62 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
             // Envelope payload avoids JsonElement materialization and supports any JSON shape for TStateType.
             JsonSerializer.Serialize(writer, value.Value, _stateTypeInfo);
             writer.WriteEndObject();
+        }
+
+        private bool TryDeserializeCurrentEnvelopedPayload(
+            ref Utf8JsonReader reader,
+            out Storage<TStateType>? payload)
+        {
+            payload = default;
+
+            var probe = reader;
+            if (!probe.Read() || probe.TokenType != JsonTokenType.PropertyName || !probe.ValueTextEquals(_typePropertyNameUtf8))
+            {
+                return false;
+            }
+
+            if (!probe.Read())
+            {
+                throw new JsonException($"Storage payload is missing a '{_typePropertyName}' value.");
+            }
+
+            if (probe.TokenType != JsonTokenType.String || !probe.ValueTextEquals(TargetTypeIdentityUtf8))
+            {
+                return false;
+            }
+
+            if (!probe.Read() || probe.TokenType != JsonTokenType.PropertyName)
+            {
+                return false;
+            }
+
+            if (!probe.ValueTextEquals(_valuePropertyNameUtf8))
+            {
+                if (probe.ValueTextEquals("value"u8))
+                {
+                    throw new JsonException($"Storage payload must use '{_valuePropertyName}' as the state property name.");
+                }
+
+                return false;
+            }
+
+            if (!TryDeserializeCurrentEnvelopedStateAfterValueProperty(ref probe, out TStateType? state))
+            {
+                return false;
+            }
+
+            if (state is null)
+            {
+                throw new JsonException("Storage payload produced a null state for the current type.");
+            }
+
+            reader = probe;
+            payload = new Storage<TStateType>
+            {
+                Value = InvokeOnDeserializedCallback(state),
+                MigratedDuringDeserialization = false,
+            };
+            return true;
         }
 
         private string? ParseTypeIdentity(ref Utf8JsonReader reader, out bool isTargetType)
@@ -388,6 +449,11 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
                 return DeserializeLegacyPayload(ref reader, options);
             }
 
+            if (TryDeserializeCurrentEnvelopedPayload(ref reader, out Storage<TStateType>? currentEnvelopedPayload))
+            {
+                return currentEnvelopedPayload;
+            }
+
             var probe = reader;
             if (!probe.Read() || probe.TokenType == JsonTokenType.EndObject)
             {
@@ -492,6 +558,52 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
         public override void Write(Utf8JsonWriter writer, Storage<TStateType> value, JsonSerializerOptions options)
         {
             WriteFlattenedPayload(writer, value, options);
+        }
+
+        private bool TryDeserializeCurrentEnvelopedPayload(
+            ref Utf8JsonReader reader,
+            out Storage<TStateType>? payload)
+        {
+            payload = default;
+
+            var probe = reader;
+            if (!probe.Read() || probe.TokenType != JsonTokenType.PropertyName || !probe.ValueTextEquals(_typePropertyNameUtf8))
+            {
+                return false;
+            }
+
+            if (!probe.Read())
+            {
+                throw new JsonException($"Storage payload is missing a '{_typePropertyName}' value.");
+            }
+
+            if (probe.TokenType != JsonTokenType.String || !probe.ValueTextEquals(TargetTypeIdentityUtf8))
+            {
+                return false;
+            }
+
+            if (!probe.Read() || probe.TokenType != JsonTokenType.PropertyName || !probe.ValueTextEquals(_valuePropertyNameUtf8))
+            {
+                return false;
+            }
+
+            if (!TryDeserializeCurrentEnvelopedStateAfterValueProperty(ref probe, out TStateType? state))
+            {
+                return false;
+            }
+
+            if (state is null)
+            {
+                throw new JsonException("Storage payload produced a null state for the current type.");
+            }
+
+            reader = probe;
+            payload = new Storage<TStateType>
+            {
+                Value = InvokeOnDeserializedCallback(state),
+                MigratedDuringDeserialization = true,
+            };
+            return true;
         }
 
         private string? ParseTypeIdentity(ref Utf8JsonReader reader, out bool isTargetType)
