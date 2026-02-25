@@ -231,3 +231,40 @@ services.AddSingleton<IMigrate<ProfileStateV1, ProfileStateV2>, ProfileV1ToV2Mig
 ```
 
 At deserialization time, if `$type` resolves to `ProfileStateV1` and target state is `ProfileStateV2`, the converter uses the registered singleton migrator and sets `MigratedDuringDeserialization = true`.
+
+## Benchmarks
+
+`perf/Egil.Orleans.StateMigration.PerfTests` contains BenchmarkDotNet scenarios for the "no migration needed" hot path.
+The benchmark config uses BenchmarkDotNet's `InProcessNoEmit` toolchain so the suite runs reliably with this repo's strict analyzer settings.
+
+The suite covers both:
+- a minimal state object (`MinimalState`)
+- a more realistic nested state object (`ComplexState`)
+
+For each state profile, benchmarks compare:
+- plain STJ (`JsonSerializer`) serialize/deserialize
+- `Storage<T>` with state migration support (reflection options)
+- `Storage<T>` with source-generated STJ context for state types only
+- `Storage<T>` with source-generated STJ context that also includes closed `Storage<T>` metadata
+
+The suite also includes direct payload layout comparison benchmarks for `Storage<T>`:
+- `Enveloped` (default)
+- `Flattened` (legacy non-enveloped shape)
+
+Run all benchmarks:
+
+```bash
+dotnet run -c Release --project perf/Egil.Orleans.StateMigration.PerfTests/Egil.Orleans.StateMigration.PerfTests.csproj
+```
+
+Run just deserialization benchmarks:
+
+```bash
+dotnet run -c Release --project perf/Egil.Orleans.StateMigration.PerfTests/Egil.Orleans.StateMigration.PerfTests.csproj -- --filter "*Deserialize*"
+```
+
+Run only enveloped vs non-enveloped layout comparisons:
+
+```bash
+dotnet run -c Release --project perf/Egil.Orleans.StateMigration.PerfTests/Egil.Orleans.StateMigration.PerfTests.csproj -- --filter "*PayloadLayout*"
+```

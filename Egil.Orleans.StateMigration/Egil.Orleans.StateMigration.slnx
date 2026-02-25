@@ -1,0 +1,21 @@
+<Solution>
+  <Folder Name="/perf/">
+    <Project Path="perf/Egil.Orleans.StateMigration.PerfTests/Egil.Orleans.StateMigration.PerfTests.csproj" />
+  </Folder>
+  <Folder Name="/Solution Items/">
+    <File Path="../.editorconfig" />
+    <File Path="../.gitattributes" />
+    <File Path="../.gitignore" />
+    <File Path="../Directory.Build.props" />
+    <File Path="../LICENSE" />
+    <File Path="../xunit.runner.json" />
+    <File Path="Directory.Packages.props" />
+    <File Path="README.md" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Egil.Orleans.StateMigration/Egil.Orleans.StateMigration.csproj" />
+  </Folder>
+  <Folder Name="/test/">
+    <Project Path="test/Egil.Orleans.StateMigration.Tests/Egil.Orleans.StateMigration.Tests.csproj" />
+  </Folder>
+</Solution>
