@@ -77,6 +77,20 @@ public sealed class StorageJsonConverterDeserializationTests
         Assert.False(result.MigratedDuringDeserialization);
     }
 
+    [Fact]
+    public void Default_enveloped_value_property_throws_when_custom_value_property_name_is_configured()
+    {
+        JsonSerializerOptions options = new JsonSerializerOptions().AddStateMigrationSupport("$type", "_value");
+        string json = """
+            {"$type":"deserialization/current-state","$value":{"DisplayName":"alice"}}
+            """;
+
+        JsonException exception = Assert.Throws<JsonException>(
+            () => JsonSerializer.Deserialize<Storage<CurrentState>>(json, options));
+
+        Assert.Contains("must use '_value' as the state property name", exception.Message, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("""{"$type":null,"Name":"alice"}""", "cannot be null or empty")]
     [InlineData("""{"$type":"","Name":"alice"}""", "cannot be null or empty")]
@@ -195,13 +209,40 @@ public sealed class StorageJsonConverterDeserializationTests
     [Fact]
     public void Legacy_enveloped_value_property_throws_when_value_property_name_is_configured_differently()
     {
+        JsonSerializerOptions options = new JsonSerializerOptions().AddStateMigrationSupport("$type", "_value");
         string json = """
             {"$type":"deserialization/current-state","value":{"DisplayName":"alice"}}
             """;
 
         JsonException exception = Assert.Throws<JsonException>(
+            () => JsonSerializer.Deserialize<Storage<CurrentState>>(json, options));
+        Assert.Contains("must use '_value' as the state property name", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Enveloped_payload_with_unexpected_trailing_properties_fails_fast()
+    {
+        string json = """
+            {"$type":"deserialization/current-state","$value":{"DisplayName":"alice"},"unexpected":1}
+            """;
+
+        JsonException exception = Assert.Throws<JsonException>(
             () => JsonSerializer.Deserialize<Storage<CurrentState>>(json));
-        Assert.Contains("must use '$value' as the state property name", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("unexpected properties", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Enveloped_payload_with_unexpected_trailing_properties_fails_fast_in_flattened_mode()
+    {
+        JsonSerializerOptions options = new JsonSerializerOptions()
+            .AddStateMigrationSupport(payloadLayout: StoragePayloadLayout.Flattened);
+        string json = """
+            {"$type":"deserialization/current-state","$value":{"DisplayName":"alice"},"unexpected":1}
+            """;
+
+        JsonException exception = Assert.Throws<JsonException>(
+            () => JsonSerializer.Deserialize<Storage<CurrentState>>(json, options));
+        Assert.Contains("unexpected properties", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]

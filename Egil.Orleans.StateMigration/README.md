@@ -230,7 +230,8 @@ DI registration:
 services.AddSingleton<IMigrate<ProfileStateV1, ProfileStateV2>, ProfileV1ToV2Migrator>();
 ```
 
-At deserialization time, if `$type` resolves to `ProfileStateV1` and target state is `ProfileStateV2`, the converter uses the registered singleton migrator and sets `MigratedDuringDeserialization = true`.
+External migrators are resolved through `IMigrationResolver` and are useful for application-managed migration flows where migration logic should not live on the target type.
+`Storage<T>` converter deserialization uses target-owned static migrations (`IMigrateFrom<,>`) and sets `MigratedDuringDeserialization = true` when migration succeeds.
 
 ## Benchmarks
 

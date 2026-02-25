@@ -18,6 +18,9 @@ public sealed class StorageJsonConverterOnDeserializedTests
         Assert.NotNull(result);
         Assert.Equal("alice", result.Value.Name);
         Assert.Equal(1, result.Value.OnDeserializedCount);
+        Assert.False(result.Value.ReceivedNullContext);
+        Assert.False(result.Value.ReceivedNullServiceProvider);
+        Assert.False(result.Value.ReceivedNullRuntimeClient);
         Assert.False(result.MigratedDuringDeserialization);
     }
 
@@ -33,6 +36,9 @@ public sealed class StorageJsonConverterOnDeserializedTests
         Assert.NotNull(result);
         Assert.Equal("migrated:alice", result.Value.Name);
         Assert.Equal(1, result.Value.OnDeserializedCount);
+        Assert.False(result.Value.ReceivedNullContext);
+        Assert.False(result.Value.ReceivedNullServiceProvider);
+        Assert.False(result.Value.ReceivedNullRuntimeClient);
         Assert.True(result.MigratedDuringDeserialization);
     }
 
@@ -47,6 +53,9 @@ public sealed class StorageJsonConverterOnDeserializedTests
 
         Assert.NotNull(result);
         Assert.Equal(1, result.Value.OnDeserializedCount);
+        Assert.False(result.Value.ReceivedNullContext);
+        Assert.False(result.Value.ReceivedNullServiceProvider);
+        Assert.False(result.Value.ReceivedNullRuntimeClient);
     }
     [Alias("on-deserialized/legacy-state")]
     public sealed class LegacyState
@@ -64,10 +73,24 @@ public sealed class StorageJsonConverterOnDeserializedTests
         [JsonIgnore]
         public int OnDeserializedCount { get; private set; }
 
+        [JsonIgnore]
+        public bool ReceivedNullContext { get; private set; }
+
+        [JsonIgnore]
+        public bool ReceivedNullServiceProvider { get; private set; }
+
+        [JsonIgnore]
+        public bool ReceivedNullRuntimeClient { get; private set; }
+
         public static CurrentState From(LegacyState source)
             => new() { Name = $"migrated:{source.Name}" };
 
         public void OnDeserialized(DeserializationContext context)
-            => OnDeserializedCount++;
+        {
+            ReceivedNullContext = context is null;
+            ReceivedNullServiceProvider = context?.ServiceProvider is null;
+            ReceivedNullRuntimeClient = context?.RuntimeClient is null;
+            OnDeserializedCount++;
+        }
     }
 }

@@ -22,10 +22,15 @@ env:
   BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
   Project: Egil.Orleans.StateMigration
 
+permissions:
+  contents: read
+
 jobs:
   create-nuget:
     runs-on: ubuntu-latest
     if: github.event.inputs.prepare-release != 'true'
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -51,11 +56,15 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event.inputs.prepare-release != 'true'
     needs: [ create-nuget ]
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.x
 
       - uses: actions/download-artifact@v4
         with:
@@ -76,6 +85,7 @@ jobs:
     env:
       TestResultsDirectory: ${{ github.workspace }}/TestResults
     permissions:
+      contents: read
       checks: write
     steps:
       - uses: actions/checkout@v4
@@ -88,7 +98,7 @@ jobs:
           dotnet-version: 10.x
 
       - name: Run tests
-        run: dotnet test ./Egil.Orleans.StateMigration/Egil.Orleans.StateMigration.sln --configuration Release
+        run: dotnet test ./Egil.Orleans.StateMigration/Egil.Orleans.StateMigration.slnx --configuration Release
 
   release:
     needs: [validate-nuget, run-test]
@@ -104,6 +114,8 @@ jobs:
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.x
 
       - name: Publish NuGet package
         shell: pwsh

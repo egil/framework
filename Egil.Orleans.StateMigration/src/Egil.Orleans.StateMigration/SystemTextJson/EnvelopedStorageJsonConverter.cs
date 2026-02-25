@@ -7,6 +7,8 @@ namespace Egil.Orleans.StateMigration.SystemTextJson;
 
 internal sealed class EnvelopedStorageJsonConverter<TStateType> : JsonConverter<Storage<TStateType>>
 {
+    private static readonly byte[] DefaultValuePropertyNameUtf8 = "$value"u8.ToArray();
+    private static readonly byte[] LegacyValuePropertyNameUtf8 = "value"u8.ToArray();
     private static readonly string TargetTypeIdentity = StateTypeIdentity.GetIdentity(typeof(TStateType));
     private static readonly byte[] TargetTypeIdentityUtf8 = Encoding.UTF8.GetBytes(TargetTypeIdentity);
     private readonly string _typePropertyName;
@@ -74,11 +76,9 @@ internal sealed class EnvelopedStorageJsonConverter<TStateType> : JsonConverter<
                 var envelopeProbe = probe;
                 if (envelopeProbe.Read() && envelopeProbe.TokenType == JsonTokenType.PropertyName)
                 {
-                    if (envelopeProbe.ValueTextEquals(_valuePropertyNameUtf8)
-                        && TryDeserializeCurrentEnvelopedStateAfterValueProperty(
-                            ref envelopeProbe,
-                            out TStateType? envelopedState))
+                    if (envelopeProbe.ValueTextEquals(_valuePropertyNameUtf8))
                     {
+                        TStateType? envelopedState = DeserializeCurrentEnvelopedStateAfterValueProperty(ref envelopeProbe);
                         if (envelopedState is null)
                         {
                             throw new JsonException("Storage payload produced a null state for the current type.");
@@ -93,16 +93,11 @@ internal sealed class EnvelopedStorageJsonConverter<TStateType> : JsonConverter<
                         };
                     }
 
-                    if (envelopeProbe.ValueTextEquals("value"u8))
-                    {
-                        // Reject legacy/default "$value" when user configured a different field name.
-                        throw new JsonException(
-                            $"Storage payload must use '{_valuePropertyName}' as the state property name.");
-                    }
+                    ThrowIfLegacyEnvelopeValuePropertyName(ref envelopeProbe);
                 }
 
-                // Fallback: flattened payload (or edge-case object where first flattened property is named like the
-                // configured envelope value property). In enveloped mode this is treated as migrated so callers can rewrite.
+                // Fallback: flattened payload (legacy/unversioned object shape). In enveloped mode this is treated as
+                // migrated so callers can rewrite to configured output shape.
                 TStateType? state = DeserializeCurrentFlattenedPayload(ref reader);
                 if (state is null)
                 {
@@ -191,20 +186,11 @@ internal sealed class EnvelopedStorageJsonConverter<TStateType> : JsonConverter<
 
         if (!probe.ValueTextEquals(_valuePropertyNameUtf8))
         {
-            if (probe.ValueTextEquals("value"u8))
-            {
-                throw new JsonException($"Storage payload must use '{_valuePropertyName}' as the state property name.");
-            }
-
+            ThrowIfLegacyEnvelopeValuePropertyName(ref probe);
             return false;
         }
 
-        if (!TryDeserializeCurrentEnvelopedStateAfterValueProperty(ref probe, out TStateType? state))
-        {
-            // Payload may be flattened with the first state property named like the envelope value property.
-            // Leave caller to handle full fallback path.
-            return false;
-        }
+        TStateType? state = DeserializeCurrentEnvelopedStateAfterValueProperty(ref probe);
 
         if (state is null)
         {
@@ -252,6 +238,7 @@ internal sealed class EnvelopedStorageJsonConverter<TStateType> : JsonConverter<
 
         if (!probe.ValueTextEquals(_valuePropertyNameUtf8))
         {
+            ThrowIfLegacyEnvelopeValuePropertyName(ref probe);
             return false;
         }
 
@@ -261,38 +248,41 @@ internal sealed class EnvelopedStorageJsonConverter<TStateType> : JsonConverter<
         }
 
         probe.Skip();
-        return probe.Read() && probe.TokenType == JsonTokenType.EndObject
-            ? true
-            : false;
+        if (!probe.Read())
+        {
+            throw new JsonException("Storage payload is malformed.");
+        }
+
+        if (probe.TokenType != JsonTokenType.EndObject)
+        {
+            throw new JsonException("Storage envelope payload contains unexpected properties.");
+        }
+
+        return true;
     }
 
     private TStateType? DeserializeCurrentFlattenedPayload(ref Utf8JsonReader reader)
         => JsonSerializer.Deserialize(ref reader, _stateTypeInfo);
 
-    private bool TryDeserializeCurrentEnvelopedStateAfterValueProperty(
-        ref Utf8JsonReader reader,
-        out TStateType? state)
+    private TStateType? DeserializeCurrentEnvelopedStateAfterValueProperty(ref Utf8JsonReader reader)
     {
         if (!reader.Read())
         {
             throw new JsonException($"Storage payload is missing a '{_valuePropertyName}' value.");
         }
 
-        state = JsonSerializer.Deserialize(ref reader, _stateTypeInfo);
+        TStateType? state = JsonSerializer.Deserialize(ref reader, _stateTypeInfo);
         if (!reader.Read())
         {
             throw new JsonException("Storage payload is malformed.");
         }
 
-        if (reader.TokenType == JsonTokenType.EndObject)
+        if (reader.TokenType != JsonTokenType.EndObject)
         {
-            return true;
+            throw new JsonException("Storage envelope payload contains unexpected properties.");
         }
 
-        // Flattened edge case: first flattened property name matched configured envelope state field name.
-        // We only treat this as envelope when "$value" is the final property.
-        state = default;
-        return false;
+        return state;
     }
 
     private object? DeserializeEnvelopedState(
@@ -348,15 +338,26 @@ internal sealed class EnvelopedStorageJsonConverter<TStateType> : JsonConverter<
         return state;
     }
 
-    private static TStateType InvokeOnDeserializedCallback(TStateType state)
+    private void ThrowIfLegacyEnvelopeValuePropertyName(ref Utf8JsonReader reader)
     {
-        if (state is global::Orleans.Serialization.IOnDeserialized callback)
+        if (!reader.ValueTextEquals(DefaultValuePropertyNameUtf8)
+            && !reader.ValueTextEquals(LegacyValuePropertyNameUtf8))
         {
-            // Use Orleans callback hook after materialization so states can perform post-deserialization fixups.
-            callback.OnDeserialized(default!);
+            return;
         }
 
-        return state;
+        if (reader.ValueTextEquals(_valuePropertyNameUtf8))
+        {
+            return;
+        }
+
+        throw new JsonException($"Storage payload must use '{_valuePropertyName}' as the state property name.");
+    }
+
+    private static TStateType InvokeOnDeserializedCallback(TStateType state)
+    {
+        // Use Orleans callback hook after materialization so states can perform post-deserialization fixups.
+        return DeserializationCallbackInvoker.Invoke(state);
     }
 
     private Storage<TStateType> DeserializeLegacyPayload(ref Utf8JsonReader reader)

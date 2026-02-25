@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Egil.Orleans.StateMigration;
+using System.Reflection;
 
 namespace Microsoft.Extensions.DependencyInjection;
 
@@ -86,11 +87,47 @@ public static class StateMigrationServiceCollectionExtensions
     }
 
     private static Type[] GetMigratorMappedTypes(IServiceCollection services)
-        => services
-            .Where(descriptor => IsExternalMigratorService(descriptor.ServiceType))
-            .SelectMany(descriptor => descriptor.ServiceType.GetGenericArguments())
-            .Distinct()
-            .ToArray();
+    {
+        HashSet<Type> mappedTypes = [];
+
+        foreach (ServiceDescriptor descriptor in services.Where(descriptor => IsExternalMigratorService(descriptor.ServiceType)))
+        {
+            foreach (Type argument in descriptor.ServiceType.GetGenericArguments())
+            {
+                mappedTypes.Add(argument);
+            }
+        }
+
+        foreach (Type mappedType in GetStaticMigratorMappedTypes())
+        {
+            mappedTypes.Add(mappedType);
+        }
+
+        return [.. mappedTypes];
+    }
+
+    private static IEnumerable<Type> GetStaticMigratorMappedTypes()
+    {
+        foreach (Assembly assembly in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            foreach (Type type in GetLoadableTypes(assembly))
+            {
+                foreach (Type contract in type.GetInterfaces())
+                {
+                    if (!contract.IsGenericType
+                        || contract.GetGenericTypeDefinition() != typeof(IMigrateFrom<,>)
+                        || contract.ContainsGenericParameters)
+                    {
+                        continue;
+                    }
+
+                    Type[] arguments = contract.GetGenericArguments();
+                    yield return arguments[0];
+                    yield return arguments[1];
+                }
+            }
+        }
+    }
 
     private static void ValidateDuplicateExternalMigrators(IServiceCollection services)
     {
@@ -114,6 +151,18 @@ public static class StateMigrationServiceCollectionExtensions
 
     private static bool IsExternalMigratorService(Type type)
         => type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IMigrate<,>);
+
+    private static IEnumerable<Type> GetLoadableTypes(Assembly assembly)
+    {
+        try
+        {
+            return assembly.GetTypes();
+        }
+        catch (ReflectionTypeLoadException exception)
+        {
+            return exception.Types.Where(static type => type is not null)!;
+        }
+    }
 
     private static void ValidateResolvableTypeMapping(Type type)
     {

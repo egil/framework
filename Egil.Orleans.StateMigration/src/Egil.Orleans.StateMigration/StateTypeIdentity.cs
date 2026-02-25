@@ -6,6 +6,7 @@ namespace Egil.Orleans.StateMigration;
 internal static class StateTypeIdentity
 {
     private static readonly ConcurrentDictionary<string, Type> TypesByIdentity = new(StringComparer.Ordinal);
+    private static readonly ConcurrentDictionary<string, byte> MissingIdentities = new(StringComparer.Ordinal);
 
     public static string GetIdentity(Type type)
     {
@@ -43,6 +44,12 @@ internal static class StateTypeIdentity
             return true;
         }
 
+        if (MissingIdentities.ContainsKey(identity))
+        {
+            type = null;
+            return false;
+        }
+
         Type? found = null;
         foreach (Assembly assembly in AppDomain.CurrentDomain.GetAssemblies())
         {
@@ -65,11 +72,13 @@ internal static class StateTypeIdentity
 
         if (found is null)
         {
+            MissingIdentities.TryAdd(identity, 0);
             type = null;
             return false;
         }
 
         TypesByIdentity.TryAdd(identity, found);
+        MissingIdentities.TryRemove(identity, out _);
         type = found;
         return true;
     }
@@ -84,6 +93,7 @@ internal static class StateTypeIdentity
         }
 
         TypesByIdentity.TryAdd(identity, type);
+        MissingIdentities.TryRemove(identity, out _);
     }
 
     private static IEnumerable<Type> GetLoadableTypes(Assembly assembly)
