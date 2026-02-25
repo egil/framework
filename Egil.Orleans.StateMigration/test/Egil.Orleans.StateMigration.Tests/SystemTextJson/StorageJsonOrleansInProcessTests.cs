@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using Orleans.Storage;
 
-namespace Egil.Orleans.StateMigration.Tests;
+namespace Egil.Orleans.StateMigration.Tests.SystemTextJson;
 
 [Collection(OrleansInProcessClusterCollection.Name)]
 public sealed class StorageJsonOrleansInProcessTests(OrleansInProcessClusterFixture fixture)

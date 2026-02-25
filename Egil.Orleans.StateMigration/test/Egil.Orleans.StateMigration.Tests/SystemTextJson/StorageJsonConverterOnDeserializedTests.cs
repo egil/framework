@@ -2,7 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Orleans.Serialization;
 
-namespace Egil.Orleans.StateMigration.Tests;
+namespace Egil.Orleans.StateMigration.Tests.SystemTextJson;
 
 public sealed class StorageJsonConverterOnDeserializedTests
 {

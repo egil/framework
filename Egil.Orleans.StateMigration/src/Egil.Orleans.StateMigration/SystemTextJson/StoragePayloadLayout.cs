@@ -1,4 +1,4 @@
-namespace Egil.Orleans.StateMigration;
+namespace Egil.Orleans.StateMigration.SystemTextJson;
 
 /// <summary>
 /// Controls how <see cref="Storage{TStateType}"/> is represented in JSON.

@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Egil.Orleans.StateMigration.SystemTextJson;
 
 namespace Egil.Orleans.StateMigration;
 

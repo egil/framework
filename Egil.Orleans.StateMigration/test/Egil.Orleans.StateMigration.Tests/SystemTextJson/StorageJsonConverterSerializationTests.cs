@@ -1,7 +1,7 @@
 using System.Text;
 using System.Text.Json;
 
-namespace Egil.Orleans.StateMigration.Tests;
+namespace Egil.Orleans.StateMigration.Tests.SystemTextJson;
 
 public sealed class StorageJsonConverterSerializationTests
 {

@@ -1,8 +1,9 @@
-using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
+using Egil.Orleans.StateMigration;
+using Egil.Orleans.StateMigration.SystemTextJson;
 
-namespace Egil.Orleans.StateMigration;
+namespace System.Text.Json;
 
 /// <summary>
 /// JSON serializer option extensions for state migration scenarios.

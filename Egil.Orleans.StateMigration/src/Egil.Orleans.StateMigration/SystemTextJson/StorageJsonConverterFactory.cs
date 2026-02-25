@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace Egil.Orleans.StateMigration;
+namespace Egil.Orleans.StateMigration.SystemTextJson;
 
 /// <summary>
 /// Creates JSON converters for <see cref="Storage{TStateType}"/>.

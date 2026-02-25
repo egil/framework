@@ -1,4 +1,4 @@
-namespace Egil.Orleans.StateMigration.Tests;
+namespace Egil.Orleans.StateMigration.Tests.SystemTextJson;
 
 [CollectionDefinition(Name)]
 public sealed class OrleansInProcessClusterCollection : ICollectionFixture<OrleansInProcessClusterFixture>
