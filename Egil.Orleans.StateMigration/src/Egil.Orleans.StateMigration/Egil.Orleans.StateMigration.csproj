@@ -19,7 +19,7 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageTags>orleans, migration, storage, egil</PackageTags>
     <Copyright>Egil Hansen</Copyright>
-    <PackageProjectUrl>https://github.com/egil/framework/tree/main/Egil.Orleans.StateMigration</PackageProjectUrl>
+    <PackageProjectUrl>https://github.com/egil/framework</PackageProjectUrl>
     <RepositoryUrl>https://github.com/egil/framework</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
