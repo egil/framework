@@ -70,7 +70,7 @@ public sealed class StorageJsonOrleansInProcessTests(OrleansInProcessClusterFixt
         SystemTextJsonGrainStorageSerializer serializer)
     {
         long deserializationsBefore = serializer.DeserializationCount;
-        await grain.DeactivateAsync();
+        await grain.Cast<global::Orleans.Core.Internal.IGrainManagementExtension>().DeactivateOnIdle();
 
         for (int attempt = 0; attempt < 40; attempt++)
         {
@@ -154,8 +154,6 @@ internal interface IDefaultStorageStateGrain : IGrainWithStringKey
     Task<string> GetDisplayNameAsync();
 
     Task<bool> WasMigratedOnActivationAsync();
-
-    Task DeactivateAsync();
 }
 
 internal interface ICustomStorageStateGrain : IGrainWithStringKey
@@ -195,12 +193,6 @@ internal sealed class DefaultStorageStateGrain(
 
     public Task<bool> WasMigratedOnActivationAsync()
         => Task.FromResult(migratedOnActivation);
-
-    public Task DeactivateAsync()
-    {
-        DeactivateOnIdle();
-        return Task.CompletedTask;
-    }
 }
 
 internal sealed class CustomStorageStateGrain(
