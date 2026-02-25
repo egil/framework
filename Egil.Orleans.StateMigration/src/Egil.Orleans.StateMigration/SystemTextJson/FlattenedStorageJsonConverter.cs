@@ -17,17 +17,20 @@ internal sealed class FlattenedStorageJsonConverter<TStateType> : JsonConverter<
     private readonly byte[] _valuePropertyNameUtf8;
     // Cache metadata once per converter instance to avoid repeated resolver lookups on each operation.
     private readonly JsonTypeInfo<TStateType> _stateTypeInfo;
+    private readonly Func<TStateType, TStateType> _invokeOnDeserializedCallback;
 
     public FlattenedStorageJsonConverter(
         string typePropertyName,
         string valuePropertyName,
-        JsonSerializerOptions options)
+        JsonSerializerOptions options,
+        IServiceProvider? serviceProvider)
     {
         _typePropertyName = typePropertyName;
         _valuePropertyName = valuePropertyName;
         _typePropertyNameUtf8 = Encoding.UTF8.GetBytes(typePropertyName);
         _valuePropertyNameUtf8 = Encoding.UTF8.GetBytes(valuePropertyName);
         _stateTypeInfo = (JsonTypeInfo<TStateType>)options.GetTypeInfo(typeof(TStateType));
+        _invokeOnDeserializedCallback = DeserializationCallbackInvoker.CreateInvoker<TStateType>(serviceProvider);
     }
 
     public override Storage<TStateType>? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
@@ -374,10 +377,9 @@ internal sealed class FlattenedStorageJsonConverter<TStateType> : JsonConverter<
         throw new JsonException($"Storage payload must use '{_valuePropertyName}' as the state property name.");
     }
 
-    private static TStateType InvokeOnDeserializedCallback(TStateType state)
+    private TStateType InvokeOnDeserializedCallback(TStateType state)
     {
-        // Use Orleans callback hook after materialization so states can perform post-deserialization fixups.
-        return DeserializationCallbackInvoker.Invoke(state);
+        return _invokeOnDeserializedCallback(state);
     }
 
     private Storage<TStateType> DeserializeLegacyPayload(ref Utf8JsonReader reader)

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.DependencyInjection;
 using Orleans.Serialization;
 
 namespace Egil.Orleans.StateMigration.Tests.SystemTextJson;
@@ -57,6 +58,23 @@ public sealed class StorageJsonConverterOnDeserializedTests
         Assert.False(result.Value.ReceivedNullServiceProvider);
         Assert.False(result.Value.ReceivedNullRuntimeClient);
     }
+
+    [Fact]
+    public void On_deserialized_callback_uses_configured_service_provider_when_available()
+    {
+        string json = """
+            {"$type":"on-deserialized/provider-aware-state","$value":{"Name":"alice"}}
+            """;
+        using ServiceProvider serviceProvider = new ServiceCollection().BuildServiceProvider();
+        JsonSerializerOptions options = new JsonSerializerOptions().AddStateMigrationSupport(serviceProvider);
+
+        Storage<ProviderAwareState>? result = JsonSerializer.Deserialize<Storage<ProviderAwareState>>(json, options);
+
+        Assert.NotNull(result);
+        Assert.Same(serviceProvider, result.Value.CapturedServiceProvider);
+        Assert.Equal(1, result.Value.OnDeserializedCount);
+    }
+
     [Alias("on-deserialized/legacy-state")]
     public sealed class LegacyState
     {
@@ -90,6 +108,24 @@ public sealed class StorageJsonConverterOnDeserializedTests
             ReceivedNullContext = context is null;
             ReceivedNullServiceProvider = context?.ServiceProvider is null;
             ReceivedNullRuntimeClient = context?.RuntimeClient is null;
+            OnDeserializedCount++;
+        }
+    }
+
+    [Alias("on-deserialized/provider-aware-state")]
+    public sealed class ProviderAwareState : IOnDeserialized
+    {
+        public string Name { get; init; } = string.Empty;
+
+        [JsonIgnore]
+        public int OnDeserializedCount { get; private set; }
+
+        [JsonIgnore]
+        public IServiceProvider? CapturedServiceProvider { get; private set; }
+
+        public void OnDeserialized(DeserializationContext context)
+        {
+            CapturedServiceProvider = context.ServiceProvider;
             OnDeserializedCount++;
         }
     }

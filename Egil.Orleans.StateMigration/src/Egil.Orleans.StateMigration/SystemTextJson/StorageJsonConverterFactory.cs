@@ -17,6 +17,19 @@ namespace Egil.Orleans.StateMigration.SystemTextJson;
 /// </example>
 public sealed class StorageJsonConverterFactory : JsonConverterFactory
 {
+    private readonly IServiceProvider? _serviceProvider;
+
+    public StorageJsonConverterFactory()
+    {
+    }
+
+    internal StorageJsonConverterFactory(IServiceProvider? serviceProvider)
+    {
+        _serviceProvider = serviceProvider;
+    }
+
+    internal IServiceProvider? ServiceProvider => _serviceProvider;
+
     /// <summary>
     /// Determines whether this factory can produce a converter for the provided type.
     /// </summary>
@@ -52,6 +65,11 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
             _ => throw new JsonException($"Unsupported storage payload layout '{payloadLayout}'."),
         };
 
-        return (JsonConverter)Activator.CreateInstance(converterType, typePropertyName, valuePropertyName, options)!;
+        return (JsonConverter)Activator.CreateInstance(
+            converterType,
+            typePropertyName,
+            valuePropertyName,
+            options,
+            _serviceProvider)!;
     }
 }
