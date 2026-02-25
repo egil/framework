@@ -1,7 +1,7 @@
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Egil.Orleans.StateMigration;
 
-namespace Egil.Orleans.StateMigration;
+namespace Microsoft.Extensions.DependencyInjection;
 
 /// <summary>
 /// Dependency-injection registration helpers for state migration services.
