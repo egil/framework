@@ -193,17 +193,15 @@ public sealed class StorageJsonConverterDeserializationTests
     }
 
     [Fact]
-    public void Legacy_enveloped_value_property_deserializes_and_marks_migrated_for_rewrite()
+    public void Legacy_enveloped_value_property_throws_when_value_property_name_is_configured_differently()
     {
         string json = """
             {"$type":"deserialization/current-state","value":{"DisplayName":"alice"}}
             """;
 
-        Storage<CurrentState>? result = JsonSerializer.Deserialize<Storage<CurrentState>>(json);
-
-        Assert.NotNull(result);
-        Assert.Equal("alice", result.Value.DisplayName);
-        Assert.True(result.MigratedDuringDeserialization);
+        JsonException exception = Assert.Throws<JsonException>(
+            () => JsonSerializer.Deserialize<Storage<CurrentState>>(json));
+        Assert.Contains("must use '$value' as the state property name", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]

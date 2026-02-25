@@ -17,6 +17,7 @@ public abstract class StorageNoMigrationBenchmarksBase<TState>
     private JsonSerializerOptions _storageSourceGenStateOnlyOptions = null!;
     private JsonSerializerOptions _storageSourceGenClosedTypeOptions = null!;
     private TState _state = null!;
+    private Storage<TState> _storageState = null!;
     private byte[] _plainJsonUtf8 = null!;
     private byte[] _storageJsonUtf8 = null!;
 
@@ -29,10 +30,10 @@ public abstract class StorageNoMigrationBenchmarksBase<TState>
         _storageSourceGenClosedTypeOptions = CreateStorageSourceGenClosedTypeOptions();
 
         _state = CreateState();
-        Storage<TState> storageState = new() { Value = _state };
+        _storageState = new Storage<TState> { Value = _state };
 
         _plainJsonUtf8 = JsonSerializer.SerializeToUtf8Bytes(_state, _plainReflectionOptions);
-        _storageJsonUtf8 = JsonSerializer.SerializeToUtf8Bytes(storageState, _storageReflectionOptions);
+        _storageJsonUtf8 = JsonSerializer.SerializeToUtf8Bytes(_storageState, _storageReflectionOptions);
     }
 
     [Benchmark(Baseline = true)]
@@ -68,7 +69,7 @@ public abstract class StorageNoMigrationBenchmarksBase<TState>
     [Benchmark]
     [BenchmarkCategory("Serialize", "Reflection")]
     public byte[] StateMigrationSerializeReflection()
-        => JsonSerializer.SerializeToUtf8Bytes(new Storage<TState> { Value = _state }, _storageReflectionOptions);
+        => JsonSerializer.SerializeToUtf8Bytes(_storageState, _storageReflectionOptions);
 
     [Benchmark]
     [BenchmarkCategory("Serialize", "SourceGen")]
@@ -78,12 +79,12 @@ public abstract class StorageNoMigrationBenchmarksBase<TState>
     [Benchmark]
     [BenchmarkCategory("Serialize", "SourceGen")]
     public byte[] StateMigrationSerializeSourceGenStateOnlyContext()
-        => JsonSerializer.SerializeToUtf8Bytes(new Storage<TState> { Value = _state }, _storageSourceGenStateOnlyOptions);
+        => JsonSerializer.SerializeToUtf8Bytes(_storageState, _storageSourceGenStateOnlyOptions);
 
     [Benchmark]
     [BenchmarkCategory("Serialize", "SourceGen")]
     public byte[] StateMigrationSerializeSourceGenClosedStorageContext()
-        => JsonSerializer.SerializeToUtf8Bytes(new Storage<TState> { Value = _state }, _storageSourceGenClosedTypeOptions);
+        => JsonSerializer.SerializeToUtf8Bytes(_storageState, _storageSourceGenClosedTypeOptions);
 
     protected abstract TState CreateState();
 

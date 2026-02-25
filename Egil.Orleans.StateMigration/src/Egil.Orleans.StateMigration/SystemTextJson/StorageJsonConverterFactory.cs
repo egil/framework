@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text;
 
 namespace Egil.Orleans.StateMigration.SystemTextJson;
 
@@ -41,37 +42,41 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
     public override JsonConverter CreateConverter(Type typeToConvert, JsonSerializerOptions options)
     {
         Type stateType = typeToConvert.GetGenericArguments()[0];
-        Type converterType = typeof(StorageJsonConverter<>).MakeGenericType(stateType);
         string typePropertyName = StateMigrationJsonSerializerOptionsExtensions.GetConfiguredTypePropertyName(options);
         string valuePropertyName = StateMigrationJsonSerializerOptionsExtensions.GetConfiguredValuePropertyName(options);
         StoragePayloadLayout payloadLayout =
             StateMigrationJsonSerializerOptionsExtensions.GetConfiguredPayloadLayout(options);
-        return (JsonConverter)Activator.CreateInstance(converterType, typePropertyName, valuePropertyName, payloadLayout)!;
+        Type converterType = payloadLayout switch
+        {
+            StoragePayloadLayout.Enveloped => typeof(EnvelopedStorageJsonConverter<>).MakeGenericType(stateType),
+            StoragePayloadLayout.Flattened => typeof(FlattenedStorageJsonConverter<>).MakeGenericType(stateType),
+            _ => throw new JsonException($"Unsupported storage payload layout '{payloadLayout}'."),
+        };
+
+        return (JsonConverter)Activator.CreateInstance(converterType, typePropertyName, valuePropertyName)!;
     }
 
-    private sealed class StorageJsonConverter<TStateType> : JsonConverter<Storage<TStateType>>
+    private sealed class EnvelopedStorageJsonConverter<TStateType> : JsonConverter<Storage<TStateType>>
     {
-        private const string LegacyValuePropertyName = "value";
         private enum EnvelopeValuePropertyMatch
         {
             None,
             Configured,
-            Legacy,
         }
 
         private static readonly string TargetTypeIdentity = StateTypeIdentity.GetIdentity(typeof(TStateType));
+        private static readonly byte[] TargetTypeIdentityUtf8 = Encoding.UTF8.GetBytes(TargetTypeIdentity);
         private readonly string _typePropertyName;
         private readonly string _valuePropertyName;
-        private readonly StoragePayloadLayout _payloadLayout;
+        private readonly byte[] _typePropertyNameUtf8;
+        private readonly byte[] _valuePropertyNameUtf8;
 
-        public StorageJsonConverter(
-            string typePropertyName,
-            string valuePropertyName,
-            StoragePayloadLayout payloadLayout)
+        public EnvelopedStorageJsonConverter(string typePropertyName, string valuePropertyName)
         {
             _typePropertyName = typePropertyName;
             _valuePropertyName = valuePropertyName;
-            _payloadLayout = payloadLayout;
+            _typePropertyNameUtf8 = Encoding.UTF8.GetBytes(typePropertyName);
+            _valuePropertyNameUtf8 = Encoding.UTF8.GetBytes(valuePropertyName);
         }
 
         public override Storage<TStateType>? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
@@ -93,32 +98,60 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
                 return DeserializeLegacyPayload(ref reader, options);
             }
 
-            string? firstPropertyName = probe.GetString();
-            if (string.Equals(firstPropertyName, _typePropertyName, StringComparison.Ordinal))
+            if (probe.ValueTextEquals(_typePropertyNameUtf8))
             {
                 if (!probe.Read())
                 {
                     throw new JsonException($"Storage payload is missing a '{_typePropertyName}' value.");
                 }
 
-                string? sourceIdentity = ParseTypeIdentity(ref probe);
-
-                if (string.IsNullOrWhiteSpace(sourceIdentity))
+                string? sourceIdentity = ParseTypeIdentity(ref probe, out bool sourceIsTargetType);
+                if (!sourceIsTargetType && string.IsNullOrWhiteSpace(sourceIdentity))
                 {
                     throw new JsonException($"Storage payload '{_typePropertyName}' cannot be null or empty.");
                 }
 
-                EnvelopeValuePropertyMatch envelopeValuePropertyMatch = ProbeEnvelopedPayload(ref probe);
-                bool isEnvelopedPayload = envelopeValuePropertyMatch is not EnvelopeValuePropertyMatch.None;
-                StoragePayloadLayout incomingLayout = isEnvelopedPayload
-                    ? StoragePayloadLayout.Enveloped
-                    : StoragePayloadLayout.Flattened;
-
-                if (string.Equals(sourceIdentity, TargetTypeIdentity, StringComparison.Ordinal))
+                if (sourceIsTargetType)
                 {
-                    TStateType? state = isEnvelopedPayload
-                        ? DeserializeEnvelopedState(ref reader, sourceIdentity, options)
-                        : DeserializeCurrentFlattenedPayload(ref reader, options);
+                    // Hot path optimization: avoid full probe + skip when source type already matches target.
+                    // We only peek the next property name, then parse once with a safe fallback to flattened.
+                    var envelopeProbe = probe;
+                    bool hasSecondPropertyName =
+                        envelopeProbe.Read()
+                        && envelopeProbe.TokenType == JsonTokenType.PropertyName;
+                    bool mayBeEnvelopedPayload =
+                        hasSecondPropertyName
+                        && GetEnvelopeValuePropertyMatch(ref envelopeProbe) is not EnvelopeValuePropertyMatch.None;
+
+                    if (!mayBeEnvelopedPayload
+                        && hasSecondPropertyName
+                        && envelopeProbe.ValueTextEquals("value"u8))
+                    {
+                        throw new JsonException(
+                            $"Storage payload must use '{_valuePropertyName}' as the state property name.");
+                    }
+
+                    if (mayBeEnvelopedPayload
+                        && TryDeserializeEnvelopedCurrentState(
+                            ref reader,
+                            options,
+                            out TStateType? envelopedState))
+                    {
+                        if (envelopedState is null)
+                        {
+                            throw new JsonException("Storage payload produced a null state for the current type.");
+                        }
+
+                        return new Storage<TStateType>
+                        {
+                            Value = InvokeOnDeserializedCallback(envelopedState),
+                            // Rewrite when incoming payload shape differs from configured output.
+                            MigratedDuringDeserialization = false,
+                        };
+                    }
+
+                    // Fallback: flattened payload (or edge-case object where first flattened property is named like envelope state field).
+                    TStateType? state = DeserializeCurrentFlattenedPayload(ref reader, options);
                     if (state is null)
                     {
                         throw new JsonException("Storage payload produced a null state for the current type.");
@@ -127,10 +160,13 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
                     return new Storage<TStateType>
                     {
                         Value = InvokeOnDeserializedCallback(state),
-                        // Rewrite when incoming payload shape or envelope field name differs from configured output.
-                        MigratedDuringDeserialization = incomingLayout != _payloadLayout
-                                                       || envelopeValuePropertyMatch is EnvelopeValuePropertyMatch.Legacy,
+                        MigratedDuringDeserialization = true,
                     };
+                }
+
+                if (sourceIdentity is null)
+                {
+                    throw new JsonException($"Storage payload '{_typePropertyName}' cannot be null or empty.");
                 }
 
                 if (!StateTypeIdentity.TryResolve(sourceIdentity, out Type? sourceType))
@@ -138,6 +174,8 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
                     throw new JsonException($"Storage payload type '{sourceIdentity}' is unknown.");
                 }
 
+                EnvelopeValuePropertyMatch envelopeValuePropertyMatch = ProbeEnvelopedPayload(ref probe);
+                bool isEnvelopedPayload = envelopeValuePropertyMatch is not EnvelopeValuePropertyMatch.None;
                 object? source = isEnvelopedPayload
                     ? DeserializeEnvelopedState(ref reader, sourceIdentity, sourceType, options)
                     : JsonSerializer.Deserialize(ref reader, sourceType, options);
@@ -164,27 +202,34 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
 
         public override void Write(Utf8JsonWriter writer, Storage<TStateType> value, JsonSerializerOptions options)
         {
-            if (_payloadLayout == StoragePayloadLayout.Enveloped)
-            {
-                writer.WriteStartObject();
-                writer.WriteString(_typePropertyName, TargetTypeIdentity);
-                writer.WritePropertyName(_valuePropertyName);
-                // Envelope payload avoids JsonElement materialization and supports any JSON shape for TStateType.
-                JsonSerializer.Serialize(writer, value.Value, options);
-                writer.WriteEndObject();
-                return;
-            }
-
-            WriteFlattenedPayload(writer, value, options);
+            writer.WriteStartObject();
+            writer.WriteString(_typePropertyName, TargetTypeIdentity);
+            writer.WritePropertyName(_valuePropertyName);
+            // Envelope payload avoids JsonElement materialization and supports any JSON shape for TStateType.
+            JsonSerializer.Serialize(writer, value.Value, options);
+            writer.WriteEndObject();
         }
 
-        private string? ParseTypeIdentity(ref Utf8JsonReader reader)
-            => reader.TokenType switch
+        private string? ParseTypeIdentity(ref Utf8JsonReader reader, out bool isTargetType)
+        {
+            switch (reader.TokenType)
             {
-                JsonTokenType.String => reader.GetString(),
-                JsonTokenType.Null => null,
-                _ => throw new JsonException($"Storage payload '{_typePropertyName}' must be a string."),
-            };
+                case JsonTokenType.String:
+                    if (reader.ValueTextEquals(TargetTypeIdentityUtf8))
+                    {
+                        isTargetType = true;
+                        return TargetTypeIdentity;
+                    }
+
+                    isTargetType = false;
+                    return reader.GetString();
+                case JsonTokenType.Null:
+                    isTargetType = false;
+                    return null;
+                default:
+                    throw new JsonException($"Storage payload '{_typePropertyName}' must be a string.");
+            }
+        }
 
         private EnvelopeValuePropertyMatch ProbeEnvelopedPayload(ref Utf8JsonReader probe)
         {
@@ -193,8 +238,7 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
                 return EnvelopeValuePropertyMatch.None;
             }
 
-            string? propertyName = probe.GetString();
-            EnvelopeValuePropertyMatch match = GetEnvelopeValuePropertyMatch(propertyName);
+            EnvelopeValuePropertyMatch match = GetEnvelopeValuePropertyMatch(ref probe);
             if (match is EnvelopeValuePropertyMatch.None)
             {
                 return EnvelopeValuePropertyMatch.None;
@@ -214,11 +258,65 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
         private TStateType? DeserializeCurrentFlattenedPayload(ref Utf8JsonReader reader, JsonSerializerOptions options)
             => JsonSerializer.Deserialize<TStateType>(ref reader, options);
 
-        private TStateType? DeserializeEnvelopedState(
+        private bool TryDeserializeEnvelopedCurrentState(
             ref Utf8JsonReader reader,
-            string expectedSourceIdentity,
-            JsonSerializerOptions options)
-            => (TStateType?)DeserializeEnvelopedState(ref reader, expectedSourceIdentity, typeof(TStateType), options);
+            JsonSerializerOptions options,
+            out TStateType? state)
+        {
+            var originalReader = reader;
+            state = default;
+
+            if (!reader.Read() || reader.TokenType != JsonTokenType.PropertyName || !reader.ValueTextEquals(_typePropertyNameUtf8))
+            {
+                reader = originalReader;
+                return false;
+            }
+
+            if (!reader.Read())
+            {
+                throw new JsonException($"Storage payload is missing a '{_typePropertyName}' value.");
+            }
+
+            if (reader.TokenType != JsonTokenType.String || !reader.ValueTextEquals(TargetTypeIdentityUtf8))
+            {
+                reader = originalReader;
+                return false;
+            }
+
+            if (!reader.Read() || reader.TokenType != JsonTokenType.PropertyName)
+            {
+                reader = originalReader;
+                return false;
+            }
+
+            if (GetEnvelopeValuePropertyMatch(ref reader) is EnvelopeValuePropertyMatch.None)
+            {
+                reader = originalReader;
+                return false;
+            }
+
+            if (!reader.Read())
+            {
+                throw new JsonException($"Storage payload is missing a '{_valuePropertyName}' value.");
+            }
+
+            state = JsonSerializer.Deserialize<TStateType>(ref reader, options);
+            if (!reader.Read())
+            {
+                throw new JsonException("Storage payload is malformed.");
+            }
+
+            if (reader.TokenType == JsonTokenType.EndObject)
+            {
+                return true;
+            }
+
+            // Flattened edge case: the first flattened property name matched the envelope state field name.
+            // Reset and let the flattened path consume the payload.
+            reader = originalReader;
+            state = default;
+            return false;
+        }
 
         private object? DeserializeEnvelopedState(
             ref Utf8JsonReader reader,
@@ -241,7 +339,7 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
                 throw new JsonException($"Storage payload is missing a '{_typePropertyName}' value.");
             }
 
-            string? sourceIdentity = ParseTypeIdentity(ref reader);
+            string? sourceIdentity = ParseTypeIdentity(ref reader, out _);
             if (!string.Equals(sourceIdentity, expectedSourceIdentity, StringComparison.Ordinal))
             {
                 throw new JsonException("Storage payload type metadata changed while parsing.");
@@ -252,7 +350,7 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
                 throw new JsonException($"Storage payload is missing a '{_valuePropertyName}' property.");
             }
 
-            EnvelopeValuePropertyMatch match = GetEnvelopeValuePropertyMatch(reader.GetString());
+            EnvelopeValuePropertyMatch match = GetEnvelopeValuePropertyMatch(ref reader);
             if (match is EnvelopeValuePropertyMatch.None)
             {
                 throw new JsonException(
@@ -273,16 +371,351 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
             return state;
         }
 
-        private EnvelopeValuePropertyMatch GetEnvelopeValuePropertyMatch(string? propertyName)
+        private EnvelopeValuePropertyMatch GetEnvelopeValuePropertyMatch(ref Utf8JsonReader reader)
         {
-            if (string.Equals(propertyName, _valuePropertyName, StringComparison.Ordinal))
+            if (reader.ValueTextEquals(_valuePropertyNameUtf8))
             {
                 return EnvelopeValuePropertyMatch.Configured;
             }
 
-            if (string.Equals(propertyName, LegacyValuePropertyName, StringComparison.Ordinal))
+            return EnvelopeValuePropertyMatch.None;
+        }
+
+        private static TStateType InvokeOnDeserializedCallback(TStateType state)
+        {
+            if (state is global::Orleans.Serialization.IOnDeserialized callback)
             {
-                return EnvelopeValuePropertyMatch.Legacy;
+                // Use Orleans callback hook after materialization so states can perform post-deserialization fixups.
+                callback.OnDeserialized(default!);
+            }
+
+            return state;
+        }
+
+        private static Storage<TStateType> DeserializeLegacyPayload(ref Utf8JsonReader reader, JsonSerializerOptions options)
+        {
+            // Missing leading $type means legacy/unversioned payload. Mark migrated so callers can persist versioned format.
+            TStateType? legacyState = JsonSerializer.Deserialize<TStateType>(ref reader, options);
+            if (legacyState is null)
+            {
+                throw new JsonException("Legacy storage payload produced a null state.");
+            }
+
+            return new Storage<TStateType>
+            {
+                Value = InvokeOnDeserializedCallback(legacyState),
+                MigratedDuringDeserialization = true,
+            };
+        }
+    }
+
+    private sealed class FlattenedStorageJsonConverter<TStateType> : JsonConverter<Storage<TStateType>>
+    {
+        private enum EnvelopeValuePropertyMatch
+        {
+            None,
+            Configured,
+        }
+
+        private static readonly string TargetTypeIdentity = StateTypeIdentity.GetIdentity(typeof(TStateType));
+        private static readonly byte[] TargetTypeIdentityUtf8 = Encoding.UTF8.GetBytes(TargetTypeIdentity);
+        private readonly string _typePropertyName;
+        private readonly string _valuePropertyName;
+        private readonly byte[] _typePropertyNameUtf8;
+        private readonly byte[] _valuePropertyNameUtf8;
+
+        public FlattenedStorageJsonConverter(string typePropertyName, string valuePropertyName)
+        {
+            _typePropertyName = typePropertyName;
+            _valuePropertyName = valuePropertyName;
+            _typePropertyNameUtf8 = Encoding.UTF8.GetBytes(typePropertyName);
+            _valuePropertyNameUtf8 = Encoding.UTF8.GetBytes(valuePropertyName);
+        }
+
+        public override Storage<TStateType>? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            if (reader.TokenType != JsonTokenType.StartObject)
+            {
+                // Legacy payloads for collection/primitive states are often non-object JSON (for example arrays, numbers, strings).
+                return DeserializeLegacyPayload(ref reader, options);
+            }
+
+            var probe = reader;
+            if (!probe.Read() || probe.TokenType == JsonTokenType.EndObject)
+            {
+                return DeserializeLegacyPayload(ref reader, options);
+            }
+
+            if (probe.TokenType != JsonTokenType.PropertyName)
+            {
+                return DeserializeLegacyPayload(ref reader, options);
+            }
+
+            if (probe.ValueTextEquals(_typePropertyNameUtf8))
+            {
+                if (!probe.Read())
+                {
+                    throw new JsonException($"Storage payload is missing a '{_typePropertyName}' value.");
+                }
+
+                string? sourceIdentity = ParseTypeIdentity(ref probe, out bool sourceIsTargetType);
+                if (!sourceIsTargetType && string.IsNullOrWhiteSpace(sourceIdentity))
+                {
+                    throw new JsonException($"Storage payload '{_typePropertyName}' cannot be null or empty.");
+                }
+
+                if (sourceIsTargetType)
+                {
+                    // Hot path optimization: avoid full probe + skip when source type already matches target.
+                    // We only peek the next property name, then parse once with a safe fallback to flattened.
+                    var envelopeProbe = probe;
+                    bool hasSecondPropertyName =
+                        envelopeProbe.Read()
+                        && envelopeProbe.TokenType == JsonTokenType.PropertyName;
+                    bool mayBeEnvelopedPayload =
+                        hasSecondPropertyName
+                        && GetEnvelopeValuePropertyMatch(ref envelopeProbe) is not EnvelopeValuePropertyMatch.None;
+
+                    if (mayBeEnvelopedPayload
+                        && TryDeserializeEnvelopedCurrentState(
+                            ref reader,
+                            options,
+                            out TStateType? envelopedState))
+                    {
+                        if (envelopedState is null)
+                        {
+                            throw new JsonException("Storage payload produced a null state for the current type.");
+                        }
+
+                        return new Storage<TStateType>
+                        {
+                            Value = InvokeOnDeserializedCallback(envelopedState),
+                            // Rewrite when incoming payload shape differs from configured output.
+                            MigratedDuringDeserialization = true,
+                        };
+                    }
+
+                    // Fallback: flattened payload (or edge-case object where first flattened property is named like envelope state field).
+                    TStateType? state = DeserializeCurrentFlattenedPayload(ref reader, options);
+                    if (state is null)
+                    {
+                        throw new JsonException("Storage payload produced a null state for the current type.");
+                    }
+
+                    return new Storage<TStateType>
+                    {
+                        Value = InvokeOnDeserializedCallback(state),
+                        MigratedDuringDeserialization = false,
+                    };
+                }
+
+                if (sourceIdentity is null)
+                {
+                    throw new JsonException($"Storage payload '{_typePropertyName}' cannot be null or empty.");
+                }
+
+                if (!StateTypeIdentity.TryResolve(sourceIdentity, out Type? sourceType))
+                {
+                    throw new JsonException($"Storage payload type '{sourceIdentity}' is unknown.");
+                }
+
+                EnvelopeValuePropertyMatch envelopeValuePropertyMatch = ProbeEnvelopedPayload(ref probe);
+                bool isEnvelopedPayload = envelopeValuePropertyMatch is not EnvelopeValuePropertyMatch.None;
+                object? source = isEnvelopedPayload
+                    ? DeserializeEnvelopedState(ref reader, sourceIdentity, sourceType, options)
+                    : JsonSerializer.Deserialize(ref reader, sourceType, options);
+                if (source is null)
+                {
+                    throw new JsonException($"Storage payload could not deserialize source type '{sourceIdentity}'.");
+                }
+
+                if (!StateMigrationInvoker.TryMigrate(source, sourceType, typeof(TStateType), out object? migratedState))
+                {
+                    throw new JsonException(
+                        $"No direct migration exists from '{sourceIdentity}' to '{TargetTypeIdentity}'.");
+                }
+
+                return new Storage<TStateType>
+                {
+                    Value = InvokeOnDeserializedCallback((TStateType)migratedState!),
+                    MigratedDuringDeserialization = true,
+                };
+            }
+
+            return DeserializeLegacyPayload(ref reader, options);
+        }
+
+        public override void Write(Utf8JsonWriter writer, Storage<TStateType> value, JsonSerializerOptions options)
+        {
+            WriteFlattenedPayload(writer, value, options);
+        }
+
+        private string? ParseTypeIdentity(ref Utf8JsonReader reader, out bool isTargetType)
+        {
+            switch (reader.TokenType)
+            {
+                case JsonTokenType.String:
+                    if (reader.ValueTextEquals(TargetTypeIdentityUtf8))
+                    {
+                        isTargetType = true;
+                        return TargetTypeIdentity;
+                    }
+
+                    isTargetType = false;
+                    return reader.GetString();
+                case JsonTokenType.Null:
+                    isTargetType = false;
+                    return null;
+                default:
+                    throw new JsonException($"Storage payload '{_typePropertyName}' must be a string.");
+            }
+        }
+
+        private EnvelopeValuePropertyMatch ProbeEnvelopedPayload(ref Utf8JsonReader probe)
+        {
+            if (!probe.Read() || probe.TokenType != JsonTokenType.PropertyName)
+            {
+                return EnvelopeValuePropertyMatch.None;
+            }
+
+            EnvelopeValuePropertyMatch match = GetEnvelopeValuePropertyMatch(ref probe);
+            if (match is EnvelopeValuePropertyMatch.None)
+            {
+                return EnvelopeValuePropertyMatch.None;
+            }
+
+            if (!probe.Read())
+            {
+                throw new JsonException($"Storage envelope payload is missing a '{_valuePropertyName}' value.");
+            }
+
+            probe.Skip();
+            return probe.Read() && probe.TokenType == JsonTokenType.EndObject
+                ? match
+                : EnvelopeValuePropertyMatch.None;
+        }
+
+        private TStateType? DeserializeCurrentFlattenedPayload(ref Utf8JsonReader reader, JsonSerializerOptions options)
+            => JsonSerializer.Deserialize<TStateType>(ref reader, options);
+
+        private bool TryDeserializeEnvelopedCurrentState(
+            ref Utf8JsonReader reader,
+            JsonSerializerOptions options,
+            out TStateType? state)
+        {
+            var originalReader = reader;
+            state = default;
+
+            if (!reader.Read() || reader.TokenType != JsonTokenType.PropertyName || !reader.ValueTextEquals(_typePropertyNameUtf8))
+            {
+                reader = originalReader;
+                return false;
+            }
+
+            if (!reader.Read())
+            {
+                throw new JsonException($"Storage payload is missing a '{_typePropertyName}' value.");
+            }
+
+            if (reader.TokenType != JsonTokenType.String || !reader.ValueTextEquals(TargetTypeIdentityUtf8))
+            {
+                reader = originalReader;
+                return false;
+            }
+
+            if (!reader.Read() || reader.TokenType != JsonTokenType.PropertyName)
+            {
+                reader = originalReader;
+                return false;
+            }
+
+            if (GetEnvelopeValuePropertyMatch(ref reader) is EnvelopeValuePropertyMatch.None)
+            {
+                reader = originalReader;
+                return false;
+            }
+
+            if (!reader.Read())
+            {
+                throw new JsonException($"Storage payload is missing a '{_valuePropertyName}' value.");
+            }
+
+            state = JsonSerializer.Deserialize<TStateType>(ref reader, options);
+            if (!reader.Read())
+            {
+                throw new JsonException("Storage payload is malformed.");
+            }
+
+            if (reader.TokenType == JsonTokenType.EndObject)
+            {
+                return true;
+            }
+
+            // Flattened edge case: the first flattened property name matched the envelope state field name.
+            // Reset and let the flattened path consume the payload.
+            reader = originalReader;
+            state = default;
+            return false;
+        }
+
+        private object? DeserializeEnvelopedState(
+            ref Utf8JsonReader reader,
+            string expectedSourceIdentity,
+            Type stateType,
+            JsonSerializerOptions options)
+        {
+            if (!reader.Read() || reader.TokenType != JsonTokenType.PropertyName)
+            {
+                throw new JsonException("Storage payload is malformed.");
+            }
+
+            if (!string.Equals(reader.GetString(), _typePropertyName, StringComparison.Ordinal))
+            {
+                throw new JsonException($"Storage payload must start with '{_typePropertyName}'.");
+            }
+
+            if (!reader.Read())
+            {
+                throw new JsonException($"Storage payload is missing a '{_typePropertyName}' value.");
+            }
+
+            string? sourceIdentity = ParseTypeIdentity(ref reader, out _);
+            if (!string.Equals(sourceIdentity, expectedSourceIdentity, StringComparison.Ordinal))
+            {
+                throw new JsonException("Storage payload type metadata changed while parsing.");
+            }
+
+            if (!reader.Read() || reader.TokenType != JsonTokenType.PropertyName)
+            {
+                throw new JsonException($"Storage payload is missing a '{_valuePropertyName}' property.");
+            }
+
+            EnvelopeValuePropertyMatch match = GetEnvelopeValuePropertyMatch(ref reader);
+            if (match is EnvelopeValuePropertyMatch.None)
+            {
+                throw new JsonException(
+                    $"Storage payload must use '{_valuePropertyName}' as the state property name.");
+            }
+
+            if (!reader.Read())
+            {
+                throw new JsonException($"Storage payload is missing a '{_valuePropertyName}' value.");
+            }
+
+            object? state = JsonSerializer.Deserialize(ref reader, stateType, options);
+            if (!reader.Read() || reader.TokenType != JsonTokenType.EndObject)
+            {
+                throw new JsonException("Storage envelope payload contains unexpected properties.");
+            }
+
+            return state;
+        }
+
+        private EnvelopeValuePropertyMatch GetEnvelopeValuePropertyMatch(ref Utf8JsonReader reader)
+        {
+            if (reader.ValueTextEquals(_valuePropertyNameUtf8))
+            {
+                return EnvelopeValuePropertyMatch.Configured;
             }
 
             return EnvelopeValuePropertyMatch.None;
