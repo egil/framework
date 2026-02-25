@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Columns;
 using BenchmarkDotNet.Configs;
@@ -16,10 +17,14 @@ public abstract class StorageNoMigrationBenchmarksBase<TState>
     private JsonSerializerOptions _storageReflectionOptions = null!;
     private JsonSerializerOptions _storageSourceGenStateOnlyOptions = null!;
     private JsonSerializerOptions _storageSourceGenClosedTypeOptions = null!;
+    private JsonSerializerOptions _storageHardcodedSourceGenOptions = null!;
+    private JsonSerializerOptions _storagePolymorphicSourceGenOptions = null!;
     private TState _state = null!;
     private Storage<TState> _storageState = null!;
     private byte[] _plainJsonUtf8 = null!;
     private byte[] _storageJsonUtf8 = null!;
+    private byte[] _storageHardcodedJsonUtf8 = null!;
+    private byte[] _storagePolymorphicJsonUtf8 = null!;
 
     [GlobalSetup]
     public void Setup()
@@ -28,12 +33,16 @@ public abstract class StorageNoMigrationBenchmarksBase<TState>
         _storageReflectionOptions = new JsonSerializerOptions().AddStateMigrationSupport();
         _storageSourceGenStateOnlyOptions = CreateStorageSourceGenStateOnlyOptions();
         _storageSourceGenClosedTypeOptions = CreateStorageSourceGenClosedTypeOptions();
+        _storageHardcodedSourceGenOptions = CreateStorageHardcodedSourceGenOptions();
+        _storagePolymorphicSourceGenOptions = CreateStoragePolymorphicSourceGenOptions();
 
         _state = CreateState();
         _storageState = new Storage<TState> { Value = _state };
 
         _plainJsonUtf8 = JsonSerializer.SerializeToUtf8Bytes(_state, _plainReflectionOptions);
         _storageJsonUtf8 = JsonSerializer.SerializeToUtf8Bytes(_storageState, _storageReflectionOptions);
+        _storageHardcodedJsonUtf8 = JsonSerializer.SerializeToUtf8Bytes(_storageState, _storageHardcodedSourceGenOptions);
+        _storagePolymorphicJsonUtf8 = JsonSerializer.SerializeToUtf8Bytes(_storageState, _storagePolymorphicSourceGenOptions);
     }
 
     [Benchmark(Baseline = true)]
@@ -62,6 +71,16 @@ public abstract class StorageNoMigrationBenchmarksBase<TState>
         => JsonSerializer.Deserialize<Storage<TState>>(_storageJsonUtf8, _storageSourceGenClosedTypeOptions)!;
 
     [Benchmark]
+    [BenchmarkCategory("Deserialize", "SourceGen", "Hardcoded")]
+    public Storage<TState> StateMigrationDeserializeNoMigrationHardcodedSourceGen()
+        => JsonSerializer.Deserialize<Storage<TState>>(_storageHardcodedJsonUtf8, _storageHardcodedSourceGenOptions)!;
+
+    [Benchmark]
+    [BenchmarkCategory("Deserialize", "SourceGen", "Polymorphic")]
+    public Storage<TState> StateMigrationDeserializeNoMigrationStjPolymorphicSourceGen()
+        => JsonSerializer.Deserialize<Storage<TState>>(_storagePolymorphicJsonUtf8, _storagePolymorphicSourceGenOptions)!;
+
+    [Benchmark]
     [BenchmarkCategory("Serialize", "Reflection")]
     public byte[] PlainStjSerializeReflection()
         => JsonSerializer.SerializeToUtf8Bytes(_state, _plainReflectionOptions);
@@ -86,6 +105,16 @@ public abstract class StorageNoMigrationBenchmarksBase<TState>
     public byte[] StateMigrationSerializeSourceGenClosedStorageContext()
         => JsonSerializer.SerializeToUtf8Bytes(_storageState, _storageSourceGenClosedTypeOptions);
 
+    [Benchmark]
+    [BenchmarkCategory("Serialize", "SourceGen", "Hardcoded")]
+    public byte[] StateMigrationSerializeHardcodedSourceGen()
+        => JsonSerializer.SerializeToUtf8Bytes(_storageState, _storageHardcodedSourceGenOptions);
+
+    [Benchmark]
+    [BenchmarkCategory("Serialize", "SourceGen", "Polymorphic")]
+    public byte[] StateMigrationSerializeStjPolymorphicSourceGen()
+        => JsonSerializer.SerializeToUtf8Bytes(_storageState, _storagePolymorphicSourceGenOptions);
+
     protected abstract TState CreateState();
 
     protected abstract byte[] SerializePlainSourceGen(TState state);
@@ -95,6 +124,10 @@ public abstract class StorageNoMigrationBenchmarksBase<TState>
     protected abstract JsonSerializerOptions CreateStorageSourceGenStateOnlyOptions();
 
     protected abstract JsonSerializerOptions CreateStorageSourceGenClosedTypeOptions();
+
+    protected abstract JsonSerializerOptions CreateStorageHardcodedSourceGenOptions();
+
+    protected abstract JsonSerializerOptions CreateStoragePolymorphicSourceGenOptions();
 }
 
 [MemoryDiagnoser]
@@ -103,6 +136,9 @@ public abstract class StorageNoMigrationBenchmarksBase<TState>
 [Config(typeof(PerfBenchmarkConfig))]
 public class MinimalStateNoMigrationBenchmarks : StorageNoMigrationBenchmarksBase<MinimalState>
 {
+    private const string MinimalCurrentTypeId = "perf/minimal-state";
+    private const string MinimalLegacyTypeId = "perf/minimal-legacy-state";
+
     protected override MinimalState CreateState()
         => new() { DisplayName = "alice" };
 
@@ -119,6 +155,36 @@ public class MinimalStateNoMigrationBenchmarks : StorageNoMigrationBenchmarksBas
     protected override JsonSerializerOptions CreateStorageSourceGenClosedTypeOptions()
         => new JsonSerializerOptions(MinimalStateClosedStorageJsonContext.Default.Options)
             .AddStateMigrationSupport();
+
+    protected override JsonSerializerOptions CreateStorageHardcodedSourceGenOptions()
+    {
+        JsonSerializerOptions options = new(MinimalStateHardcodedStorageJsonContext.Default.Options);
+        options.Converters.Insert(
+            0,
+            new HardcodedStorageJsonConverter<MinimalState, MinimalLegacyState>(
+                MinimalCurrentTypeId,
+                MinimalLegacyTypeId,
+                MinimalStateHardcodedStorageJsonContext.Default.MinimalState,
+                MinimalStateHardcodedStorageJsonContext.Default.MinimalLegacyState,
+                static legacy => new MinimalState { DisplayName = legacy.Name }));
+        return options;
+    }
+
+    protected override JsonSerializerOptions CreateStoragePolymorphicSourceGenOptions()
+    {
+        JsonSerializerOptions options = new(MinimalStatePolymorphicStorageJsonContext.Default.Options);
+        options.Converters.Insert(
+            0,
+            new PolymorphicStorageJsonConverter<MinimalState, IMinimalStatePolymorphic>(
+                MinimalStatePolymorphicStorageJsonContext.Default.IMinimalStatePolymorphic,
+                static state => state switch
+                {
+                    MinimalState current => current,
+                    MinimalLegacyState legacy => new MinimalState { DisplayName = legacy.Name },
+                    _ => throw new JsonException("Unsupported polymorphic minimal state."),
+                }));
+        return options;
+    }
 }
 
 [MemoryDiagnoser]
@@ -127,6 +193,9 @@ public class MinimalStateNoMigrationBenchmarks : StorageNoMigrationBenchmarksBas
 [Config(typeof(PerfBenchmarkConfig))]
 public class ComplexStateNoMigrationBenchmarks : StorageNoMigrationBenchmarksBase<ComplexState>
 {
+    private const string ComplexCurrentTypeId = "perf/complex-state";
+    private const string ComplexLegacyTypeId = "perf/complex-legacy-state";
+
     protected override ComplexState CreateState()
     {
         List<ComplexLineItem> items =
@@ -186,6 +255,58 @@ public class ComplexStateNoMigrationBenchmarks : StorageNoMigrationBenchmarksBas
     protected override JsonSerializerOptions CreateStorageSourceGenClosedTypeOptions()
         => new JsonSerializerOptions(ComplexStateClosedStorageJsonContext.Default.Options)
             .AddStateMigrationSupport();
+
+    protected override JsonSerializerOptions CreateStorageHardcodedSourceGenOptions()
+    {
+        JsonSerializerOptions options = new(ComplexStateHardcodedStorageJsonContext.Default.Options);
+        options.Converters.Insert(
+            0,
+            new HardcodedStorageJsonConverter<ComplexState, ComplexLegacyState>(
+                ComplexCurrentTypeId,
+                ComplexLegacyTypeId,
+                ComplexStateHardcodedStorageJsonContext.Default.ComplexState,
+                ComplexStateHardcodedStorageJsonContext.Default.ComplexLegacyState,
+                static legacy => new ComplexState
+                {
+                    TenantId = legacy.TenantId,
+                    AggregateId = legacy.AggregateId,
+                    Revision = legacy.Revision,
+                    UpdatedUtc = legacy.UpdatedUtc,
+                    BillingAddress = legacy.BillingAddress,
+                    ShippingAddress = legacy.ShippingAddress,
+                    Items = legacy.Items,
+                    Counters = legacy.Counters,
+                    Tags = legacy.Tags,
+                }));
+        return options;
+    }
+
+    protected override JsonSerializerOptions CreateStoragePolymorphicSourceGenOptions()
+    {
+        JsonSerializerOptions options = new(ComplexStatePolymorphicStorageJsonContext.Default.Options);
+        options.Converters.Insert(
+            0,
+            new PolymorphicStorageJsonConverter<ComplexState, IComplexStatePolymorphic>(
+                ComplexStatePolymorphicStorageJsonContext.Default.IComplexStatePolymorphic,
+                static state => state switch
+                {
+                    ComplexState current => current,
+                    ComplexLegacyState legacy => new ComplexState
+                    {
+                        TenantId = legacy.TenantId,
+                        AggregateId = legacy.AggregateId,
+                        Revision = legacy.Revision,
+                        UpdatedUtc = legacy.UpdatedUtc,
+                        BillingAddress = legacy.BillingAddress,
+                        ShippingAddress = legacy.ShippingAddress,
+                        Items = legacy.Items,
+                        Counters = legacy.Counters,
+                        Tags = legacy.Tags,
+                    },
+                    _ => throw new JsonException("Unsupported polymorphic complex state."),
+                }));
+        return options;
+    }
 }
 
 public abstract class StoragePayloadLayoutBenchmarksBase<TState>
@@ -354,14 +475,24 @@ public class ComplexStatePayloadLayoutBenchmarks : StoragePayloadLayoutBenchmark
             .AddStateMigrationSupport(payloadLayout: payloadLayout);
 }
 
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
+[JsonDerivedType(typeof(MinimalState), "perf/minimal-state")]
+[JsonDerivedType(typeof(MinimalLegacyState), "perf/minimal-legacy-state")]
+public interface IMinimalStatePolymorphic;
+
 [Alias("perf/minimal-state")]
-public sealed class MinimalState
+public sealed class MinimalState : IMinimalStatePolymorphic
 {
     public string DisplayName { get; init; } = string.Empty;
 }
 
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
+[JsonDerivedType(typeof(ComplexState), "perf/complex-state")]
+[JsonDerivedType(typeof(ComplexLegacyState), "perf/complex-legacy-state")]
+public interface IComplexStatePolymorphic;
+
 [Alias("perf/complex-state")]
-public sealed class ComplexState
+public sealed class ComplexState : IComplexStatePolymorphic
 {
     public string TenantId { get; init; } = string.Empty;
 
@@ -402,6 +533,181 @@ public sealed class ComplexLineItem
     public decimal UnitPrice { get; init; }
 }
 
+public sealed class HardcodedStorageJsonConverter<TState, TLegacyState> : JsonConverter<Storage<TState>>
+    where TState : class
+    where TLegacyState : class
+{
+    private static readonly byte[] TypePropertyNameUtf8 = "$type"u8.ToArray();
+    private static readonly byte[] ValuePropertyNameUtf8 = "$value"u8.ToArray();
+    private readonly string _currentTypeId;
+    private readonly byte[] _currentTypeIdUtf8;
+    private readonly byte[] _legacyTypeIdUtf8;
+    private readonly JsonTypeInfo<TState> _currentTypeInfo;
+    private readonly JsonTypeInfo<TLegacyState> _legacyTypeInfo;
+    private readonly Func<TLegacyState, TState> _migrateFromLegacy;
+
+    public HardcodedStorageJsonConverter(
+        string currentTypeId,
+        string legacyTypeId,
+        JsonTypeInfo<TState> currentTypeInfo,
+        JsonTypeInfo<TLegacyState> legacyTypeInfo,
+        Func<TLegacyState, TState> migrateFromLegacy)
+    {
+        _currentTypeId = currentTypeId;
+        _currentTypeIdUtf8 = System.Text.Encoding.UTF8.GetBytes(currentTypeId);
+        _legacyTypeIdUtf8 = System.Text.Encoding.UTF8.GetBytes(legacyTypeId);
+        _currentTypeInfo = currentTypeInfo;
+        _legacyTypeInfo = legacyTypeInfo;
+        _migrateFromLegacy = migrateFromLegacy;
+    }
+
+    public override Storage<TState> Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.StartObject)
+        {
+            throw new JsonException("Storage payload must be a JSON object.");
+        }
+
+        if (!reader.Read() || reader.TokenType != JsonTokenType.PropertyName || !reader.ValueTextEquals(TypePropertyNameUtf8))
+        {
+            throw new JsonException("Storage payload must start with '$type'.");
+        }
+
+        if (!reader.Read() || reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException("Storage payload '$type' must be a string.");
+        }
+
+        bool migrated;
+        if (reader.ValueTextEquals(_currentTypeIdUtf8))
+        {
+            migrated = false;
+        }
+        else if (reader.ValueTextEquals(_legacyTypeIdUtf8))
+        {
+            migrated = true;
+        }
+        else
+        {
+            throw new JsonException("Storage payload type is unknown.");
+        }
+
+        if (!reader.Read() || reader.TokenType != JsonTokenType.PropertyName || !reader.ValueTextEquals(ValuePropertyNameUtf8))
+        {
+            throw new JsonException("Storage payload must contain '$value'.");
+        }
+
+        if (!reader.Read())
+        {
+            throw new JsonException("Storage payload is missing '$value'.");
+        }
+
+        TState state = migrated
+            ? _migrateFromLegacy(JsonSerializer.Deserialize(ref reader, _legacyTypeInfo)
+                                 ?? throw new JsonException("Storage payload legacy state was null."))
+            : JsonSerializer.Deserialize(ref reader, _currentTypeInfo)
+              ?? throw new JsonException("Storage payload current state was null.");
+
+        if (!reader.Read() || reader.TokenType != JsonTokenType.EndObject)
+        {
+            throw new JsonException("Storage payload contains unexpected properties.");
+        }
+
+        return new Storage<TState>
+        {
+            Value = InvokeOnDeserializedCallback(state),
+            MigratedDuringDeserialization = migrated,
+        };
+    }
+
+    public override void Write(Utf8JsonWriter writer, Storage<TState> value, JsonSerializerOptions options)
+    {
+        writer.WriteStartObject();
+        writer.WriteString("$type", _currentTypeId);
+        writer.WritePropertyName("$value");
+        JsonSerializer.Serialize(writer, value.Value, _currentTypeInfo);
+        writer.WriteEndObject();
+    }
+
+    private static TState InvokeOnDeserializedCallback(TState state)
+    {
+        if (state is global::Orleans.Serialization.IOnDeserialized callback)
+        {
+            callback.OnDeserialized(default!);
+        }
+
+        return state;
+    }
+}
+
+public sealed class PolymorphicStorageJsonConverter<TState, TPolymorphicState> : JsonConverter<Storage<TState>>
+    where TState : class, TPolymorphicState
+    where TPolymorphicState : class
+{
+    private static readonly byte[] ValuePropertyNameUtf8 = "$value"u8.ToArray();
+    private readonly JsonTypeInfo<TPolymorphicState> _polymorphicTypeInfo;
+    private readonly Func<TPolymorphicState, TState> _toCurrentState;
+
+    public PolymorphicStorageJsonConverter(
+        JsonTypeInfo<TPolymorphicState> polymorphicTypeInfo,
+        Func<TPolymorphicState, TState> toCurrentState)
+    {
+        _polymorphicTypeInfo = polymorphicTypeInfo;
+        _toCurrentState = toCurrentState;
+    }
+
+    public override Storage<TState> Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.StartObject)
+        {
+            throw new JsonException("Storage payload must be a JSON object.");
+        }
+
+        if (!reader.Read() || reader.TokenType != JsonTokenType.PropertyName || !reader.ValueTextEquals(ValuePropertyNameUtf8))
+        {
+            throw new JsonException("Storage payload must contain '$value'.");
+        }
+
+        if (!reader.Read())
+        {
+            throw new JsonException("Storage payload is missing '$value'.");
+        }
+
+        TPolymorphicState state = JsonSerializer.Deserialize(ref reader, _polymorphicTypeInfo)
+                                  ?? throw new JsonException("Storage payload state was null.");
+        TState current = _toCurrentState(state);
+
+        if (!reader.Read() || reader.TokenType != JsonTokenType.EndObject)
+        {
+            throw new JsonException("Storage payload contains unexpected properties.");
+        }
+
+        return new Storage<TState>
+        {
+            Value = InvokeOnDeserializedCallback(current),
+            MigratedDuringDeserialization = state is not TState,
+        };
+    }
+
+    public override void Write(Utf8JsonWriter writer, Storage<TState> value, JsonSerializerOptions options)
+    {
+        writer.WriteStartObject();
+        writer.WritePropertyName("$value");
+        JsonSerializer.Serialize(writer, (TPolymorphicState)value.Value, _polymorphicTypeInfo);
+        writer.WriteEndObject();
+    }
+
+    private static TState InvokeOnDeserializedCallback(TState state)
+    {
+        if (state is global::Orleans.Serialization.IOnDeserialized callback)
+        {
+            callback.OnDeserialized(default!);
+        }
+
+        return state;
+    }
+}
+
 [JsonSerializable(typeof(MinimalState))]
 internal partial class MinimalStateJsonContext : JsonSerializerContext;
 
@@ -421,6 +727,52 @@ internal partial class ComplexStateOnlyStorageJsonContext : JsonSerializerContex
 [JsonSerializable(typeof(ComplexState))]
 [JsonSerializable(typeof(Storage<ComplexState>))]
 internal partial class ComplexStateClosedStorageJsonContext : JsonSerializerContext;
+
+[Alias("perf/minimal-legacy-state")]
+public sealed class MinimalLegacyState : IMinimalStatePolymorphic
+{
+    public string Name { get; init; } = string.Empty;
+}
+
+[Alias("perf/complex-legacy-state")]
+public sealed class ComplexLegacyState : IComplexStatePolymorphic
+{
+    public string TenantId { get; init; } = string.Empty;
+
+    public string AggregateId { get; init; } = string.Empty;
+
+    public int Revision { get; init; }
+
+    public DateTimeOffset UpdatedUtc { get; init; }
+
+    public ComplexAddress BillingAddress { get; init; } = new();
+
+    public ComplexAddress ShippingAddress { get; init; } = new();
+
+    public List<ComplexLineItem> Items { get; init; } = [];
+
+    public Dictionary<string, int> Counters { get; init; } = new(StringComparer.Ordinal);
+
+    public List<string> Tags { get; init; } = [];
+}
+
+[JsonSerializable(typeof(MinimalState))]
+[JsonSerializable(typeof(MinimalLegacyState))]
+[JsonSerializable(typeof(Storage<MinimalState>))]
+internal partial class MinimalStateHardcodedStorageJsonContext : JsonSerializerContext;
+
+[JsonSerializable(typeof(IMinimalStatePolymorphic))]
+[JsonSerializable(typeof(Storage<MinimalState>))]
+internal partial class MinimalStatePolymorphicStorageJsonContext : JsonSerializerContext;
+
+[JsonSerializable(typeof(ComplexState))]
+[JsonSerializable(typeof(ComplexLegacyState))]
+[JsonSerializable(typeof(Storage<ComplexState>))]
+internal partial class ComplexStateHardcodedStorageJsonContext : JsonSerializerContext;
+
+[JsonSerializable(typeof(IComplexStatePolymorphic))]
+[JsonSerializable(typeof(Storage<ComplexState>))]
+internal partial class ComplexStatePolymorphicStorageJsonContext : JsonSerializerContext;
 
 public sealed class PerfBenchmarkConfig : ManualConfig
 {
