@@ -1,101 +1,153 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using Orleans.Storage;
 using Orleans.TestingHost;
 
 namespace Egil.Orleans.StateMigration.Tests;
 
-public sealed class StorageJsonOrleansInProcessTests
+[Collection(OrleansInProcessClusterCollection.Name)]
+public sealed class StorageJsonOrleansInProcessTests(OrleansInProcessClusterFixture fixture)
 {
     [Fact]
     public async Task Enveloped_storage_roundtrips_in_orleans_in_process_cluster()
     {
-        JsonSerializerOptions jsonOptions = new JsonSerializerOptions().AddStateMigrationSupport();
-        var serializer = new SystemTextJsonGrainStorageSerializer(jsonOptions);
-        await using InProcessTestCluster cluster = await StartClusterAsync(serializer);
+        string displayName = CreateToken("alice");
+        string grainKey = CreateToken("user/default");
+        IDefaultStorageStateGrain grain = fixture.Cluster.Client.GetGrain<IDefaultStorageStateGrain>(grainKey);
 
-        IStorageStateGrain grain = cluster.Client.GetGrain<IStorageStateGrain>("user/default");
-        await grain.SetDisplayNameAsync("alice");
-        await grain.DeactivateAsync();
+        await grain.SetDisplayNameAsync(displayName);
+        await ForceReactivationAsync(grain, fixture.DefaultSerializer);
 
-        string displayName = await grain.GetDisplayNameAsync();
-        bool migratedOnActivation = await grain.WasMigratedOnActivationAsync();
+        Assert.Equal(displayName, await grain.GetDisplayNameAsync());
+        Assert.False(await grain.WasMigratedOnActivationAsync());
 
-        Assert.Equal("alice", displayName);
-        Assert.False(migratedOnActivation);
-        Assert.Contains(@"""$type"":""e2e/current-profile""", serializer.LastSerializedJson, StringComparison.Ordinal);
-        Assert.Contains(@"""$value"":{", serializer.LastSerializedJson, StringComparison.Ordinal);
+        string json = fixture.DefaultSerializer.GetLatestSerializedJsonContaining(displayName);
+        Assert.Contains(@"""$type"":""e2e/current-profile""", json, StringComparison.Ordinal);
+        Assert.Contains(@"""$value"":{", json, StringComparison.Ordinal);
     }
 
     [Fact]
     public async Task Custom_type_and_value_property_names_are_used_in_cluster_storage()
     {
-        JsonSerializerOptions jsonOptions = new JsonSerializerOptions()
-            .AddStateMigrationSupport("_type", "_value");
-        var serializer = new SystemTextJsonGrainStorageSerializer(jsonOptions);
-        await using InProcessTestCluster cluster = await StartClusterAsync(serializer);
+        string displayName = CreateToken("bob");
+        string grainKey = CreateToken("user/custom");
+        ICustomStorageStateGrain grain = fixture.Cluster.Client.GetGrain<ICustomStorageStateGrain>(grainKey);
 
-        IStorageStateGrain grain = cluster.Client.GetGrain<IStorageStateGrain>("user/custom");
-        await grain.SetDisplayNameAsync("bob");
+        await grain.SetDisplayNameAsync(displayName);
+        Assert.Equal(displayName, await grain.GetDisplayNameAsync());
 
-        Assert.Contains(@"""_type"":""e2e/current-profile""", serializer.LastSerializedJson, StringComparison.Ordinal);
-        Assert.Contains(@"""_value"":{", serializer.LastSerializedJson, StringComparison.Ordinal);
+        string json = fixture.CustomSerializer.GetLatestSerializedJsonContaining(displayName);
+        Assert.Contains(@"""_type"":""e2e/current-profile""", json, StringComparison.Ordinal);
+        Assert.Contains(@"""_value"":{", json, StringComparison.Ordinal);
     }
 
     [Fact]
     public async Task Legacy_flattened_payload_is_migrated_and_rewritten_to_enveloped_layout()
     {
-        JsonSerializerOptions readAndRewriteOptions = new JsonSerializerOptions().AddStateMigrationSupport();
-        var flattenedWriteOptions = new JsonSerializerOptions().AddStateMigrationSupport(StoragePayloadLayout.Flattened);
-        var serializer = new SystemTextJsonGrainStorageSerializer(readAndRewriteOptions);
-        serializer.SetNextSerializeOverride(payload =>
-        {
-            if (payload is not Storage<CurrentProfileState> storage)
-            {
-                throw new InvalidOperationException(
-                    $"Expected payload of type '{typeof(Storage<CurrentProfileState>)}'.");
-            }
+        string displayName = CreateToken("charlie");
+        string grainKey = CreateToken("user/legacy");
+        fixture.DefaultSerializer.RegisterOneShotFlattenedWriteForDisplayName(displayName);
 
-            return JsonSerializer.Serialize(storage, flattenedWriteOptions);
-        });
+        IDefaultStorageStateGrain grain = fixture.Cluster.Client.GetGrain<IDefaultStorageStateGrain>(grainKey);
+        await grain.SetDisplayNameAsync(displayName);
 
-        await using InProcessTestCluster cluster = await StartClusterAsync(serializer);
-        IStorageStateGrain grain = cluster.Client.GetGrain<IStorageStateGrain>("user/legacy");
+        string flattenedJson = fixture.DefaultSerializer.GetLatestSerializedJsonContaining(displayName);
+        Assert.Contains(@"""$type"":""e2e/current-profile""", flattenedJson, StringComparison.Ordinal);
+        Assert.DoesNotContain(@"""$value"":", flattenedJson, StringComparison.Ordinal);
 
-        await grain.SetDisplayNameAsync("charlie");
-        Assert.Contains(@"""$type"":""e2e/current-profile""", serializer.LastSerializedJson, StringComparison.Ordinal);
-        Assert.DoesNotContain(@"""$value"":", serializer.LastSerializedJson, StringComparison.Ordinal);
+        await ForceReactivationAsync(grain, fixture.DefaultSerializer);
 
-        await grain.DeactivateAsync();
-        string displayNameAfterReactivation = await grain.GetDisplayNameAsync();
-        bool migratedOnActivation = await grain.WasMigratedOnActivationAsync();
+        Assert.Equal(displayName, await grain.GetDisplayNameAsync());
+        Assert.True(await grain.WasMigratedOnActivationAsync());
 
-        Assert.Equal("charlie", displayNameAfterReactivation);
-        Assert.True(migratedOnActivation);
-        Assert.Contains(@"""$type"":""e2e/current-profile""", serializer.LastSerializedJson, StringComparison.Ordinal);
-        Assert.Contains(@"""$value"":", serializer.LastSerializedJson, StringComparison.Ordinal);
+        string rewrittenJson = fixture.DefaultSerializer.GetLatestSerializedJsonContaining(displayName);
+        Assert.Contains(@"""$type"":""e2e/current-profile""", rewrittenJson, StringComparison.Ordinal);
+        Assert.Contains(@"""$value"":", rewrittenJson, StringComparison.Ordinal);
     }
 
-    private static async Task<InProcessTestCluster> StartClusterAsync(SystemTextJsonGrainStorageSerializer serializer)
+    private static async Task ForceReactivationAsync(
+        IDefaultStorageStateGrain grain,
+        SystemTextJsonGrainStorageSerializer serializer)
+    {
+        long deserializationsBefore = serializer.DeserializationCount;
+        await grain.DeactivateAsync();
+
+        for (int attempt = 0; attempt < 40; attempt++)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(25));
+            _ = await grain.GetDisplayNameAsync();
+            if (serializer.DeserializationCount > deserializationsBefore)
+            {
+                return;
+            }
+        }
+
+        throw new InvalidOperationException("Timed out waiting for grain reactivation in in-process cluster.");
+    }
+
+    private static string CreateToken(string prefix)
+        => $"{prefix}-{Guid.NewGuid():N}";
+}
+
+[CollectionDefinition(Name)]
+public sealed class OrleansInProcessClusterCollection : ICollectionFixture<OrleansInProcessClusterFixture>
+{
+    public const string Name = "OrleansInProcessCluster";
+}
+
+public sealed class OrleansInProcessClusterFixture : IAsyncLifetime
+{
+    public InProcessTestCluster Cluster { get; private set; } = null!;
+
+    public SystemTextJsonGrainStorageSerializer DefaultSerializer { get; } = CreateDefaultSerializer();
+    public SystemTextJsonGrainStorageSerializer CustomSerializer { get; } = CreateCustomSerializer();
+
+    public async ValueTask DisposeAsync()
+    {
+        if (Cluster is not null)
+        {
+            await Cluster.DisposeAsync();
+        }
+    }
+
+    public async ValueTask InitializeAsync()
     {
         var builder = new InProcessTestClusterBuilder();
         builder.ConfigureSilo((_, siloBuilder) =>
         {
-            siloBuilder.AddMemoryGrainStorage("storage", optionsBuilder =>
+            siloBuilder.AddMemoryGrainStorage("storage-default", optionsBuilder =>
             {
-                optionsBuilder.Configure(options =>
-                {
-                    options.GrainStorageSerializer = serializer;
-                });
+                optionsBuilder.Configure(options => options.GrainStorageSerializer = DefaultSerializer);
+            });
+
+            siloBuilder.AddMemoryGrainStorage("storage-custom", optionsBuilder =>
+            {
+                optionsBuilder.Configure(options => options.GrainStorageSerializer = CustomSerializer);
             });
         });
 
         InProcessTestCluster cluster = builder.Build();
         await cluster.DeployAsync();
-        return cluster;
+        Cluster = cluster;
+    }
+
+    private static SystemTextJsonGrainStorageSerializer CreateDefaultSerializer()
+    {
+        JsonSerializerOptions readAndWriteOptions = new JsonSerializerOptions().AddStateMigrationSupport();
+        JsonSerializerOptions flattenedWriteOptions = new JsonSerializerOptions()
+            .AddStateMigrationSupport(StoragePayloadLayout.Flattened);
+        return new SystemTextJsonGrainStorageSerializer(readAndWriteOptions, flattenedWriteOptions);
+    }
+
+    private static SystemTextJsonGrainStorageSerializer CreateCustomSerializer()
+    {
+        JsonSerializerOptions customOptions = new JsonSerializerOptions()
+            .AddStateMigrationSupport("_type", "_value");
+        return new SystemTextJsonGrainStorageSerializer(customOptions, flattenedWriteOptions: null);
     }
 }
 
-internal interface IStorageStateGrain : IGrainWithStringKey
+internal interface IDefaultStorageStateGrain : IGrainWithStringKey
 {
     Task SetDisplayNameAsync(string displayName);
 
@@ -106,9 +158,16 @@ internal interface IStorageStateGrain : IGrainWithStringKey
     Task DeactivateAsync();
 }
 
-internal sealed class StorageStateGrain(
-    [PersistentState("state", "storage")] IPersistentState<Storage<CurrentProfileState>> state)
-    : Grain, IStorageStateGrain
+internal interface ICustomStorageStateGrain : IGrainWithStringKey
+{
+    Task SetDisplayNameAsync(string displayName);
+
+    Task<string> GetDisplayNameAsync();
+}
+
+internal sealed class DefaultStorageStateGrain(
+    [PersistentState("state", "storage-default")] IPersistentState<Storage<CurrentProfileState>> state)
+    : Grain, IDefaultStorageStateGrain
 {
     private bool migratedOnActivation;
 
@@ -144,6 +203,24 @@ internal sealed class StorageStateGrain(
     }
 }
 
+internal sealed class CustomStorageStateGrain(
+    [PersistentState("state", "storage-custom")] IPersistentState<Storage<CurrentProfileState>> state)
+    : Grain, ICustomStorageStateGrain
+{
+    public async Task SetDisplayNameAsync(string displayName)
+    {
+        state.State = new Storage<CurrentProfileState>
+        {
+            Value = new CurrentProfileState { DisplayName = displayName },
+        };
+
+        await state.WriteStateAsync();
+    }
+
+    public Task<string> GetDisplayNameAsync()
+        => Task.FromResult(state.State?.Value.DisplayName ?? string.Empty);
+}
+
 [Alias("e2e/legacy-profile")]
 internal sealed class LegacyProfileState
 {
@@ -159,29 +236,56 @@ internal sealed class CurrentProfileState : IMigrateFrom<LegacyProfileState, Cur
         => new() { DisplayName = $"migrated:{source.Name}" };
 }
 
-internal sealed class SystemTextJsonGrainStorageSerializer(JsonSerializerOptions options) : IGrainStorageSerializer
+public sealed class SystemTextJsonGrainStorageSerializer(
+    JsonSerializerOptions options,
+    JsonSerializerOptions? flattenedWriteOptions) : IGrainStorageSerializer
 {
     private readonly JsonSerializerOptions jsonSerializerOptions = options;
-    private Func<object?, string>? nextSerializeOverride;
+    private readonly JsonSerializerOptions? flattenedSerializerOptions = flattenedWriteOptions;
+    private readonly ConcurrentDictionary<string, byte> oneShotFlattenedWrites = new(StringComparer.Ordinal);
+    private readonly ConcurrentQueue<string> serializedPayloads = new();
+    private long deserializationCount;
 
-    public string LastSerializedJson { get; private set; } = string.Empty;
+    public long DeserializationCount => Interlocked.Read(ref deserializationCount);
 
-    public void SetNextSerializeOverride(Func<object?, string> serializeOverride)
-        => nextSerializeOverride = serializeOverride;
+    public void RegisterOneShotFlattenedWriteForDisplayName(string displayName)
+    {
+        if (flattenedSerializerOptions is null)
+        {
+            throw new InvalidOperationException("Flattened one-shot writes are not supported by this serializer.");
+        }
+
+        oneShotFlattenedWrites[displayName] = 0;
+    }
+
+    public string GetLatestSerializedJsonContaining(string valueFragment)
+    {
+        string[] snapshot = serializedPayloads.ToArray();
+        for (int i = snapshot.Length - 1; i >= 0; i--)
+        {
+            if (snapshot[i].Contains(valueFragment, StringComparison.Ordinal))
+            {
+                return snapshot[i];
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"No serialized payload captured containing fragment '{valueFragment}'.");
+    }
 
     public BinaryData Serialize<T>(T value)
     {
-        Func<object?, string>? serializeOverride = Interlocked.Exchange(ref nextSerializeOverride, null);
-        string json = serializeOverride is null
-            ? JsonSerializer.Serialize(value, jsonSerializerOptions)
-            : serializeOverride(value);
+        string json = ShouldSerializeFlattened(value, out Storage<CurrentProfileState>? stateToFlatten)
+            ? JsonSerializer.Serialize(stateToFlatten, flattenedSerializerOptions)
+            : JsonSerializer.Serialize(value, jsonSerializerOptions);
 
-        LastSerializedJson = json;
+        serializedPayloads.Enqueue(json);
         return BinaryData.FromString(json);
     }
 
     public T Deserialize<T>(BinaryData input)
     {
+        Interlocked.Increment(ref deserializationCount);
         T? value = JsonSerializer.Deserialize<T>(input.ToString(), jsonSerializerOptions);
         if (value is null && default(T) is not null)
         {
@@ -190,5 +294,16 @@ internal sealed class SystemTextJsonGrainStorageSerializer(JsonSerializerOptions
         }
 
         return value!;
+    }
+
+    private bool ShouldSerializeFlattened<T>(T value, [NotNullWhen(true)] out Storage<CurrentProfileState>? stateToFlatten)
+    {
+        stateToFlatten = value as Storage<CurrentProfileState>;
+        if (stateToFlatten is null || flattenedSerializerOptions is null)
+        {
+            return false;
+        }
+
+        return oneShotFlattenedWrites.TryRemove(stateToFlatten.Value.DisplayName, out _);
     }
 }
