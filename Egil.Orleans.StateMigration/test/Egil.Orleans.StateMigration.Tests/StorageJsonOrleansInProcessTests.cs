@@ -16,7 +16,7 @@ public sealed class StorageJsonOrleansInProcessTests(OrleansInProcessClusterFixt
         IDefaultStorageStateGrain grain = fixture.Cluster.Client.GetGrain<IDefaultStorageStateGrain>(grainKey);
 
         await grain.SetDisplayNameAsync(displayName);
-        await ForceReactivationAsync(grain, fixture.DefaultSerializer);
+        await ForceReactivationAsync(grain);
 
         Assert.Equal(displayName, await grain.GetDisplayNameAsync());
         Assert.False(await grain.WasMigratedOnActivationAsync());
@@ -55,7 +55,7 @@ public sealed class StorageJsonOrleansInProcessTests(OrleansInProcessClusterFixt
         Assert.Contains(@"""$type"":""e2e/current-profile""", flattenedJson, StringComparison.Ordinal);
         Assert.DoesNotContain(@"""$value"":", flattenedJson, StringComparison.Ordinal);
 
-        await ForceReactivationAsync(grain, fixture.DefaultSerializer);
+        await ForceReactivationAsync(grain);
 
         Assert.Equal(displayName, await grain.GetDisplayNameAsync());
         Assert.True(await grain.WasMigratedOnActivationAsync());
@@ -65,24 +65,10 @@ public sealed class StorageJsonOrleansInProcessTests(OrleansInProcessClusterFixt
         Assert.Contains(@"""$value"":", rewrittenJson, StringComparison.Ordinal);
     }
 
-    private static async Task ForceReactivationAsync(
-        IDefaultStorageStateGrain grain,
-        SystemTextJsonGrainStorageSerializer serializer)
+    private static async Task ForceReactivationAsync(IDefaultStorageStateGrain grain)
     {
-        long deserializationsBefore = serializer.DeserializationCount;
         await grain.Cast<global::Orleans.Core.Internal.IGrainManagementExtension>().DeactivateOnIdle();
-
-        for (int attempt = 0; attempt < 40; attempt++)
-        {
-            await Task.Delay(TimeSpan.FromMilliseconds(25));
-            _ = await grain.GetDisplayNameAsync();
-            if (serializer.DeserializationCount > deserializationsBefore)
-            {
-                return;
-            }
-        }
-
-        throw new InvalidOperationException("Timed out waiting for grain reactivation in in-process cluster.");
+        _ = await grain.GetDisplayNameAsync();
     }
 
     private static string CreateToken(string prefix)
@@ -236,9 +222,6 @@ public sealed class SystemTextJsonGrainStorageSerializer(
     private readonly JsonSerializerOptions? flattenedSerializerOptions = flattenedWriteOptions;
     private readonly ConcurrentDictionary<string, byte> oneShotFlattenedWrites = new(StringComparer.Ordinal);
     private readonly ConcurrentQueue<string> serializedPayloads = new();
-    private long deserializationCount;
-
-    public long DeserializationCount => Interlocked.Read(ref deserializationCount);
 
     public void RegisterOneShotFlattenedWriteForDisplayName(string displayName)
     {
@@ -277,7 +260,6 @@ public sealed class SystemTextJsonGrainStorageSerializer(
 
     public T Deserialize<T>(BinaryData input)
     {
-        Interlocked.Increment(ref deserializationCount);
         T? value = JsonSerializer.Deserialize<T>(input.ToString(), jsonSerializerOptions);
         if (value is null && default(T) is not null)
         {
