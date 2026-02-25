@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace Egil.Orleans.StateMigration;
 
 internal static class StateMigrationInvoker
@@ -21,15 +23,39 @@ internal static class StateMigrationInvoker
             return false;
         }
 
-        // Use static target-owned migration when available so converter read-path can migrate without DI.
-        var fromMethod = targetType.GetMethod(nameof(IMigrateFrom<object, object>.From), [sourceType]);
-        if (fromMethod is null || !fromMethod.IsStatic || fromMethod.ReturnType != targetType)
-        {
-            throw new InvalidOperationException(
-                $"Type '{targetType.FullName}' implements '{migrationInterface.FullName}' but no valid static From method was found.");
-        }
+        using Activity? migrationActivity = StateMigrationTelemetry.StartMigrationActivity(
+            sourceType,
+            targetType,
+            StateMigrationTelemetry.StaticMigrationKind);
 
-        migrated = fromMethod.Invoke(null, [source]);
-        return migrated is not null;
+        try
+        {
+            // Use static target-owned migration when available so converter read-path can migrate without DI.
+            var fromMethod = targetType.GetMethod(nameof(IMigrateFrom<object, object>.From), [sourceType]);
+            if (fromMethod is null || !fromMethod.IsStatic || fromMethod.ReturnType != targetType)
+            {
+                throw new InvalidOperationException(
+                    $"Type '{targetType.FullName}' implements '{migrationInterface.FullName}' but no valid static From method was found.");
+            }
+
+            migrated = fromMethod.Invoke(null, [source]);
+            if (migrated is null)
+            {
+                StateMigrationTelemetry.SetActivityFailure(migrationActivity, "Static migration returned null.");
+                return false;
+            }
+
+            StateMigrationTelemetry.RecordSuccessfulMigration(
+                sourceType,
+                targetType,
+                StateMigrationTelemetry.StaticMigrationKind);
+            StateMigrationTelemetry.SetActivitySuccess(migrationActivity);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            StateMigrationTelemetry.SetActivityFailure(migrationActivity, exception);
+            throw;
+        }
     }
 }

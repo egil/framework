@@ -94,6 +94,29 @@ https://github.com/dotnet/orleans/blob/main/src/Orleans.Core.Abstractions/CodeGe
 
 `DeserializationContext` can be retrieved from `IServiceProvider` via `OnDeserializedCallbacks`.
 
+## Telemetry
+
+This library emits migration telemetry using .NET `Meter` and `ActivitySource`.
+
+- Meter: `Egil.Orleans.StateMigration`
+  - Counter: `state_migration.type_migrations`
+  - Emitted once for each successful migration from one type to another.
+  - Tags:
+    - `state.migration.source_type`
+    - `state.migration.target_type`
+    - `state.migration.kind` (`static` or `external`)
+- ActivitySource: `Egil.Orleans.StateMigration`
+  - Activity: `state_migration.migrate`
+  - Includes the same tags and success/error status.
+
+Example OpenTelemetry registration:
+
+```csharp
+services.AddOpenTelemetry()
+    .WithMetrics(builder => builder.AddMeter("Egil.Orleans.StateMigration"))
+    .WithTracing(builder => builder.AddSource("Egil.Orleans.StateMigration"));
+```
+
 ## API sketch
 
 ```csharp
