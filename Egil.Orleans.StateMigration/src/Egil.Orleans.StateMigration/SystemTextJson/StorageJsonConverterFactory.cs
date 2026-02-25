@@ -59,12 +59,6 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
 
     private sealed class EnvelopedStorageJsonConverter<TStateType> : JsonConverter<Storage<TStateType>>
     {
-        private enum EnvelopeValuePropertyMatch
-        {
-            None,
-            Configured,
-        }
-
         private static readonly string TargetTypeIdentity = StateTypeIdentity.GetIdentity(typeof(TStateType));
         private static readonly byte[] TargetTypeIdentityUtf8 = Encoding.UTF8.GetBytes(TargetTypeIdentity);
         private readonly string _typePropertyName;
@@ -123,13 +117,9 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
                     // Continue parsing from the existing probe (already positioned after '$type' value)
                     // and commit reader position only on successful envelope parse.
                     var envelopeProbe = probe;
-                    bool hasSecondPropertyName =
-                        envelopeProbe.Read()
-                        && envelopeProbe.TokenType == JsonTokenType.PropertyName;
-                    if (hasSecondPropertyName)
+                    if (envelopeProbe.Read() && envelopeProbe.TokenType == JsonTokenType.PropertyName)
                     {
-                        EnvelopeValuePropertyMatch match = GetEnvelopeValuePropertyMatch(ref envelopeProbe);
-                        if (match is not EnvelopeValuePropertyMatch.None
+                        if (envelopeProbe.ValueTextEquals(_valuePropertyNameUtf8)
                             && TryDeserializeCurrentEnvelopedStateAfterValueProperty(
                                 ref envelopeProbe,
                                 out TStateType? envelopedState))
@@ -148,7 +138,7 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
                             };
                         }
 
-                        if (match is EnvelopeValuePropertyMatch.None && envelopeProbe.ValueTextEquals("value"u8))
+                        if (envelopeProbe.ValueTextEquals("value"u8))
                         {
                             throw new JsonException(
                                 $"Storage payload must use '{_valuePropertyName}' as the state property name.");
@@ -179,8 +169,7 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
                     throw new JsonException($"Storage payload type '{sourceIdentity}' is unknown.");
                 }
 
-                EnvelopeValuePropertyMatch envelopeValuePropertyMatch = ProbeEnvelopedPayload(ref probe);
-                bool isEnvelopedPayload = envelopeValuePropertyMatch is not EnvelopeValuePropertyMatch.None;
+                bool isEnvelopedPayload = ProbeEnvelopedPayload(ref probe);
                 JsonTypeInfo sourceTypeInfo = options.GetTypeInfo(sourceType);
                 object? source = isEnvelopedPayload
                     ? DeserializeEnvelopedState(ref reader, sourceIdentity, sourceType, options)
@@ -237,17 +226,16 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
             }
         }
 
-        private EnvelopeValuePropertyMatch ProbeEnvelopedPayload(ref Utf8JsonReader probe)
+        private bool ProbeEnvelopedPayload(ref Utf8JsonReader probe)
         {
             if (!probe.Read() || probe.TokenType != JsonTokenType.PropertyName)
             {
-                return EnvelopeValuePropertyMatch.None;
+                return false;
             }
 
-            EnvelopeValuePropertyMatch match = GetEnvelopeValuePropertyMatch(ref probe);
-            if (match is EnvelopeValuePropertyMatch.None)
+            if (!probe.ValueTextEquals(_valuePropertyNameUtf8))
             {
-                return EnvelopeValuePropertyMatch.None;
+                return false;
             }
 
             if (!probe.Read())
@@ -257,8 +245,8 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
 
             probe.Skip();
             return probe.Read() && probe.TokenType == JsonTokenType.EndObject
-                ? match
-                : EnvelopeValuePropertyMatch.None;
+                ? true
+                : false;
         }
 
         private TStateType? DeserializeCurrentFlattenedPayload(ref Utf8JsonReader reader, JsonSerializerOptions options)
@@ -321,8 +309,7 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
                 throw new JsonException($"Storage payload is missing a '{_valuePropertyName}' property.");
             }
 
-            EnvelopeValuePropertyMatch match = GetEnvelopeValuePropertyMatch(ref reader);
-            if (match is EnvelopeValuePropertyMatch.None)
+            if (!reader.ValueTextEquals(_valuePropertyNameUtf8))
             {
                 throw new JsonException(
                     $"Storage payload must use '{_valuePropertyName}' as the state property name.");
@@ -341,16 +328,6 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
             }
 
             return state;
-        }
-
-        private EnvelopeValuePropertyMatch GetEnvelopeValuePropertyMatch(ref Utf8JsonReader reader)
-        {
-            if (reader.ValueTextEquals(_valuePropertyNameUtf8))
-            {
-                return EnvelopeValuePropertyMatch.Configured;
-            }
-
-            return EnvelopeValuePropertyMatch.None;
         }
 
         private static TStateType InvokeOnDeserializedCallback(TStateType state)
@@ -383,12 +360,6 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
 
     private sealed class FlattenedStorageJsonConverter<TStateType> : JsonConverter<Storage<TStateType>>
     {
-        private enum EnvelopeValuePropertyMatch
-        {
-            None,
-            Configured,
-        }
-
         private static readonly string TargetTypeIdentity = StateTypeIdentity.GetIdentity(typeof(TStateType));
         private static readonly byte[] TargetTypeIdentityUtf8 = Encoding.UTF8.GetBytes(TargetTypeIdentity);
         private readonly string _typePropertyName;
@@ -447,11 +418,9 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
                     // Continue parsing from the existing probe (already positioned after '$type' value)
                     // and commit reader position only on successful envelope parse.
                     var envelopeProbe = probe;
-                    bool hasSecondPropertyName =
-                        envelopeProbe.Read()
-                        && envelopeProbe.TokenType == JsonTokenType.PropertyName;
-                    if (hasSecondPropertyName
-                        && GetEnvelopeValuePropertyMatch(ref envelopeProbe) is not EnvelopeValuePropertyMatch.None
+                    if (envelopeProbe.Read()
+                        && envelopeProbe.TokenType == JsonTokenType.PropertyName
+                        && envelopeProbe.ValueTextEquals(_valuePropertyNameUtf8)
                         && TryDeserializeCurrentEnvelopedStateAfterValueProperty(
                             ref envelopeProbe,
                             out TStateType? envelopedState))
@@ -494,8 +463,7 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
                     throw new JsonException($"Storage payload type '{sourceIdentity}' is unknown.");
                 }
 
-                EnvelopeValuePropertyMatch envelopeValuePropertyMatch = ProbeEnvelopedPayload(ref probe);
-                bool isEnvelopedPayload = envelopeValuePropertyMatch is not EnvelopeValuePropertyMatch.None;
+                bool isEnvelopedPayload = ProbeEnvelopedPayload(ref probe);
                 JsonTypeInfo sourceTypeInfo = options.GetTypeInfo(sourceType);
                 object? source = isEnvelopedPayload
                     ? DeserializeEnvelopedState(ref reader, sourceIdentity, sourceType, options)
@@ -547,17 +515,16 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
             }
         }
 
-        private EnvelopeValuePropertyMatch ProbeEnvelopedPayload(ref Utf8JsonReader probe)
+        private bool ProbeEnvelopedPayload(ref Utf8JsonReader probe)
         {
             if (!probe.Read() || probe.TokenType != JsonTokenType.PropertyName)
             {
-                return EnvelopeValuePropertyMatch.None;
+                return false;
             }
 
-            EnvelopeValuePropertyMatch match = GetEnvelopeValuePropertyMatch(ref probe);
-            if (match is EnvelopeValuePropertyMatch.None)
+            if (!probe.ValueTextEquals(_valuePropertyNameUtf8))
             {
-                return EnvelopeValuePropertyMatch.None;
+                return false;
             }
 
             if (!probe.Read())
@@ -567,8 +534,8 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
 
             probe.Skip();
             return probe.Read() && probe.TokenType == JsonTokenType.EndObject
-                ? match
-                : EnvelopeValuePropertyMatch.None;
+                ? true
+                : false;
         }
 
         private TStateType? DeserializeCurrentFlattenedPayload(ref Utf8JsonReader reader, JsonSerializerOptions options)
@@ -633,8 +600,7 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
                 throw new JsonException($"Storage payload is missing a '{_valuePropertyName}' property.");
             }
 
-            EnvelopeValuePropertyMatch match = GetEnvelopeValuePropertyMatch(ref reader);
-            if (match is EnvelopeValuePropertyMatch.None)
+            if (!reader.ValueTextEquals(_valuePropertyNameUtf8))
             {
                 throw new JsonException(
                     $"Storage payload must use '{_valuePropertyName}' as the state property name.");
@@ -653,16 +619,6 @@ public sealed class StorageJsonConverterFactory : JsonConverterFactory
             }
 
             return state;
-        }
-
-        private EnvelopeValuePropertyMatch GetEnvelopeValuePropertyMatch(ref Utf8JsonReader reader)
-        {
-            if (reader.ValueTextEquals(_valuePropertyNameUtf8))
-            {
-                return EnvelopeValuePropertyMatch.Configured;
-            }
-
-            return EnvelopeValuePropertyMatch.None;
         }
 
         private void WriteFlattenedPayload(
