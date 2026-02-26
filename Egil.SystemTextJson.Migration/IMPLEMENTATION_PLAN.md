@@ -27,8 +27,8 @@
 
 ### Phase 1: Core library extraction
 
-- [ ] Move sample migration implementation from tests into `src`.
-- [ ] Keep tests using only public APIs from `Egil.SystemTextJson.Migration`.
+- [x] Move sample migration implementation from tests into `src`.
+- [x] Keep tests using only public APIs from `Egil.SystemTextJson.Migration`.
 
 ### Phase 2: AOT-safe registration and scanning
 
@@ -61,3 +61,7 @@
 - Source-generation metadata availability can fail at runtime if required types are missing.
 - Reflection-based migration invocation can regress perf if not replaced with cached delegates.
 - Optional scanning must not become implicit default behavior.
+
+## Progress Notes
+
+- 2026-02-26: Added initial production API and converter implementation in `src`, and removed embedded sample implementation from tests so tests now exercise the library project.

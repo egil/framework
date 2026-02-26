@@ -23,4 +23,8 @@
     <PackageReference Include="xunit.runner.visualstudio" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Egil.SystemTextJson.Migration\Egil.SystemTextJson.Migration.csproj" />
+  </ItemGroup>
+
 </Project>
