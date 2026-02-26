@@ -32,18 +32,18 @@
 
 ### Phase 2: AOT-safe registration and scanning
 
-- [ ] Add explicit registration API (`RegisterMigrator<T...>` variants).
-- [ ] Add optional assembly-scoped scanning API.
-- [ ] Validate duplicate registration and unsupported signatures at setup.
+- [x] Add explicit registration API (`RegisterMigrator<T...>` variants).
+- [x] Add optional assembly-scoped scanning API.
+- [x] Validate duplicate registration and unsupported signatures at setup.
 
 ### Phase 3: Tracking contract
 
-- [ ] Add `IJsonMigrationTracked` and set `MigratedDuringDeserialization` for migrated and legacy payload paths.
+- [x] Add `IJsonMigrationTracked` and set `MigratedDuringDeserialization` for migrated and legacy payload paths.
 
 ### Phase 4: Source generation support
 
-- [ ] Ensure compatibility with user-provided STJ `JsonSerializerContext`.
-- [ ] Add failure diagnostics for missing metadata.
+- [x] Ensure compatibility with user-provided STJ `JsonSerializerContext`.
+- [x] Add failure diagnostics for missing metadata.
 
 ### Phase 5: Performance testing
 
@@ -65,3 +65,4 @@
 ## Progress Notes
 
 - 2026-02-26: Added initial production API and converter implementation in `src`, and removed embedded sample implementation from tests so tests now exercise the library project.
+- 2026-02-26: Added registration, tracking, precedence, scoped scanning, and source-generation test coverage (`RegistrationAndTrackingTests`) and verified behavior with all tests green.
