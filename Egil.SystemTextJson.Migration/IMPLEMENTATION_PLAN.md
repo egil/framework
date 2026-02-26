@@ -23,7 +23,7 @@
 ### Phase 0: Baseline and infrastructure
 
 - [x] Fix `.NET 10` test runner configuration for MTP and get `dotnet test` green.
-- [ ] Add package metadata, library README, `version.json`, and CI workflow.
+- [x] Add package metadata, library README, `version.json`, and CI workflow.
 
 ### Phase 1: Core library extraction
 
@@ -66,3 +66,4 @@
 
 - 2026-02-26: Added initial production API and converter implementation in `src`, and removed embedded sample implementation from tests so tests now exercise the library project.
 - 2026-02-26: Added registration, tracking, precedence, scoped scanning, and source-generation test coverage (`RegistrationAndTrackingTests`) and verified behavior with all tests green.
+- 2026-02-26: Added package metadata/readme/versioning and a dedicated `egil-systemtextjson-migration` GitHub Actions workflow; validated with `dotnet pack`.
