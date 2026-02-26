@@ -47,8 +47,8 @@
 
 ### Phase 5: Performance testing
 
-- [ ] Add BenchmarkDotNet perf project inspired by Orleans migration perf tests.
-- [ ] Benchmark all scenarios, including non-JsonMigratable manual-migration counterparts.
+- [x] Add BenchmarkDotNet perf project inspired by Orleans migration perf tests.
+- [x] Benchmark all scenarios, including non-JsonMigratable manual-migration counterparts.
 
 ## Perf Gates
 
@@ -67,3 +67,4 @@
 - 2026-02-26: Added initial production API and converter implementation in `src`, and removed embedded sample implementation from tests so tests now exercise the library project.
 - 2026-02-26: Added registration, tracking, precedence, scoped scanning, and source-generation test coverage (`RegistrationAndTrackingTests`) and verified behavior with all tests green.
 - 2026-02-26: Added package metadata/readme/versioning and a dedicated `egil-systemtextjson-migration` GitHub Actions workflow; validated with `dotnet pack`.
+- 2026-02-26: Added `perf/Egil.SystemTextJson.Migration.PerfTests` with reflection + source-gen benchmark suites and manual non-JsonMigratable counterparts for each migration scenario. Executed full benchmark matrix and exported reports in `BenchmarkDotNet.Artifacts/results`.
