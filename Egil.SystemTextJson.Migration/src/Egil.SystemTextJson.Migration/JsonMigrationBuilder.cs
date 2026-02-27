@@ -1,5 +1,6 @@
 using System.Collections.Frozen;
 using System.Reflection;
+using Egil.SystemTextJson.Migration.Migrations;
 
 namespace Egil.SystemTextJson.Migration;
 

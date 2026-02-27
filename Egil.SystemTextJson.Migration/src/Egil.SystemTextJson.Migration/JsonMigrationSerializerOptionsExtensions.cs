@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Egil.SystemTextJson.Migration.Migrations;
 
 namespace Egil.SystemTextJson.Migration;
 
