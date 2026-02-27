@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Collections.Frozen;
 using System.Reflection;
 using System.Text.Json;
@@ -13,7 +12,6 @@ namespace Egil.SystemTextJson.Migration.Migrations;
 internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry registry) : JsonConverterFactory
 {
     private readonly JsonMigrationRegistry registry = registry;
-    private readonly ConcurrentDictionary<Type, JsonConverter> converterCache = new();
 
     /// <inheritdoc/>
     public override bool CanConvert(Type typeToConvert)
@@ -21,7 +19,7 @@ internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry regis
 
     /// <inheritdoc/>
     public override JsonConverter? CreateConverter(Type typeToConvert, JsonSerializerOptions options)
-        => converterCache.GetOrAdd(typeToConvert, _ => CreateConverterCore(typeToConvert, options));
+        => CreateConverterCore(typeToConvert, options);
 
     private JsonConverter CreateConverterCore(Type typeToConvert, JsonSerializerOptions options)
     {

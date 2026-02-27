@@ -125,6 +125,30 @@ public class RegistrationAndTrackingTests
         Assert.Contains("No JSON metadata is available", exception.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Copied_options_use_their_own_metadata_context_for_converter_creation()
+    {
+        const string payload = """
+            {"$type":"Egil.SystemTextJson.Migration.Tests.MissingMetadataSource","name":"Egil Hansen","age":42}
+            """;
+
+        var optionsA = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        optionsA.AddJsonMigrationSupport(static builder => builder.RegisterMigrator<MissingMetadataMigrator>());
+        optionsA.TypeInfoResolverChain.Add(CompleteMissingMetadataJsonContext.Default);
+
+        var migrated = JsonSerializer.Deserialize<MissingMetadataTarget>(payload, optionsA);
+        Assert.NotNull(migrated);
+
+        var optionsB = new JsonSerializerOptions(optionsA);
+        optionsB.TypeInfoResolverChain.Clear();
+        optionsB.TypeInfoResolverChain.Add(MissingMetadataJsonContext.Default);
+
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => JsonSerializer.Deserialize<MissingMetadataTarget>(payload, optionsB));
+
+        Assert.Contains("No JSON metadata is available", exception.Message, StringComparison.Ordinal);
+    }
+
     private static JsonSerializerOptions CreateOptions(Action<JsonMigrationBuilder>? configure = null)
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
@@ -240,3 +264,8 @@ public partial class TrackingJsonContext : JsonSerializerContext;
 [JsonSourceGenerationOptions]
 [JsonSerializable(typeof(MissingMetadataTarget))]
 public partial class MissingMetadataJsonContext : JsonSerializerContext;
+
+[JsonSourceGenerationOptions]
+[JsonSerializable(typeof(MissingMetadataSource))]
+[JsonSerializable(typeof(MissingMetadataTarget))]
+public partial class CompleteMissingMetadataJsonContext : JsonSerializerContext;
