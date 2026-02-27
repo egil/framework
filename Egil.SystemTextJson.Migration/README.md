@@ -24,3 +24,19 @@ options.AddJsonMigrationSupport(builder =>
 ```
 
 Migration registration is explicit by default to keep startup behavior predictable and AOT-friendly.
+
+## Mutation testing
+
+Install local tools (or restore if already installed):
+
+```bash
+dotnet tool restore
+```
+
+Run mutation testing with Stryker.NET:
+
+```bash
+dotnet stryker --config-file stryker-config.json -t mtp
+```
+
+Reports are written under `StrykerOutput/`.
