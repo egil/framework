@@ -12,14 +12,14 @@ internal sealed class JsonMigratableConverter<T>(MigratorContext context) : Json
     {
         InspectionResult inspection = Inspect(ref reader, out string? sourceDiscriminator);
 
-        if (inspection == InspectionResult.LegacyPayload)
+        if (inspection is InspectionResult.LegacyPayload)
         {
             T? legacy = DeserializeTarget(ref reader, typeToConvert);
             SetMigrationTracking(legacy, migratedDuringDeserialization: true);
             return legacy;
         }
 
-        if (inspection == InspectionResult.TargetType)
+        if (inspection is InspectionResult.TargetType)
         {
             T? current = DeserializeTarget(ref reader, typeToConvert);
             SetMigrationTracking(current, migratedDuringDeserialization: false);
@@ -68,12 +68,12 @@ internal sealed class JsonMigratableConverter<T>(MigratorContext context) : Json
         sourceDiscriminator = null;
 
         var probe = reader;
-        if (probe.TokenType == JsonTokenType.None && !probe.Read())
+        if (probe.TokenType is JsonTokenType.None && !probe.Read())
         {
             throw new JsonException("Unexpected end of JSON payload.");
         }
 
-        if (probe.TokenType != JsonTokenType.StartObject)
+        if (probe.TokenType is not JsonTokenType.StartObject)
         {
             throw new JsonException($"Expected '{JsonTokenType.StartObject}', got '{probe.TokenType}'.");
         }
@@ -83,12 +83,12 @@ internal sealed class JsonMigratableConverter<T>(MigratorContext context) : Json
             throw new JsonException("Unexpected end of JSON payload.");
         }
 
-        if (probe.TokenType == JsonTokenType.EndObject)
+        if (probe.TokenType is JsonTokenType.EndObject)
         {
             return InspectionResult.LegacyPayload;
         }
 
-        if (probe.TokenType != JsonTokenType.PropertyName)
+        if (probe.TokenType is not JsonTokenType.PropertyName)
         {
             throw new JsonException($"Expected '{JsonTokenType.PropertyName}', got '{probe.TokenType}'.");
         }
@@ -118,7 +118,7 @@ internal sealed class JsonMigratableConverter<T>(MigratorContext context) : Json
 
     private static string? ReadDiscriminatorValue(ref Utf8JsonReader reader)
     {
-        if (!reader.Read() || reader.TokenType != JsonTokenType.String)
+        if (!reader.Read() || reader.TokenType is not JsonTokenType.String)
         {
             throw new JsonException($"Expected discriminator string, got '{reader.TokenType}'.");
         }
