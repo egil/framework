@@ -14,10 +14,18 @@ internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry regis
     private const string TryMigrateFromMethodName = nameof(IMigrateFrom<,>.TryMigrateFrom);
 
     private readonly JsonMigrationRegistry registry = registry;
+    private readonly Type? excludedType;
+
+    internal JsonMigratableConverterFactory(JsonMigrationRegistry registry, Type excludedType)
+        : this(registry)
+    {
+        this.excludedType = excludedType;
+    }
 
     /// <inheritdoc/>
     public override bool CanConvert(Type typeToConvert)
-        => typeToConvert.GetCustomAttribute<JsonMigratableAttribute>(inherit: true) is not null;
+        => (excludedType is null || typeToConvert != excludedType)
+            && typeToConvert.GetCustomAttribute<JsonMigratableAttribute>(inherit: true) is not null;
 
     /// <inheritdoc/>
     public override JsonConverter? CreateConverter(Type typeToConvert, JsonSerializerOptions options)
@@ -27,9 +35,11 @@ internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry regis
     {
         TypeMetadata targetMetadata = registry.GetTypeMetadata(typeToConvert);
 
-        // Clone options and remove this converter so type metadata lookup does not recursively resolve back to us.
+        // Clone options and replace this factory with a type-excluding instance so metadata lookup can still
+        // apply migration converters for nested migratable types.
         var metadataOptions = new JsonSerializerOptions(options);
         metadataOptions.Converters.Remove(this);
+        metadataOptions.Converters.Add(new JsonMigratableConverterFactory(registry, typeToConvert));
 
         JsonTypeInfo targetTypeInfo = GetRequiredTypeInfo(metadataOptions, typeToConvert);
         AddDiscriminatorProperty(targetTypeInfo, targetMetadata);
