@@ -147,10 +147,7 @@ public sealed class JsonMigrationBuilder
             throw new InvalidOperationException($"Type '{migratorType.FullName}' does not implement any IMigrate<,> contracts.");
         }
 
-        if (Activator.CreateInstance(migratorType) is not object migratorInstance)
-        {
-            throw new InvalidOperationException($"Could not create instance of '{migratorType.FullName}'. Ensure a public parameterless constructor exists.");
-        }
+        object migratorInstance = Activator.CreateInstance(migratorType)!;
 
         foreach ((Type sourceType, Type targetType) in contracts)
         {

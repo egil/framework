@@ -138,22 +138,13 @@ internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry regis
 
             Type[] genericArguments = @interface.GetGenericArguments();
             Type sourceType = genericArguments[0];
-            Type contractTargetType = genericArguments[1];
-
-            if (contractTargetType != targetType)
-            {
-                continue;
-            }
-
-            MethodInfo method = ResolveStaticTryMigrateMethod(targetType, sourceType)
-                ?? throw new InvalidOperationException(
-                    $"Type '{targetType.FullName}' declares IMigrateFrom<{sourceType.FullName}, {targetType.FullName}> but no matching static TryMigrateFrom method was found.");
+            MethodInfo method = ResolveStaticTryMigrateMethod(targetType, sourceType);
 
             yield return new StaticMigratorContract(sourceType, method);
         }
     }
 
-    private static MethodInfo? ResolveStaticTryMigrateMethod(Type targetType, Type sourceType)
+    private static MethodInfo ResolveStaticTryMigrateMethod(Type targetType, Type sourceType)
     {
         MethodInfo[] candidates = targetType
             .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -180,21 +171,11 @@ internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry regis
             })
             .ToArray();
 
-        if (candidates.Length == 0)
-        {
-            return null;
-        }
-
         // Explicit static interface implementations have fully qualified method names,
         // so prefer those when both explicit and public shape matches exist.
         MethodInfo? explicitContractMethod = candidates.FirstOrDefault(IsExplicitContractImplementation);
-
-        if (explicitContractMethod is not null)
-        {
-            return explicitContractMethod;
-        }
-
-        return candidates.FirstOrDefault(static method => method.Name.Equals(TryMigrateFromMethodName, StringComparison.Ordinal));
+        return explicitContractMethod
+            ?? candidates.First(static method => method.Name.Equals(TryMigrateFromMethodName, StringComparison.Ordinal));
     }
 
     private static bool IsExplicitContractImplementation(MethodInfo method)

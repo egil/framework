@@ -51,15 +51,7 @@ internal sealed class JsonMigrationRegistry(
                     continue;
                 }
 
-                if (namedArgument.TypedValue.Value is null)
-                {
-                    break;
-                }
-
-                handling = namedArgument.TypedValue.Value is JsonMigrationFailureHandling typedHandling
-                    ? typedHandling
-                    : (JsonMigrationFailureHandling)Enum.ToObject(typeof(JsonMigrationFailureHandling), namedArgument.TypedValue.Value);
-
+                handling = (JsonMigrationFailureHandling)namedArgument.TypedValue.Value!;
                 return true;
             }
 
