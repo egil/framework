@@ -233,6 +233,67 @@ public class RegistrationAndTrackingTests
         Assert.True(deserialized.OnDeserializedCalled);
     }
 
+    [Fact]
+    public void Migrator_with_dependencies_can_be_created_via_service_provider()
+    {
+        var provider = new TestServiceProvider(new Dictionary<Type, object>
+        {
+            [typeof(ServiceProviderMigrator)] = new ServiceProviderMigrator(new NameSuffixService("-from-di")),
+        });
+
+        var options = CreateOptions(builder => builder
+            .UseServiceProvider(provider)
+            .RegisterMigrator<ServiceProviderSource, ServiceProviderTarget, ServiceProviderMigrator>());
+
+        var json = JsonSerializer.Serialize(new ServiceProviderSource("Egil Hansen", 42), options);
+        var migrated = JsonSerializer.Deserialize<ServiceProviderTarget>(json, options);
+
+        Assert.NotNull(migrated);
+        Assert.Equal("Egil", migrated.FirstName);
+        Assert.Equal("Hansen", migrated.LastName);
+        Assert.Equal(42, migrated.Age);
+        Assert.Equal("Egil Hansen-from-di", migrated.TaggedName);
+    }
+
+    [Fact]
+    public void Service_provider_returning_wrong_type_throws_clear_error()
+    {
+        var provider = new TestServiceProvider(new Dictionary<Type, object>
+        {
+            [typeof(ServiceProviderMigrator)] = new NameSuffixService("-wrong-type"),
+        });
+        var options = CreateOptions(builder => builder
+            .UseServiceProvider(provider)
+            .RegisterMigrator<ServiceProviderSource, ServiceProviderTarget, ServiceProviderMigrator>());
+
+        var json = JsonSerializer.Serialize(new ServiceProviderSource("Egil Hansen", 42), options);
+
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => JsonSerializer.Deserialize<ServiceProviderTarget>(json, options));
+
+        Assert.Contains("not assignable", exception.Message, StringComparison.Ordinal);
+        Assert.Contains(nameof(ServiceProviderMigrator), exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Service_provider_is_queried_for_migrator_on_each_migration_call()
+    {
+        var provider = new CountingServiceProvider();
+        var options = CreateOptions(builder => builder
+            .UseServiceProvider(provider)
+            .RegisterMigrator<ServiceProviderSource, ServiceProviderTarget, ServiceProviderMigrator>());
+
+        var json = JsonSerializer.Serialize(new ServiceProviderSource("Egil Hansen", 42), options);
+
+        var first = JsonSerializer.Deserialize<ServiceProviderTarget>(json, options);
+        var second = JsonSerializer.Deserialize<ServiceProviderTarget>(json, options);
+
+        Assert.NotNull(first);
+        Assert.NotNull(second);
+        Assert.Equal("Egil Hansen-from-di-1", first.TaggedName);
+        Assert.Equal("Egil Hansen-from-di-2", second.TaggedName);
+    }
+
     private static JsonSerializerOptions CreateOptions(Action<JsonMigrationBuilder>? configure = null)
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
@@ -420,6 +481,67 @@ public class MissingMetadataMigrator : IMigrate<MissingMetadataSource, MissingMe
 }
 
 [JsonMigratable]
+public record class ServiceProviderSource(string Name, int Age);
+
+[JsonMigratable]
+public record class ServiceProviderTarget(string FirstName, string LastName, int Age, string TaggedName);
+
+public sealed class ServiceProviderMigrator : IMigrate<ServiceProviderSource, ServiceProviderTarget>
+{
+    private readonly NameSuffixService suffixService;
+
+    public ServiceProviderMigrator()
+        : this(new NameSuffixService("-from-default"))
+    {
+    }
+
+    public ServiceProviderMigrator(NameSuffixService suffixService)
+    {
+        this.suffixService = suffixService;
+    }
+
+    public bool TryMigrateFrom(ServiceProviderSource source, out ServiceProviderTarget result)
+    {
+        var names = source.Name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        result = new ServiceProviderTarget(
+            names.Length > 0 ? names[0] : string.Empty,
+            names.Length > 1 ? names[1] : string.Empty,
+            source.Age,
+            suffixService.AppendSuffix(source.Name));
+        return true;
+    }
+}
+
+public sealed class NameSuffixService(string suffix)
+{
+    public string AppendSuffix(string value) => $"{value}{suffix}";
+}
+
+public sealed class TestServiceProvider(Dictionary<Type, object> services) : IServiceProvider
+{
+    public object? GetService(Type serviceType)
+        => services.TryGetValue(serviceType, out object? service)
+            ? service
+            : null;
+}
+
+public sealed class CountingServiceProvider : IServiceProvider
+{
+    private int calls;
+
+    public object? GetService(Type serviceType)
+    {
+        if (serviceType != typeof(ServiceProviderMigrator))
+        {
+            return null;
+        }
+
+        calls++;
+        return new ServiceProviderMigrator(new NameSuffixService($"-from-di-{calls}"));
+    }
+}
+
+[JsonMigratable]
 public sealed class CallbackLifecycleTarget :
     IJsonOnSerializing,
     IJsonOnSerialized,
@@ -464,6 +586,8 @@ public sealed class CallbackLifecycleTarget :
 [JsonSerializable(typeof(PrecedenceV2))]
 [JsonSerializable(typeof(ScanSource))]
 [JsonSerializable(typeof(ScanTarget))]
+[JsonSerializable(typeof(ServiceProviderSource))]
+[JsonSerializable(typeof(ServiceProviderTarget))]
 public partial class TrackingJsonContext : JsonSerializerContext;
 
 [JsonSourceGenerationOptions]
