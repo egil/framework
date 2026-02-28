@@ -1,5 +1,9 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Text;
 
 namespace Egil.SystemTextJson.Migration.Tests;
 
@@ -148,12 +152,172 @@ public class MutationCoverageTests
         Assert.Contains("Migration failed", exception.Message, StringComparison.Ordinal);
     }
 
+    public static TheoryData<string, bool, bool, JsonCommentHandling, string> DirectReadFailureCases => new()
+    {
+        { string.Empty, false, false, JsonCommentHandling.Disallow, "Unexpected end of JSON payload." },
+        { "{", true, false, JsonCommentHandling.Disallow, "Unexpected end of JSON payload." },
+        { "{/*comment*/\"$type\":\"irrelevant\"}", false, true, JsonCommentHandling.Allow, "Expected 'PropertyName'" },
+    };
+
+    [Theory]
+    [MemberData(nameof(DirectReadFailureCases))]
+    public void DirectRead_throws_for_invalid_reader_states(
+        string payload,
+        bool advanceReader,
+        bool isFinalBlock,
+        JsonCommentHandling commentHandling,
+        string expectedMessageFragment)
+    {
+        var options = CreateTrackingOptions(static builder => builder.RegisterMigrator<TrackingExternalMigrator>());
+        JsonConverter<TrackingV3> converter = GetTrackingConverter(options);
+
+        var readerState = new JsonReaderState(new JsonReaderOptions { CommentHandling = commentHandling });
+        var reader = new Utf8JsonReader(Encoding.UTF8.GetBytes(payload), isFinalBlock, readerState);
+
+        if (advanceReader)
+        {
+            Assert.True(reader.Read());
+        }
+
+        Exception? exception = TryReadTracking(converter, ref reader, options);
+
+        Assert.NotNull(exception);
+        Assert.IsType<JsonException>(exception);
+        Assert.Contains(expectedMessageFragment, exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Deserialize_treats_payload_as_legacy_when_first_property_is_not_discriminator()
+    {
+        var options = CreateTrackingOptions(static builder => builder.RegisterMigrator<TrackingExternalMigrator>());
+
+        const string payload = """
+            {"firstName":"Egil","lastName":"Hansen","age":42}
+            """;
+
+        var migrated = JsonSerializer.Deserialize<TrackingV3>(payload, options);
+
+        Assert.NotNull(migrated);
+        Assert.True(migrated.MigratedDuringDeserialization);
+    }
+
+    [Fact]
+    public void Deserialize_uses_source_discriminator_property_name_when_it_differs_from_target()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.AddJsonMigrationSupport(static builder => builder.RegisterMigrator<CustomDiscriminatorMigrator>());
+
+        var json = JsonSerializer.Serialize(new CustomDiscriminatorSource("Egil Hansen", 42), options);
+        var migrated = JsonSerializer.Deserialize<TrackingV3>(json, options);
+
+        Assert.NotNull(migrated);
+        Assert.Equal("Egil", migrated.FirstName);
+        Assert.True(migrated.MigratedDuringDeserialization);
+    }
+
+    [Fact]
+    public void Static_migrator_signature_filter_skips_invalid_signatures_and_uses_valid_signature()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.AddJsonMigrationSupport();
+
+        var json = JsonSerializer.Serialize(new SignatureChaosV1("Egil Hansen", 42), options);
+        var migrated = JsonSerializer.Deserialize<SignatureChaosV2>(json, options);
+
+        Assert.NotNull(migrated);
+        Assert.Equal("Egil", migrated!.FirstName);
+    }
+
+    [Fact]
+    public void Write_falls_back_to_context_type_info_when_typed_target_info_is_unavailable()
+    {
+        var options = CreateTrackingOptions();
+        JsonConverter<TrackingV3> converter = CreateTrackingConverterWithUntypedTargetInfo(options);
+
+        using var stream = new MemoryStream();
+        using var writer = new Utf8JsonWriter(stream);
+        converter.Write(writer, new TrackingV3("Egil", "Hansen", 42), options);
+        writer.Flush();
+
+        string json = Encoding.UTF8.GetString(stream.ToArray());
+        Assert.Contains("\"firstName\":\"Egil\"", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Read_throws_when_context_type_info_deserializes_to_wrong_runtime_type()
+    {
+        var options = CreateTrackingOptions();
+        JsonConverter<TrackingV3> converter = CreateTrackingConverterWithUntypedTargetInfo(options);
+
+        string json = JsonSerializer.Serialize(new TrackingV3("Egil", "Hansen", 42), options);
+        var reader = new Utf8JsonReader(Encoding.UTF8.GetBytes(json));
+
+        Exception? exception = TryReadTracking(converter, ref reader, options);
+
+        Assert.IsType<NotSupportedException>(exception);
+    }
+
     private static JsonSerializerOptions CreateTrackingOptions(Action<JsonMigrationBuilder>? configure = null)
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
         options.AddJsonMigrationSupport(configure);
         options.TypeInfoResolverChain.Add(TrackingJsonContext.Default);
         return options;
+    }
+
+    private static JsonConverter<TrackingV3> GetTrackingConverter(JsonSerializerOptions options)
+        => Assert.IsAssignableFrom<JsonConverter<TrackingV3>>(options.GetConverter(typeof(TrackingV3)));
+
+    private static JsonConverter<TrackingV3> CreateTrackingConverterWithUntypedTargetInfo(JsonSerializerOptions options)
+    {
+        JsonConverter<TrackingV3> converter = GetTrackingConverter(options);
+        Type converterType = converter.GetType();
+        FieldInfo? contextField = Array.Find(
+            converterType.GetFields(BindingFlags.Instance | BindingFlags.NonPublic),
+            static field => field.FieldType.Name == "MigratorContext");
+
+        Assert.NotNull(contextField);
+        object? originalContext = contextField.GetValue(converter);
+        Assert.NotNull(originalContext);
+
+        Type contextType = originalContext.GetType();
+        object? targetMetadata = contextType.GetProperty("TargetMetadata")?.GetValue(originalContext);
+        object? migratorsByDiscriminator = contextType.GetProperty("MigratorsByDiscriminator")?.GetValue(originalContext);
+        object? sourceDiscriminatorPropertyNames = contextType.GetProperty("SourceDiscriminatorPropertyNames")?.GetValue(originalContext);
+
+        Assert.NotNull(targetMetadata);
+        Assert.NotNull(migratorsByDiscriminator);
+        Assert.NotNull(sourceDiscriminatorPropertyNames);
+
+        JsonTypeInfo untypedTargetTypeInfo = options.GetTypeInfo(typeof(object));
+        object mismatchedContext = Activator.CreateInstance(
+            contextType,
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+            binder: null,
+            args: [untypedTargetTypeInfo, targetMetadata, migratorsByDiscriminator, sourceDiscriminatorPropertyNames],
+            culture: null)!;
+
+        object converterInstance = Activator.CreateInstance(
+            converterType,
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+            binder: null,
+            args: [mismatchedContext],
+            culture: null)!;
+
+        return Assert.IsAssignableFrom<JsonConverter<TrackingV3>>(converterInstance);
+    }
+
+    private static Exception? TryReadTracking(JsonConverter<TrackingV3> converter, ref Utf8JsonReader reader, JsonSerializerOptions options)
+    {
+        try
+        {
+            _ = converter.Read(ref reader, typeof(TrackingV3), options);
+            return null;
+        }
+        catch (Exception exception)
+        {
+            return exception;
+        }
     }
 
     private static int CountOccurrences(string value, string token)
@@ -204,4 +368,49 @@ public class MutationCoverageTests
     public record class ExistingDiscriminatorType(
         [property: JsonPropertyName("$type")] string ExplicitDiscriminator,
         int Age);
+
+    [JsonMigratable]
+    public record class SignatureChaosV1(string Name, int Age);
+
+    [JsonMigratable]
+    public record class SignatureChaosV2(string FirstName, string LastName, int Age)
+    {
+        public static bool TryMigrateFrom() => false;
+
+        public static bool TryMigrateFrom(SignatureChaosV1 source) => false;
+
+        public static bool TryMigrateFrom(SignatureChaosV1 source, SignatureChaosV2 result) => false;
+
+        public static bool TryMigrateFrom(SignatureChaosV1 source, out SignatureChaosV2 result, int version)
+        {
+            result = new SignatureChaosV2(source.Name, string.Empty, source.Age);
+            return false;
+        }
+
+        public static bool TryMigrateFrom(SignatureChaosV1 source, [Out] object result) => false;
+
+        public static bool TryMigrateFrom(SignatureChaosV1 source, out SignatureChaosV2 result)
+        {
+            string[] names = source.Name.Split(' ', 2, StringSplitOptions.TrimEntries);
+            string firstName = names[0];
+            string lastName = names.Length == 2 ? names[1] : string.Empty;
+            result = new SignatureChaosV2(firstName, lastName, source.Age);
+            return true;
+        }
+    }
+
+    [JsonMigratable(TypeDiscriminatorPropertyName = "kind")]
+    public record class CustomDiscriminatorSource(string Name, int Age);
+
+    public sealed class CustomDiscriminatorMigrator : IMigrate<CustomDiscriminatorSource, TrackingV3>
+    {
+        public bool TryMigrateFrom(CustomDiscriminatorSource source, out TrackingV3 result)
+        {
+            string[] names = source.Name.Split(' ', 2, StringSplitOptions.TrimEntries);
+            string firstName = names[0];
+            string lastName = names.Length == 2 ? names[1] : string.Empty;
+            result = new TrackingV3(firstName, lastName, source.Age);
+            return true;
+        }
+    }
 }

@@ -7,6 +7,9 @@
     <RootNamespace>Egil.SystemTextJson.Migration.Tests</RootNamespace>
     <TargetFramework>net10.0</TargetFramework>
     <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+    <Include>[Egil.SystemTextJson.Migration]*</Include>
+    <Exclude>[*.Tests]*</Exclude>
+    <ExcludeByFile>**/*Tests.cs</ExcludeByFile>
   </PropertyGroup>
 
   <ItemGroup>
