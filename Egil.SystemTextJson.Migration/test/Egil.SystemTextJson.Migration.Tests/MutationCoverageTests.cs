@@ -105,6 +105,28 @@ public class MutationCoverageTests
     }
 
     [Fact]
+    public void SetTypeDiscriminatorPropertyName_throws_when_value_is_whitespace()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+
+        var exception = Assert.Throws<ArgumentException>(() =>
+            options.AddJsonMigrationSupport(static builder => builder.SetTypeDiscriminatorPropertyName("  ")));
+
+        Assert.Equal("propertyName", exception.ParamName);
+    }
+
+    [Fact]
+    public void SetMigrationFailureHandling_throws_when_value_is_invalid()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+            options.AddJsonMigrationSupport(static builder => builder.SetMigrationFailureHandling((JsonMigrationFailureHandling)999)));
+
+        Assert.Equal("handling", exception.ParamName);
+    }
+
+    [Fact]
     public void RegisterMigratorsFromAssemblies_registers_migrator_from_listed_assemblies()
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
@@ -207,6 +229,52 @@ public class MutationCoverageTests
         var deserialized = JsonSerializer.Deserialize<AttributeReturnNullFalseV2>(json, options);
 
         Assert.Null(deserialized);
+    }
+
+    [Fact]
+    public void Deserialize_throws_when_return_null_policy_is_used_with_non_nullable_value_type_target()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.AddJsonMigrationSupport(static builder => builder
+            .SetMigrationFailureHandling(JsonMigrationFailureHandling.ReturnNull)
+            .RegisterMigrator<ReturnNullStructFalseMigrator>());
+
+        var json = JsonSerializer.Serialize(new ReturnNullStructV1("Egil Hansen", 42), options);
+        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<ReturnNullStructV2>(json, options));
+
+        Assert.Contains("cannot be applied to non-nullable value type targets", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Inherited_json_migratable_attribute_failure_policy_overrides_builder_default()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.AddJsonMigrationSupport(static builder => builder.RegisterMigrator<InheritedPolicyFalseMigrator>());
+
+        var json = JsonSerializer.Serialize(new InheritedPolicySource("Egil Hansen", 42), options);
+        var deserialized = JsonSerializer.Deserialize<InheritedPolicyTarget>(json, options);
+
+        Assert.NotNull(deserialized);
+        Assert.Equal("Egil Hansen", deserialized.Name);
+        Assert.Equal(42, deserialized.Age);
+    }
+
+    [Fact]
+    public void TypeMetadata_uses_type_name_when_type_full_name_is_null()
+    {
+        Type genericParameterType = typeof(GenericParameterHost<>).GetGenericArguments()[0];
+        Type typeMetadataType = typeof(JsonMigrationBuilder).Assembly.GetType(
+            "Egil.SystemTextJson.Migration.Migrations.TypeMetadata",
+            throwOnError: true)!;
+
+        MethodInfo fromType = typeMetadataType.GetMethod(
+            "FromType",
+            BindingFlags.Public | BindingFlags.Static)!;
+
+        object metadata = fromType.Invoke(null, [genericParameterType, null, null])!;
+        string discriminator = (string)typeMetadataType.GetProperty("Discriminator")!.GetValue(metadata)!;
+
+        Assert.Equal(genericParameterType.Name, discriminator);
     }
 
     [Fact]
@@ -532,6 +600,12 @@ public class MutationCoverageTests
 
         public static bool TryMigrateFrom(SignatureChaosV1 source, SignatureChaosV2 result) => false;
 
+        public static bool TryMigrateFrom(int source, out SignatureChaosV2 result)
+        {
+            result = new SignatureChaosV2(string.Empty, string.Empty, source);
+            return false;
+        }
+
         public static bool TryMigrateFrom(SignatureChaosV1 source, out SignatureChaosV2 result, int version)
         {
             result = new SignatureChaosV2(source.Name, string.Empty, source.Age);
@@ -623,4 +697,38 @@ public class MutationCoverageTests
             return false;
         }
     }
+
+    [JsonMigratable]
+    public record class ReturnNullStructV1(string Name, int Age);
+
+    [JsonMigratable]
+    public readonly record struct ReturnNullStructV2(string Name, int Age);
+
+    public sealed class ReturnNullStructFalseMigrator : IMigrate<ReturnNullStructV1, ReturnNullStructV2>
+    {
+        public bool TryMigrateFrom(ReturnNullStructV1 source, out ReturnNullStructV2 result)
+        {
+            result = new ReturnNullStructV2("ignored", source.Age);
+            return false;
+        }
+    }
+
+    [JsonMigratable]
+    public record class InheritedPolicySource(string Name, int Age);
+
+    [JsonMigratable(MigrationFailureHandling = JsonMigrationFailureHandling.FallBackToTargetType)]
+    public record class InheritedPolicyBase(string Name, int Age);
+
+    public record class InheritedPolicyTarget(string Name, int Age) : InheritedPolicyBase(Name, Age);
+
+    public sealed class InheritedPolicyFalseMigrator : IMigrate<InheritedPolicySource, InheritedPolicyTarget>
+    {
+        public bool TryMigrateFrom(InheritedPolicySource source, out InheritedPolicyTarget result)
+        {
+            result = new InheritedPolicyTarget("ignored", source.Age);
+            return false;
+        }
+    }
+
+    private sealed class GenericParameterHost<T>;
 }
