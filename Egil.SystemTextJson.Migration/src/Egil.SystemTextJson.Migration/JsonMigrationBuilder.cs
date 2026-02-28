@@ -12,15 +12,16 @@ public sealed class JsonMigrationBuilder
     private readonly Dictionary<(Type Source, Type Target), ExternalMigratorRegistration> registrations = new();
     private Func<Type, string?>? typeDiscriminatorResolver;
     private string? typeDiscriminatorPropertyName;
+    private IServiceProvider? migratorServiceProvider;
     private JsonMigrationFailureHandling migrationFailureHandling = JsonMigrationFailureHandling.ThrowJsonException;
 
     /// <summary>
     /// Registers a migrator instance type for a single source/target pair.
     /// </summary>
     public JsonMigrationBuilder RegisterMigrator<TSource, TTarget, TMigrator>()
-        where TMigrator : class, IMigrate<TSource, TTarget>, new()
+        where TMigrator : class, IMigrate<TSource, TTarget>
     {
-        AddRegistration(typeof(TSource), typeof(TTarget), new TMigrator());
+        AddRegistration(typeof(TSource), typeof(TTarget), typeof(TMigrator));
         return this;
     }
 
@@ -28,9 +29,22 @@ public sealed class JsonMigrationBuilder
     /// Registers one migrator type for all implemented <see cref="IMigrate{TSource, TTarget}"/> interfaces.
     /// </summary>
     public JsonMigrationBuilder RegisterMigrator<TMigrator>()
-        where TMigrator : class, new()
+        where TMigrator : class
     {
         RegisterMigratorType(typeof(TMigrator));
+        return this;
+    }
+
+    /// <summary>
+    /// Configures a service provider used to instantiate migrator types.
+    /// If a migrator type is not registered in the provider, activation falls back to an accessible
+    /// parameterless constructor.
+    /// </summary>
+    public JsonMigrationBuilder UseServiceProvider(IServiceProvider serviceProvider)
+    {
+        ArgumentNullException.ThrowIfNull(serviceProvider);
+
+        migratorServiceProvider = serviceProvider;
         return this;
     }
 
@@ -147,15 +161,13 @@ public sealed class JsonMigrationBuilder
             throw new InvalidOperationException($"Type '{migratorType.FullName}' does not implement any IMigrate<,> contracts.");
         }
 
-        object migratorInstance = Activator.CreateInstance(migratorType)!;
-
         foreach ((Type sourceType, Type targetType) in contracts)
         {
-            AddRegistration(sourceType, targetType, migratorInstance);
+            AddRegistration(sourceType, targetType, migratorType);
         }
     }
 
-    private void AddRegistration(Type sourceType, Type targetType, object migratorInstance)
+    private void AddRegistration(Type sourceType, Type targetType, Type migratorType)
     {
         var key = (Source: sourceType, Target: targetType);
         if (registrations.ContainsKey(key))
@@ -169,7 +181,7 @@ public sealed class JsonMigrationBuilder
                 sourceType,
                 targetType,
                 TypeMetadata.FromType(sourceType, typeDiscriminatorResolver, typeDiscriminatorPropertyName),
-                MigratorInvokerFactory.CreateExternalInvoker(sourceType, targetType, migratorInstance)));
+                MigratorInvokerFactory.CreateExternalInvoker(sourceType, targetType, migratorType, migratorServiceProvider)));
     }
 
     private static IEnumerable<(Type Source, Type Target)> GetMigrationContracts(Type type)
