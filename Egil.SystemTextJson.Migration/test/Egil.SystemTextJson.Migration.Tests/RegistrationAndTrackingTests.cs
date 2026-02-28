@@ -211,7 +211,8 @@ public class TrackingExternalMigrator :
 public record class PrecedenceV1(string Name, int Age);
 
 [JsonMigratable]
-public record class PrecedenceV2(string FirstName, string LastName, int Age, string MigrationPath)
+public record class PrecedenceV2(string FirstName, string LastName, int Age, string MigrationPath) :
+    IMigrateFrom<PrecedenceV1, PrecedenceV2>
 {
     public static bool TryMigrateFrom(PrecedenceV1 source, out PrecedenceV2 result)
     {

@@ -152,6 +152,35 @@ public class MutationCoverageTests
         Assert.Contains("Migration failed", exception.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Deserialize_uses_explicit_static_interface_migrator()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.AddJsonMigrationSupport();
+
+        var json = JsonSerializer.Serialize(new ExplicitStaticContractV1("Egil Hansen", 42), options);
+        var migrated = JsonSerializer.Deserialize<ExplicitStaticContractV2>(json, options);
+
+        Assert.NotNull(migrated);
+        Assert.Equal("Egil", migrated.FirstName);
+        Assert.Equal("Hansen", migrated.LastName);
+        Assert.Equal(42, migrated.Age);
+    }
+
+    [Fact]
+    public void Deserialize_prefers_interface_contract_method_over_public_shape_match()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.AddJsonMigrationSupport();
+
+        var json = JsonSerializer.Serialize(new ContractPreferenceV1("Egil Hansen", 42), options);
+        var migrated = JsonSerializer.Deserialize<ContractPreferenceV2>(json, options);
+
+        Assert.NotNull(migrated);
+        Assert.Equal("contract", migrated.Path);
+        Assert.Equal("Egil", migrated.FirstName);
+    }
+
     public static TheoryData<string, bool, bool, JsonCommentHandling, string> DirectReadFailureCases => new()
     {
         { string.Empty, false, false, JsonCommentHandling.Disallow, "Unexpected end of JSON payload." },
@@ -355,7 +384,8 @@ public class MutationCoverageTests
     public record class StaticFalseV1(string Name, int Age);
 
     [JsonMigratable]
-    public record class StaticFalseV2(string FirstName, string LastName, int Age)
+    public record class StaticFalseV2(string FirstName, string LastName, int Age) :
+        IMigrateFrom<StaticFalseV1, StaticFalseV2>
     {
         public static bool TryMigrateFrom(StaticFalseV1 source, out StaticFalseV2 result)
         {
@@ -370,10 +400,55 @@ public class MutationCoverageTests
         int Age);
 
     [JsonMigratable]
+    public record class ExplicitStaticContractV1(string Name, int Age);
+
+    [JsonMigratable]
+    public record class ExplicitStaticContractV2(string FirstName, string LastName, int Age) :
+        IMigrateFrom<ExplicitStaticContractV1, ExplicitStaticContractV2>
+    {
+        static bool IMigrateFrom<ExplicitStaticContractV1, ExplicitStaticContractV2>.TryMigrateFrom(
+            ExplicitStaticContractV1 source,
+            out ExplicitStaticContractV2 result)
+        {
+            string[] names = source.Name.Split(' ', 2, StringSplitOptions.TrimEntries);
+            string firstName = names[0];
+            string lastName = names.Length == 2 ? names[1] : string.Empty;
+            result = new ExplicitStaticContractV2(firstName, lastName, source.Age);
+            return true;
+        }
+    }
+
+    [JsonMigratable]
+    public record class ContractPreferenceV1(string Name, int Age);
+
+    [JsonMigratable]
+    public record class ContractPreferenceV2(string FirstName, string LastName, int Age, string Path) :
+        IMigrateFrom<ContractPreferenceV1, ContractPreferenceV2>
+    {
+        public static bool TryMigrateFrom(ContractPreferenceV1 source, out ContractPreferenceV2 result)
+        {
+            result = new ContractPreferenceV2("public", string.Empty, source.Age, "shape");
+            return true;
+        }
+
+        static bool IMigrateFrom<ContractPreferenceV1, ContractPreferenceV2>.TryMigrateFrom(
+            ContractPreferenceV1 source,
+            out ContractPreferenceV2 result)
+        {
+            string[] names = source.Name.Split(' ', 2, StringSplitOptions.TrimEntries);
+            string firstName = names[0];
+            string lastName = names.Length == 2 ? names[1] : string.Empty;
+            result = new ContractPreferenceV2(firstName, lastName, source.Age, "contract");
+            return true;
+        }
+    }
+
+    [JsonMigratable]
     public record class SignatureChaosV1(string Name, int Age);
 
     [JsonMigratable]
-    public record class SignatureChaosV2(string FirstName, string LastName, int Age)
+    public record class SignatureChaosV2(string FirstName, string LastName, int Age) :
+        IMigrateFrom<SignatureChaosV1, SignatureChaosV2>
     {
         public static bool TryMigrateFrom() => false;
 

@@ -6,6 +6,7 @@
 
 - `[JsonMigratable]` type discriminator support.
 - Explicit registration of `IMigrate<TSource, TTarget>` migrators.
+- Static target-owned migration contracts via `IMigrateFrom<TSource, TTarget>`.
 - Optional assembly-scoped migrator scanning.
 - Support for source-generated `JsonSerializerContext` metadata.
 - Optional migration tracking through `IJsonMigrationTracked`.
@@ -24,6 +25,8 @@ options.AddJsonMigrationSupport(builder =>
 ```
 
 Migration registration is explicit by default to keep startup behavior predictable and AOT-friendly.
+
+For target-owned static migrations, implement `IMigrateFrom<TSource, TTarget>` on the target type.
 
 ## Mutation testing
 

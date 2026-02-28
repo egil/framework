@@ -45,7 +45,8 @@ public class LibraryCoreBehaviorTests
 public record class CoreSampleV1(string Name, int Age);
 
 [JsonMigratable]
-public record class CoreSampleV2(string FirstName, string LastName, int Age)
+public record class CoreSampleV2(string FirstName, string LastName, int Age) :
+    IMigrateFrom<CoreSampleV1, CoreSampleV2>
 {
     public static bool TryMigrateFrom(CoreSampleV1 source, out CoreSampleV2 result)
     {

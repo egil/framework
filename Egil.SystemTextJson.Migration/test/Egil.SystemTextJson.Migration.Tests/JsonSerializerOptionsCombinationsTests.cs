@@ -177,7 +177,9 @@ public class JsonSerializerOptionsCombinationsTests
 public record class OptionsMatrixV1(string Name, int Age, string? NickName);
 
 [JsonMigratable]
-public record class OptionsMatrixV2(string FirstName, string LastName, int Age, string? NickName) : IJsonMigrationTracked
+public record class OptionsMatrixV2(string FirstName, string LastName, int Age, string? NickName) :
+    IJsonMigrationTracked,
+    IMigrateFrom<OptionsMatrixV1, OptionsMatrixV2>
 {
     [JsonIgnore]
     public bool MigratedDuringDeserialization { get; set; }
