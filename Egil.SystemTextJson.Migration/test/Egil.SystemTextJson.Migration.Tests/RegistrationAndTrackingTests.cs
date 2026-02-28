@@ -95,6 +95,25 @@ public class RegistrationAndTrackingTests
     }
 
     [Fact]
+    public void Duplicate_source_discriminators_for_same_target_throws_dedicated_exception()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.AddJsonMigrationSupport(static builder => builder
+            .RegisterMigrator<DuplicateDiscriminatorMigratorA>()
+            .RegisterMigrator<DuplicateDiscriminatorMigratorB>());
+
+        var exception = Assert.Throws<JsonMigrationDuplicateTypeDiscriminatorException>(() => JsonSerializer.Deserialize<DuplicateDiscriminatorTarget>(
+            """
+            {"$type":"dup-source","name":"Egil Hansen","age":42}
+            """,
+            options));
+
+        Assert.Contains("Duplicate type discriminator", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(typeof(DuplicateDiscriminatorTarget), exception.TargetType);
+        Assert.Equal("dup-source", exception.Discriminator);
+    }
+
+    [Fact]
     public void Custom_attribute_discriminator_is_used_when_configured()
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
@@ -340,6 +359,43 @@ public class AliasFallbackMigrator : IMigrate<AliasFallbackSource, AliasFallback
             names.Length > 0 ? names[0] : string.Empty,
             names.Length > 1 ? names[1] : string.Empty,
             source.Age);
+        return true;
+    }
+}
+
+[JsonMigratable(TypeDiscriminator = "dup-source")]
+public record class DuplicateDiscriminatorSourceA(string Name, int Age);
+
+[JsonMigratable(TypeDiscriminator = "dup-source")]
+public record class DuplicateDiscriminatorSourceB(string Name, int Age);
+
+[JsonMigratable]
+public record class DuplicateDiscriminatorTarget(string FirstName, string LastName, int Age, string Path);
+
+public class DuplicateDiscriminatorMigratorA : IMigrate<DuplicateDiscriminatorSourceA, DuplicateDiscriminatorTarget>
+{
+    public bool TryMigrateFrom(DuplicateDiscriminatorSourceA source, out DuplicateDiscriminatorTarget result)
+    {
+        var names = source.Name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        result = new DuplicateDiscriminatorTarget(
+            names.Length > 0 ? names[0] : string.Empty,
+            names.Length > 1 ? names[1] : string.Empty,
+            source.Age,
+            "A");
+        return true;
+    }
+}
+
+public class DuplicateDiscriminatorMigratorB : IMigrate<DuplicateDiscriminatorSourceB, DuplicateDiscriminatorTarget>
+{
+    public bool TryMigrateFrom(DuplicateDiscriminatorSourceB source, out DuplicateDiscriminatorTarget result)
+    {
+        var names = source.Name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        result = new DuplicateDiscriminatorTarget(
+            names.Length > 0 ? names[0] : string.Empty,
+            names.Length > 1 ? names[1] : string.Empty,
+            source.Age,
+            "B");
         return true;
     }
 }

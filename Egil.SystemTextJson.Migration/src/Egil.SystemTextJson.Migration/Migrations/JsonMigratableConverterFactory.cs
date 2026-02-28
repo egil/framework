@@ -56,15 +56,20 @@ internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry regis
 
     private MigratorReference[] BuildMigratorMap(Type targetType, JsonSerializerOptions metadataOptions)
     {
-        var migrators = new Dictionary<string, MigratorReference>(StringComparer.Ordinal);
+        var migrators = new Dictionary<string, MigratorCandidate>(StringComparer.Ordinal);
 
         foreach (ExternalMigratorRegistration registration in registry.GetForTarget(targetType))
         {
-            migrators[registration.SourceMetadata.Discriminator] = new MigratorReference(
+            var migrator = new MigratorReference(
                 registration.SourceType,
                 registration.SourceMetadata,
                 GetRequiredTypeInfo(metadataOptions, registration.SourceType),
                 registration.Invoker);
+
+            AddMigratorCandidate(
+                migrators,
+                targetType,
+                new MigratorCandidate(migrator, MigratorCandidateKind.External));
         }
 
         // Static target-owned migration is preferred
@@ -74,14 +79,49 @@ internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry regis
             Type sourceType = contract.SourceType;
             TypeMetadata sourceMetadata = registry.GetTypeMetadata(sourceType);
 
-            migrators[sourceMetadata.Discriminator] = new MigratorReference(
+            var migrator = new MigratorReference(
                 sourceType,
                 sourceMetadata,
                 GetRequiredTypeInfo(metadataOptions, sourceType),
                 MigratorInvokerFactory.CreateStaticInvoker(sourceType, targetType, contract.Method));
+
+            AddMigratorCandidate(
+                migrators,
+                targetType,
+                new MigratorCandidate(migrator, MigratorCandidateKind.Static));
         }
 
-        return [.. migrators.Values];
+        return [.. migrators.Values.Select(static candidate => candidate.Migrator)];
+    }
+
+    private static void AddMigratorCandidate(
+        Dictionary<string, MigratorCandidate> migrators,
+        Type targetType,
+        MigratorCandidate candidate)
+    {
+        string discriminator = candidate.Migrator.SourceMetadata.Discriminator;
+
+        if (!migrators.TryGetValue(discriminator, out MigratorCandidate existing))
+        {
+            migrators.Add(discriminator, candidate);
+            return;
+        }
+
+        // Preserve existing behavior: a target-owned static migrator wins over an external migrator
+        // for the same source type.
+        if (existing.Kind == MigratorCandidateKind.External
+            && candidate.Kind == MigratorCandidateKind.Static
+            && existing.Migrator.SourceType == candidate.Migrator.SourceType)
+        {
+            migrators[discriminator] = candidate;
+            return;
+        }
+
+        throw new JsonMigrationDuplicateTypeDiscriminatorException(
+            targetType,
+            discriminator,
+            existing.Migrator.SourceType,
+            candidate.Migrator.SourceType);
     }
 
     private static IEnumerable<StaticMigratorContract> FindStaticMigratorMethods(Type targetType)
@@ -189,6 +229,14 @@ internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry regis
         discriminatorProperty.Get = _ => metadata.Discriminator;
 
         typeInfo.Properties.Insert(0, discriminatorProperty);
+    }
+
+    private readonly record struct MigratorCandidate(MigratorReference Migrator, MigratorCandidateKind Kind);
+
+    private enum MigratorCandidateKind
+    {
+        External,
+        Static,
     }
 
     private readonly record struct StaticMigratorContract(Type SourceType, MethodInfo Method);
