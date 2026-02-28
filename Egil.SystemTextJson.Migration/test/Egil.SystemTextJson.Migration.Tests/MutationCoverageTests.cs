@@ -124,6 +124,30 @@ public class MutationCoverageTests
         Assert.Contains("does not contain any JSON tokens", exception.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Deserialize_throws_when_external_migrator_returns_false()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.AddJsonMigrationSupport(static builder => builder.RegisterMigrator<ExternalFalseMigrator>());
+
+        var json = JsonSerializer.Serialize(new ExternalFalseV1("Egil Hansen", 42), options);
+        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<ExternalFalseV2>(json, options));
+
+        Assert.Contains("Migration failed", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Deserialize_throws_when_static_migrator_returns_false()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.AddJsonMigrationSupport();
+
+        var json = JsonSerializer.Serialize(new StaticFalseV1("Egil Hansen", 42), options);
+        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<StaticFalseV2>(json, options));
+
+        Assert.Contains("Migration failed", exception.Message, StringComparison.Ordinal);
+    }
+
     private static JsonSerializerOptions CreateTrackingOptions(Action<JsonMigrationBuilder>? configure = null)
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
@@ -147,6 +171,34 @@ public class MutationCoverageTests
     }
 
     private sealed class NotAMigrator;
+
+    [JsonMigratable]
+    public record class ExternalFalseV1(string Name, int Age);
+
+    [JsonMigratable]
+    public record class ExternalFalseV2(string FirstName, string LastName, int Age);
+
+    public sealed class ExternalFalseMigrator : IMigrate<ExternalFalseV1, ExternalFalseV2>
+    {
+        public bool TryMigrateFrom(ExternalFalseV1 source, out ExternalFalseV2 result)
+        {
+            result = new ExternalFalseV2(string.Empty, string.Empty, source.Age);
+            return false;
+        }
+    }
+
+    [JsonMigratable]
+    public record class StaticFalseV1(string Name, int Age);
+
+    [JsonMigratable]
+    public record class StaticFalseV2(string FirstName, string LastName, int Age)
+    {
+        public static bool TryMigrateFrom(StaticFalseV1 source, out StaticFalseV2 result)
+        {
+            result = new StaticFalseV2(string.Empty, string.Empty, source.Age);
+            return false;
+        }
+    }
 
     [JsonMigratable]
     public record class ExistingDiscriminatorType(
