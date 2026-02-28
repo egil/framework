@@ -7,12 +7,15 @@ internal sealed record TypeMetadata(
     string Discriminator,
     string DiscriminatorPropertyName)
 {
-    public static TypeMetadata FromType(Type type, Func<Type, string?>? typeDiscriminatorResolver = null)
+    public static TypeMetadata FromType(
+        Type type,
+        Func<Type, string?>? typeDiscriminatorResolver = null,
+        string? defaultDiscriminatorPropertyName = null)
     {
         JsonMigratableAttribute? attribute = type.GetCustomAttribute<JsonMigratableAttribute>(inherit: true);
         string? customDiscriminator = typeDiscriminatorResolver?.Invoke(type);
         string discriminator = customDiscriminator ?? attribute?.TypeDiscriminator ?? type.FullName ?? type.Name;
-        string propertyName = attribute?.TypeDiscriminatorPropertyName ?? "$type";
+        string propertyName = attribute?.TypeDiscriminatorPropertyName ?? defaultDiscriminatorPropertyName ?? "$type";
         return new TypeMetadata(type, discriminator, propertyName);
     }
 }

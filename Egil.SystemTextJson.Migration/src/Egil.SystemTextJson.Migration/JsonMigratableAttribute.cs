@@ -8,8 +8,9 @@ public sealed class JsonMigratableAttribute : Attribute
 {
     /// <summary>
     /// Gets or sets the JSON property name used to store the type discriminator.
+    /// When not set, the builder default is used, and falls back to <c>$type</c>.
     /// </summary>
-    public string TypeDiscriminatorPropertyName { get; set; } = "$type";
+    public string? TypeDiscriminatorPropertyName { get; set; }
 
     /// <summary>
     /// Gets or sets the discriminator value to write/read for the annotated type.

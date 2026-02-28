@@ -6,10 +6,12 @@ namespace Egil.SystemTextJson.Migration.Migrations;
 internal sealed class JsonMigrationRegistry(
     FrozenDictionary<Type, FrozenDictionary<Type, ExternalMigratorRegistration>> registrationsByTarget,
     Func<Type, string?>? typeDiscriminatorResolver,
+    string? defaultDiscriminatorPropertyName,
     JsonMigrationFailureHandling migrationFailureHandling)
 {
     private readonly FrozenDictionary<Type, FrozenDictionary<Type, ExternalMigratorRegistration>> registrationsByTarget = registrationsByTarget;
     private readonly Func<Type, string?>? typeDiscriminatorResolver = typeDiscriminatorResolver;
+    private readonly string? defaultDiscriminatorPropertyName = defaultDiscriminatorPropertyName;
 
     public IEnumerable<ExternalMigratorRegistration> GetForTarget(Type targetType)
         => registrationsByTarget.TryGetValue(targetType, out FrozenDictionary<Type, ExternalMigratorRegistration>? registrations)
@@ -17,7 +19,7 @@ internal sealed class JsonMigrationRegistry(
             : [];
 
     public TypeMetadata GetTypeMetadata(Type type)
-        => TypeMetadata.FromType(type, typeDiscriminatorResolver);
+        => TypeMetadata.FromType(type, typeDiscriminatorResolver, defaultDiscriminatorPropertyName);
 
     public JsonMigrationFailureHandling GetMigrationFailureHandling(Type targetType)
     {

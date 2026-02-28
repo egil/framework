@@ -302,6 +302,23 @@ public class MutationCoverageTests
     }
 
     [Fact]
+    public void Builder_can_override_default_type_discriminator_property_name()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.AddJsonMigrationSupport(static builder => builder
+            .SetTypeDiscriminatorPropertyName("__type")
+            .RegisterMigrator<TrackingExternalMigrator>());
+
+        var json = JsonSerializer.Serialize(new TrackingV1("Egil Hansen", 42), options);
+        Assert.Contains("\"__type\":", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"$type\":", json, StringComparison.Ordinal);
+
+        var migrated = JsonSerializer.Deserialize<TrackingV3>(json, options);
+        Assert.NotNull(migrated);
+        Assert.Equal("Egil", migrated.FirstName);
+    }
+
+    [Fact]
     public void Static_migrator_signature_filter_skips_invalid_signatures_and_uses_valid_signature()
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);

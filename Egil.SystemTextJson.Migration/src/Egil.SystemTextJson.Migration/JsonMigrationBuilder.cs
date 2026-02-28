@@ -11,6 +11,7 @@ public sealed class JsonMigrationBuilder
 {
     private readonly Dictionary<(Type Source, Type Target), ExternalMigratorRegistration> registrations = new();
     private Func<Type, string?>? typeDiscriminatorResolver;
+    private string? typeDiscriminatorPropertyName;
     private JsonMigrationFailureHandling migrationFailureHandling = JsonMigrationFailureHandling.ThrowJsonException;
 
     /// <summary>
@@ -92,6 +93,21 @@ public sealed class JsonMigrationBuilder
     }
 
     /// <summary>
+    /// Sets the default discriminator property name used when a type does not specify one on
+    /// <see cref="JsonMigratableAttribute"/>.
+    /// </summary>
+    public JsonMigrationBuilder SetTypeDiscriminatorPropertyName(string propertyName)
+    {
+        if (string.IsNullOrWhiteSpace(propertyName))
+        {
+            throw new ArgumentException("Type discriminator property name cannot be null, empty, or whitespace.", nameof(propertyName));
+        }
+
+        typeDiscriminatorPropertyName = propertyName;
+        return this;
+    }
+
+    /// <summary>
     /// Sets how deserialization should handle migrators that return <c>false</c> from <c>TryMigrateFrom</c>.
     /// </summary>
     public JsonMigrationBuilder SetMigrationFailureHandling(JsonMigrationFailureHandling handling)
@@ -108,18 +124,19 @@ public sealed class JsonMigrationBuilder
     internal JsonMigrationRegistry Build()
     {
         Func<Type, string?>? resolver = typeDiscriminatorResolver;
+        string? defaultDiscriminatorPropertyName = typeDiscriminatorPropertyName;
 
         var byTarget = registrations.Values
             .Select(registration => registration with
             {
-                SourceMetadata = TypeMetadata.FromType(registration.SourceType, resolver),
+                SourceMetadata = TypeMetadata.FromType(registration.SourceType, resolver, defaultDiscriminatorPropertyName),
             })
             .GroupBy(static registration => registration.TargetType)
             .ToDictionary(
                 static group => group.Key,
                 static group => group.ToFrozenDictionary(static registration => registration.SourceType));
 
-        return new JsonMigrationRegistry(byTarget.ToFrozenDictionary(), resolver, migrationFailureHandling);
+        return new JsonMigrationRegistry(byTarget.ToFrozenDictionary(), resolver, defaultDiscriminatorPropertyName, migrationFailureHandling);
     }
 
     private void RegisterMigratorType(Type migratorType)
@@ -154,7 +171,7 @@ public sealed class JsonMigrationBuilder
             new ExternalMigratorRegistration(
                 sourceType,
                 targetType,
-                TypeMetadata.FromType(sourceType, typeDiscriminatorResolver),
+                TypeMetadata.FromType(sourceType, typeDiscriminatorResolver, typeDiscriminatorPropertyName),
                 MigratorInvokerFactory.CreateExternalInvoker(sourceType, targetType, migratorInstance)));
     }
 
