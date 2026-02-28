@@ -73,7 +73,9 @@ Git history favors Conventional Commit-style messages, often with scope `stjm` f
 - `chore(stjm): ...`
 - `fix(stjm): ...`
 
-Do not mix types in a single commit. Ensure Conventional Commit principles are upheld.
+Do not mix unrelated commit types in a single commit. Ensure Conventional Commit principles are upheld.
+Tests that validate a `feat` or `fix` must be included in the same commit as that `feat`/`fix` (use the `feat` or `fix` type).
+Use `test(...)` commits only for test-only changes, such as adding coverage for existing behavior without production-code changes.
 Refactoring changes go into one commit, fixes into another commit, etc.
 Include a concise summary of decisions and chat log context in the commit message body.
 
