@@ -36,6 +36,10 @@ Use the solution file from repository root:
 - Test method names should describe behavior clearly (for example, `Migrate_with_static_and_registered_external_migrators`).
 - Add/adjust tests for every migration behavior change, including edge cases.
 - Avoid implementation details; tests should depend only on externally observable behavior.
+- Coverage policy applies to production code under `/src` only.
+- Core components must maintain `100%` branch coverage.
+- All remaining production code under `/src` must maintain at least `95%` branch coverage.
+- Test projects/files are excluded from coverage metrics.
 
 ## Development Process
 - Leverage Serena MVP server when changing code.
