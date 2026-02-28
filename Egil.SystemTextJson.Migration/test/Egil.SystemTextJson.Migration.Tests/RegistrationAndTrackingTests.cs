@@ -149,6 +149,31 @@ public class RegistrationAndTrackingTests
         Assert.Contains("No JSON metadata is available", exception.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Json_lifecycle_callbacks_are_invoked_for_migratable_target_type()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.AddJsonMigrationSupport();
+
+        var value = new CallbackLifecycleTarget
+        {
+            FirstName = "Egil",
+            LastName = "Hansen",
+            Age = 42,
+        };
+
+        var json = JsonSerializer.Serialize(value, options);
+
+        Assert.True(value.OnSerializingCalled);
+        Assert.True(value.OnSerializedCalled);
+
+        var deserialized = JsonSerializer.Deserialize<CallbackLifecycleTarget>(json, options);
+
+        Assert.NotNull(deserialized);
+        Assert.True(deserialized.OnDeserializingCalled);
+        Assert.True(deserialized.OnDeserializedCalled);
+    }
+
     private static JsonSerializerOptions CreateOptions(Action<JsonMigrationBuilder>? configure = null)
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
@@ -250,6 +275,44 @@ public class MissingMetadataMigrator : IMigrate<MissingMetadataSource, MissingMe
             source.Age);
         return true;
     }
+}
+
+[JsonMigratable]
+public sealed class CallbackLifecycleTarget :
+    IJsonOnSerializing,
+    IJsonOnSerialized,
+    IJsonOnDeserializing,
+    IJsonOnDeserialized
+{
+    public string FirstName { get; set; } = string.Empty;
+
+    public string LastName { get; set; } = string.Empty;
+
+    public int Age { get; set; }
+
+    [JsonIgnore]
+    public bool OnSerializingCalled { get; private set; }
+
+    [JsonIgnore]
+    public bool OnSerializedCalled { get; private set; }
+
+    [JsonIgnore]
+    public bool OnDeserializingCalled { get; private set; }
+
+    [JsonIgnore]
+    public bool OnDeserializedCalled { get; private set; }
+
+    public void OnSerializing()
+        => OnSerializingCalled = true;
+
+    public void OnSerialized()
+        => OnSerializedCalled = true;
+
+    public void OnDeserializing()
+        => OnDeserializingCalled = true;
+
+    public void OnDeserialized()
+        => OnDeserializedCalled = true;
 }
 
 [JsonSourceGenerationOptions]
