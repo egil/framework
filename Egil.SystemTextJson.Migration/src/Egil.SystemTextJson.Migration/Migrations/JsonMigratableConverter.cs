@@ -31,9 +31,28 @@ internal sealed class JsonMigratableConverter<T>(MigratorContext context) : Json
             throw new JsonException($"No migrator was found for discriminator '{sourceDiscriminator}'.");
         }
 
+        var sourceReader = reader;
         object? source = JsonSerializer.Deserialize(ref reader, migrator.SourceTypeInfo);
         if (!migrator.Invoker.TryMigrate(source, out object? migrated) || migrated is not T typedMigrated)
         {
+            if (context.MigrationFailureHandling is JsonMigrationFailureHandling.FallBackToTargetType)
+            {
+                T? fallback = DeserializeTarget(ref sourceReader, typeToConvert);
+                SetMigrationTracking(fallback, migratedDuringDeserialization: false);
+                return fallback;
+            }
+
+            if (context.MigrationFailureHandling is JsonMigrationFailureHandling.ReturnNull)
+            {
+                if (default(T) is null)
+                {
+                    return default;
+                }
+
+                throw new JsonException(
+                    $"Migration failed for '{migrator.SourceType.FullName}' -> '{typeof(T).FullName}' and configured handling '{JsonMigrationFailureHandling.ReturnNull}' cannot be applied to non-nullable value type targets.");
+            }
+
             throw new JsonException($"Migration failed for '{migrator.SourceType.FullName}' -> '{typeof(T).FullName}'.");
         }
 

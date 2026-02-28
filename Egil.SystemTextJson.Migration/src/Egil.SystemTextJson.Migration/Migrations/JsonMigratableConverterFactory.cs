@@ -48,7 +48,8 @@ internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry regis
             targetTypeInfo,
             targetMetadata,
             migratorsByDiscriminator,
-            sourcePropertyNames);
+            sourcePropertyNames,
+            registry.GetMigrationFailureHandling(typeToConvert));
 
         Type converterType = typeof(JsonMigratableConverter<>).MakeGenericType(typeToConvert);
         return (JsonConverter)Activator.CreateInstance(converterType, context)!;

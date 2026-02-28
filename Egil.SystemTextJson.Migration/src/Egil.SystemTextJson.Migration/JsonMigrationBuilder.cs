@@ -11,6 +11,7 @@ public sealed class JsonMigrationBuilder
 {
     private readonly Dictionary<(Type Source, Type Target), ExternalMigratorRegistration> registrations = new();
     private Func<Type, string?>? typeDiscriminatorResolver;
+    private JsonMigrationFailureHandling migrationFailureHandling = JsonMigrationFailureHandling.ThrowJsonException;
 
     /// <summary>
     /// Registers a migrator instance type for a single source/target pair.
@@ -90,6 +91,20 @@ public sealed class JsonMigrationBuilder
         return this;
     }
 
+    /// <summary>
+    /// Sets how deserialization should handle migrators that return <c>false</c> from <c>TryMigrateFrom</c>.
+    /// </summary>
+    public JsonMigrationBuilder SetMigrationFailureHandling(JsonMigrationFailureHandling handling)
+    {
+        if (!Enum.IsDefined(handling))
+        {
+            throw new ArgumentOutOfRangeException(nameof(handling), handling, $"Value must be one of {nameof(JsonMigrationFailureHandling.ThrowJsonException)}, {nameof(JsonMigrationFailureHandling.FallBackToTargetType)}, or {nameof(JsonMigrationFailureHandling.ReturnNull)}.");
+        }
+
+        migrationFailureHandling = handling;
+        return this;
+    }
+
     internal JsonMigrationRegistry Build()
     {
         Func<Type, string?>? resolver = typeDiscriminatorResolver;
@@ -104,7 +119,7 @@ public sealed class JsonMigrationBuilder
                 static group => group.Key,
                 static group => group.ToFrozenDictionary(static registration => registration.SourceType));
 
-        return new JsonMigrationRegistry(byTarget.ToFrozenDictionary(), resolver);
+        return new JsonMigrationRegistry(byTarget.ToFrozenDictionary(), resolver, migrationFailureHandling);
     }
 
     private void RegisterMigratorType(Type migratorType)

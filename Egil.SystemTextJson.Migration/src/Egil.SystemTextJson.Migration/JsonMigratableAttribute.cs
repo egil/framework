@@ -15,4 +15,10 @@ public sealed class JsonMigratableAttribute : Attribute
     /// Gets or sets the discriminator value to write/read for the annotated type.
     /// </summary>
     public string? TypeDiscriminator { get; set; }
+
+    /// <summary>
+    /// Gets or sets migration failure handling for the annotated target type.
+    /// When explicitly set on the attribute usage, this overrides the builder-level handling.
+    /// </summary>
+    public JsonMigrationFailureHandling MigrationFailureHandling { get; set; } = JsonMigrationFailureHandling.ThrowJsonException;
 }

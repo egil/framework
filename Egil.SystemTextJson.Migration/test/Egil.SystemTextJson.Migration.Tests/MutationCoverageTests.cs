@@ -153,6 +153,63 @@ public class MutationCoverageTests
     }
 
     [Fact]
+    public void Deserialize_falls_back_to_target_when_external_migrator_returns_false_and_policy_is_configured()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.AddJsonMigrationSupport(static builder => builder
+            .SetMigrationFailureHandling(JsonMigrationFailureHandling.FallBackToTargetType)
+            .RegisterMigrator<ExternalFallbackFalseMigrator>());
+
+        var json = JsonSerializer.Serialize(new ExternalFallbackFalseV1("Egil Hansen", 42), options);
+        var deserialized = JsonSerializer.Deserialize<ExternalFallbackFalseV2>(json, options);
+
+        Assert.NotNull(deserialized);
+        Assert.Equal("Egil Hansen", deserialized.Name);
+        Assert.Equal(42, deserialized.Age);
+    }
+
+    [Fact]
+    public void Deserialize_falls_back_to_target_when_static_migrator_returns_false_and_policy_is_configured()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.AddJsonMigrationSupport(static builder => builder
+            .SetMigrationFailureHandling(JsonMigrationFailureHandling.FallBackToTargetType));
+
+        var json = JsonSerializer.Serialize(new StaticFallbackFalseV1("Egil Hansen", 42), options);
+        var deserialized = JsonSerializer.Deserialize<StaticFallbackFalseV2>(json, options);
+
+        Assert.NotNull(deserialized);
+        Assert.Equal("Egil Hansen", deserialized.Name);
+        Assert.Equal(42, deserialized.Age);
+    }
+
+    [Fact]
+    public void Deserialize_uses_attribute_policy_when_migrator_returns_false_and_builder_uses_default_throw()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.AddJsonMigrationSupport(static builder => builder.RegisterMigrator<AttributeFallbackFalseMigrator>());
+
+        var json = JsonSerializer.Serialize(new AttributeFallbackFalseV1("Egil Hansen", 42), options);
+        var deserialized = JsonSerializer.Deserialize<AttributeFallbackFalseV2>(json, options);
+
+        Assert.NotNull(deserialized);
+        Assert.Equal("Egil Hansen", deserialized.Name);
+        Assert.Equal(42, deserialized.Age);
+    }
+
+    [Fact]
+    public void Deserialize_returns_null_when_attribute_policy_is_return_null_and_migrator_returns_false()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.AddJsonMigrationSupport(static builder => builder.RegisterMigrator<AttributeReturnNullFalseMigrator>());
+
+        var json = JsonSerializer.Serialize(new AttributeReturnNullFalseV1("Egil Hansen", 42), options);
+        var deserialized = JsonSerializer.Deserialize<AttributeReturnNullFalseV2>(json, options);
+
+        Assert.Null(deserialized);
+    }
+
+    [Fact]
     public void Deserialize_uses_explicit_static_interface_migrator()
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
@@ -313,17 +370,19 @@ public class MutationCoverageTests
         object? targetMetadata = contextType.GetProperty("TargetMetadata")?.GetValue(originalContext);
         object? migratorsByDiscriminator = contextType.GetProperty("MigratorsByDiscriminator")?.GetValue(originalContext);
         object? sourceDiscriminatorPropertyNames = contextType.GetProperty("SourceDiscriminatorPropertyNames")?.GetValue(originalContext);
+        object? migrationFailureHandling = contextType.GetProperty("MigrationFailureHandling")?.GetValue(originalContext);
 
         Assert.NotNull(targetMetadata);
         Assert.NotNull(migratorsByDiscriminator);
         Assert.NotNull(sourceDiscriminatorPropertyNames);
+        Assert.NotNull(migrationFailureHandling);
 
         JsonTypeInfo untypedTargetTypeInfo = options.GetTypeInfo(typeof(object));
         object mismatchedContext = Activator.CreateInstance(
             contextType,
             BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
             binder: null,
-            args: [untypedTargetTypeInfo, targetMetadata, migratorsByDiscriminator, sourceDiscriminatorPropertyNames],
+            args: [untypedTargetTypeInfo, targetMetadata, migratorsByDiscriminator, sourceDiscriminatorPropertyNames, migrationFailureHandling],
             culture: null)!;
 
         object converterInstance = Activator.CreateInstance(
@@ -486,6 +545,65 @@ public class MutationCoverageTests
             string lastName = names.Length == 2 ? names[1] : string.Empty;
             result = new TrackingV3(firstName, lastName, source.Age);
             return true;
+        }
+    }
+
+    [JsonMigratable]
+    public record class ExternalFallbackFalseV1(string Name, int Age);
+
+    [JsonMigratable]
+    public record class ExternalFallbackFalseV2(string Name, int Age);
+
+    public sealed class ExternalFallbackFalseMigrator : IMigrate<ExternalFallbackFalseV1, ExternalFallbackFalseV2>
+    {
+        public bool TryMigrateFrom(ExternalFallbackFalseV1 source, out ExternalFallbackFalseV2 result)
+        {
+            result = new ExternalFallbackFalseV2("migrator-result-ignored", source.Age);
+            return false;
+        }
+    }
+
+    [JsonMigratable]
+    public record class StaticFallbackFalseV1(string Name, int Age);
+
+    [JsonMigratable]
+    public record class StaticFallbackFalseV2(string Name, int Age) :
+        IMigrateFrom<StaticFallbackFalseV1, StaticFallbackFalseV2>
+    {
+        public static bool TryMigrateFrom(StaticFallbackFalseV1 source, out StaticFallbackFalseV2 result)
+        {
+            result = new StaticFallbackFalseV2("migrator-result-ignored", source.Age);
+            return false;
+        }
+    }
+
+    [JsonMigratable]
+    public record class AttributeFallbackFalseV1(string Name, int Age);
+
+    [JsonMigratable(MigrationFailureHandling = JsonMigrationFailureHandling.FallBackToTargetType)]
+    public record class AttributeFallbackFalseV2(string Name, int Age);
+
+    public sealed class AttributeFallbackFalseMigrator : IMigrate<AttributeFallbackFalseV1, AttributeFallbackFalseV2>
+    {
+        public bool TryMigrateFrom(AttributeFallbackFalseV1 source, out AttributeFallbackFalseV2 result)
+        {
+            result = new AttributeFallbackFalseV2("migrator-result-ignored", source.Age);
+            return false;
+        }
+    }
+
+    [JsonMigratable]
+    public record class AttributeReturnNullFalseV1(string Name, int Age);
+
+    [JsonMigratable(MigrationFailureHandling = JsonMigrationFailureHandling.ReturnNull)]
+    public record class AttributeReturnNullFalseV2(string Name, int Age);
+
+    public sealed class AttributeReturnNullFalseMigrator : IMigrate<AttributeReturnNullFalseV1, AttributeReturnNullFalseV2>
+    {
+        public bool TryMigrateFrom(AttributeReturnNullFalseV1 source, out AttributeReturnNullFalseV2 result)
+        {
+            result = new AttributeReturnNullFalseV2("migrator-result-ignored", source.Age);
+            return false;
         }
     }
 }
