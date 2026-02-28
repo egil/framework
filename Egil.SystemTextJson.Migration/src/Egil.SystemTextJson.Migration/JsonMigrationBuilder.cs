@@ -10,6 +10,7 @@ namespace Egil.SystemTextJson.Migration;
 public sealed class JsonMigrationBuilder
 {
     private readonly Dictionary<(Type Source, Type Target), ExternalMigratorRegistration> registrations = new();
+    private Func<Type, string?>? typeDiscriminatorResolver;
 
     /// <summary>
     /// Registers a migrator instance type for a single source/target pair.
@@ -71,15 +72,39 @@ public sealed class JsonMigrationBuilder
         return this;
     }
 
+    /// <summary>
+    /// Configures a type discriminator source based on a custom attribute.
+    /// Falls back to <see cref="JsonMigratableAttribute.TypeDiscriminator"/> when the custom attribute is absent.
+    /// </summary>
+    public JsonMigrationBuilder GetTypeDiscriminatorFrom<TAttribute>(Func<TAttribute, string?> selector)
+        where TAttribute : Attribute
+    {
+        ArgumentNullException.ThrowIfNull(selector);
+
+        typeDiscriminatorResolver = type =>
+        {
+            TAttribute? attribute = type.GetCustomAttribute<TAttribute>(inherit: true);
+            return attribute is null ? null : selector(attribute);
+        };
+
+        return this;
+    }
+
     internal JsonMigrationRegistry Build()
     {
+        Func<Type, string?>? resolver = typeDiscriminatorResolver;
+
         var byTarget = registrations.Values
+            .Select(registration => registration with
+            {
+                SourceMetadata = TypeMetadata.FromType(registration.SourceType, resolver),
+            })
             .GroupBy(static registration => registration.TargetType)
             .ToDictionary(
                 static group => group.Key,
                 static group => group.ToFrozenDictionary(static registration => registration.SourceType));
 
-        return new JsonMigrationRegistry(byTarget.ToFrozenDictionary());
+        return new JsonMigrationRegistry(byTarget.ToFrozenDictionary(), resolver);
     }
 
     private void RegisterMigratorType(Type migratorType)
@@ -114,7 +139,7 @@ public sealed class JsonMigrationBuilder
             new ExternalMigratorRegistration(
                 sourceType,
                 targetType,
-                TypeMetadata.FromType(sourceType),
+                TypeMetadata.FromType(sourceType, typeDiscriminatorResolver),
                 MigratorInvokerFactory.CreateExternalInvoker(sourceType, targetType, migratorInstance)));
     }
 

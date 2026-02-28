@@ -95,6 +95,46 @@ public class RegistrationAndTrackingTests
     }
 
     [Fact]
+    public void Custom_attribute_discriminator_is_used_when_configured()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.AddJsonMigrationSupport(builder => builder
+            .GetTypeDiscriminatorFrom<MigrationAliasAttribute>(static attribute => attribute.Alias)
+            .RegisterMigrator<AliasPreferredMigrator>());
+
+        var migrated = JsonSerializer.Deserialize<AliasPreferredTarget>(
+            """
+            {"$type":"alias-source-v1","name":"Egil Hansen","age":42}
+            """,
+            options);
+
+        Assert.NotNull(migrated);
+        Assert.Equal("Egil", migrated.FirstName);
+        Assert.Equal("Hansen", migrated.LastName);
+        Assert.Equal(42, migrated.Age);
+    }
+
+    [Fact]
+    public void Json_migratable_discriminator_is_used_as_fallback_when_custom_attribute_is_missing()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.AddJsonMigrationSupport(builder => builder
+            .GetTypeDiscriminatorFrom<MigrationAliasAttribute>(static attribute => attribute.Alias)
+            .RegisterMigrator<AliasFallbackMigrator>());
+
+        var migrated = JsonSerializer.Deserialize<AliasFallbackTarget>(
+            """
+            {"$type":"json-fallback-source-v1","name":"Egil Hansen","age":42}
+            """,
+            options);
+
+        Assert.NotNull(migrated);
+        Assert.Equal("Egil", migrated.FirstName);
+        Assert.Equal("Hansen", migrated.LastName);
+        Assert.Equal(42, migrated.Age);
+    }
+
+    [Fact]
     public void Source_generated_context_only_works_when_metadata_is_complete()
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
@@ -252,6 +292,51 @@ public class ScanMigrator : IMigrate<ScanSource, ScanTarget>
     {
         var names = source.Name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         result = new ScanTarget(
+            names.Length > 0 ? names[0] : string.Empty,
+            names.Length > 1 ? names[1] : string.Empty,
+            source.Age);
+        return true;
+    }
+}
+
+[AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct, Inherited = true)]
+public sealed class MigrationAliasAttribute(string alias) : Attribute
+{
+    public string Alias { get; } = alias;
+}
+
+[MigrationAlias("alias-source-v1")]
+[JsonMigratable(TypeDiscriminator = "json-alias-source-v1")]
+public record class AliasPreferredSource(string Name, int Age);
+
+[JsonMigratable]
+public record class AliasPreferredTarget(string FirstName, string LastName, int Age);
+
+public class AliasPreferredMigrator : IMigrate<AliasPreferredSource, AliasPreferredTarget>
+{
+    public bool TryMigrateFrom(AliasPreferredSource source, out AliasPreferredTarget result)
+    {
+        var names = source.Name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        result = new AliasPreferredTarget(
+            names.Length > 0 ? names[0] : string.Empty,
+            names.Length > 1 ? names[1] : string.Empty,
+            source.Age);
+        return true;
+    }
+}
+
+[JsonMigratable(TypeDiscriminator = "json-fallback-source-v1")]
+public record class AliasFallbackSource(string Name, int Age);
+
+[JsonMigratable]
+public record class AliasFallbackTarget(string FirstName, string LastName, int Age);
+
+public class AliasFallbackMigrator : IMigrate<AliasFallbackSource, AliasFallbackTarget>
+{
+    public bool TryMigrateFrom(AliasFallbackSource source, out AliasFallbackTarget result)
+    {
+        var names = source.Name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        result = new AliasFallbackTarget(
             names.Length > 0 ? names[0] : string.Empty,
             names.Length > 1 ? names[1] : string.Empty,
             source.Age);

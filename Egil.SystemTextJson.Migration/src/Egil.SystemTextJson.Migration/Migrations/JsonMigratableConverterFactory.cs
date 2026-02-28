@@ -25,7 +25,7 @@ internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry regis
 
     private JsonConverter CreateConverterCore(Type typeToConvert, JsonSerializerOptions options)
     {
-        TypeMetadata targetMetadata = TypeMetadata.FromType(typeToConvert);
+        TypeMetadata targetMetadata = registry.GetTypeMetadata(typeToConvert);
 
         // Clone options and remove this converter so type metadata lookup does not recursively resolve back to us.
         var metadataOptions = new JsonSerializerOptions(options);
@@ -72,7 +72,7 @@ internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry regis
         foreach (StaticMigratorContract contract in FindStaticMigratorMethods(targetType))
         {
             Type sourceType = contract.SourceType;
-            TypeMetadata sourceMetadata = TypeMetadata.FromType(sourceType);
+            TypeMetadata sourceMetadata = registry.GetTypeMetadata(sourceType);
 
             migrators[sourceMetadata.Discriminator] = new MigratorReference(
                 sourceType,
