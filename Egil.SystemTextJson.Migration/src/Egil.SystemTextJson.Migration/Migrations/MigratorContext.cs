@@ -12,6 +12,9 @@ internal sealed record MigratorContext(
 {
     public byte[] TargetDiscriminatorPropertyNameUtf8 { get; } = System.Text.Encoding.UTF8.GetBytes(TargetMetadata.DiscriminatorPropertyName);
 
+    // Pre-encoded target discriminator value for zero-allocation comparison in the happy path.
+    public byte[] TargetDiscriminatorUtf8 { get; } = System.Text.Encoding.UTF8.GetBytes(TargetMetadata.Discriminator);
+
     public byte[][] SourceDiscriminatorPropertyNameUtf8 { get; } =
         SourceDiscriminatorPropertyNames
             .Select(System.Text.Encoding.UTF8.GetBytes)

@@ -114,11 +114,26 @@ internal sealed class JsonMigratableConverter<T>(MigratorContext context) : Json
 
         if (probe.ValueTextEquals(context.TargetDiscriminatorPropertyNameUtf8))
         {
-            sourceDiscriminator = ReadDiscriminatorValue(ref probe);
-            return sourceDiscriminator != null
-                && sourceDiscriminator.Equals(context.TargetMetadata.Discriminator, StringComparison.Ordinal)
-                ? InspectionResult.TargetType
-                : InspectionResult.MigrationRequired;
+            if (!probe.Read() || probe.TokenType is not JsonTokenType.String)
+            {
+                throw new JsonException($"Expected discriminator string, got '{probe.TokenType}'.");
+            }
+
+            // Fast path: compare the discriminator value directly as UTF-8 bytes
+            // to avoid a string allocation when the payload matches the target type.
+            if (probe.ValueTextEquals(context.TargetDiscriminatorUtf8))
+            {
+                return InspectionResult.TargetType;
+            }
+
+            // Slow path: allocate the string only when migration is needed.
+            sourceDiscriminator = probe.GetString();
+            if (string.IsNullOrWhiteSpace(sourceDiscriminator))
+            {
+                throw new JsonException("Type discriminator cannot be null or empty.");
+            }
+
+            return InspectionResult.MigrationRequired;
         }
 
         foreach (byte[] sourcePropertyName in context.SourceDiscriminatorPropertyNameUtf8)
