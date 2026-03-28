@@ -1,7 +1,7 @@
-using System.Text.Json;
+using Egil.SystemTextJson.Migration;
 using Egil.SystemTextJson.Migration.Migrations;
 
-namespace Egil.SystemTextJson.Migration;
+namespace System.Text.Json;
 
 /// <summary>
 /// Adds migration support to <see cref="JsonSerializerOptions"/>.
