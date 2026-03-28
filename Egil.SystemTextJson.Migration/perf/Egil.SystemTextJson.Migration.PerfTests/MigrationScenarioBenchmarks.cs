@@ -224,7 +224,7 @@ public record class PerfStaticPlainV2(string FirstName, string LastName, int Age
 public record class PerfStaticV1(string Name, int Age, string[] Tags);
 
 [JsonMigratable]
-public record class PerfStaticV2(string FirstName, string LastName, int Age, string[] Tags) : IJsonMigrationTracked
+public record class PerfStaticV2(string FirstName, string LastName, int Age, string[] Tags) : IJsonMigrationTracked, IMigrateFrom<PerfStaticV1, PerfStaticV2>
 {
     [JsonIgnore]
     public bool MigratedDuringDeserialization { get; set; }
