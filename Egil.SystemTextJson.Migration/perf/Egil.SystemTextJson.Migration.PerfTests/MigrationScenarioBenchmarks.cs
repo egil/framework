@@ -121,7 +121,7 @@ public abstract class MigrationScenarioBenchmarksBase
     public PerfStaticV2 JsonMigratableStaticMigration()
         => JsonSerializer.Deserialize<PerfStaticV2>(migratableStaticMigrationPayload, migratableStaticOptions)!;
 
-    [Benchmark]
+    [Benchmark(Baseline = true)]
     [BenchmarkCategory("Deserialize", "StaticMigration")]
     public PerfStaticPlainV2 PlainStjStaticMigrationManual()
     {
@@ -134,7 +134,7 @@ public abstract class MigrationScenarioBenchmarksBase
     public PerfExternalV2 JsonMigratableExternalMigration()
         => JsonSerializer.Deserialize<PerfExternalV2>(migratableExternalMigrationPayload, migratableExternalOptions)!;
 
-    [Benchmark]
+    [Benchmark(Baseline = true)]
     [BenchmarkCategory("Deserialize", "ExternalMigration")]
     public PerfExternalPlainV2 PlainStjExternalMigrationManual()
     {
@@ -147,7 +147,7 @@ public abstract class MigrationScenarioBenchmarksBase
     public PerfExternalV2 JsonMigratableLegacyPayload()
         => JsonSerializer.Deserialize<PerfExternalV2>(migratableLegacyPayload, migratableExternalOptions)!;
 
-    [Benchmark]
+    [Benchmark(Baseline = true)]
     [BenchmarkCategory("Deserialize", "LegacyPayload")]
     public PerfExternalPlainV2 PlainStjLegacyPayloadManual()
     {
@@ -224,7 +224,7 @@ public record class PerfStaticPlainV2(string FirstName, string LastName, int Age
 public record class PerfStaticV1(string Name, int Age, string[] Tags);
 
 [JsonMigratable]
-public record class PerfStaticV2(string FirstName, string LastName, int Age, string[] Tags) : IJsonMigrationTracked
+public record class PerfStaticV2(string FirstName, string LastName, int Age, string[] Tags) : IJsonMigrationTracked, IMigrateFrom<PerfStaticV1, PerfStaticV2>
 {
     [JsonIgnore]
     public bool MigratedDuringDeserialization { get; set; }
@@ -245,6 +245,7 @@ public record class PerfExternalPlainV1(string Name, int Age, string[] Tags);
 
 public record class PerfExternalPlainV2(string FirstName, string LastName, int Age, string[] Tags)
 {
+    [JsonIgnore]
     public bool MigratedDuringDeserialization { get; set; }
 
     public static PerfExternalPlainV2 ManualFrom(PerfExternalPlainV1 source)
