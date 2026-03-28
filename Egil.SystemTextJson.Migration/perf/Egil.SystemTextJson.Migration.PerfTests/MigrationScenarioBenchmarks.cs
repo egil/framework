@@ -74,6 +74,8 @@ public abstract class MigrationScenarioBenchmarksBase
     private byte[] migratableExternalMigrationPayload = null!;
     private byte[] plainLegacyPayload = null!;
     private byte[] migratableLegacyPayload = null!;
+    private PerfCurrentStatePlain plainCurrentState = null!;
+    private PerfCurrentStateMigratable migratableCurrentState = null!;
 
     [Params(2, 32, 256)]
     public int TagCount { get; set; }
@@ -88,8 +90,11 @@ public abstract class MigrationScenarioBenchmarksBase
 
         string[] tags = CreateTags(TagCount);
 
-        plainNoMigrationPayload = JsonSerializer.SerializeToUtf8Bytes(new PerfCurrentStatePlain("Egil Hansen", 42, tags), plainOptions);
-        migratableNoMigrationPayload = JsonSerializer.SerializeToUtf8Bytes(new PerfCurrentStateMigratable("Egil Hansen", 42, tags), migratableNoMigrationOptions);
+        plainCurrentState = new PerfCurrentStatePlain("Egil Hansen", 42, tags);
+        migratableCurrentState = new PerfCurrentStateMigratable("Egil Hansen", 42, tags);
+
+        plainNoMigrationPayload = JsonSerializer.SerializeToUtf8Bytes(plainCurrentState, plainOptions);
+        migratableNoMigrationPayload = JsonSerializer.SerializeToUtf8Bytes(migratableCurrentState, migratableNoMigrationOptions);
 
         plainStaticMigrationPayload = JsonSerializer.SerializeToUtf8Bytes(new PerfStaticPlainV1("Egil Hansen", 42, tags), plainOptions);
         migratableStaticMigrationPayload = JsonSerializer.SerializeToUtf8Bytes(new PerfStaticV1("Egil Hansen", 42, tags), migratableStaticOptions);
@@ -151,6 +156,16 @@ public abstract class MigrationScenarioBenchmarksBase
         target.MigratedDuringDeserialization = true;
         return target;
     }
+
+    [Benchmark(Baseline = true)]
+    [BenchmarkCategory("Serialize", "NoMigration")]
+    public byte[] PlainStjSerializeNoMigration()
+        => JsonSerializer.SerializeToUtf8Bytes(plainCurrentState, plainOptions);
+
+    [Benchmark]
+    [BenchmarkCategory("Serialize", "NoMigration")]
+    public byte[] JsonMigratableSerializeNoMigration()
+        => JsonSerializer.SerializeToUtf8Bytes(migratableCurrentState, migratableNoMigrationOptions);
 
     protected abstract JsonSerializerOptions CreatePlainOptions();
 
