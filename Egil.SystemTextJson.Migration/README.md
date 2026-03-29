@@ -232,6 +232,43 @@ public record OptionalData(string Value);
 
 Payloads that were serialized before migration support was added will have no `$type` property. The library treats these as **legacy payloads** and attempts migration using the registered source types. This means you can adopt the library incrementally — existing stored JSON keeps working.
 
+## Performance
+
+Every benchmark compares the library against hand-written migration code on top of plain `System.Text.Json`. Each scenario is tested at three payload sizes (2, 32, and 256 array items) to show how overhead scales.
+
+**Key takeaways:**
+
+- **Happy path (no migration needed):** deserialization is ~1.4–2× plain STJ with **zero extra allocations**. The overhead comes from the O(1) first-property discriminator check and is constant regardless of payload size.
+- **Migration path:** 1.8–2.7× plain STJ for small payloads, converging toward ~1.8× as payload size grows — the fixed migration overhead is amortized over more data.
+- **Legacy payloads (no discriminator):** 1.4–1.8× plain STJ with **zero extra allocations** — the same as current-version payloads.
+- **Serialization:** near 1:1 at larger payloads (ratio ≈ 1.0). Small payloads show ~2× due to the fixed cost of writing the discriminator property.
+
+Detailed results with source-generated `JsonSerializerContext`:
+
+<!-- This is a summary; see [full source-gen results](docs/perf/source-gen-benchmarks.md) and [full reflection results](docs/perf/reflection-benchmarks.md). -->
+
+| Scenario | TagCount | Ratio vs plain STJ | Alloc Ratio |
+|----------|:--------:|:-------------------:|:-----------:|
+| **No migration (happy path)** | 2 | 1.95× | 1.00 |
+| | 32 | 1.56× | 1.00 |
+| | 256 | 1.39× | 1.00 |
+| **Static migration** | 2 | 2.73× | 1.13 |
+| | 32 | 2.12× | 1.04 |
+| | 256 | 1.83× | 1.01 |
+| **External migration** | 2 | 2.70× | 1.13 |
+| | 32 | 2.14× | 1.05 |
+| | 256 | 1.89× | 1.01 |
+| **Legacy payload** | 2 | 1.75× | 1.00 |
+| | 32 | 1.54× | 1.00 |
+| | 256 | 1.44× | 1.00 |
+| **Serialization** | 2 | 2.15× | 5.45 |
+| | 32 | 1.21× | 2.02 |
+| | 256 | 0.99× | 1.15 |
+
+> Full benchmark reports: [source-gen](docs/perf/source-gen-benchmarks.md) · [reflection](docs/perf/reflection-benchmarks.md)
+>
+> Run benchmarks locally with `dotnet run --project perf/Egil.SystemTextJson.Migration.PerfTests -c Release`.
+
 ## Design notes
 
 - **First-property discriminator check.** The converter inspects only the first JSON property for the type discriminator, keeping detection O(1) and allocation-free. The library serializes `$type` with `Order = int.MinValue` so round-tripped payloads always have it first. If external JSON has the discriminator in a non-first position, the payload is treated as a legacy payload.
