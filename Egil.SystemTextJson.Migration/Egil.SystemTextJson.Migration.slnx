@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Egil.SystemTextJson.Migration/Egil.SystemTextJson.Migration.csproj" />
+  </Folder>
+  <Folder Name="/test/">
+    <Project Path="test/Egil.SystemTextJson.Migration.Tests/Egil.SystemTextJson.Migration.Tests.csproj" />
+  </Folder>
+  <Folder Name="/perf/">
+    <Project Path="perf/Egil.SystemTextJson.Migration.PerfTests/Egil.SystemTextJson.Migration.PerfTests.csproj" />
+  </Folder>
+</Solution>
