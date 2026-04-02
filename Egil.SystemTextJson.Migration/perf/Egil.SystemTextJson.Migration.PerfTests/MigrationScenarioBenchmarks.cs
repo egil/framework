@@ -67,6 +67,7 @@ public abstract class MigrationScenarioBenchmarksBase
     private JsonSerializerOptions migratableExternalOptions = null!;
 
     private byte[] plainNoMigrationPayload = null!;
+    private byte[] polymorphicplainNoMigrationPayload = null!;
     private byte[] migratableNoMigrationPayload = null!;
     private byte[] plainStaticMigrationPayload = null!;
     private byte[] migratableStaticMigrationPayload = null!;
@@ -75,6 +76,7 @@ public abstract class MigrationScenarioBenchmarksBase
     private byte[] plainLegacyPayload = null!;
     private byte[] migratableLegacyPayload = null!;
     private PerfCurrentStatePlain plainCurrentState = null!;
+    private PerfExternalPolymorphicPlainV1 polymorphicPlainCurrentState = null!;
     private PerfCurrentStateMigratable migratableCurrentState = null!;
 
     [Params(2, 32, 256)]
@@ -91,9 +93,12 @@ public abstract class MigrationScenarioBenchmarksBase
         string[] tags = CreateTags(TagCount);
 
         plainCurrentState = new PerfCurrentStatePlain("Egil Hansen", 42, tags);
+        polymorphicPlainCurrentState = new PerfExternalPolymorphicPlainV1("Egil Hansen", 42, tags);
         migratableCurrentState = new PerfCurrentStateMigratable("Egil Hansen", 42, tags);
 
         plainNoMigrationPayload = JsonSerializer.SerializeToUtf8Bytes(plainCurrentState, plainOptions);
+        polymorphicplainNoMigrationPayload = JsonSerializer.SerializeToUtf8Bytes(polymorphicPlainCurrentState, plainOptions);
+
         migratableNoMigrationPayload = JsonSerializer.SerializeToUtf8Bytes(migratableCurrentState, migratableNoMigrationOptions);
 
         plainStaticMigrationPayload = JsonSerializer.SerializeToUtf8Bytes(new PerfStaticPlainV1("Egil Hansen", 42, tags), plainOptions);
@@ -110,6 +115,11 @@ public abstract class MigrationScenarioBenchmarksBase
     [BenchmarkCategory("Deserialize", "NoMigration")]
     public PerfCurrentStatePlain PlainStjNoMigration()
         => JsonSerializer.Deserialize<PerfCurrentStatePlain>(plainNoMigrationPayload, plainOptions)!;
+
+    [Benchmark]
+    [BenchmarkCategory("Deserialize", "NoMigration")]
+    public PerfCurrentStatePlain PolymorphicPlainStjNoMigration()
+        => JsonSerializer.Deserialize<PerfCurrentStatePlain>(polymorphicplainNoMigrationPayload, plainOptions)!;
 
     [Benchmark]
     [BenchmarkCategory("Deserialize", "NoMigration")]
@@ -161,6 +171,11 @@ public abstract class MigrationScenarioBenchmarksBase
     [BenchmarkCategory("Serialize", "NoMigration")]
     public byte[] PlainStjSerializeNoMigration()
         => JsonSerializer.SerializeToUtf8Bytes(plainCurrentState, plainOptions);
+
+    [Benchmark]
+    [BenchmarkCategory("Serialize", "NoMigration")]
+    public byte[] PolymorphicPlainStjSerializeNoMigration()
+        => JsonSerializer.SerializeToUtf8Bytes(polymorphicPlainCurrentState, plainOptions);
 
     [Benchmark]
     [BenchmarkCategory("Serialize", "NoMigration")]
@@ -259,6 +274,10 @@ public record class PerfExternalPlainV2(string FirstName, string LastName, int A
     }
 }
 
+[JsonPolymorphic]
+[JsonDerivedType(typeof(PerfExternalPolymorphicPlainV1), typeDiscriminator: "PerfExternalPolymorphicPlainV1.v1")]
+public record class PerfExternalPolymorphicPlainV1(string Name, int Age, string[] Tags);
+
 [JsonMigratable]
 public record class PerfExternalV1(string Name, int Age, string[] Tags);
 
@@ -294,4 +313,5 @@ public class PerfExternalMigrator : IMigrate<PerfExternalV1, PerfExternalV2>
 [JsonSerializable(typeof(PerfExternalPlainV2))]
 [JsonSerializable(typeof(PerfExternalV1))]
 [JsonSerializable(typeof(PerfExternalV2))]
+[JsonSerializable(typeof(PerfExternalPolymorphicPlainV1))]
 public partial class PerfJsonContext : JsonSerializerContext;
