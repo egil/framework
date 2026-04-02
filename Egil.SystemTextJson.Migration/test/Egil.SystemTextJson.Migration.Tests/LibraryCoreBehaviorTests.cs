@@ -39,6 +39,17 @@ public class LibraryCoreBehaviorTests
 
         Assert.StartsWith("{\"$type\":", json, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void Serialize_and_deserialize_without_migration()
+    {
+        var v1 = new CoreSampleV1("Egil", 42);
+
+        var json = JsonSerializer.Serialize(v1, options);
+        var result = JsonSerializer.Deserialize<CoreSampleV1>(json, options);
+
+        Assert.Equal(v1, result);
+    }
 }
 
 [JsonMigratable]
