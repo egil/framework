@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics.Metrics;
 using System.Text.Json;
 
@@ -6,7 +7,7 @@ namespace Egil.SystemTextJson.Migration.Tests;
 public class TelemetryTests : IDisposable
 {
     private readonly MeterListener listener;
-    private readonly List<MeasurementRecord> measurements = [];
+    private readonly ConcurrentQueue<MeasurementRecord> measurements = new();
 
     public TelemetryTests()
     {
@@ -26,7 +27,7 @@ public class TelemetryTests : IDisposable
                 tagDict[tag.Key] = tag.Value;
             }
 
-            measurements.Add(new MeasurementRecord(instrument.Name, measurement, tagDict));
+            measurements.Enqueue(new MeasurementRecord(instrument.Name, measurement, tagDict));
         });
         listener.Start();
     }
@@ -67,17 +68,17 @@ public class TelemetryTests : IDisposable
         options.AddJsonMigrationSupport(static builder =>
             builder
                 .SetMigrationFailureHandling(JsonMigrationFailureHandling.FallBackToTargetType)
-                .RegisterMigrator<TelFailingMigrator>());
+                .RegisterMigrator<TelFailFallbackMigrator>());
 
-        var json = JsonSerializer.Serialize(new TelFailV1("data"), options);
-        JsonSerializer.Deserialize<TelFailV2>(json, options);
+        var json = JsonSerializer.Serialize(new TelFailFallbackV1("data"), options);
+        JsonSerializer.Deserialize<TelFailFallbackV2>(json, options);
 
-        var relevant = GetMeasurementsForTarget(typeof(TelFailV2).FullName!);
+        var relevant = GetMeasurementsForTarget(typeof(TelFailFallbackV2).FullName!);
         var migration = Assert.Single(relevant);
         Assert.Equal(JsonMigrationTelemetry.MigrationCounterName, migration.InstrumentName);
         Assert.Equal(1, migration.Value);
-        Assert.Equal(typeof(TelFailV1).FullName, migration.Tags["stjm.source_type"]);
-        Assert.Equal(typeof(TelFailV2).FullName, migration.Tags["stjm.target_type"]);
+        Assert.Equal(typeof(TelFailFallbackV1).FullName, migration.Tags["stjm.source_type"]);
+        Assert.Equal(typeof(TelFailFallbackV2).FullName, migration.Tags["stjm.target_type"]);
         Assert.Equal("failure", migration.Tags["stjm.migration.status"]);
     }
 
@@ -88,12 +89,12 @@ public class TelemetryTests : IDisposable
         options.AddJsonMigrationSupport(static builder =>
             builder
                 .SetMigrationFailureHandling(JsonMigrationFailureHandling.ReturnNull)
-                .RegisterMigrator<TelFailingMigrator>());
+                .RegisterMigrator<TelFailReturnNullMigrator>());
 
-        var json = JsonSerializer.Serialize(new TelFailV1("data"), options);
-        JsonSerializer.Deserialize<TelFailV2>(json, options);
+        var json = JsonSerializer.Serialize(new TelFailReturnNullV1("data"), options);
+        JsonSerializer.Deserialize<TelFailReturnNullV2>(json, options);
 
-        var relevant = GetMeasurementsForTarget(typeof(TelFailV2).FullName!);
+        var relevant = GetMeasurementsForTarget(typeof(TelFailReturnNullV2).FullName!);
         var migration = Assert.Single(relevant);
         Assert.Equal("failure", migration.Tags["stjm.migration.status"]);
     }
@@ -130,13 +131,13 @@ public class TelemetryTests : IDisposable
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
         options.AddJsonMigrationSupport();
 
-        var json1 = JsonSerializer.Serialize(new TelV1("Egil Hansen", 42), options);
-        var json2 = JsonSerializer.Serialize(new TelV1("Jane Doe", 30), options);
+        var json1 = JsonSerializer.Serialize(new TelMultiV1("Egil Hansen", 42), options);
+        var json2 = JsonSerializer.Serialize(new TelMultiV1("Jane Doe", 30), options);
 
-        JsonSerializer.Deserialize<TelV2>(json1, options);
-        JsonSerializer.Deserialize<TelV2>(json2, options);
+        JsonSerializer.Deserialize<TelMultiV2>(json1, options);
+        JsonSerializer.Deserialize<TelMultiV2>(json2, options);
 
-        var relevant = GetMeasurementsForTarget(typeof(TelV2).FullName!);
+        var relevant = GetMeasurementsForTarget(typeof(TelMultiV2).FullName!);
         Assert.Equal(2, relevant.Count);
         Assert.All(relevant, m =>
         {
@@ -170,14 +171,47 @@ public class TelemetryTests : IDisposable
     }
 
     [JsonMigratable]
-    public record class TelFailV1(string Data);
+    public record class TelMultiV1(string Name, int Age);
 
     [JsonMigratable]
-    public record class TelFailV2(string Data);
-
-    public sealed class TelFailingMigrator : IMigrate<TelFailV1, TelFailV2>
+    public record class TelMultiV2(string FirstName, string LastName, int Age) :
+        IMigrateFrom<TelMultiV1, TelMultiV2>
     {
-        public bool TryMigrateFrom(TelFailV1 source, out TelFailV2 result)
+        public static bool TryMigrateFrom(TelMultiV1 source, out TelMultiV2 result)
+        {
+            var names = source.Name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            result = new TelMultiV2(
+                names.Length > 0 ? names[0] : string.Empty,
+                names.Length > 1 ? names[1] : string.Empty,
+                source.Age);
+            return true;
+        }
+    }
+
+    [JsonMigratable]
+    public record class TelFailFallbackV1(string Data);
+
+    [JsonMigratable]
+    public record class TelFailFallbackV2(string Data);
+
+    public sealed class TelFailFallbackMigrator : IMigrate<TelFailFallbackV1, TelFailFallbackV2>
+    {
+        public bool TryMigrateFrom(TelFailFallbackV1 source, out TelFailFallbackV2 result)
+        {
+            result = default!;
+            return false;
+        }
+    }
+
+    [JsonMigratable]
+    public record class TelFailReturnNullV1(string Data);
+
+    [JsonMigratable]
+    public record class TelFailReturnNullV2(string Data);
+
+    public sealed class TelFailReturnNullMigrator : IMigrate<TelFailReturnNullV1, TelFailReturnNullV2>
+    {
+        public bool TryMigrateFrom(TelFailReturnNullV1 source, out TelFailReturnNullV2 result)
         {
             result = default!;
             return false;
