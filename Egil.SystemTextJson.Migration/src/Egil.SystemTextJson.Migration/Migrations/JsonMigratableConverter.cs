@@ -8,6 +8,11 @@ internal sealed class JsonMigratableConverter<T>(MigratorContext context) : Json
 {
     private readonly JsonTypeInfo<T>? targetTypeInfo = context.TargetTypeInfo as JsonTypeInfo<T>;
 
+    // Cache the target converter and options to call Read directly, bypassing
+    // the GetReaderScopedToNextValue overhead inside JsonSerializer.Deserialize.
+    private readonly JsonConverter<T>? targetConverter = context.TargetTypeInfo.Converter as JsonConverter<T>;
+    private readonly JsonSerializerOptions targetOptions = context.TargetTypeInfo.Options;
+
     public override T? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
         InspectionResult inspection = Inspect(ref reader, out string? sourceDiscriminator);
@@ -32,7 +37,11 @@ internal sealed class JsonMigratableConverter<T>(MigratorContext context) : Json
         }
 
         var sourceReader = reader;
-        object? source = JsonSerializer.Deserialize(ref reader, migrator.SourceTypeInfo);
+        object? source = StjInternals.ReadAsObject(
+            migrator.SourceTypeInfo.Converter,
+            ref reader,
+            migrator.SourceType,
+            migrator.SourceTypeInfo.Options);
         if (!migrator.Invoker.TryMigrate(source, out object? migrated) || migrated is not T typedMigrated)
         {
             if (context.MigrationFailureHandling is JsonMigrationFailureHandling.FallBackToTargetType)
@@ -74,12 +83,20 @@ internal sealed class JsonMigratableConverter<T>(MigratorContext context) : Json
 
     private T? DeserializeTarget(ref Utf8JsonReader reader, Type typeToConvert)
     {
-        if (targetTypeInfo is not null)
+        // Call the converter's Read method directly instead of JsonSerializer.Deserialize.
+        // JsonResumableConverter<T>.Read creates a ReadStack and calls TryRead directly,
+        // bypassing the GetReaderScopedToNextValue overhead that copies and skips the
+        // entire JSON value before re-parsing it.
+        if (targetConverter is not null)
         {
-            return JsonSerializer.Deserialize(ref reader, targetTypeInfo);
+            return targetConverter.Read(ref reader, typeToConvert, targetOptions);
         }
 
-        return (T?)JsonSerializer.Deserialize(ref reader, context.TargetTypeInfo);
+        return (T?)StjInternals.ReadAsObject(
+            context.TargetTypeInfo.Converter,
+            ref reader,
+            typeToConvert,
+            targetOptions);
     }
 
     private InspectionResult Inspect(ref Utf8JsonReader reader, out string? sourceDiscriminator)
