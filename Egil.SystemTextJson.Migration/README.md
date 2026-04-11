@@ -1,5 +1,7 @@
 # Egil.SystemTextJson.Migration
 
+[![NuGet](https://img.shields.io/nuget/v/Egil.SystemTextJson.Migration.svg)](https://www.nuget.org/packages/Egil.SystemTextJson.Migration)
+
 Version-tolerant JSON migration for `System.Text.Json`.
 
 When data models evolve, old JSON payloads still exist — in databases, caches, queues, and on disk. This library migrates those payloads to the current type **automatically during deserialization**, so application code never deals with obsolete shapes.
@@ -14,7 +16,7 @@ When data models evolve, old JSON payloads still exist — in databases, caches,
 - **Migration tracking** — types can implement `IJsonMigrationTracked` to know whether they were migrated.
 - **Configurable failure handling** — choose between throwing, falling back to the target type, or returning null when a migrator cannot convert a payload.
 
-> **📖 Looking for more?** See the [Recipes](docs/recipes/) for 39 scenario-driven guides covering nested objects, collections, DI, source generation, failure handling, ASP.NET Core, Orleans, telemetry, and more.
+> **📖 Looking for more?** See the [Recipes](https://github.com/egil/framework/tree/main/Egil.SystemTextJson.Migration/docs/recipes/) for 39 scenario-driven guides covering nested objects, collections, DI, source generation, failure handling, ASP.NET Core, Orleans, telemetry, and more.
 
 ## Examples
 
@@ -394,7 +396,7 @@ Every benchmark compares the library against hand-written migration code on top 
 
 Detailed results with source-generated `JsonSerializerContext`:
 
-<!-- This is a summary; see [full source-gen results](docs/perf/source-gen-benchmarks.md) and [full reflection results](docs/perf/reflection-benchmarks.md). -->
+<!-- This is a summary; see [full source-gen results](https://github.com/egil/framework/blob/main/Egil.SystemTextJson.Migration/docs/perf/source-gen-benchmarks.md) and [full reflection results](https://github.com/egil/framework/blob/main/Egil.SystemTextJson.Migration/docs/perf/reflection-benchmarks.md). -->
 
 <!-- perf-summary:start -->
 | Scenario | TagCount | Ratio vs plain STJ | Alloc Ratio |
@@ -416,7 +418,7 @@ Detailed results with source-generated `JsonSerializerContext`:
 |  | 256 | 0.93× | 1.15 |
 <!-- perf-summary:end -->
 
-> Full benchmark reports: [source-gen](docs/perf/source-gen-benchmarks.md) · [reflection](docs/perf/reflection-benchmarks.md)
+> Full benchmark reports: [source-gen](https://github.com/egil/framework/blob/main/Egil.SystemTextJson.Migration/docs/perf/source-gen-benchmarks.md) · [reflection](https://github.com/egil/framework/blob/main/Egil.SystemTextJson.Migration/docs/perf/reflection-benchmarks.md)
 >
 > Run benchmarks locally with `dotnet run --project perf/Egil.SystemTextJson.Migration.PerfTests -c Release`.
 
