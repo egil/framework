@@ -15,6 +15,13 @@
         "mdsnippets"
       ],
       "rollForward": true
+    },
+    "nbgv": {
+      "version": "3.7.115",
+      "commands": [
+        "nbgv"
+      ],
+      "rollForward": true
     }
   }
 }
