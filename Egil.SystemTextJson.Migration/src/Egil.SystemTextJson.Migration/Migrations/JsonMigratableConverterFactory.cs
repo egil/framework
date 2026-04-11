@@ -41,8 +41,19 @@ internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry regis
         metadataOptions.Converters.Remove(this);
         metadataOptions.Converters.Add(new JsonMigratableConverterFactory(registry, typeToConvert));
 
+        // Attach a modifier that injects the discriminator property during type info resolution.
+        // This is necessary because internal STJ caching may re-resolve type info from the resolver
+        // after the options are frozen, and modifications made to type info instances returned from
+        // the mutable resolution path are not preserved in that cache.
+        metadataOptions.TypeInfoResolver = metadataOptions.TypeInfoResolver?.WithAddedModifier(typeInfo =>
+        {
+            if (typeInfo.Type == typeToConvert)
+            {
+                AddDiscriminatorProperty(typeInfo, targetMetadata);
+            }
+        });
+
         JsonTypeInfo targetTypeInfo = GetRequiredTypeInfo(metadataOptions, typeToConvert);
-        AddDiscriminatorProperty(targetTypeInfo, targetMetadata);
 
         var migrators = BuildMigratorMap(typeToConvert, metadataOptions);
         var migratorsByDiscriminator = migrators.ToFrozenDictionary(
@@ -53,6 +64,12 @@ internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry regis
             .Select(static migrator => migrator.SourceMetadata.DiscriminatorPropertyName)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
+
+        // Freeze the metadata options so that internal STJ methods like
+        // GetTypeInfoInternal (called by JsonResumableConverter<T>.Read) use the
+        // read-only cache path instead of the mutable path which silently returns null
+        // when resolveIfMutable defaults to false.
+        metadataOptions.MakeReadOnly();
 
         var context = new MigratorContext(
             targetTypeInfo,
