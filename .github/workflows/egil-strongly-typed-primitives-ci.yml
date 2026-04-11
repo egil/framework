@@ -94,9 +94,9 @@ jobs:
             10.x
 
       - name: Run tests
-        run: dotnet test ./Egil.StronglyTypedPrimitives/Egil.StronglyTypedPrimitives.sln --configuration Release
-        env:
-          GITHUB_ENV: /dev/null
+        run: |
+          export GITHUB_ENV=/dev/null
+          dotnet test ./Egil.StronglyTypedPrimitives/Egil.StronglyTypedPrimitives.sln --configuration Release
 
   release:
     needs: [validate-nuget, run-test]

@@ -98,9 +98,9 @@ jobs:
           dotnet-version: 10.x
 
       - name: Run tests
-        run: dotnet test ./Egil.SystemTextJson.Migration/Egil.SystemTextJson.Migration.slnx --configuration Release
-        env:
-          GITHUB_ENV: /dev/null
+        run: |
+          export GITHUB_ENV=/dev/null
+          dotnet test ./Egil.SystemTextJson.Migration/Egil.SystemTextJson.Migration.slnx --configuration Release
 
       - name: Verify documentation snippets
         working-directory: Egil.SystemTextJson.Migration
