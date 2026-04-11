@@ -26,4 +26,8 @@
     <PackageVersion Include="Verify.SourceGenerators" Version="2.2.0" />
     <PackageVersion Include="MartinCostello.Logging.XUnit.v3" Version="0.5.1" />
   </ItemGroup>
+
+  <ItemGroup Label="Samples">
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.5" />
+  </ItemGroup>
 </Project>

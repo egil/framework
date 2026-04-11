@@ -8,6 +8,13 @@
         "dotnet-stryker"
       ],
       "rollForward": false
+    },
+    "markdownsnippets.tool": {
+      "version": "28.0.2",
+      "commands": [
+        "mdsnippets"
+      ],
+      "rollForward": true
     }
   }
 }

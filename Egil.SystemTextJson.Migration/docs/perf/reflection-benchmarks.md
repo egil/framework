@@ -1,3 +1,7 @@
+# Reflection Benchmarks
+
+> Auto-generated from BenchmarkDotNet output by `scripts/update-perf-docs.ps1`.
+> Do not edit manually. Re-run benchmarks and this script to update.
 ```
 
 BenchmarkDotNet v0.15.6, Windows 11 (10.0.26200.8117)
