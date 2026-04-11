@@ -12,6 +12,7 @@ on:
           - Egil.Orleans.EventSourcing
           - Egil.Orleans.Storage
           - Egil.StronglyTypedPrimitives
+          - Egil.SystemTextJson.Migration
       releaseType:
         description: 'Type of release'
         type: choice
