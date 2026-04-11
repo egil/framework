@@ -1,4 +1,3 @@
-using System.Collections.Frozen;
 using System.Text.Json.Serialization.Metadata;
 
 namespace Egil.SystemTextJson.Migration.Migrations;
@@ -6,7 +5,7 @@ namespace Egil.SystemTextJson.Migration.Migrations;
 internal sealed record MigratorContext(
     JsonTypeInfo TargetTypeInfo,
     TypeMetadata TargetMetadata,
-    FrozenDictionary<string, MigratorReference> MigratorsByDiscriminator,
+    MigratorReference[] Migrators,
     string[] SourceDiscriminatorPropertyNames,
     JsonMigrationFailureHandling MigrationFailureHandling)
 {
