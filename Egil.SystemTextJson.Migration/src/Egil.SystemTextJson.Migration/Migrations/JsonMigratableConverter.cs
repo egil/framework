@@ -15,6 +15,9 @@ internal sealed class JsonMigratableConverter<T>(MigratorContext context) : Json
     private readonly JsonConverter<T>? targetConverter = context.TargetTypeInfo.Converter as JsonConverter<T>;
     private readonly JsonSerializerOptions targetOptions = context.TargetTypeInfo.Options;
 
+    // Pre-cache the target type name to avoid repeated property access in the telemetry path.
+    private readonly string targetTypeName = typeof(T).FullName ?? typeof(T).Name;
+
     public override T? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
         InspectionResult inspection = Inspect(ref reader, out MigratorReference? migrator);
@@ -43,6 +46,8 @@ internal sealed class JsonMigratableConverter<T>(MigratorContext context) : Json
             migrator.SourceTypeInfo.Options);
         if (!migrator.Invoker.TryMigrate(source, out object? migrated) || migrated is not T typedMigrated)
         {
+            JsonMigrationMeter.RecordMigration(migrator.SourceTypeName, targetTypeName, success: false);
+
             if (context.MigrationFailureHandling is JsonMigrationFailureHandling.FallBackToTargetType)
             {
                 T? fallback = DeserializeTarget(ref sourceReader, typeToConvert);
@@ -64,6 +69,7 @@ internal sealed class JsonMigratableConverter<T>(MigratorContext context) : Json
             throw new JsonException($"Migration failed for '{migrator.SourceType.FullName}' -> '{typeof(T).FullName}'.");
         }
 
+        JsonMigrationMeter.RecordMigration(migrator.SourceTypeName, targetTypeName, success: true);
         SetMigrationTracking(typedMigrated, migratedDuringDeserialization: true);
         return typedMigrated;
     }
