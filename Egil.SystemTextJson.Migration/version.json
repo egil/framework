@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/dotnet/Nerdbank.GitVersioning/main/src/NerdBank.GitVersioning/version.schema.json",
-  "version": "0.1-alpha",
+  "version": "0.1",
   "publicReleaseRefSpec": [
     "^refs/heads/main$",
     "^refs/heads/release/egil-systemtextjson-migration/v\\d+(?:\\.\\d+)?$"
@@ -17,7 +17,7 @@
   },
   "pathFilters": [
     "./",
-    "Directory.Packages.props",
+    "./Directory.Packages.props",
     "../.github/workflows/egil-systemtextjson-migration-ci.yml",
     "../.editorconfig",
     "../.gitattributes",
