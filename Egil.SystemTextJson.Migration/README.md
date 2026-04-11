@@ -14,6 +14,8 @@ When data models evolve, old JSON payloads still exist — in databases, caches,
 - **Migration tracking** — types can implement `IJsonMigrationTracked` to know whether they were migrated.
 - **Configurable failure handling** — choose between throwing, falling back to the target type, or returning null when a migrator cannot convert a payload.
 
+> **📖 Looking for more?** See the [Recipes](docs/recipes/) for 39 scenario-driven guides covering nested objects, collections, DI, source generation, failure handling, ASP.NET Core, Orleans, telemetry, and more.
+
 ## Examples
 
 The examples below use these shared types as a running scenario — a `User` type whose schema has changed between versions:
