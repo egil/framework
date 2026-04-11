@@ -1,4 +1,3 @@
-using System.Collections.Frozen;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -56,9 +55,6 @@ internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry regis
         JsonTypeInfo targetTypeInfo = GetRequiredTypeInfo(metadataOptions, typeToConvert);
 
         var migrators = BuildMigratorMap(typeToConvert, metadataOptions);
-        var migratorsByDiscriminator = migrators.ToFrozenDictionary(
-            static migrator => migrator.SourceMetadata.Discriminator,
-            StringComparer.Ordinal);
 
         var sourcePropertyNames = migrators
             .Select(static migrator => migrator.SourceMetadata.DiscriminatorPropertyName)
@@ -74,7 +70,7 @@ internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry regis
         var context = new MigratorContext(
             targetTypeInfo,
             targetMetadata,
-            migratorsByDiscriminator,
+            migrators,
             sourcePropertyNames,
             registry.GetMigrationFailureHandling(typeToConvert));
 

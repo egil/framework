@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
@@ -15,7 +17,7 @@ internal sealed class JsonMigratableConverter<T>(MigratorContext context) : Json
 
     public override T? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
-        InspectionResult inspection = Inspect(ref reader, out string? sourceDiscriminator);
+        InspectionResult inspection = Inspect(ref reader, out MigratorReference? migrator);
 
         if (inspection is InspectionResult.LegacyPayload)
         {
@@ -31,10 +33,7 @@ internal sealed class JsonMigratableConverter<T>(MigratorContext context) : Json
             return current;
         }
 
-        if (sourceDiscriminator is null || !context.MigratorsByDiscriminator.TryGetValue(sourceDiscriminator, out MigratorReference? migrator))
-        {
-            throw new JsonException($"No migrator was found for discriminator '{sourceDiscriminator}'.");
-        }
+        Debug.Assert(migrator is not null);
 
         var sourceReader = reader;
         object? source = StjInternals.ReadAsObject(
@@ -99,9 +98,9 @@ internal sealed class JsonMigratableConverter<T>(MigratorContext context) : Json
             targetOptions);
     }
 
-    private InspectionResult Inspect(ref Utf8JsonReader reader, out string? sourceDiscriminator)
+    private InspectionResult Inspect(ref Utf8JsonReader reader, out MigratorReference? migrator)
     {
-        sourceDiscriminator = null;
+        migrator = null;
 
         var probe = reader;
         if (probe.TokenType is JsonTokenType.None && !probe.Read())
@@ -143,14 +142,16 @@ internal sealed class JsonMigratableConverter<T>(MigratorContext context) : Json
                 return InspectionResult.TargetType;
             }
 
-            // Slow path: allocate the string only when migration is needed.
-            sourceDiscriminator = probe.GetString();
-            if (string.IsNullOrWhiteSpace(sourceDiscriminator))
+            // Zero-allocation: match discriminator directly against known migrators
+            // using pre-encoded UTF-8 bytes instead of allocating a string.
+            migrator = FindMigratorByDiscriminator(ref probe);
+            if (migrator is not null)
             {
-                throw new JsonException("Type discriminator cannot be null or empty.");
+                return InspectionResult.MigrationRequired;
             }
 
-            return InspectionResult.MigrationRequired;
+            // Slow path: allocate string only for validation/error reporting.
+            ThrowUnknownDiscriminator(ref probe);
         }
 
         foreach (byte[] sourcePropertyName in context.SourceDiscriminatorPropertyNameUtf8)
@@ -160,29 +161,52 @@ internal sealed class JsonMigratableConverter<T>(MigratorContext context) : Json
                 continue;
             }
 
-            sourceDiscriminator = ReadDiscriminatorValue(ref probe);
-            return InspectionResult.MigrationRequired;
+            if (!probe.Read() || probe.TokenType is not JsonTokenType.String)
+            {
+                throw new JsonException($"Expected discriminator string, got '{probe.TokenType}'.");
+            }
+
+            // Zero-allocation: match discriminator directly against known migrators.
+            migrator = FindMigratorByDiscriminator(ref probe);
+            if (migrator is not null)
+            {
+                return InspectionResult.MigrationRequired;
+            }
+
+            // Slow path: allocate string only for validation/error reporting.
+            ThrowUnknownDiscriminator(ref probe);
         }
 
         return InspectionResult.LegacyPayload;
     }
 
-    private static string? ReadDiscriminatorValue(ref Utf8JsonReader reader)
+    private MigratorReference? FindMigratorByDiscriminator(ref Utf8JsonReader reader)
     {
-        if (!reader.Read() || reader.TokenType is not JsonTokenType.String)
+        foreach (MigratorReference migrator in context.Migrators)
         {
-            throw new JsonException($"Expected discriminator string, got '{reader.TokenType}'.");
+            if (reader.ValueTextEquals(migrator.DiscriminatorUtf8))
+            {
+                return migrator;
+            }
         }
 
-        string? value = reader.GetString();
-        if (string.IsNullOrWhiteSpace(value))
+        return null;
+    }
+
+    [DoesNotReturn]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void ThrowUnknownDiscriminator(ref Utf8JsonReader reader)
+    {
+        string? sourceDiscriminator = reader.GetString();
+        if (string.IsNullOrWhiteSpace(sourceDiscriminator))
         {
             throw new JsonException("Type discriminator cannot be null or empty.");
         }
 
-        return value;
+        throw new JsonException($"No migrator was found for discriminator '{sourceDiscriminator}'.");
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static void SetMigrationTracking(T? value, bool migratedDuringDeserialization)
     {
         // The interface keeps tracking opt-in so regular domain models stay free of migration concerns.
