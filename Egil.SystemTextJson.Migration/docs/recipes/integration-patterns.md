@@ -163,3 +163,49 @@ public class ShoppingCartGrain : Grain
 ```
 
 > **Note:** No manual migration step or versioned state classes are needed. When the grain activates, the storage provider deserializes the JSON using the configured options, and the library handles the migration. Subscribe to `JsonMigrationTelemetry.MeterName` to monitor migration volume across your cluster.
+
+### Using Orleans `[Alias]` as the type discriminator
+
+If your grain state types already use Orleans' `[Alias]` attribute for serialization identity, you can derive the migration type discriminator directly from it using `GetTypeDiscriminatorFrom<AliasAttribute>`. This avoids duplicating discriminator strings and leverages the Orleans analyzer which enforces that all `[Alias]` values are globally unique — giving you compile-time uniqueness checks for your discriminators:
+
+```csharp
+// In your Orleans silo configuration (Program.cs):
+builder.UseOrleans(siloBuilder =>
+{
+    siloBuilder.AddMemoryGrainStorageAsDefault(); // or your storage provider
+
+    // Configure the storage provider's JSON serializer
+    siloBuilder.Services.AddOptions<OrleansJsonSerializerOptions>("Default")
+        .Configure(options =>
+        {
+            options.JsonSerializerOptions.AddJsonMigrationSupport(migrationBuilder =>
+            {
+                migrationBuilder
+                    .RegisterMigratorsFromAssembly(typeof(Program).Assembly)
+                    .GetTypeDiscriminatorFrom<AliasAttribute>(attr => attr.Alias);
+            });
+        });
+});
+```
+
+```csharp
+// Grain state types use [Alias] for both Orleans type identity and migration discriminators:
+[Alias("cart-v1")]
+[JsonMigratable]
+public record class ShoppingCartV1(List<string> Items);
+
+[Alias("cart-v2")]
+[JsonMigratable]
+public record class ShoppingCartV2(List<CartItem> Items)
+    : IMigrateFrom<ShoppingCartV1, ShoppingCartV2>
+{
+    public static bool TryMigrateFrom(ShoppingCartV1 source, out ShoppingCartV2 result)
+    {
+        result = new ShoppingCartV2(
+            source.Items.Select(name => new CartItem(name, 1)).ToList());
+        return true;
+    }
+}
+```
+
+> **Tip:** Since `[Alias]` values must be globally unique (enforced by the Orleans analyzer), you get compile-time validation that your migration discriminators won't collide — eliminating the risk of runtime `JsonMigrationDuplicateTypeDiscriminatorException` errors. See [Deriving discriminators from an existing attribute](type-discriminators.md#deriving-discriminators-from-an-existing-attribute) for details on `GetTypeDiscriminatorFrom`.

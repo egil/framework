@@ -73,6 +73,7 @@ All code samples are extracted from the [samples project](../../samples/Egil.Sys
 - [Message queue / event store migration](integration-patterns.md#message-queue--event-store-migration)
 - [ASP.NET Core integration](integration-patterns.md#aspnet-core-integration)
 - [Orleans grain state migration](integration-patterns.md#orleans-grain-state-migration)
+- [Using Orleans `[Alias]` as the type discriminator](integration-patterns.md#using-orleans-alias-as-the-type-discriminator)
 
 ## Observability / telemetry
 
