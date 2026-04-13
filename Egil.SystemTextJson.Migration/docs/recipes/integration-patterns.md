@@ -166,7 +166,7 @@ public class ShoppingCartGrain : Grain
 
 ### Using Orleans `[Alias]` as the type discriminator
 
-If your grain state types already use Orleans' `[Alias]` attribute for serialization identity, you can derive the migration type discriminator directly from it using `GetTypeDiscriminatorFrom<AliasAttribute>`. This avoids duplicating discriminator strings and leverages the Orleans analyzer which enforces that all `[Alias]` values are globally unique — giving you compile-time uniqueness checks for your discriminators:
+If your grain state types already use Orleans' `[Alias]` attribute for serialization identity, you can derive the migration type discriminator directly from it using `GetTypeDiscriminatorFrom<AliasAttribute>`. This avoids duplicating discriminator strings and, when all migratable types use `[Alias]`, leverages the Orleans analyzer's compile-time enforcement that alias values are globally unique:
 
 ```csharp
 // In your Orleans silo configuration (Program.cs):
@@ -206,6 +206,8 @@ public record class ShoppingCartV2(List<CartItem> Items)
         return true;
     }
 }
+
+public record class CartItem(string Name, int Quantity);
 ```
 
-> **Tip:** Since `[Alias]` values must be globally unique (enforced by the Orleans analyzer), you get compile-time validation that your migration discriminators won't collide — eliminating the risk of runtime `JsonMigrationDuplicateTypeDiscriminatorException` errors. See [Deriving discriminators from an existing attribute](type-discriminators.md#deriving-discriminators-from-an-existing-attribute) for details on `GetTypeDiscriminatorFrom`.
+> **Tip:** When all migratable types derive their discriminator from `[Alias]`, the Orleans analyzer validates uniqueness at compile time, helping prevent runtime `JsonMigrationDuplicateTypeDiscriminatorException` errors. Note that types without `[Alias]` fall back to `JsonMigratableAttribute.TypeDiscriminator` and are not covered by the analyzer check. See [Deriving discriminators from an existing attribute](type-discriminators.md#deriving-discriminators-from-an-existing-attribute) for details on `GetTypeDiscriminatorFrom`.
