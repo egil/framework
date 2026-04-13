@@ -106,7 +106,7 @@ jobs:
         working-directory: Egil.SystemTextJson.Migration
         run: |
           dotnet tool restore
-          dotnet mdsnippets
+          dotnet mdsnippets --convention InPlaceOverwrite --write-header false
           git diff --exit-code -- '*.md'
 
   release:

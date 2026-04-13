@@ -46,4 +46,28 @@
     </None>
   </ItemGroup>
 
+  <!-- Before pack: rewrite README.md to a NuGet-friendly version by running
+       mdsnippets with OmitSnippetLinks (strips <a id> anchors and <sup> source
+       links) and removing the NuGet badge (redundant on nuget.org).
+       After pack: restore README.md via git checkout. -->
+  <PropertyGroup>
+    <_ReadmePath>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/../../README.md'))</_ReadmePath>
+    <_ProjectRoot>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/../..'))</_ProjectRoot>
+  </PropertyGroup>
+
+  <Target Name="_PrepareNuGetReadme" BeforeTargets="GenerateNuspec">
+    <Exec Command="dotnet tool restore" WorkingDirectory="$(_ProjectRoot)" />
+    <Exec Command="dotnet mdsnippets --convention InPlaceOverwrite --write-header false --omit-snippet-links true --exclude-markdown-directories docs"
+          WorkingDirectory="$(_ProjectRoot)" />
+    <!-- Remove the NuGet badge line (redundant when viewing on nuget.org) -->
+    <WriteLinesToFile File="$(_ReadmePath)" Overwrite="true"
+                     Lines="$([System.Text.RegularExpressions.Regex]::Replace(
+                       $([System.IO.File]::ReadAllText('$(_ReadmePath)')),
+                       '(?m)^\[!\[NuGet\].*\r?\n\r?\n', ''))" />
+  </Target>
+
+  <Target Name="_RestoreReadmeAfterPack" AfterTargets="Pack">
+    <Exec Command="git checkout -- README.md" WorkingDirectory="$(_ProjectRoot)" />
+  </Target>
+
 </Project>
