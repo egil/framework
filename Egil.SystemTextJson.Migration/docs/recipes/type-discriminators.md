@@ -74,3 +74,5 @@ options.AddJsonMigrationSupport(builder =>
 <!-- endSnippet -->
 
 > **Note:** The attribute must have a property or field that returns a string. The library reads this value at configuration time and uses it as the type discriminator.
+>
+> **Tip:** In Orleans projects, you can use `GetTypeDiscriminatorFrom<AliasAttribute>(attr => attr.Alias)` to derive discriminators from Orleans' `[Alias]` attribute. This avoids duplicating discriminator values and, when all relevant migratable types use `[Alias]` and the Orleans analyzer is enabled, can help catch duplicate aliases at compile time. Types that fall back to `JsonMigratable(TypeDiscriminator = "...")` are not covered by that analyzer check and can still collide at runtime. See [Using Orleans `[Alias]` as the type discriminator](integration-patterns.md#using-orleans-alias-as-the-type-discriminator) for a full example.
