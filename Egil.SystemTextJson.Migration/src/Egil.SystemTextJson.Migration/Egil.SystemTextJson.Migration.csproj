@@ -70,4 +70,20 @@
     <Exec Command="git checkout -- README.md" WorkingDirectory="$(_ProjectRoot)" />
   </Target>
 
+  <!-- Generate plain-text release notes from conventional commits since the
+       last release tag and inject them into the NuGet package. -->
+  <Target Name="_GenerateReleaseNotes" BeforeTargets="GenerateNuspec"
+          Condition="'$(Configuration)' == 'Release' and '$(SkipReleaseNotes)' != 'true'">
+    <Exec Command="pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;$(_ProjectRoot)/scripts/generate-release-notes.ps1&quot;"
+          WorkingDirectory="$(_ProjectRoot)/.."
+          ConsoleToMSBuild="true"
+          StandardOutputImportance="low"
+          IgnoreExitCode="true">
+      <Output TaskParameter="ConsoleOutput" ItemName="_ReleaseNoteLines" />
+    </Exec>
+    <CreateProperty Value="@(_ReleaseNoteLines, '%0a')">
+      <Output TaskParameter="Value" PropertyName="PackageReleaseNotes" />
+    </CreateProperty>
+  </Target>
+
 </Project>
