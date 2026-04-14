@@ -77,7 +77,27 @@ Do not mix unrelated commit types in a single commit. Ensure Conventional Commit
 Tests that validate a `feat` or `fix` must be included in the same commit as that `feat`/`fix` (use the `feat` or `fix` type).
 Use `test(...)` commits only for test-only changes, such as adding coverage for existing behavior without production-code changes.
 Refactoring changes go into one commit, fixes into another commit, etc.
-Include a concise summary of decisions and chat log context in the commit message body.
+
+**Commit body text is included in package release notes and changelogs.** The subject line is the terse entry heading; the body provides the detail that package consumers read. Write the body as clear, user-facing prose that explains *what* changed and *why* it matters. Avoid internal-only context (chat logs, agent session IDs, implementation minutiae) — focus on information that is valuable in a changelog.
+
+For breaking changes, add a `BREAKING CHANGE: <description>` footer in the body (per the Conventional Commits spec) in addition to — or instead of — the `!` suffix on the subject.
+
+To exclude a commit from release notes (for example, build tooling or infrastructure changes that use `feat`/`fix` types but are not relevant to package consumers), add `[skip notes]` anywhere in the subject or body.
+
+Example of a well-structured commit message:
+
+```
+feat(stjm): support migration from non-object JSON payloads
+
+Migrators can now handle source documents whose top-level JSON token
+is an array, string, number, or boolean — not only objects. This
+removes the previous restriction that forced callers to wrap
+primitives before migration.
+
+BREAKING CHANGE: IMigrate<TFrom,TTo>.Migrate now receives a
+JsonElement instead of a JsonObject, so existing migrators that
+call JsonObject-specific APIs will need adjustment.
+```
 
 Keep commits small and focused. For PRs, include:
 - What changed and why.
