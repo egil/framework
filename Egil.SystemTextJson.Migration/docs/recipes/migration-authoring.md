@@ -104,6 +104,139 @@ options.AddJsonMigrationSupport(builder =>
 
 > **Note:** External migrators must be registered explicitly via `RegisterMigrator<T>()` or discovered via `RegisterMigratorsFromAssembly()`. They support DI via `UseServiceProvider()`.
 
+## Migrating from non-object JSON payloads
+
+When the stored JSON is not an object — for example, a plain array or a primitive value — the library can still migrate it to a structured target type. This is useful when the original data model stored a simple value (like a `List<string>` or a raw `string`) and you later upgraded to a richer type.
+
+The source type does **not** need `[JsonMigratable]` — it's a plain .NET type whose JSON representation is an array, string, number, or boolean.
+
+<!-- snippet: non_object_list_types -->
+<a id='snippet-non_object_list_types'></a>
+```cs
+// The target type accepts a List<string> as its source.
+// The source type (List<string>) is NOT marked with [JsonMigratable]
+// — it's a plain .NET collection whose JSON representation is an array.
+[JsonMigratable(TypeDiscriminator = "settings-v2")]
+public record SettingsV2(List<string> Tags, string Label)
+    : IMigrateFrom<List<string>, SettingsV2>
+{
+    public static bool TryMigrateFrom(List<string> source, out SettingsV2 result)
+    {
+        result = new SettingsV2(source, "migrated");
+        return true;
+    }
+}
+```
+<sup><a href='/samples/Egil.SystemTextJson.Migration.Samples/NonObjectPayloadMigrationSample.cs#L3-L17' title='Snippet source file'>snippet source</a> | <a href='#snippet-non_object_list_types' title='Start of snippet'>anchor</a></sup>
+<!-- endSnippet -->
+
+<!-- snippet: non_object_list_usage -->
+<a id='snippet-non_object_list_usage'></a>
+```cs
+var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+options.AddJsonMigrationSupport();
+
+// Stored JSON is a plain array — no $type, no object wrapper.
+var json = """["csharp","dotnet","azure"]""";
+SettingsV2 settings = JsonSerializer.Deserialize<SettingsV2>(json, options)!;
+// settings.Tags = ["csharp", "dotnet", "azure"], settings.Label = "migrated"
+```
+<sup><a href='/samples/Egil.SystemTextJson.Migration.Samples/NonObjectPayloadMigrationSample.cs#L81-L89' title='Snippet source file'>snippet source</a> | <a href='#snippet-non_object_list_usage' title='Start of snippet'>anchor</a></sup>
+<!-- endSnippet -->
+
+The same approach works for **primitive source types** like `string`, `int`, or `bool`:
+
+<!-- snippet: non_object_string_type -->
+<a id='snippet-non_object_string_type'></a>
+```cs
+// Migrate from a raw JSON string to a structured type.
+[JsonMigratable(TypeDiscriminator = "label-v2")]
+public record LabelV2(string Value, string NormalizedValue)
+    : IMigrateFrom<string, LabelV2>
+{
+    public static bool TryMigrateFrom(string source, out LabelV2 result)
+    {
+        result = new LabelV2(source, source.ToLowerInvariant().Trim());
+        return true;
+    }
+}
+```
+<sup><a href='/samples/Egil.SystemTextJson.Migration.Samples/NonObjectPayloadMigrationSample.cs#L19-L31' title='Snippet source file'>snippet source</a> | <a href='#snippet-non_object_string_type' title='Start of snippet'>anchor</a></sup>
+<!-- endSnippet -->
+
+You can also combine non-object and object-based migrators on the same target type. The library automatically picks the right migrator based on the JSON shape:
+
+<!-- snippet: non_object_mixed_migrators -->
+<a id='snippet-non_object_mixed_migrators'></a>
+```cs
+// A target that can migrate from both an older object-based
+// version AND from a plain collection.
+[JsonMigratable(TypeDiscriminator = "config-v1")]
+public record ConfigV1(string CsvItems);
+
+[JsonMigratable(TypeDiscriminator = "config-v2")]
+public record ConfigV2(List<string> Items, string Source)
+    : IMigrateFrom<List<string>, ConfigV2>,
+      IMigrateFrom<ConfigV1, ConfigV2>
+{
+    public static bool TryMigrateFrom(List<string> source, out ConfigV2 result)
+    {
+        result = new ConfigV2(source, "from-list");
+        return true;
+    }
+
+    public static bool TryMigrateFrom(ConfigV1 source, out ConfigV2 result)
+    {
+        result = new ConfigV2(
+            [.. source.CsvItems.Split(',', StringSplitOptions.RemoveEmptyEntries)],
+            "from-config-v1");
+        return true;
+    }
+}
+```
+<sup><a href='/samples/Egil.SystemTextJson.Migration.Samples/NonObjectPayloadMigrationSample.cs#L33-L58' title='Snippet source file'>snippet source</a> | <a href='#snippet-non_object_mixed_migrators' title='Start of snippet'>anchor</a></sup>
+<!-- endSnippet -->
+
+> **Note:** Non-object payloads have no type discriminator. The library matches migrators by comparing the JSON token type (`StartArray`, `String`, `Number`, `True`/`False`) against the source type's `JsonTypeInfoKind`. Object payloads continue to use discriminator-based matching. After migration, the target type is serialized as an object with `$type`, so future reads take the zero-allocation happy path.
+
+**Dictionary source types** work the same way. Even though dictionaries serialize as JSON objects, the library detects that no discriminator matched and looks for migrators with `JsonTypeInfoKind.Dictionary`:
+
+<!-- snippet: non_object_dict_type -->
+<a id='snippet-non_object_dict_type'></a>
+```cs
+// Migrate from a Dictionary<string, string> to a structured type.
+// Dictionaries serialize as JSON objects, but the library detects
+// there is no discriminator and matches by JsonTypeInfoKind.Dictionary.
+[JsonMigratable(TypeDiscriminator = "port-config-v2")]
+public record PortConfigV2(Dictionary<string, string> Ports, int Version)
+    : IMigrateFrom<Dictionary<string, string>, PortConfigV2>
+{
+    public static bool TryMigrateFrom(Dictionary<string, string> source, out PortConfigV2 result)
+    {
+        result = new PortConfigV2(source, 2);
+        return true;
+    }
+}
+```
+<sup><a href='/samples/Egil.SystemTextJson.Migration.Samples/NonObjectPayloadMigrationSample.cs#L60-L74' title='Snippet source file'>snippet source</a> | <a href='#snippet-non_object_dict_type' title='Start of snippet'>anchor</a></sup>
+<!-- endSnippet -->
+
+<!-- snippet: non_object_dict_usage -->
+<a id='snippet-non_object_dict_usage'></a>
+```cs
+var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+options.AddJsonMigrationSupport();
+
+// Stored JSON is a dictionary — a JSON object with no $type discriminator.
+var json = """{"redis":"6379","postgres":"5432"}""";
+PortConfigV2 config = JsonSerializer.Deserialize<PortConfigV2>(json, options)!;
+// config.Ports = {"redis": "6379", "postgres": "5432"}, config.Version = 2
+```
+<sup><a href='/samples/Egil.SystemTextJson.Migration.Samples/NonObjectPayloadMigrationSample.cs#L158-L166' title='Snippet source file'>snippet source</a> | <a href='#snippet-non_object_dict_usage' title='Start of snippet'>anchor</a></sup>
+<!-- endSnippet -->
+
+> **Note:** Dictionary migrators are checked only after discriminator matching fails. If the target type also has object-based migrators (with discriminators), those take priority for object payloads. Dictionary migrators act as a fallback for unrecognized JSON objects.
+
 ## Multi-step migration chain
 
 A target type can accept payloads from **multiple older versions**. Implement `IMigrateFrom` for each source type. Each migrator handles one version jump — there is no automatic chaining through intermediate types.

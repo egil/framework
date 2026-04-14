@@ -10,13 +10,13 @@ namespace Egil.SystemTextJson.Migration.Tests;
 public class MutationCoverageTests
 {
     [Fact]
-    public void Deserialize_throws_when_payload_starts_with_non_object_token()
+    public void Deserialize_throws_when_payload_starts_with_non_object_token_and_no_compatible_migrator()
     {
         var options = CreateTrackingOptions(static builder => builder.RegisterMigrator<TrackingExternalMigrator>());
 
         var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<TrackingV3>("[]", options));
 
-        Assert.Contains("Expected 'StartObject'", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("could not be converted", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]

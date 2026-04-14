@@ -13,6 +13,7 @@ All code samples are extracted from the [samples project](../../samples/Egil.Sys
 
 - [Writing a static migrator (`IMigrateFrom`)](migration-authoring.md#writing-a-static-migrator)
 - [Writing an external migrator (`IMigrate`)](migration-authoring.md#writing-an-external-migrator)
+- [Migrating from non-object JSON payloads](migration-authoring.md#migrating-from-non-object-json-payloads)
 - [Multi-step migration chain](migration-authoring.md#multi-step-migration-chain)
 - [Migrating across many versions](migration-authoring.md#migrating-across-many-versions)
 

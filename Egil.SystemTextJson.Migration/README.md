@@ -148,6 +148,47 @@ public record UserV2(string FirstName, string LastName, int Age)
 <!-- endSnippet -->
 
 
+### Migrating from non-object JSON payloads
+
+When the stored JSON is not an object — for example, a plain array or a primitive — the library can migrate it to a structured target type. The source type does not need `[JsonMigratable]`:
+
+<!-- snippet: non_object_list_types -->
+<a id='snippet-non_object_list_types'></a>
+```cs
+// The target type accepts a List<string> as its source.
+// The source type (List<string>) is NOT marked with [JsonMigratable]
+// — it's a plain .NET collection whose JSON representation is an array.
+[JsonMigratable(TypeDiscriminator = "settings-v2")]
+public record SettingsV2(List<string> Tags, string Label)
+    : IMigrateFrom<List<string>, SettingsV2>
+{
+    public static bool TryMigrateFrom(List<string> source, out SettingsV2 result)
+    {
+        result = new SettingsV2(source, "migrated");
+        return true;
+    }
+}
+```
+<sup><a href='/samples/Egil.SystemTextJson.Migration.Samples/NonObjectPayloadMigrationSample.cs#L3-L17' title='Snippet source file'>snippet source</a> | <a href='#snippet-non_object_list_types' title='Start of snippet'>anchor</a></sup>
+<!-- endSnippet -->
+
+<!-- snippet: non_object_list_usage -->
+<a id='snippet-non_object_list_usage'></a>
+```cs
+var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+options.AddJsonMigrationSupport();
+
+// Stored JSON is a plain array — no $type, no object wrapper.
+var json = """["csharp","dotnet","azure"]""";
+SettingsV2 settings = JsonSerializer.Deserialize<SettingsV2>(json, options)!;
+// settings.Tags = ["csharp", "dotnet", "azure"], settings.Label = "migrated"
+```
+<sup><a href='/samples/Egil.SystemTextJson.Migration.Samples/NonObjectPayloadMigrationSample.cs#L81-L89' title='Snippet source file'>snippet source</a> | <a href='#snippet-non_object_list_usage' title='Start of snippet'>anchor</a></sup>
+<!-- endSnippet -->
+
+After migration, the target type serializes as an object with `$type`, so future reads take the zero-allocation happy path. See the [recipe](https://github.com/egil/framework/tree/main/Egil.SystemTextJson.Migration/docs/recipes/migration-authoring.md#migrating-from-non-object-json-payloads) for more examples including primitives and mixed migrators.
+
+
 ### Dependency injection for migrators
 
 Pass an `IServiceProvider` so external migrators can receive constructor-injected dependencies. The migrator is resolved from the service provider on each call, supporting scoped lifetimes:
@@ -429,6 +470,8 @@ Detailed results with source-generated `JsonSerializerContext`:
 - **Static migrators take precedence.** When both a static `IMigrateFrom` and an external `IMigrate` exist for the same source type, the static contract wins.
 
 - **Short discriminators recommended.** Values like `"user-v2"` are smaller and faster to compare than the default full type name.
+
+- **Non-object payload migration.** When the JSON payload is not an object (e.g., an array or primitive), discriminator-based matching is not possible. The library matches migrators by comparing the JSON token type against the source type's `JsonTypeInfoKind` (`StartArray` → `Enumerable`, primitives → `None`). Dictionary source types (`Dictionary<string, T>`) are also supported — when no discriminator match is found on a JSON object, the library checks for `JsonTypeInfoKind.Dictionary` migrators before falling back to legacy handling. This adds zero overhead to the existing object-based happy path.
 
 ## Mutation testing
 
