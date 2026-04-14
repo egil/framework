@@ -6,7 +6,7 @@ using System.Text.Json.Serialization.Metadata;
 
 namespace Egil.SystemTextJson.Migration.Migrations;
 
-internal sealed class JsonMigratableConverter<T>(MigratorContext context) : JsonConverter<T>
+internal sealed partial class JsonMigratableConverter<T>(MigratorContext context) : JsonConverter<T>
 {
     private readonly JsonTypeInfo<T>? targetTypeInfo = context.TargetTypeInfo as JsonTypeInfo<T>;
 
@@ -116,7 +116,13 @@ internal sealed class JsonMigratableConverter<T>(MigratorContext context) : Json
 
         if (probe.TokenType is not JsonTokenType.StartObject)
         {
-            throw new JsonException($"Expected '{JsonTokenType.StartObject}', got '{probe.TokenType}'.");
+            // Non-object payloads (arrays, primitives) have no discriminator property.
+            // Try to find a registered migrator whose source type is compatible with
+            // the JSON token type based on its JsonTypeInfoKind.
+            migrator = FindMigratorForNonObjectPayload(ref probe, probe.TokenType);
+            return migrator is not null
+                ? InspectionResult.MigrationRequired
+                : InspectionResult.LegacyPayload;
         }
 
         if (!probe.Read())
@@ -181,6 +187,15 @@ internal sealed class JsonMigratableConverter<T>(MigratorContext context) : Json
 
             // Slow path: allocate string only for validation/error reporting.
             ThrowUnknownDiscriminator(ref probe);
+        }
+
+        // The first property didn't match any discriminator. Before treating
+        // as a legacy payload, check for dictionary-kind migrators — dictionaries
+        // serialize as JSON objects but have no discriminator.
+        migrator = FindMigratorForDictionaryPayload(ref probe);
+        if (migrator is not null)
+        {
+            return InspectionResult.MigrationRequired;
         }
 
         return InspectionResult.LegacyPayload;
