@@ -149,6 +149,41 @@ public class ShoppingCartGrain : Grain
 {
     private readonly IPersistentState<ShoppingCartV2> cart;
 
+    // Old V1 data is migrated to V2 when state is read during activation.
+    public ShoppingCartGrain(
+        [PersistentState("cart")] IPersistentState<ShoppingCartV2> cart)
+    {
+        this.cart = cart;
+    }
+}
+```
+
+> **Note:** No manual migration step or versioned state classes are needed. When the grain activates, the storage provider deserializes the JSON using the configured options, and the library handles the migration. Subscribe to `JsonMigrationTelemetry.MeterName` to monitor migration volume across your cluster.
+
+### Writing back migrated state with `IJsonMigrationTracked`
+
+If your grain state implements `IJsonMigrationTracked`, the grain can detect whether migration occurred during deserialization and persist the updated format. This converts future reads from an O(n) migration into a direct read:
+
+```csharp
+[JsonMigratable(TypeDiscriminator = "cart-v2")]
+public record class ShoppingCartV2(List<CartItem> Items)
+    : IJsonMigrationTracked, IMigrateFrom<ShoppingCartV1, ShoppingCartV2>
+{
+    [JsonIgnore]
+    public bool MigratedDuringDeserialization { get; set; }
+
+    public static bool TryMigrateFrom(ShoppingCartV1 source, out ShoppingCartV2 result)
+    {
+        result = new ShoppingCartV2(
+            source.Items.Select(name => new CartItem(name, 1)).ToList());
+        return true;
+    }
+}
+
+public class ShoppingCartGrain : Grain
+{
+    private readonly IPersistentState<ShoppingCartV2> cart;
+
     public ShoppingCartGrain(
         [PersistentState("cart")] IPersistentState<ShoppingCartV2> cart)
     {
@@ -157,12 +192,15 @@ public class ShoppingCartGrain : Grain
 
     public override async Task OnActivateAsync(CancellationToken ct)
     {
-        await cart.ReadStateAsync(); // Old V1 data is migrated to V2 here
+        if (cart.State is { MigratedDuringDeserialization: true })
+        {
+            await cart.WriteStateAsync();
+        }
     }
 }
 ```
 
-> **Note:** No manual migration step or versioned state classes are needed. When the grain activates, the storage provider deserializes the JSON using the configured options, and the library handles the migration. Subscribe to `JsonMigrationTelemetry.MeterName` to monitor migration volume across your cluster.
+> **Tip:** Writing back on activation is the simplest approach. Alternatively, write back in `OnDeactivateAsync` to batch the write with the grain's normal deactivation lifecycle.
 
 ### Using Orleans `[Alias]` as the type discriminator
 
