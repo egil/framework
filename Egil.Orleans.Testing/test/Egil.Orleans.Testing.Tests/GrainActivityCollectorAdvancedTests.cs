@@ -7,20 +7,21 @@ public class GrainActivityCollectorAdvancedTests(OrleansTestClusterFixture fixtu
     {
         var grain = fixture.GetUniqueGrain<ITestStateGrain>();
 
-        var waitTask = fixture.Collector.WaitForStorageOperationAsync(
+        await grain.SetValueAsync("written");
+
+        await fixture.Collector.WaitForStorageOperationAsync(
             operation => operation.Kind == StorageOperationKind.Write && operation.StateName == "state",
             timeout: TimeSpan.FromSeconds(2),
             ct: TestContext.Current.CancellationToken);
-
-        await grain.SetValueAsync("written");
-        await waitTask;
     }
 
     [Fact]
-    public async Task WaitForStorageOperationAsync_grain_scope_ignores_unrelated_grains()
+    public async Task WaitForStorageOperationAsync_grain_scope_ignores_unrelated_grains_when_called_after_unrelated_action()
     {
         var targetGrain = fixture.GetUniqueGrain<ITestStateGrain>();
         var otherGrain = fixture.GetUniqueGrain<ITestStateGrain>("other");
+
+        await otherGrain.SetValueAsync("noise");
 
         var waitTask = fixture.Collector.WaitForStorageOperationAsync(
             targetGrain,
@@ -28,7 +29,6 @@ public class GrainActivityCollectorAdvancedTests(OrleansTestClusterFixture fixtu
             timeout: TimeSpan.FromSeconds(2),
             ct: TestContext.Current.CancellationToken);
 
-        await otherGrain.SetValueAsync("noise");
         Assert.False(waitTask.IsCompleted);
 
         await targetGrain.SetValueAsync("hit");
@@ -40,20 +40,21 @@ public class GrainActivityCollectorAdvancedTests(OrleansTestClusterFixture fixtu
     {
         var grain = fixture.GetUniqueGrain<ITestStateGrain>();
 
-        var waitTask = fixture.Collector.WaitForGrainCallAsync(
+        await grain.SetValueAsync("called");
+
+        await fixture.Collector.WaitForGrainCallAsync(
             context => context.MethodName == nameof(ITestStateGrain.SetValueAsync),
             timeout: TimeSpan.FromSeconds(2),
             ct: TestContext.Current.CancellationToken);
-
-        await grain.SetValueAsync("called");
-        await waitTask;
     }
 
     [Fact]
-    public async Task WaitForGrainCallAsync_grain_scope_ignores_unrelated_grains()
+    public async Task WaitForGrainCallAsync_grain_scope_ignores_unrelated_grains_when_called_after_unrelated_action()
     {
         var targetGrain = fixture.GetUniqueGrain<ITestStateGrain>();
         var otherGrain = fixture.GetUniqueGrain<ITestStateGrain>("other");
+
+        await otherGrain.SetValueAsync("noise");
 
         var waitTask = fixture.Collector.WaitForGrainCallAsync(
             targetGrain,
@@ -61,7 +62,6 @@ public class GrainActivityCollectorAdvancedTests(OrleansTestClusterFixture fixtu
             timeout: TimeSpan.FromSeconds(2),
             ct: TestContext.Current.CancellationToken);
 
-        await otherGrain.SetValueAsync("noise");
         Assert.False(waitTask.IsCompleted);
 
         await targetGrain.SetValueAsync("hit");

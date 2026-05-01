@@ -21,6 +21,7 @@ namespace Egil.Orleans.Testing;
 public sealed class GrainActivityCollector : IGrainActivityWaiter
 {
     private const int SubscriberChannelCapacity = 256;
+    private const int RecentEventHistoryCapacity = 256;
 
     private readonly object activitySubscribersLock = new();
     private readonly object storageSubscribersLock = new();
@@ -29,6 +30,8 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter
     private List<ActivitySubscriber> activitySubscribers = [];
     private List<StorageSubscriber> storageSubscribers = [];
     private List<GrainCallSubscriber> grainCallSubscribers = [];
+    private Queue<StorageOperation> recentStorageOperations = new();
+    private Queue<IIncomingGrainCallContext> recentGrainCalls = new();
 
     [StackTraceHidden]
     Task<TResult> IGrainActivityWaiter.WaitForAssertionAsync<TResult>(
@@ -61,7 +64,7 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter
         CancellationToken ct = default)
         => WaitForPredicateAsyncCore(
             predicate,
-            (out ChannelReader<StorageOperation> reader) => SubscribeStorageOperations(out reader),
+            (out ChannelReader<StorageOperation> reader, out StorageOperation[] history) => SubscribeStorageOperations(out reader, out history),
             timeout,
             grainId: null,
             ct);
@@ -87,7 +90,7 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter
         ArgumentNullException.ThrowIfNull(grain);
         return WaitForPredicateAsyncCore(
             predicate,
-            (out ChannelReader<StorageOperation> reader) => SubscribeStorageOperations(out reader, operation => operation.GrainId == grain.GetGrainId()),
+            (out ChannelReader<StorageOperation> reader, out StorageOperation[] history) => SubscribeStorageOperations(out reader, out history, operation => operation.GrainId == grain.GetGrainId()),
             timeout,
             grain.GetGrainId(),
             ct);
@@ -115,7 +118,7 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter
         CancellationToken ct = default)
         => WaitForPredicateAsyncCore(
             predicate,
-            (out ChannelReader<IIncomingGrainCallContext> reader) => SubscribeGrainCalls(out reader),
+            (out ChannelReader<IIncomingGrainCallContext> reader, out IIncomingGrainCallContext[] history) => SubscribeGrainCalls(out reader, out history),
             timeout,
             grainId: null,
             ct);
@@ -140,7 +143,7 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter
         ArgumentNullException.ThrowIfNull(grain);
         return WaitForPredicateAsyncCore(
             predicate,
-            (out ChannelReader<IIncomingGrainCallContext> reader) => SubscribeGrainCalls(out reader, context => context.TargetId == grain.GetGrainId()),
+            (out ChannelReader<IIncomingGrainCallContext> reader, out IIncomingGrainCallContext[] history) => SubscribeGrainCalls(out reader, out history, context => context.TargetId == grain.GetGrainId()),
             timeout,
             grain.GetGrainId(),
             ct);
@@ -267,10 +270,18 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter
         ArgumentNullException.ThrowIfNull(predicate);
         ArgumentNullException.ThrowIfNull(subscribe);
 
-        using var subscription = subscribe(out var reader);
+        using var subscription = subscribe(out var reader, out var recentItems);
         using var timeoutCts = CreateTimeoutCancellationTokenSource(timeout, ct);
         var effectiveToken = timeoutCts?.Token ?? ct;
         var stopwatch = Stopwatch.StartNew();
+
+        foreach (var item in recentItems)
+        {
+            if (predicate(item))
+            {
+                return;
+            }
+        }
 
         try
         {
@@ -304,12 +315,13 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter
         return new ActivitySubscription(this, subscriber);
     }
 
-    private IDisposable SubscribeStorageOperations(out ChannelReader<StorageOperation> reader, Predicate<StorageOperation>? filter = null)
+    private IDisposable SubscribeStorageOperations(out ChannelReader<StorageOperation> reader, out StorageOperation[] history, Predicate<StorageOperation>? filter = null)
     {
         var channel = CreateChannel<StorageOperation>();
         var subscriber = new StorageSubscriber(channel, filter);
         lock (storageSubscribersLock)
         {
+            history = GetHistorySnapshot(recentStorageOperations, filter);
             storageSubscribers = [.. storageSubscribers, subscriber];
         }
 
@@ -317,12 +329,13 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter
         return new StorageSubscription(this, subscriber);
     }
 
-    private IDisposable SubscribeGrainCalls(out ChannelReader<IIncomingGrainCallContext> reader, Predicate<IIncomingGrainCallContext>? filter = null)
+    private IDisposable SubscribeGrainCalls(out ChannelReader<IIncomingGrainCallContext> reader, out IIncomingGrainCallContext[] history, Predicate<IIncomingGrainCallContext>? filter = null)
     {
         var channel = CreateChannel<IIncomingGrainCallContext>();
         var subscriber = new GrainCallSubscriber(channel, filter);
         lock (grainCallSubscribersLock)
         {
+            history = GetHistorySnapshot(recentGrainCalls, filter);
             grainCallSubscribers = [.. grainCallSubscribers, subscriber];
         }
 
@@ -349,7 +362,13 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter
 
     private void PublishStorageOperation(StorageOperation operation)
     {
-        var snapshot = storageSubscribers;
+        StorageSubscriber[] snapshot;
+        lock (storageSubscribersLock)
+        {
+            EnqueueRecentEvent(recentStorageOperations, operation);
+            snapshot = [.. storageSubscribers];
+        }
+
         foreach (var subscriber in snapshot)
         {
             if (subscriber.Filter is not null && !subscriber.Filter(operation))
@@ -366,7 +385,13 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter
 
     private void PublishGrainCall(IIncomingGrainCallContext context)
     {
-        var snapshot = grainCallSubscribers;
+        GrainCallSubscriber[] snapshot;
+        lock (grainCallSubscribersLock)
+        {
+            EnqueueRecentEvent(recentGrainCalls, context);
+            snapshot = [.. grainCallSubscribers];
+        }
+
         foreach (var subscriber in snapshot)
         {
             if (subscriber.Filter is not null && !subscriber.Filter(context))
@@ -448,7 +473,21 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter
             AllowSynchronousContinuations = false,
         });
 
-    private delegate IDisposable SubscribeDelegate<T>(out ChannelReader<T> reader);
+    private static T[] GetHistorySnapshot<T>(Queue<T> history, Predicate<T>? filter)
+        => filter is null
+            ? [.. history]
+            : [.. history.Where(item => filter(item))];
+
+    private static void EnqueueRecentEvent<T>(Queue<T> history, T item)
+    {
+        history.Enqueue(item);
+        while (history.Count > RecentEventHistoryCapacity)
+        {
+            history.Dequeue();
+        }
+    }
+
+    private delegate IDisposable SubscribeDelegate<T>(out ChannelReader<T> reader, out T[] history);
 
     private sealed class ActivitySubscriber(Channel<GrainActivity> channel, Predicate<GrainActivity>? filter)
     {
