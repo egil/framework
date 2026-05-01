@@ -87,7 +87,12 @@ await collector.WaitForAssertionAsync(
     timeout: TimeSpan.FromSeconds(10));
 ```
 
-Override globally via environment variable:
+Override globally in code:
+```csharp
+IGrainActivityWaiter.DefaultWaitTimeout = TimeSpan.FromSeconds(15);
+```
+
+Or via environment variable:
 ```
 WAIT_FOR_ASSERTION_TIMEOUT_SECONDS=15
 ```

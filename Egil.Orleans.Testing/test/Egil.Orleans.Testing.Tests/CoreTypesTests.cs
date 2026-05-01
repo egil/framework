@@ -38,8 +38,8 @@ public class CoreTypesTests
     }
 
     [Fact]
-    public void WaitForAssertionDefaults_timeout_defaults_to_five_seconds()
+    public void Default_wait_timeout_defaults_to_five_seconds()
     {
-        Assert.Equal(TimeSpan.FromSeconds(5), WaitForAssertionDefaults.Timeout);
+        Assert.Equal(TimeSpan.FromSeconds(5), IGrainActivityWaiter.DefaultWaitTimeout);
     }
 }
