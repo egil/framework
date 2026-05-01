@@ -60,7 +60,7 @@ public sealed class ExplicitListenerGrain(
 <!-- snippet: explicit_stream_test -->
 <a id='snippet-explicit_stream_test'></a>
 ```cs
-public sealed class ExplicitStreamTests(StreamFixture fixture) : IClassFixture<StreamFixture>
+public sealed class ExplicitStreamTests(OrleansTestClusterFixture fixture) : IClassFixture<OrleansTestClusterFixture>
 {
     [Fact]
     public async Task Explicit_stream_delivers_message_to_subscriber_grain()
@@ -146,7 +146,7 @@ public sealed class ImplicitListenerGrain(
 <!-- snippet: implicit_stream_test -->
 <a id='snippet-implicit_stream_test'></a>
 ```cs
-public sealed class ImplicitStreamTests(StreamFixture fixture) : IClassFixture<StreamFixture>
+public sealed class ImplicitStreamTests(OrleansTestClusterFixture fixture) : IClassFixture<OrleansTestClusterFixture>
 {
     [Fact]
     public async Task Implicit_stream_delivers_message_to_subscriber_grain()
