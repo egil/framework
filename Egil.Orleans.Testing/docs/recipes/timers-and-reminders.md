@@ -81,8 +81,139 @@ The storage write inside `OnTimerTickAsync` triggers the collector, causing `Wai
 
 ## Orleans reminders
 
-Orleans reminders use a durable, distributed-clock mechanism managed by the Orleans runtime. In the fast `InProcessTestCluster` test harness, reminders registered with `UseInMemoryReminderService()` may fire, but the timing is coarse-grained and not as reliable as grain timers for deterministic testing.
+Testing reminder-driven grains requires deterministic time control so that reminder callbacks fire predictably without waiting for real wall-clock time. `ReminderTestClock` replaces the silo `TimeProvider` with a `ManualTimeProvider` and tunes `ReminderOptions` for deterministic scheduling.
 
-> **Tip:** Recent Orleans versions add `TimeProvider` support to reminders. If your Orleans version supports it, you can register a `ManualTimeProvider` (from `Microsoft.Extensions.TimeProvider.Testing`) in the silo and advance time programmatically. This lets you drive reminder callbacks deterministically without waiting for real wall-clock time.
+### Reminder grain example
 
-For most testing scenarios, prefer grain timers (which fire deterministically and quickly in `InProcessTestCluster`) for fast feedback. Reserve reminder-based tests for longer-running integration test suites where the silo has sufficient time to tick the reminder service, or use `ManualTimeProvider` if your Orleans version supports it.
+Register a reminder that fires after 1 minute. When the callback runs, it writes state:
+
+<!-- snippet: reminder_grain_implementation -->
+<a id='snippet-reminder_grain_implementation'></a>
+```cs
+public sealed class ReminderGrain(
+    [PersistentState("state", "Default")] IPersistentState<ReminderGrainState> state,
+    IReminderRegistry reminderRegistry,
+    IGrainContext grainContext)
+    : Grain, IReminderGrain, IRemindable
+{
+    private const string ReminderName = "process-reminder";
+    private IGrainReminder? reminder;
+
+    public async Task ScheduleAsync(string value)
+    {
+        state.State.PendingValue = value;
+        await state.WriteStateAsync();
+        reminder = await reminderRegistry.RegisterOrUpdateReminder(
+            grainContext.GrainId,
+            ReminderName,
+            dueTime: TimeSpan.FromMinutes(1),
+            period: TimeSpan.FromMinutes(5));
+    }
+
+    public Task<string?> GetLastValueAsync() => Task.FromResult(state.State.LastValue);
+
+    async Task IRemindable.ReceiveReminder(string reminderName, TickStatus status)
+    {
+        state.State.LastValue = state.State.PendingValue;
+        await state.WriteStateAsync();
+
+        if (reminder is not null)
+        {
+            await reminderRegistry.UnregisterReminder(grainContext.GrainId, reminder);
+            reminder = null;
+        }
+    }
+}
+```
+<sup><a href='/samples/Egil.Orleans.Testing.Samples/ReminderSample.cs#L22-L57' title='Snippet source file'>snippet source</a> | <a href='#snippet-reminder_grain_implementation' title='Start of snippet'>anchor</a></sup>
+<!-- endSnippet -->
+
+### Reminder fixture setup
+
+Create a fixture that owns a `ReminderTestClock` and attaches it to the cluster. Note that **no storage observer** is needed — `WaitForAssertionAsync` retries on grain call signals alone, which includes the `ReceiveReminder` callback:
+
+<!-- snippet: reminder_fixture -->
+<a id='snippet-reminder_fixture'></a>
+```cs
+public sealed class ReminderFixture : IAsyncLifetime, IGrainActivityWaiter
+{
+    private InProcessTestCluster? cluster;
+
+    public GrainActivityCollector Collector { get; } = new();
+
+    public ReminderTestClock ReminderClock { get; } = new();
+
+    public IGrainFactory GrainFactory => cluster!.Client;
+
+    public async ValueTask InitializeAsync()
+    {
+        var builder = new InProcessTestClusterBuilder(initialSilosCount: 1);
+
+        // Attach the deterministic clock before configuring the silo.
+        ReminderTestClock.Attach(builder, ReminderClock);
+
+        builder.ConfigureSilo((_, siloBuilder) =>
+        {
+            siloBuilder.AddMemoryGrainStorage("Default");
+            siloBuilder.UseInMemoryReminderService();
+
+            // Only grain call monitoring — no storage observer needed.
+            siloBuilder.AddGrainActivityCollector(Collector);
+        });
+        cluster = builder.Build();
+        await cluster.DeployAsync();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        ReminderClock.Dispose();
+
+        if (cluster is not null)
+        {
+            await cluster.DisposeAsync();
+        }
+    }
+
+    Task<TResult> IGrainActivityWaiter.WaitForAssertionAsync<TResult>(
+        Func<ValueTask<TResult>> assertion,
+        Predicate<GrainActivity>? filter,
+        TimeSpan? timeout,
+        CancellationToken cancellationToken)
+        => ((IGrainActivityWaiter)Collector).WaitForAssertionAsync(assertion, filter, timeout, cancellationToken);
+}
+```
+<sup><a href='/samples/Egil.Orleans.Testing.Samples/ReminderSample.cs#L89-L136' title='Snippet source file'>snippet source</a> | <a href='#snippet-reminder_fixture' title='Start of snippet'>anchor</a></sup>
+<!-- endSnippet -->
+
+### Reminder test example
+
+Advance the deterministic clock to trigger the reminder, then assert the result:
+
+<!-- snippet: reminder_test -->
+<a id='snippet-reminder_test'></a>
+```cs
+[Fact]
+public async Task Reminder_callback_updates_state()
+{
+    var grain = fixture.GrainFactory.GetGrain<IReminderGrain>(Guid.NewGuid().ToString());
+
+    // Arrange — register a reminder that fires after 1 minute.
+    await grain.ScheduleAsync("reminder-value");
+
+    // Start waiting — WaitForAssertionAsync retries each time any grain
+    // activity is observed, including the ReceiveReminder callback.
+    var waitTask = fixture.WaitForAssertionAsync(async () =>
+    {
+        Assert.Equal("reminder-value", await grain.GetLastValueAsync());
+    }, ct: TestContext.Current.CancellationToken);
+
+    // Advance the deterministic clock past the reminder due time.
+    await fixture.ReminderClock.AdvanceAsync(TimeSpan.FromMinutes(2), TestContext.Current.CancellationToken);
+
+    await waitTask;
+}
+```
+<sup><a href='/samples/Egil.Orleans.Testing.Samples/ReminderSample.cs#L63-L84' title='Snippet source file'>snippet source</a> | <a href='#snippet-reminder_test' title='Start of snippet'>anchor</a></sup>
+<!-- endSnippet -->
+
+The `ReceiveReminder` callback is an incoming grain call that the collector observes. Even without a storage observer, `WaitForAssertionAsync` retries the assertion each time a grain call signal arrives.
