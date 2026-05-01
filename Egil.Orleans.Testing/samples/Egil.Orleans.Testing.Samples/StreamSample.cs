@@ -103,9 +103,9 @@ public sealed class ListenerState
 
 // -- Tests -------------------------------------------------------------------
 
-public sealed class StreamTests(StreamFixture fixture) : IClassFixture<StreamFixture>
+#region explicit_stream_test
+public sealed class ExplicitStreamTests(StreamFixture fixture) : IClassFixture<StreamFixture>
 {
-    #region explicit_stream_test
     [Fact]
     public async Task Explicit_stream_delivers_message_to_subscriber_grain()
     {
@@ -127,9 +127,12 @@ public sealed class StreamTests(StreamFixture fixture) : IClassFixture<StreamFix
             timeout: TimeSpan.FromSeconds(2),
             ct: TestContext.Current.CancellationToken);
     }
-    #endregion
+}
+#endregion
 
-    #region implicit_stream_test
+#region implicit_stream_test
+public sealed class ImplicitStreamTests(StreamFixture fixture) : IClassFixture<StreamFixture>
+{
     [Fact]
     public async Task Implicit_stream_delivers_message_to_subscriber_grain()
     {
@@ -148,8 +151,8 @@ public sealed class StreamTests(StreamFixture fixture) : IClassFixture<StreamFix
             timeout: TimeSpan.FromSeconds(2),
             ct: TestContext.Current.CancellationToken);
     }
-    #endregion
 }
+#endregion
 
 // -- Fixture -----------------------------------------------------------------
 

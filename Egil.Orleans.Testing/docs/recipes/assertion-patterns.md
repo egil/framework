@@ -1,5 +1,7 @@
 # Assertion Patterns
 
+These samples reuse the canonical [`OrleansTestClusterFixture`](../../README.md#orleans-test-cluster-fixture) from the README rather than repeating its full setup on every page.
+
 ## Grain-scoped assertions
 
 When a single grain owns the state you are asserting, prefer passing that grain into `WaitForAssertionAsync`. This keeps retries focused on the grain that actually matters.
@@ -13,7 +15,7 @@ Pass a grain reference as the first argument to restrict retriggers to activity 
 /// Demonstrates grain-scoped <c>WaitForAssertionAsync</c> overloads.
 /// Activity from an unrelated grain does not retrigger the assertion.
 /// </summary>
-public sealed class CounterGrainTests(GrainScopedAssertionsFixture fixture) : IClassFixture<GrainScopedAssertionsFixture>
+public sealed class CounterGrainTests(OrleansTestClusterFixture fixture) : IClassFixture<OrleansTestClusterFixture>
 {
     [Fact]
     public async Task WaitForAssertionAsync_with_grain_only_retriggers_on_activity_from_that_grain()
@@ -55,9 +57,13 @@ public sealed class CounterGrainTests(GrainScopedAssertionsFixture fixture) : IC
 <sup><a href='/samples/Egil.Orleans.Testing.Samples/GrainScopedAssertionSample.cs#L34-L77' title='Snippet source file'>snippet source</a> | <a href='#snippet-grain_scoped_assertions_fixture' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
+Fixture reference: [`OrleansTestClusterFixture`](../../README.md#orleans-test-cluster-fixture)
+
 ## Waiting for any grain activity
 
 The unscoped `WaitForAssertionAsync` overload retries the assertion each time any grain activity (call or storage operation) is observed. Use it when the observed outcome can be driven by more than one grain, or when you do not have a meaningful grain reference to scope the wait to.
+
+Fixture reference: [`OrleansTestClusterFixture`](../../README.md#orleans-test-cluster-fixture)
 
 ```csharp
 await collector.WaitForAssertionAsync(async () =>
@@ -69,6 +75,8 @@ await collector.WaitForAssertionAsync(async () =>
 ## Returning values from assertions
 
 All `WaitForAssertionAsync` overloads have value-returning variants — use `Func<Task<TResult>>` or `Func<ValueTask<TResult>>`:
+
+Fixture reference: [`OrleansTestClusterFixture`](../../README.md#orleans-test-cluster-fixture)
 
 ```csharp
 var count = await collector.WaitForAssertionAsync(async () =>
@@ -83,6 +91,8 @@ var count = await collector.WaitForAssertionAsync(async () =>
 ## Configuring the timeout
 
 The default timeout is **5 seconds** (or indefinite when a debugger is attached).
+
+Fixture reference: [`OrleansTestClusterFixture`](../../README.md#orleans-test-cluster-fixture)
 
 Override per-call:
 ```csharp

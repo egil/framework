@@ -59,9 +59,9 @@ public sealed class TimerGrain(
 
 // -- Tests -------------------------------------------------------------------
 
-public sealed class TimerGrainTests(TimerFixture fixture) : IClassFixture<TimerFixture>
+#region timer_test
+public sealed class TimerGrainTests(OrleansTestClusterFixture fixture) : IClassFixture<OrleansTestClusterFixture>
 {
-    #region timer_test
     [Fact]
     public async Task Timer_callback_updates_state()
     {
@@ -78,12 +78,12 @@ public sealed class TimerGrainTests(TimerFixture fixture) : IClassFixture<TimerF
             Assert.Equal("timer-value", await grain.GetLastValueAsync());
         }, ct: TestContext.Current.CancellationToken);
     }
-    #endregion
 }
+#endregion
 
 // -- Fixture -----------------------------------------------------------------
 
-public sealed class TimerFixture : IAsyncLifetime, IGrainActivityWaiter
+public sealed class OrleansTestClusterFixture : IAsyncLifetime, IGrainActivityWaiter
 {
     private InProcessTestCluster? cluster;
 

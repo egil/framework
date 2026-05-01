@@ -8,7 +8,7 @@ Deterministic async assertion helpers for [Microsoft Orleans](https://learn.micr
 
 `Egil.Orleans.Testing` provides a `GrainActivityCollector` that monitors grain calls and storage operations during integration tests. Instead of arbitrary `Task.Delay` waits, your assertions are retried automatically each time the collector detects grain activity, making tests both fast and reliable.
 
-The library is **test-framework-agnostic**: it works with xUnit, NUnit, MSTest, or any other framework. The examples below use xUnit syntax like `[Fact]` and `IAsyncLifetime` only for concreteness; the collector and waiter patterns are not tied to xUnit.
+The library is **test-framework-agnostic**: it works with xUnit, NUnit, MSTest, or any other framework. The examples below use xUnit syntax like `[Fact]` only for concreteness; the collector and waiter patterns are not tied to xUnit.
 
 ## Getting started
 
@@ -18,9 +18,9 @@ The library is **test-framework-agnostic**: it works with xUnit, NUnit, MSTest, 
 dotnet add package Egil.Orleans.Testing
 ```
 
-### 2. Inline setup in a test class
+### 2. Inline setup in a test
 
-The following is a complete example that sets up an `InProcessTestCluster` directly in the test class and forwards `IGrainActivityWaiter` so the tests can call `this.WaitForAssertionAsync(...)` directly:
+The following is a complete example that builds an `InProcessTestCluster` directly in the test arrange step:
 
 ```csharp
 using Orleans.TestingHost;
@@ -47,13 +47,12 @@ public sealed class OrderGrain(
     public Task<string?> GetStatusAsync() => Task.FromResult(state.State.Status);
 }
 
-public sealed class OrderGrainTests : IAsyncLifetime, IGrainActivityWaiter
+public sealed class OrderGrainTests
 {
-    private InProcessTestCluster? cluster;
-    private readonly GrainActivityCollector collector = new();
-
-    public async ValueTask InitializeAsync()
+    [Fact]
+    public async Task SubmitAsync_sets_status_to_submitted()
     {
+        var collector = new GrainActivityCollector();
         var builder = new InProcessTestClusterBuilder(initialSilosCount: 1);
 
         builder.ConfigureSilo((_, siloBuilder) =>
@@ -66,42 +65,25 @@ public sealed class OrderGrainTests : IAsyncLifetime, IGrainActivityWaiter
                 .CollectStorageActivityFrom("Orders");
         });
 
-        cluster = builder.Build();
+        await using var cluster = builder.Build();
         await cluster.DeployAsync();
-    }
 
-    public async ValueTask DisposeAsync()
-    {
-        if (cluster is not null)
-            await cluster.DisposeAsync();
-    }
-
-    [Fact]
-    public async Task SubmitAsync_sets_status_to_submitted()
-    {
-        var grain = cluster!.Client.GetGrain<IOrderGrain>(Guid.NewGuid().ToString());
+        var grain = cluster.Client.GetGrain<IOrderGrain>(Guid.NewGuid().ToString());
 
         await grain.SubmitAsync("laptop");
 
-        await this.WaitForAssertionAsync(async () =>
+        await collector.WaitForAssertionAsync(async () =>
         {
             Assert.Equal("submitted", await grain.GetStatusAsync());
         }, ct: TestContext.Current.CancellationToken);
     }
-
-    Task<TResult> IGrainActivityWaiter.WaitForAssertionAsync<TResult>(
-        Func<ValueTask<TResult>> assertion,
-        Predicate<GrainActivity>? filter,
-        TimeSpan? timeout,
-        CancellationToken ct)
-        => ((IGrainActivityWaiter)collector).WaitForAssertionAsync(assertion, filter, timeout, ct);
-    }
 }
 ```
 
+<a id="orleans-test-cluster-fixture"></a>
 ### 3. Reusable Fixture Or Helper Object
 
-When many tests share the same cluster, it is convenient to wrap the cluster and collector in a reusable object that implements `IGrainActivityWaiter`. In xUnit this could be a class fixture, collection fixture, or assembly fixture. In other frameworks it could be any shared helper with setup and teardown.
+When many tests share the same cluster, it is convenient to wrap the cluster and collector in a reusable object that implements `IGrainActivityWaiter`. In xUnit this could be a class fixture or collection fixture. In other frameworks it could be any shared helper with setup and teardown.
 
 ```csharp
 public sealed class OrleansTestClusterFixture : IAsyncLifetime, IGrainActivityWaiter
@@ -145,6 +127,7 @@ public sealed class OrleansTestClusterFixture : IAsyncLifetime, IGrainActivityWa
 }
 
 public class MyGrainTests(OrleansTestClusterFixture fixture)
+    : IClassFixture<OrleansTestClusterFixture>
 {
     [Fact]
     public async Task My_grain_does_the_right_thing()
@@ -175,7 +158,6 @@ In xUnit, see the official docs for fixture registration options:
 
 See [docs/recipes](docs/recipes/README.md) for scenario-driven guides covering:
 
-- [Getting started](docs/recipes/getting-started.md)
 - [Assertion patterns](docs/recipes/assertion-patterns.md)
 - [Advanced assertions](docs/recipes/advanced-assertions.md)
 - [Timers and reminders](docs/recipes/timers-and-reminders.md)

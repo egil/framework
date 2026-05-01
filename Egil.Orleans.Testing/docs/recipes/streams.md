@@ -4,6 +4,8 @@
 
 With explicit subscriptions, the subscriber grain calls `stream.SubscribeAsync(this)` to register for events. The test must subscribe the grain before publishing.
 
+Fixture reference: [`OrleansTestClusterFixture`](../../README.md#orleans-test-cluster-fixture)
+
 ### Subscriber grain
 
 <!-- snippet: explicit_stream_grain -->
@@ -58,29 +60,32 @@ public sealed class ExplicitListenerGrain(
 <!-- snippet: explicit_stream_test -->
 <a id='snippet-explicit_stream_test'></a>
 ```cs
-[Fact]
-public async Task Explicit_stream_delivers_message_to_subscriber_grain()
+public sealed class ExplicitStreamTests(StreamFixture fixture) : IClassFixture<StreamFixture>
 {
-    var grainKey = Guid.NewGuid();
-    var grain = fixture.GrainFactory.GetGrain<IExplicitListenerGrain>(grainKey);
+    [Fact]
+    public async Task Explicit_stream_delivers_message_to_subscriber_grain()
+    {
+        var grainKey = Guid.NewGuid();
+        var grain = fixture.GrainFactory.GetGrain<IExplicitListenerGrain>(grainKey);
 
-    // Subscribe the grain to the stream first.
-    await grain.SubscribeAsync();
+        // Subscribe the grain to the stream first.
+        await grain.SubscribeAsync();
 
-    // Get the stream from the client so we can publish.
-    var stream = fixture.GetStream<string>(StreamConstants.ExplicitNamespace, grainKey);
+        // Get the stream from the client so we can publish.
+        var stream = fixture.GetStream<string>(StreamConstants.ExplicitNamespace, grainKey);
 
-    // Publish a message — the grain's OnNextAsync writes state asynchronously.
-    await stream.OnNextAsync("hello");
+        // Publish a message — the grain's OnNextAsync writes state asynchronously.
+        await stream.OnNextAsync("hello");
 
-    // Assert after triggering the action. WaitForAssertionAsync retries until the async delivery completes.
-    await fixture.WaitForAssertionAsync(
-        async () => Assert.Equal("hello", await grain.GetLastMessageAsync()),
-        timeout: TimeSpan.FromSeconds(2),
-        ct: TestContext.Current.CancellationToken);
+        // Assert after triggering the action. WaitForAssertionAsync retries until the async delivery completes.
+        await fixture.WaitForAssertionAsync(
+            async () => Assert.Equal("hello", await grain.GetLastMessageAsync()),
+            timeout: TimeSpan.FromSeconds(2),
+            ct: TestContext.Current.CancellationToken);
+    }
 }
 ```
-<sup><a href='/samples/Egil.Orleans.Testing.Samples/StreamSample.cs#L108-L130' title='Snippet source file'>snippet source</a> | <a href='#snippet-explicit_stream_test' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/samples/Egil.Orleans.Testing.Samples/StreamSample.cs#L106-L131' title='Snippet source file'>snippet source</a> | <a href='#snippet-explicit_stream_test' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 **Key points:**
@@ -91,6 +96,8 @@ public async Task Explicit_stream_delivers_message_to_subscriber_grain()
 ## Implicit stream subscriptions
 
 With implicit subscriptions, Orleans automatically delivers stream events to grains decorated with `[ImplicitStreamSubscription(...)]`. The grain activates on first message delivery — no manual subscribe step is needed.
+
+Fixture reference: [`OrleansTestClusterFixture`](../../README.md#orleans-test-cluster-fixture)
 
 ### Subscriber grain
 
@@ -139,26 +146,29 @@ public sealed class ImplicitListenerGrain(
 <!-- snippet: implicit_stream_test -->
 <a id='snippet-implicit_stream_test'></a>
 ```cs
-[Fact]
-public async Task Implicit_stream_delivers_message_to_subscriber_grain()
+public sealed class ImplicitStreamTests(StreamFixture fixture) : IClassFixture<StreamFixture>
 {
-    var grainKey = Guid.NewGuid();
+    [Fact]
+    public async Task Implicit_stream_delivers_message_to_subscriber_grain()
+    {
+        var grainKey = Guid.NewGuid();
 
-    // Get the stream from the client.
-    var stream = fixture.GetStream<string>(StreamConstants.ImplicitNamespace, grainKey);
+        // Get the stream from the client.
+        var stream = fixture.GetStream<string>(StreamConstants.ImplicitNamespace, grainKey);
 
-    // The implicit listener grain activates automatically when the message arrives.
-    var grain = fixture.GrainFactory.GetGrain<IImplicitListenerGrain>(grainKey);
+        // The implicit listener grain activates automatically when the message arrives.
+        var grain = fixture.GrainFactory.GetGrain<IImplicitListenerGrain>(grainKey);
 
-    await stream.OnNextAsync("world");
+        await stream.OnNextAsync("world");
 
-    await fixture.WaitForAssertionAsync(
-        async () => Assert.Equal("world", await grain.GetLastMessageAsync()),
-        timeout: TimeSpan.FromSeconds(2),
-        ct: TestContext.Current.CancellationToken);
+        await fixture.WaitForAssertionAsync(
+            async () => Assert.Equal("world", await grain.GetLastMessageAsync()),
+            timeout: TimeSpan.FromSeconds(2),
+            ct: TestContext.Current.CancellationToken);
+    }
 }
 ```
-<sup><a href='/samples/Egil.Orleans.Testing.Samples/StreamSample.cs#L132-L151' title='Snippet source file'>snippet source</a> | <a href='#snippet-implicit_stream_test' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/samples/Egil.Orleans.Testing.Samples/StreamSample.cs#L133-L155' title='Snippet source file'>snippet source</a> | <a href='#snippet-implicit_stream_test' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 **Key points:**
@@ -185,3 +195,4 @@ builder.ConfigureClient(clientBuilder =>
 
 - **`PubSubStore`** — required by Orleans for implicit subscription metadata.
 - **`AddMemoryStreams`** on both silo and client — the client needs the provider to publish messages, and the silo needs it to deliver them to grains.
+- Keep stream tests on a normal fixture with real time. Do not share a reminder-specific fixture or `ManualTimeProvider` with stream tests, because frozen time can stall Orleans stream internals.
