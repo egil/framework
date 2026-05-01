@@ -34,19 +34,7 @@ public sealed class OrleansTestClusterFixture : IAsyncLifetime
     /// <inheritdoc />
     public async ValueTask InitializeAsync()
     {
-        var builder = new InProcessTestClusterBuilder(initialSilosCount: 1);
-
-        builder.ConfigureSilo((options, siloBuilder) =>
-        {
-            siloBuilder.AddMemoryGrainStorage("Default");
-            siloBuilder.AddMemoryGrainStorage("PubSubStore");
-
-            siloBuilder.AddGrainActivityCollector(Collector)
-                .CollectStorageActivityFrom("Default");
-        });
-
-        cluster = builder.Build();
-        await cluster.DeployAsync();
+        cluster = await TestClusterFactory.DeployAsync(Collector, collectStorageActivity: true);
     }
 
     /// <inheritdoc />
@@ -59,12 +47,12 @@ public sealed class OrleansTestClusterFixture : IAsyncLifetime
     }
 
     /// <summary>
-    /// Creates a grain key unique to the current test execution.
+    /// Creates a unique string key for test resources that must share an identifier with a grain.
     /// </summary>
-    /// <param name="suffix">An optional suffix that differentiates multiple keys created by the same test method.</param>
+    /// <param name="suffix">An optional suffix that differentiates multiple keys requested by the same test method.</param>
     /// <param name="memberName">The calling test method name.</param>
-    /// <returns>A unique grain key.</returns>
-    public string CreateUniqueKey(string? suffix = null, [CallerMemberName] string memberName = "")
+    /// <returns>A unique string key.</returns>
+    public string CreateUniqueStringKey(string? suffix = null, [CallerMemberName] string memberName = "")
         => suffix is null
             ? $"{memberName}-{Guid.NewGuid():N}"
             : $"{memberName}-{suffix}-{Guid.NewGuid():N}";
@@ -78,5 +66,5 @@ public sealed class OrleansTestClusterFixture : IAsyncLifetime
     /// <returns>A grain reference with a unique string key.</returns>
     public TGrain GetUniqueGrain<TGrain>(string? suffix = null, [CallerMemberName] string memberName = "")
         where TGrain : IGrainWithStringKey
-        => GrainFactory.GetGrain<TGrain>(CreateUniqueKey(suffix, memberName));
+        => GrainFactory.GetGrain<TGrain>(CreateUniqueStringKey(suffix, memberName));
 }
