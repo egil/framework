@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Egil.Orleans.Testing/Egil.Orleans.Testing.csproj" />
+  </Folder>
+  <Folder Name="/test/">
+    <Project Path="test/Egil.Orleans.Testing.Tests/Egil.Orleans.Testing.Tests.csproj" />
+  </Folder>
+</Solution>
