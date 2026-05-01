@@ -6,9 +6,8 @@ All code samples are extracted from the [samples project](../../samples/Egil.Orl
 
 ## Getting started
 
-- [Registering the collector](getting-started.md#registering-the-collector)
-- [Inline setup in a test class](getting-started.md#inline-setup-in-a-test-class)
-- [Using a shared assembly fixture](getting-started.md#using-a-shared-assembly-fixture)
+- [Canonical guide in the README](../../README.md#getting-started)
+- [xUnit fixture registration guidance](https://xunit.net/docs/shared-context)
 
 ## Assertion patterns
 
