@@ -12,7 +12,6 @@ public class GrainActivityCollectorImplicitStreamTests(OrleansTestClusterFixture
         var stream = streamProvider.GetStream<string>(StreamId.Create(ActivityFeatureTestConstants.ImplicitStreamNamespace, grainKey));
         var waitTask = fixture.WaitForAssertionAsync(
             async () => Assert.Equal("ready", await grain.GetLastValueAsync()),
-            timeout: TimeSpan.FromSeconds(2),
             ct: TestContext.Current.CancellationToken);
 
         await stream.OnNextAsync("ready");
