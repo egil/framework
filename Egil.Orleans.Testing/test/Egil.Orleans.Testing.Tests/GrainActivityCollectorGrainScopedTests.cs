@@ -8,7 +8,7 @@ public class GrainActivityCollectorGrainScopedTests(OrleansTestClusterFixture fi
         var targetGrain = fixture.GetUniqueGrain<ITestStateGrain>();
         var otherGrain = fixture.GetUniqueGrain<ITestStateGrain>("other");
         var attempts = 0;
-        var waitTask = fixture.Collector.WaitForAssertionAsync(
+        var waitTask = fixture.WaitForAssertionAsync(
             targetGrain,
             async () =>
             {
@@ -30,7 +30,7 @@ public class GrainActivityCollectorGrainScopedTests(OrleansTestClusterFixture fi
     public async Task WaitForAssertionAsync_with_grain_parameter_passes_grain_to_task_lambda()
     {
         var grain = fixture.GetUniqueGrain<ITestStateGrain>();
-        var waitTask = fixture.Collector.WaitForAssertionAsync(
+        var waitTask = fixture.WaitForAssertionAsync(
             grain,
             async g => Assert.Equal("ready", await g.GetValueAsync()),
             timeout: TimeSpan.FromSeconds(2),
@@ -44,7 +44,7 @@ public class GrainActivityCollectorGrainScopedTests(OrleansTestClusterFixture fi
     public async Task WaitForAssertionAsync_with_grain_parameter_passes_grain_to_result_lambda()
     {
         var grain = fixture.GetUniqueGrain<ITestStateGrain>();
-        var waitTask = fixture.Collector.WaitForAssertionAsync(
+        var waitTask = fixture.WaitForAssertionAsync(
             grain,
             async g =>
             {

@@ -16,8 +16,11 @@ namespace Egil.Orleans.Testing;
 /// and optionally enable storage collection through <see cref="GrainActivityCollectorBuilder"/>.
 /// The standard <c>WaitForAssertionAsync</c> overloads retry assertions based on observed grain activity,
 /// while the advanced wait methods can observe low-level storage operations and incoming grain calls directly.
+/// <see cref="GrainActivityCollector"/> also implements <see cref="IGrainActivityWaiter"/>, so fixtures can
+/// forward a single low-level wait primitive and expose the same wait surface through
+/// <see cref="GrainActivityWaiterExtensions"/> without forcing callers through a <c>fixture.Collector</c> hop.
 /// </remarks>
-public sealed class GrainActivityCollector
+public sealed class GrainActivityCollector : IGrainActivityWaiter
 {
     private const int SubscriberChannelCapacity = 256;
 
@@ -29,12 +32,20 @@ public sealed class GrainActivityCollector
     private List<StorageSubscriber> storageSubscribers = [];
     private List<GrainCallSubscriber> grainCallSubscribers = [];
 
+    [StackTraceHidden]
+    Task<TResult> IGrainActivityWaiter.WaitForAssertionAsync<TResult>(
+        Func<ValueTask<TResult>> assertion,
+        Predicate<GrainActivity>? filter,
+        TimeSpan? timeout,
+        CancellationToken ct)
+        => WaitForAssertionAsyncCore(assertion, filter, timeout, grainId: null, ct);
+
     /// <summary>
     /// Waits until the supplied assertion succeeds, retrying whenever any observed grain activity occurs.
     /// </summary>
     /// <param name="assertion">The assertion callback to evaluate.</param>
     /// <param name="timeout">
-    /// The maximum time to wait. When <see langword="null"/>, <see cref="WaitForAssertionDefaults.Timeout"/> is used.
+    /// The maximum time to wait. When <see langword="null"/>, the package default timeout is used.
     /// Timeout enforcement is skipped while a debugger is attached.
     /// </param>
     /// <param name="ct">A token that cancels the wait.</param>
@@ -70,7 +81,7 @@ public sealed class GrainActivityCollector
     /// <typeparam name="TResult">The assertion result type.</typeparam>
     /// <param name="assertion">The assertion callback to evaluate.</param>
     /// <param name="timeout">
-    /// The maximum time to wait. When <see langword="null"/>, <see cref="WaitForAssertionDefaults.Timeout"/> is used.
+    /// The maximum time to wait. When <see langword="null"/>, the package default timeout is used.
     /// Timeout enforcement is skipped while a debugger is attached.
     /// </param>
     /// <param name="ct">A token that cancels the wait.</param>
@@ -108,7 +119,7 @@ public sealed class GrainActivityCollector
     /// <typeparam name="TGrain">The grain interface type.</typeparam>
     /// <param name="grain">The grain whose activity should trigger retries.</param>
     /// <param name="assertion">The assertion callback to evaluate.</param>
-    /// <param name="timeout">The maximum time to wait. When <see langword="null"/>, <see cref="WaitForAssertionDefaults.Timeout"/> is used.</param>
+    /// <param name="timeout">The maximum time to wait. When <see langword="null"/>, the package default timeout is used.</param>
     /// <param name="ct">A token that cancels the wait.</param>
     /// <returns>A task that completes when the assertion succeeds.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="grain"/> or <paramref name="assertion"/> is <see langword="null"/>.</exception>
@@ -194,7 +205,7 @@ public sealed class GrainActivityCollector
     /// Waits for a storage operation matching the supplied predicate.
     /// </summary>
     /// <param name="predicate">Returns <see langword="true"/> when the expected operation has been observed.</param>
-    /// <param name="timeout">The maximum time to wait. When <see langword="null"/>, <see cref="WaitForAssertionDefaults.Timeout"/> is used.</param>
+    /// <param name="timeout">The maximum time to wait. When <see langword="null"/>, the package default timeout is used.</param>
     /// <param name="ct">A token that cancels the wait.</param>
     /// <returns>A task that completes when a matching storage operation is observed.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="predicate"/> is <see langword="null"/>.</exception>
@@ -249,7 +260,7 @@ public sealed class GrainActivityCollector
     /// Waits for an incoming grain call matching the supplied predicate.
     /// </summary>
     /// <param name="predicate">Returns <see langword="true"/> when the expected incoming call has been observed.</param>
-    /// <param name="timeout">The maximum time to wait. When <see langword="null"/>, <see cref="WaitForAssertionDefaults.Timeout"/> is used.</param>
+    /// <param name="timeout">The maximum time to wait. When <see langword="null"/>, the package default timeout is used.</param>
     /// <param name="ct">A token that cancels the wait.</param>
     /// <returns>A task that completes when a matching grain call is observed.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="predicate"/> is <see langword="null"/>.</exception>

@@ -6,7 +6,7 @@ public class GrainActivityCollectorOverloadTests(OrleansTestClusterFixture fixtu
     public async Task WaitForAssertionAsync_with_grain_scoped_task_result_retries_until_grain_state_matches()
     {
         var grain = fixture.GetUniqueGrain<ITestStateGrain>();
-        var waitTask = fixture.Collector.WaitForAssertionAsync(
+        var waitTask = fixture.WaitForAssertionAsync(
             grain,
             async () =>
             {
@@ -29,7 +29,7 @@ public class GrainActivityCollectorOverloadTests(OrleansTestClusterFixture fixtu
         var grain = fixture.GetUniqueGrain<ITestStateGrain>();
 
         var exception = await Assert.ThrowsAsync<WaitForAssertionTimeoutException>(() =>
-            fixture.Collector.WaitForAssertionAsync(
+            fixture.WaitForAssertionAsync(
                 grain,
                 async () => Assert.Equal("ready", await grain.GetValueAsync()),
                 timeout: TimeSpan.FromMilliseconds(150),

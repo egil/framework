@@ -6,7 +6,7 @@ public class GrainActivityCollectorAnyActivityTests(OrleansTestClusterFixture fi
     public async Task WaitForAssertionAsync_with_task_retries_until_grain_state_matches()
     {
         var grain = fixture.GetUniqueGrain<ITestStateGrain>();
-        var waitTask = fixture.Collector.WaitForAssertionAsync(
+        var waitTask = fixture.WaitForAssertionAsync(
             async () => Assert.Equal("ready", await grain.GetValueAsync()),
             timeout: TimeSpan.FromSeconds(2),
             ct: TestContext.Current.CancellationToken);
@@ -19,7 +19,7 @@ public class GrainActivityCollectorAnyActivityTests(OrleansTestClusterFixture fi
     public async Task WaitForAssertionAsync_with_task_result_returns_asserted_value()
     {
         var grain = fixture.GetUniqueGrain<ITestStateGrain>();
-        var waitTask = fixture.Collector.WaitForAssertionAsync(
+        var waitTask = fixture.WaitForAssertionAsync(
             async () =>
             {
                 var number = await grain.GetNumberAsync();

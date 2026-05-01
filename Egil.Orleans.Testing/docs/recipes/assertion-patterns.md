@@ -16,7 +16,6 @@ await collector.WaitForAssertionAsync(async () =>
 Pass a grain reference as the first argument to restrict retriggers to activity from that grain only:
 
 <!-- snippet: grain_scoped_assertions_fixture -->
-<a id='snippet-grain_scoped_assertions_fixture'></a>
 ```cs
 /// <summary>
 /// Demonstrates grain-scoped <c>WaitForAssertionAsync</c> overloads.
@@ -34,10 +33,10 @@ public sealed class CounterGrainTests(GrainScopedAssertionsFixture fixture) : IC
 
         // Pass the grain to the scoped overload.
         // Only activity originating from 'targetGrain' will retrigger this assertion.
-        await fixture.Collector.WaitForAssertionAsync(targetGrain, async () =>
+        await fixture.WaitForAssertionAsync(targetGrain, async () =>
         {
             Assert.Equal(1, await targetGrain.GetCountAsync());
-        });
+        }, ct: TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -50,18 +49,17 @@ public sealed class CounterGrainTests(GrainScopedAssertionsFixture fixture) : IC
 
         // The grain reference is forwarded into the lambda so you can assert
         // without capturing it in a closure.
-        var count = await fixture.Collector.WaitForAssertionAsync(grain, async (g) =>
+        var count = await fixture.WaitForAssertionAsync(grain, async (g) =>
         {
             var c = await g.GetCountAsync();
             Assert.True(c >= 2);
             return c;
-        });
+        }, ct: TestContext.Current.CancellationToken);
 
         Assert.Equal(2, count);
     }
 }
 ```
-<sup><a href='/samples/Egil.Orleans.Testing.Samples/GrainScopedAssertionSample.cs#L34-L77' title='Snippet source file'>snippet source</a> | <a href='#snippet-grain_scoped_assertions_fixture' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 ## Returning values from assertions
