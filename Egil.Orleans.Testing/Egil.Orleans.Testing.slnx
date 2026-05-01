@@ -5,4 +5,7 @@
   <Folder Name="/test/">
     <Project Path="test/Egil.Orleans.Testing.Tests/Egil.Orleans.Testing.Tests.csproj" />
   </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/Egil.Orleans.Testing.Samples/Egil.Orleans.Testing.Samples.csproj" />
+  </Folder>
 </Solution>

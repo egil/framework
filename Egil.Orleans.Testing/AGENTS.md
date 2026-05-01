@@ -29,7 +29,7 @@ Use the solution file from repository root:
 - Advanced methods that expose implementation details (e.g., `WaitForStorageOperationAsync`, `WaitForGrainCallAsync`) must include a `<remarks>` section warning about tight coupling to production code internals.
 
 ## Testing Guidelines
-- Test framework: `xunit.v3` with `Microsoft.NET.Test.Sdk`.
+- Test framework: `xunit.v3.mtp-v2` on Microsoft Testing Platform, with `Microsoft.Testing.Extensions.CodeCoverage` for coverage collection.
 - Put tests in `test/Egil.Orleans.Testing.Tests` and name files/classes with `*Tests`.
 - Test method names should describe behavior clearly.
 - Add/adjust tests for every behavior change, including edge cases.
