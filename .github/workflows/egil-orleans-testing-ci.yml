@@ -108,7 +108,7 @@ jobs:
         working-directory: Egil.Orleans.Testing
         run: |
           export GITHUB_ENV=/dev/null
-          dotnet test ./Egil.Orleans.Testing.slnx --configuration Release
+          dotnet test --solution ./Egil.Orleans.Testing.slnx --configuration Release
 
       - name: Verify documentation snippets
         working-directory: Egil.Orleans.Testing
