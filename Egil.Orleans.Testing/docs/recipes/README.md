@@ -4,11 +4,6 @@ Scenario-driven guides for common Egil.Orleans.Testing tasks. Each recipe shows 
 
 All code samples are extracted from the [samples project](../../samples/Egil.Orleans.Testing.Samples/) — they compile and run as part of CI.
 
-## Getting started
-
-- [Canonical guide in the README](../../README.md#getting-started)
-- [xUnit fixture registration guidance](https://xunit.net/docs/shared-context)
-
 ## Assertion patterns
 
 - [Waiting for any grain activity](assertion-patterns.md#waiting-for-any-grain-activity)

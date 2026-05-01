@@ -36,7 +36,7 @@ public sealed class CounterGrain(
 /// Demonstrates grain-scoped <c>WaitForAssertionAsync</c> overloads.
 /// Activity from an unrelated grain does not retrigger the assertion.
 /// </summary>
-public sealed class CounterGrainTests(GrainScopedAssertionsFixture fixture) : IClassFixture<GrainScopedAssertionsFixture>
+public sealed class CounterGrainTests(OrleansTestClusterFixture fixture) : IClassFixture<OrleansTestClusterFixture>
 {
     [Fact]
     public async Task WaitForAssertionAsync_with_grain_only_retriggers_on_activity_from_that_grain()
@@ -78,7 +78,7 @@ public sealed class CounterGrainTests(GrainScopedAssertionsFixture fixture) : IC
 
 // -- Shared fixture ----------------------------------------------------------
 
-public sealed class GrainScopedAssertionsFixture : IAsyncLifetime, IGrainActivityWaiter
+public sealed class OrleansTestClusterFixture : IAsyncLifetime, IGrainActivityWaiter
 {
     private InProcessTestCluster? cluster;
 

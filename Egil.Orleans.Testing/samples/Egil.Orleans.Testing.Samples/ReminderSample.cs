@@ -58,9 +58,9 @@ public sealed class ReminderGrain(
 
 // -- Tests -------------------------------------------------------------------
 
+#region reminder_test
 public sealed class ReminderGrainTests(ReminderFixture fixture) : IClassFixture<ReminderFixture>
 {
-    #region reminder_test
     [Fact]
     public async Task Reminder_callback_updates_state()
     {
@@ -78,8 +78,8 @@ public sealed class ReminderGrainTests(ReminderFixture fixture) : IClassFixture<
             Assert.Equal("reminder-value", await grain.GetLastValueAsync());
         }, ct: TestContext.Current.CancellationToken);
     }
-    #endregion
 }
+#endregion
 
 // -- Fixture -----------------------------------------------------------------
 

@@ -82,18 +82,16 @@ public sealed class LedgerGrain(
 
 // -- Tests -------------------------------------------------------------------
 
+#region advanced_storage_assertion
 /// <summary>
-/// Demonstrates advanced wait methods that inspect storage operations and
-/// incoming grain calls directly.
+/// Demonstrates advanced wait methods that inspect storage operations directly.
 /// </summary>
 /// <remarks>
-/// ⚠️ The advanced wait methods (<c>WaitForStorageOperationAsync</c>,
-/// <c>WaitForGrainCallAsync</c>) couple your tests to implementation details.
-/// Prefer the standard <c>WaitForAssertionAsync</c> overloads when possible.
+/// ⚠️ <c>WaitForStorageOperationAsync</c> couples your test to implementation details.
+/// Prefer <c>WaitForAssertionAsync</c> when you can assert the externally observable result.
 /// </remarks>
-public sealed class WarehouseGrainTests(AdvancedAssertionsFixture fixture) : IClassFixture<AdvancedAssertionsFixture>
+public sealed class WarehouseStorageOperationTests(OrleansTestClusterFixture fixture) : IClassFixture<OrleansTestClusterFixture>
 {
-    #region advanced_storage_assertion
     [Fact]
     public async Task WaitForStorageOperationAsync_waits_for_write_from_oneway_call()
     {
@@ -109,9 +107,19 @@ public sealed class WarehouseGrainTests(AdvancedAssertionsFixture fixture) : ICl
 
         Assert.Equal(10, await grain.GetReservedAsync("widget"));
     }
-    #endregion
+}
+#endregion
 
-    #region advanced_grain_call_assertion
+#region advanced_grain_call_assertion
+/// <summary>
+/// Demonstrates advanced wait methods that inspect incoming grain calls directly.
+/// </summary>
+/// <remarks>
+/// ⚠️ <c>WaitForGrainCallAsync</c> couples your test to implementation details.
+/// Prefer <c>WaitForAssertionAsync</c> when you can assert the externally observable result.
+/// </remarks>
+public sealed class WarehouseGrainCallTests(OrleansTestClusterFixture fixture) : IClassFixture<OrleansTestClusterFixture>
+{
     [Fact]
     public async Task WaitForGrainCallAsync_waits_for_internal_grain_to_grain_call()
     {
@@ -126,12 +134,12 @@ public sealed class WarehouseGrainTests(AdvancedAssertionsFixture fixture) : ICl
             ctx => ctx.MethodName == nameof(ILedgerGrain.AddReservationAsync),
             ct: TestContext.Current.CancellationToken);
     }
-    #endregion
 }
+#endregion
 
 // -- Shared fixture ----------------------------------------------------------
 
-public sealed class AdvancedAssertionsFixture : IAsyncLifetime, IGrainActivityWaiter
+public sealed class OrleansTestClusterFixture : IAsyncLifetime, IGrainActivityWaiter
 {
     private InProcessTestCluster? cluster;
 
