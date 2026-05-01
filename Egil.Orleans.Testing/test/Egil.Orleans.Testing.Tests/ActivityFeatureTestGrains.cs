@@ -130,7 +130,7 @@ public sealed class ReminderActivityGrain(
     {
         state.State.PendingValue = value;
         await state.WriteStateAsync();
-        reminder = await reminderRegistry.RegisterOrUpdateReminder(grainContext.GrainId, ReminderName, TimeSpan.FromSeconds(1), TimeSpan.FromMinutes(5));
+        reminder = await reminderRegistry.RegisterOrUpdateReminder(grainContext.GrainId, ReminderName, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(5));
     }
 
     public Task<string?> GetLastValueAsync() => Task.FromResult(state.State.LastValue);

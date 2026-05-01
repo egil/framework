@@ -22,6 +22,11 @@ public sealed class OrleansTestClusterFixture : IAsyncLifetime, IGrainActivityWa
     public GrainActivityCollector Collector { get; } = new();
 
     /// <summary>
+    /// Gets the deterministic reminder clock.
+    /// </summary>
+    public ReminderTestClock ReminderClock { get; } = new();
+
+    /// <summary>
     /// Gets the deployed test cluster.
     /// </summary>
     public InProcessTestCluster Cluster => cluster ?? throw new InvalidOperationException("Test cluster not initialized.");
@@ -34,12 +39,14 @@ public sealed class OrleansTestClusterFixture : IAsyncLifetime, IGrainActivityWa
     /// <inheritdoc />
     public async ValueTask InitializeAsync()
     {
-        cluster = await TestClusterFactory.DeployAsync(Collector, collectStorageActivity: true);
+        cluster = await TestClusterFactory.DeployAsync(Collector, collectStorageActivity: true, reminderClock: ReminderClock);
     }
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
+        ReminderClock.Dispose();
+
         if (cluster is not null)
         {
             await cluster.DisposeAsync();

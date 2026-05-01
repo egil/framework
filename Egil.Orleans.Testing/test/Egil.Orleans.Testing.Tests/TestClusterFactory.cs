@@ -4,9 +4,17 @@ namespace Egil.Orleans.Testing.Tests;
 
 internal static class TestClusterFactory
 {
-    public static async Task<InProcessTestCluster> DeployAsync(GrainActivityCollector collector, bool collectStorageActivity = true)
+    public static async Task<InProcessTestCluster> DeployAsync(
+        GrainActivityCollector collector,
+        bool collectStorageActivity = true,
+        ReminderTestClock? reminderClock = null)
     {
         var builder = new InProcessTestClusterBuilder(initialSilosCount: 1);
+
+        if (reminderClock is not null)
+        {
+            ReminderTestClock.Attach(builder, reminderClock);
+        }
 
         builder.ConfigureSilo((options, siloBuilder) =>
         {
