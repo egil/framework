@@ -115,4 +115,4 @@ Both `SubscribeToGrainCalls` overloads expose:
 
 ## Assertion-scope suppression
 
-Storage operations triggered inside a `WaitForAssertionAsync` callback (via `RequestContextScope.ForAssertion()`) are automatically suppressed from the feed. This prevents self-triggered storage activity from polluting your collected events.
+Storage operations and grain calls triggered inside a `WaitForAssertionAsync` callback (via `RequestContextScope.ForAssertion()`) are automatically suppressed from both feeds. This prevents self-triggered activity from polluting your collected events.
