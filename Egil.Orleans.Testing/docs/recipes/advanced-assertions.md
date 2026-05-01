@@ -13,24 +13,28 @@ Use the advanced methods when:
 ## Waiting for a specific storage operation
 
 <!-- snippet: advanced_storage_assertion -->
+<a id='snippet-advanced_storage_assertion'></a>
 ```cs
 [Fact]
-public async Task WaitForStorageOperationAsync_waits_for_specific_write()
+public async Task WaitForStorageOperationAsync_waits_for_write_from_oneway_call()
 {
-    var grain = fixture.GrainFactory.GetGrain<IInventoryGrain>(Guid.NewGuid().ToString());
+    var grain = fixture.GrainFactory.GetGrain<IWarehouseGrain>(Guid.NewGuid().ToString());
 
     // Start the wait before triggering the operation so no event is missed.
+    // ReserveAsync is [OneWay] — it returns before the grain processes the reservation,
+    // so we must wait for the storage write that happens inside the grain.
     var waitTask = fixture.Collector.WaitForStorageOperationAsync(
         op => op.Kind == StorageOperationKind.Write && op.GrainId == grain.GetGrainId(),
         ct: TestContext.Current.CancellationToken);
 
-    await grain.ReserveAsync(10);
+    await grain.ReserveAsync("widget", 10);
 
     await waitTask;
 
-    Assert.Equal(10, await grain.GetReservedAsync());
+    Assert.Equal(10, await grain.GetReservedAsync("widget"));
 }
 ```
+<sup><a href='/samples/Egil.Orleans.Testing.Samples/AdvancedAssertionsSample.cs#L96-L115' title='Snippet source file'>snippet source</a> | <a href='#snippet-advanced_storage_assertion' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 The `StorageOperation` record exposes:
@@ -44,23 +48,26 @@ The `StorageOperation` record exposes:
 ## Waiting for a specific grain call
 
 <!-- snippet: advanced_grain_call_assertion -->
+<a id='snippet-advanced_grain_call_assertion'></a>
 ```cs
 [Fact]
-public async Task WaitForGrainCallAsync_waits_for_specific_method_call()
+public async Task WaitForGrainCallAsync_waits_for_internal_grain_to_grain_call()
 {
-    var grain = fixture.GrainFactory.GetGrain<IInventoryGrain>(Guid.NewGuid().ToString());
+    var grain = fixture.GrainFactory.GetGrain<IWarehouseGrain>(Guid.NewGuid().ToString());
 
-    // Start the wait before triggering the call.
+    // The warehouse grain internally calls ILedgerGrain.AddReservationAsync,
+    // which is a grain-to-grain call invisible to the original test caller.
+    // WaitForGrainCallAsync lets you observe it directly.
     var waitTask = fixture.Collector.WaitForGrainCallAsync(
-        ctx => ctx.MethodName == nameof(IInventoryGrain.ReserveAsync)
-            && ctx.TargetId == grain.GetGrainId(),
+        ctx => ctx.MethodName == nameof(ILedgerGrain.AddReservationAsync),
         ct: TestContext.Current.CancellationToken);
 
-    await grain.ReserveAsync(5);
+    await grain.ReserveAsync("gadget", 5);
 
     await waitTask;
 }
 ```
+<sup><a href='/samples/Egil.Orleans.Testing.Samples/AdvancedAssertionsSample.cs#L117-L134' title='Snippet source file'>snippet source</a> | <a href='#snippet-advanced_grain_call_assertion' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 The `IIncomingGrainCallContext` exposes:

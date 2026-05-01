@@ -26,4 +26,10 @@ All code samples are extracted from the [samples project](../../samples/Egil.Orl
 ## Timers and reminders
 
 - [Grain timers — supported via storage observation](timers-and-reminders.md#grain-timers)
-- [Orleans reminders — known limitation](timers-and-reminders.md#orleans-reminders)
+- [Orleans reminders — guidance and TimeProvider support](timers-and-reminders.md#orleans-reminders)
+
+## Streams
+
+- [Explicit stream subscriptions](streams.md#explicit-stream-subscriptions)
+- [Implicit stream subscriptions](streams.md#implicit-stream-subscriptions)
+- [Fixture setup for streams](streams.md#fixture-setup)
