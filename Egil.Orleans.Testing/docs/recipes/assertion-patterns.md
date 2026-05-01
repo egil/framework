@@ -66,7 +66,7 @@ The unscoped `WaitForAssertionAsync` overload retries the assertion each time an
 Fixture reference: [`OrleansTestClusterFixture`](../../README.md#orleans-test-cluster-fixture)
 
 ```csharp
-await collector.WaitForAssertionAsync(async () =>
+await fixture.WaitForAssertionAsync(async () =>
 {
     Assert.Equal("ready", await grain.GetStatusAsync());
 });
@@ -79,7 +79,7 @@ All `WaitForAssertionAsync` overloads have value-returning variants — use `Fun
 Fixture reference: [`OrleansTestClusterFixture`](../../README.md#orleans-test-cluster-fixture)
 
 ```csharp
-var count = await collector.WaitForAssertionAsync(async () =>
+var count = await fixture.WaitForAssertionAsync(async () =>
 {
     var c = await grain.GetCountAsync();
     Assert.True(c >= 5);
@@ -96,7 +96,7 @@ Fixture reference: [`OrleansTestClusterFixture`](../../README.md#orleans-test-cl
 
 Override per-call:
 ```csharp
-await collector.WaitForAssertionAsync(
+await fixture.WaitForAssertionAsync(
     async () => Assert.Equal("done", await grain.GetStatusAsync()),
     timeout: TimeSpan.FromSeconds(10));
 ```
