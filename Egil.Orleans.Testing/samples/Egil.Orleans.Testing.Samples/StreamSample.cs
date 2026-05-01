@@ -118,16 +118,14 @@ public sealed class StreamTests(StreamFixture fixture) : IClassFixture<StreamFix
         // Get the stream from the client so we can publish.
         var stream = fixture.GetStream<string>(StreamConstants.ExplicitNamespace, grainKey);
 
-        // Start waiting *before* publishing so the collector does not miss events.
-        var waitTask = fixture.WaitForAssertionAsync(
-            async () => Assert.Equal("hello", await grain.GetLastMessageAsync()),
-            timeout: TimeSpan.FromSeconds(2),
-            ct: TestContext.Current.CancellationToken);
-
         // Publish a message — the grain's OnNextAsync writes state asynchronously.
         await stream.OnNextAsync("hello");
 
-        await waitTask;
+        // Assert after triggering the action. WaitForAssertionAsync retries until the async delivery completes.
+        await fixture.WaitForAssertionAsync(
+            async () => Assert.Equal("hello", await grain.GetLastMessageAsync()),
+            timeout: TimeSpan.FromSeconds(2),
+            ct: TestContext.Current.CancellationToken);
     }
     #endregion
 
@@ -143,14 +141,12 @@ public sealed class StreamTests(StreamFixture fixture) : IClassFixture<StreamFix
         // The implicit listener grain activates automatically when the message arrives.
         var grain = fixture.GrainFactory.GetGrain<IImplicitListenerGrain>(grainKey);
 
-        var waitTask = fixture.WaitForAssertionAsync(
+        await stream.OnNextAsync("world");
+
+        await fixture.WaitForAssertionAsync(
             async () => Assert.Equal("world", await grain.GetLastMessageAsync()),
             timeout: TimeSpan.FromSeconds(2),
             ct: TestContext.Current.CancellationToken);
-
-        await stream.OnNextAsync("world");
-
-        await waitTask;
     }
     #endregion
 }

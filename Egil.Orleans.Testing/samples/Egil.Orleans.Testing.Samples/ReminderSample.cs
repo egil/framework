@@ -69,17 +69,14 @@ public sealed class ReminderGrainTests(ReminderFixture fixture) : IClassFixture<
         // Arrange — register a reminder that fires after 1 minute.
         await grain.ScheduleAsync("reminder-value");
 
-        // Start waiting — WaitForAssertionAsync retries each time any grain
-        // activity is observed, including the ReceiveReminder callback.
-        var waitTask = fixture.WaitForAssertionAsync(async () =>
-        {
-            Assert.Equal("reminder-value", await grain.GetLastValueAsync());
-        }, ct: TestContext.Current.CancellationToken);
-
         // Advance the deterministic clock past the reminder due time.
         await fixture.ReminderClock.AdvanceAsync(TimeSpan.FromMinutes(2), TestContext.Current.CancellationToken);
 
-        await waitTask;
+        // Assert after triggering the callback. WaitForAssertionAsync retries until the reminder work is visible.
+        await fixture.WaitForAssertionAsync(async () =>
+        {
+            Assert.Equal("reminder-value", await grain.GetLastValueAsync());
+        }, ct: TestContext.Current.CancellationToken);
     }
     #endregion
 }

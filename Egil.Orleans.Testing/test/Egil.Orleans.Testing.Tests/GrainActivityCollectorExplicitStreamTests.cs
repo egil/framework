@@ -11,11 +11,11 @@ public class GrainActivityCollectorExplicitStreamTests(OrleansTestClusterFixture
 
         var streamProvider = fixture.Cluster.Client.GetStreamProvider(ActivityFeatureTestConstants.StreamProviderName);
         var stream = streamProvider.GetStream<string>(StreamId.Create(ActivityFeatureTestConstants.ExplicitStreamNamespace, grainKey));
-        var waitTask = fixture.WaitForAssertionAsync(
-            async () => Assert.Equal("ready", await grain.GetLastValueAsync()),
-            ct: TestContext.Current.CancellationToken);
 
         await stream.OnNextAsync("ready");
-        await waitTask;
+
+        await fixture.WaitForAssertionAsync(
+            async () => Assert.Equal("ready", await grain.GetLastValueAsync()),
+            ct: TestContext.Current.CancellationToken);
     }
 }
