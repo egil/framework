@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Orleans.TestingHost;
 
 [assembly: AssemblyFixture(typeof(Egil.Orleans.Testing.Tests.OrleansTestClusterFixture))]
@@ -60,7 +61,22 @@ public sealed class OrleansTestClusterFixture : IAsyncLifetime
     /// <summary>
     /// Creates a grain key unique to the current test execution.
     /// </summary>
-    /// <param name="prefix">The semantic prefix for the key.</param>
+    /// <param name="suffix">An optional suffix that differentiates multiple keys created by the same test method.</param>
+    /// <param name="memberName">The calling test method name.</param>
     /// <returns>A unique grain key.</returns>
-    public string CreateUniqueKey(string prefix) => $"{prefix}-{Guid.NewGuid():N}";
+    public string CreateUniqueKey(string? suffix = null, [CallerMemberName] string memberName = "")
+        => suffix is null
+            ? $"{memberName}-{Guid.NewGuid():N}"
+            : $"{memberName}-{suffix}-{Guid.NewGuid():N}";
+
+    /// <summary>
+    /// Gets a grain with a unique string key for the current test execution.
+    /// </summary>
+    /// <typeparam name="TGrain">The grain interface type.</typeparam>
+    /// <param name="suffix">An optional suffix that differentiates multiple grains requested by the same test method.</param>
+    /// <param name="memberName">The calling test method name.</param>
+    /// <returns>A grain reference with a unique string key.</returns>
+    public TGrain GetUniqueGrain<TGrain>(string? suffix = null, [CallerMemberName] string memberName = "")
+        where TGrain : IGrainWithStringKey
+        => GrainFactory.GetGrain<TGrain>(CreateUniqueKey(suffix, memberName));
 }
