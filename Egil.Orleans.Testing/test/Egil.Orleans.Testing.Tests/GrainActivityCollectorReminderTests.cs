@@ -1,6 +1,7 @@
 namespace Egil.Orleans.Testing.Tests;
 
-public class GrainActivityCollectorReminderTests(OrleansTestClusterFixture fixture)
+public class GrainActivityCollectorReminderTests(OrleansReminderTestClusterFixture fixture)
+    : IClassFixture<OrleansReminderTestClusterFixture>
 {
     [Fact]
     public async Task WaitForAssertionAsync_observes_reminder_state_change()
@@ -10,15 +11,12 @@ public class GrainActivityCollectorReminderTests(OrleansTestClusterFixture fixtu
         // Register the reminder — it has a 1-minute due time matching the clock's minimum.
         await grain.StartReminderAsync("ready");
 
-        // Start waiting for the assertion. The collector retries each time grain activity is observed.
-        var waitTask = fixture.WaitForAssertionAsync(
-            async () => Assert.Equal("ready", await grain.GetLastValueAsync()),
-            ct: TestContext.Current.CancellationToken);
-
         // Advance the deterministic clock past the reminder due time to trigger the callback.
         await fixture.ReminderClock.AdvanceAsync(TimeSpan.FromMinutes(2), TestContext.Current.CancellationToken);
 
-        await waitTask;
+        await fixture.WaitForAssertionAsync(
+            async () => Assert.Equal("ready", await grain.GetLastValueAsync()),
+            ct: TestContext.Current.CancellationToken);
     }
 
     [Fact]

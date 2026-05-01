@@ -3,23 +3,26 @@ namespace Egil.Orleans.Testing.Tests;
 public class GrainActivityCollectorAnyActivityTests(OrleansTestClusterFixture fixture)
 {
     [Fact]
-    public async Task WaitForAssertionAsync_with_task_retries_until_grain_state_matches()
+    public async Task WaitForAssertionAsync_with_task_retries_until_grain_state_matches_when_called_after_action()
     {
         var grain = fixture.GetUniqueGrain<ITestStateGrain>();
-        var waitTask = fixture.WaitForAssertionAsync(
+
+        await grain.SetValueAsync("ready");
+
+        await fixture.WaitForAssertionAsync(
             async () => Assert.Equal("ready", await grain.GetValueAsync()),
             timeout: TimeSpan.FromSeconds(2),
             ct: TestContext.Current.CancellationToken);
-
-        await grain.SetValueAsync("ready");
-        await waitTask;
     }
 
     [Fact]
-    public async Task WaitForAssertionAsync_with_task_result_returns_asserted_value()
+    public async Task WaitForAssertionAsync_with_task_result_returns_asserted_value_when_called_after_action()
     {
         var grain = fixture.GetUniqueGrain<ITestStateGrain>();
-        var waitTask = fixture.WaitForAssertionAsync(
+
+        await grain.IncrementAsync();
+
+        var result = await fixture.WaitForAssertionAsync(
             async () =>
             {
                 var number = await grain.GetNumberAsync();
@@ -28,9 +31,6 @@ public class GrainActivityCollectorAnyActivityTests(OrleansTestClusterFixture fi
             },
             timeout: TimeSpan.FromSeconds(2),
             ct: TestContext.Current.CancellationToken);
-
-        await grain.IncrementAsync();
-        var result = await waitTask;
 
         Assert.Equal(1, result);
     }

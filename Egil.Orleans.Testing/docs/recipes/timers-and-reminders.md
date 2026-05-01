@@ -200,17 +200,15 @@ public async Task Reminder_callback_updates_state()
     // Arrange — register a reminder that fires after 1 minute.
     await grain.ScheduleAsync("reminder-value");
 
-    // Start waiting — WaitForAssertionAsync retries each time any grain
-    // activity is observed, including the ReceiveReminder callback.
-    var waitTask = fixture.WaitForAssertionAsync(async () =>
-    {
-        Assert.Equal("reminder-value", await grain.GetLastValueAsync());
-    }, ct: TestContext.Current.CancellationToken);
-
     // Advance the deterministic clock past the reminder due time.
     await fixture.ReminderClock.AdvanceAsync(TimeSpan.FromMinutes(2), TestContext.Current.CancellationToken);
 
-    await waitTask;
+    // Assert after triggering the reminder callback. WaitForAssertionAsync retries
+    // each time grain activity is observed, including ReceiveReminder itself.
+    await fixture.WaitForAssertionAsync(async () =>
+    {
+        Assert.Equal("reminder-value", await grain.GetLastValueAsync());
+    }, ct: TestContext.Current.CancellationToken);
 }
 ```
 <sup><a href='/samples/Egil.Orleans.Testing.Samples/ReminderSample.cs#L63-L84' title='Snippet source file'>snippet source</a> | <a href='#snippet-reminder_test' title='Start of snippet'>anchor</a></sup>

@@ -70,16 +70,15 @@ public async Task Explicit_stream_delivers_message_to_subscriber_grain()
     // Get the stream from the client so we can publish.
     var stream = fixture.GetStream<string>(StreamConstants.ExplicitNamespace, grainKey);
 
-    // Start waiting *before* publishing so the collector does not miss events.
-    var waitTask = fixture.WaitForAssertionAsync(
-        async () => Assert.Equal("hello", await grain.GetLastMessageAsync()),
-        timeout: TimeSpan.FromSeconds(2),
-        ct: TestContext.Current.CancellationToken);
-
     // Publish a message — the grain's OnNextAsync writes state asynchronously.
     await stream.OnNextAsync("hello");
 
-    await waitTask;
+    // Assert after triggering the action. WaitForAssertionAsync retries until
+    // the async delivery finishes and the grain state is observable.
+    await fixture.WaitForAssertionAsync(
+        async () => Assert.Equal("hello", await grain.GetLastMessageAsync()),
+        timeout: TimeSpan.FromSeconds(2),
+        ct: TestContext.Current.CancellationToken);
 }
 ```
 <sup><a href='/samples/Egil.Orleans.Testing.Samples/StreamSample.cs#L108-L132' title='Snippet source file'>snippet source</a> | <a href='#snippet-explicit_stream_test' title='Start of snippet'>anchor</a></sup>
@@ -87,7 +86,7 @@ public async Task Explicit_stream_delivers_message_to_subscriber_grain()
 
 **Key points:**
 - Call `grain.SubscribeAsync()` before publishing — the grain must be subscribed to receive the message.
-- Start `WaitForAssertionAsync` before `stream.OnNextAsync(...)` so the collector does not miss the resulting storage write.
+- Trigger the stream action first, then `await WaitForAssertionAsync(...)` as the assert step.
 - The grain's `OnNextAsync` writes state, triggering a storage activity signal that retries the assertion.
 
 ## Implicit stream subscriptions
@@ -152,14 +151,12 @@ public async Task Implicit_stream_delivers_message_to_subscriber_grain()
     // The implicit listener grain activates automatically when the message arrives.
     var grain = fixture.GrainFactory.GetGrain<IImplicitListenerGrain>(grainKey);
 
-    var waitTask = fixture.WaitForAssertionAsync(
+    await stream.OnNextAsync("world");
+
+    await fixture.WaitForAssertionAsync(
         async () => Assert.Equal("world", await grain.GetLastMessageAsync()),
         timeout: TimeSpan.FromSeconds(2),
         ct: TestContext.Current.CancellationToken);
-
-    await stream.OnNextAsync("world");
-
-    await waitTask;
 }
 ```
 <sup><a href='/samples/Egil.Orleans.Testing.Samples/StreamSample.cs#L134-L155' title='Snippet source file'>snippet source</a> | <a href='#snippet-implicit_stream_test' title='Start of snippet'>anchor</a></sup>
@@ -168,7 +165,7 @@ public async Task Implicit_stream_delivers_message_to_subscriber_grain()
 **Key points:**
 - No `SubscribeAsync` call needed — Orleans routes the message to the grain automatically.
 - The implicit listener grain activates when the first message arrives and handles both stream delivery and queries via a single grain interface.
-- `WaitForAssertionAsync` retries the assertion each time storage activity (from the implicit listener's `OnNextAsync` → `WriteStateAsync`) is detected.
+- `WaitForAssertionAsync` can be used as the assert step after publishing; it retries each time storage activity (from the implicit listener's `OnNextAsync` → `WriteStateAsync`) is detected.
 
 ## Fixture setup
 
