@@ -20,8 +20,8 @@ public sealed class CounterGrainTests(OrleansTestClusterFixture fixture) : IClas
     [Fact]
     public async Task WaitForAssertionAsync_with_grain_only_retriggers_on_activity_from_that_grain()
     {
-        var targetGrain = fixture.GrainFactory.GetGrain<ICounterGrain>("target");
-        var unrelatedGrain = fixture.GrainFactory.GetGrain<ICounterGrain>("unrelated");
+        var targetGrain = fixture.GetUniqueGrain<ICounterGrain>();
+        var unrelatedGrain = fixture.GetUniqueGrain<ICounterGrain>();
 
         await targetGrain.IncrementAsync();
 
@@ -36,7 +36,7 @@ public sealed class CounterGrainTests(OrleansTestClusterFixture fixture) : IClas
     [Fact]
     public async Task WaitForAssertionAsync_grain_overload_passes_grain_to_lambda()
     {
-        var grain = fixture.GrainFactory.GetGrain<ICounterGrain>("lambda-grain");
+        var grain = fixture.GetUniqueGrain<ICounterGrain>();
 
         await grain.IncrementAsync();
         await grain.IncrementAsync();
@@ -54,7 +54,7 @@ public sealed class CounterGrainTests(OrleansTestClusterFixture fixture) : IClas
     }
 }
 ```
-<sup><a href='/samples/Egil.Orleans.Testing.Samples/GrainScopedAssertionSample.cs#L34-L77' title='Snippet source file'>snippet source</a> | <a href='#snippet-grain_scoped_assertions_fixture' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/samples/Egil.Orleans.Testing.Samples/GrainScopedAssertionSample.cs#L35-L78' title='Snippet source file'>snippet source</a> | <a href='#snippet-grain_scoped_assertions_fixture' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 Fixture reference: [`OrleansTestClusterFixture`](../../README.md#orleans-test-cluster-fixture)

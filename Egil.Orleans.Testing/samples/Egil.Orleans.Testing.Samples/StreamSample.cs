@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Orleans.Streams;
 using Orleans.TestingHost;
+using System.Runtime.CompilerServices;
 
 namespace Egil.Orleans.Testing.Samples.Streams;
 
@@ -109,8 +110,8 @@ public sealed class ExplicitStreamTests(StreamFixture fixture) : IClassFixture<S
     [Fact]
     public async Task Explicit_stream_delivers_message_to_subscriber_grain()
     {
-        var grainKey = Guid.NewGuid();
-        var grain = fixture.GrainFactory.GetGrain<IExplicitListenerGrain>(grainKey);
+        var grain = fixture.GetUniqueGrain<IExplicitListenerGrain>();
+        var grainKey = grain.GetPrimaryKey();
 
         // Subscribe the grain to the stream first.
         await grain.SubscribeAsync();
@@ -136,14 +137,13 @@ public sealed class ImplicitStreamTests(StreamFixture fixture) : IClassFixture<S
     [Fact]
     public async Task Implicit_stream_delivers_message_to_subscriber_grain()
     {
-        var grainKey = Guid.NewGuid();
+        var grain = fixture.GetUniqueGrain<IImplicitListenerGrain>();
+        var grainKey = grain.GetPrimaryKey();
 
         // Get the stream from the client.
         var stream = fixture.GetStream<string>(StreamConstants.ImplicitNamespace, grainKey);
 
         // The implicit listener grain activates automatically when the message arrives.
-        var grain = fixture.GrainFactory.GetGrain<IImplicitListenerGrain>(grainKey);
-
         await stream.OnNextAsync("world");
 
         await fixture.WaitForAssertionAsync(
@@ -163,6 +163,14 @@ public sealed class StreamFixture : IAsyncLifetime, IGrainActivityWaiter
     public GrainActivityCollector Collector { get; } = new();
 
     public IGrainFactory GrainFactory => cluster!.Client;
+
+    public GrainId CreateUniqueGrainId<TGrain>([CallerMemberName] string memberName = "")
+        where TGrain : IGrain
+        => CreateUniqueGrainReference<TGrain>(memberName).GetGrainId();
+
+    public TGrain GetUniqueGrain<TGrain>([CallerMemberName] string memberName = "")
+        where TGrain : IGrain
+        => CreateUniqueGrainReference<TGrain>(memberName);
 
     public IAsyncStream<T> GetStream<T>(string @namespace, Guid key)
     {
@@ -201,4 +209,23 @@ public sealed class StreamFixture : IAsyncLifetime, IGrainActivityWaiter
         TimeSpan? timeout,
         CancellationToken cancellationToken)
         => ((IGrainActivityWaiter)Collector).WaitForAssertionAsync(assertion, filter, timeout, cancellationToken);
+
+    private TGrain CreateUniqueGrainReference<TGrain>(string memberName)
+        where TGrain : IGrain
+    {
+        var grainType = typeof(TGrain);
+        var grainName = grainType.Name;
+
+        return typeof(IGrainWithStringKey).IsAssignableFrom(grainType)
+            ? (TGrain)GrainFactory.GetGrain(grainType, $"{memberName}-{grainName}-{Guid.NewGuid():N}")
+            : typeof(IGrainWithGuidCompoundKey).IsAssignableFrom(grainType)
+                ? (TGrain)GrainFactory.GetGrain(grainType, Guid.NewGuid(), $"{memberName}-{grainName}")
+                : typeof(IGrainWithGuidKey).IsAssignableFrom(grainType)
+                    ? (TGrain)GrainFactory.GetGrain(grainType, Guid.NewGuid())
+                    : typeof(IGrainWithIntegerCompoundKey).IsAssignableFrom(grainType)
+                        ? (TGrain)GrainFactory.GetGrain(grainType, Random.Shared.NextInt64(1, long.MaxValue), $"{memberName}-{grainName}")
+                        : typeof(IGrainWithIntegerKey).IsAssignableFrom(grainType)
+                            ? (TGrain)GrainFactory.GetGrain(grainType, Random.Shared.NextInt64(1, long.MaxValue))
+                            : throw new NotSupportedException($"Unsupported grain key type for {grainType.FullName}.");
+    }
 }

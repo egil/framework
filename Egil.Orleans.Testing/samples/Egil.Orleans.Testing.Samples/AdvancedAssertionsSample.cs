@@ -1,5 +1,6 @@
 using Orleans.Concurrency;
 using Orleans.TestingHost;
+using System.Runtime.CompilerServices;
 
 namespace Egil.Orleans.Testing.Samples.AdvancedAssertions;
 
@@ -95,7 +96,7 @@ public sealed class WarehouseStorageOperationTests(OrleansTestClusterFixture fix
     [Fact]
     public async Task WaitForStorageOperationAsync_waits_for_write_from_oneway_call()
     {
-        var grain = fixture.GrainFactory.GetGrain<IWarehouseGrain>(Guid.NewGuid().ToString());
+        var grain = fixture.GetUniqueGrain<IWarehouseGrain>();
 
         await grain.ReserveAsync("widget", 10);
 
@@ -123,7 +124,7 @@ public sealed class WarehouseGrainCallTests(OrleansTestClusterFixture fixture) :
     [Fact]
     public async Task WaitForGrainCallAsync_waits_for_internal_grain_to_grain_call()
     {
-        var grain = fixture.GrainFactory.GetGrain<IWarehouseGrain>(Guid.NewGuid().ToString());
+        var grain = fixture.GetUniqueGrain<IWarehouseGrain>();
 
         await grain.ReserveAsync("gadget", 5);
 
@@ -146,6 +147,14 @@ public sealed class OrleansTestClusterFixture : IAsyncLifetime, IGrainActivityWa
     public GrainActivityCollector Collector { get; } = new();
 
     public IGrainFactory GrainFactory => cluster!.Client;
+
+    public GrainId CreateUniqueGrainId<TGrain>([CallerMemberName] string memberName = "")
+        where TGrain : IGrain
+        => CreateUniqueGrainReference<TGrain>(memberName).GetGrainId();
+
+    public TGrain GetUniqueGrain<TGrain>([CallerMemberName] string memberName = "")
+        where TGrain : IGrain
+        => CreateUniqueGrainReference<TGrain>(memberName);
 
     public async ValueTask InitializeAsync()
     {
@@ -174,5 +183,24 @@ public sealed class OrleansTestClusterFixture : IAsyncLifetime, IGrainActivityWa
         TimeSpan? timeout,
         CancellationToken cancellationToken)
         => ((IGrainActivityWaiter)Collector).WaitForAssertionAsync(assertion, filter, timeout, cancellationToken);
+
+    private TGrain CreateUniqueGrainReference<TGrain>(string memberName)
+        where TGrain : IGrain
+    {
+        var grainType = typeof(TGrain);
+        var grainName = grainType.Name;
+
+        return typeof(IGrainWithStringKey).IsAssignableFrom(grainType)
+            ? (TGrain)GrainFactory.GetGrain(grainType, $"{memberName}-{grainName}-{Guid.NewGuid():N}")
+            : typeof(IGrainWithGuidCompoundKey).IsAssignableFrom(grainType)
+                ? (TGrain)GrainFactory.GetGrain(grainType, Guid.NewGuid(), $"{memberName}-{grainName}")
+                : typeof(IGrainWithGuidKey).IsAssignableFrom(grainType)
+                    ? (TGrain)GrainFactory.GetGrain(grainType, Guid.NewGuid())
+                    : typeof(IGrainWithIntegerCompoundKey).IsAssignableFrom(grainType)
+                        ? (TGrain)GrainFactory.GetGrain(grainType, Random.Shared.NextInt64(1, long.MaxValue), $"{memberName}-{grainName}")
+                        : typeof(IGrainWithIntegerKey).IsAssignableFrom(grainType)
+                            ? (TGrain)GrainFactory.GetGrain(grainType, Random.Shared.NextInt64(1, long.MaxValue))
+                            : throw new NotSupportedException($"Unsupported grain key type for {grainType.FullName}.");
+    }
 }
 

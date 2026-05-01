@@ -29,7 +29,7 @@ public sealed class WarehouseStorageOperationTests(OrleansTestClusterFixture fix
     [Fact]
     public async Task WaitForStorageOperationAsync_waits_for_write_from_oneway_call()
     {
-        var grain = fixture.GrainFactory.GetGrain<IWarehouseGrain>(Guid.NewGuid().ToString());
+        var grain = fixture.GetUniqueGrain<IWarehouseGrain>();
 
         await grain.ReserveAsync("widget", 10);
 
@@ -43,7 +43,7 @@ public sealed class WarehouseStorageOperationTests(OrleansTestClusterFixture fix
     }
 }
 ```
-<sup><a href='/samples/Egil.Orleans.Testing.Samples/AdvancedAssertionsSample.cs#L85-L111' title='Snippet source file'>snippet source</a> | <a href='#snippet-advanced_storage_assertion' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/samples/Egil.Orleans.Testing.Samples/AdvancedAssertionsSample.cs#L86-L112' title='Snippet source file'>snippet source</a> | <a href='#snippet-advanced_storage_assertion' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 The `StorageOperation` record exposes:
@@ -73,7 +73,7 @@ public sealed class WarehouseGrainCallTests(OrleansTestClusterFixture fixture) :
     [Fact]
     public async Task WaitForGrainCallAsync_waits_for_internal_grain_to_grain_call()
     {
-        var grain = fixture.GrainFactory.GetGrain<IWarehouseGrain>(Guid.NewGuid().ToString());
+        var grain = fixture.GetUniqueGrain<IWarehouseGrain>();
 
         await grain.ReserveAsync("gadget", 5);
 
@@ -86,7 +86,7 @@ public sealed class WarehouseGrainCallTests(OrleansTestClusterFixture fixture) :
     }
 }
 ```
-<sup><a href='/samples/Egil.Orleans.Testing.Samples/AdvancedAssertionsSample.cs#L113-L138' title='Snippet source file'>snippet source</a> | <a href='#snippet-advanced_grain_call_assertion' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/samples/Egil.Orleans.Testing.Samples/AdvancedAssertionsSample.cs#L114-L139' title='Snippet source file'>snippet source</a> | <a href='#snippet-advanced_grain_call_assertion' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 The `IIncomingGrainCallContext` exposes:

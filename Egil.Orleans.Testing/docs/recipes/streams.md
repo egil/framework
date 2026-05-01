@@ -52,7 +52,7 @@ public sealed class ExplicitListenerGrain(
     public Task OnErrorAsync(Exception ex) => Task.FromException(ex);
 }
 ```
-<sup><a href='/samples/Egil.Orleans.Testing.Samples/StreamSample.cs#L18-L59' title='Snippet source file'>snippet source</a> | <a href='#snippet-explicit_stream_grain' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/samples/Egil.Orleans.Testing.Samples/StreamSample.cs#L19-L60' title='Snippet source file'>snippet source</a> | <a href='#snippet-explicit_stream_grain' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 ### Test
@@ -65,8 +65,8 @@ public sealed class ExplicitStreamTests(StreamFixture fixture) : IClassFixture<S
     [Fact]
     public async Task Explicit_stream_delivers_message_to_subscriber_grain()
     {
-        var grainKey = Guid.NewGuid();
-        var grain = fixture.GrainFactory.GetGrain<IExplicitListenerGrain>(grainKey);
+        var grain = fixture.GetUniqueGrain<IExplicitListenerGrain>();
+        var grainKey = grain.GetPrimaryKey();
 
         // Subscribe the grain to the stream first.
         await grain.SubscribeAsync();
@@ -85,7 +85,7 @@ public sealed class ExplicitStreamTests(StreamFixture fixture) : IClassFixture<S
     }
 }
 ```
-<sup><a href='/samples/Egil.Orleans.Testing.Samples/StreamSample.cs#L106-L131' title='Snippet source file'>snippet source</a> | <a href='#snippet-explicit_stream_test' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/samples/Egil.Orleans.Testing.Samples/StreamSample.cs#L107-L132' title='Snippet source file'>snippet source</a> | <a href='#snippet-explicit_stream_test' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 **Key points:**
@@ -138,7 +138,7 @@ public sealed class ImplicitListenerGrain(
     public Task OnErrorAsync(Exception ex) => Task.FromException(ex);
 }
 ```
-<sup><a href='/samples/Egil.Orleans.Testing.Samples/StreamSample.cs#L63-L97' title='Snippet source file'>snippet source</a> | <a href='#snippet-implicit_stream_grain' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/samples/Egil.Orleans.Testing.Samples/StreamSample.cs#L64-L98' title='Snippet source file'>snippet source</a> | <a href='#snippet-implicit_stream_grain' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 ### Test
@@ -151,14 +151,13 @@ public sealed class ImplicitStreamTests(StreamFixture fixture) : IClassFixture<S
     [Fact]
     public async Task Implicit_stream_delivers_message_to_subscriber_grain()
     {
-        var grainKey = Guid.NewGuid();
+        var grain = fixture.GetUniqueGrain<IImplicitListenerGrain>();
+        var grainKey = grain.GetPrimaryKey();
 
         // Get the stream from the client.
         var stream = fixture.GetStream<string>(StreamConstants.ImplicitNamespace, grainKey);
 
         // The implicit listener grain activates automatically when the message arrives.
-        var grain = fixture.GrainFactory.GetGrain<IImplicitListenerGrain>(grainKey);
-
         await stream.OnNextAsync("world");
 
         await fixture.WaitForAssertionAsync(
@@ -168,7 +167,7 @@ public sealed class ImplicitStreamTests(StreamFixture fixture) : IClassFixture<S
     }
 }
 ```
-<sup><a href='/samples/Egil.Orleans.Testing.Samples/StreamSample.cs#L133-L155' title='Snippet source file'>snippet source</a> | <a href='#snippet-implicit_stream_test' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/samples/Egil.Orleans.Testing.Samples/StreamSample.cs#L134-L155' title='Snippet source file'>snippet source</a> | <a href='#snippet-implicit_stream_test' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 **Key points:**
