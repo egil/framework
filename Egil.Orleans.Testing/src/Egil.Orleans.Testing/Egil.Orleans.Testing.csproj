@@ -1,0 +1,92 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <DebugType>embedded</DebugType>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <PackageId>Egil.Orleans.Testing</PackageId>
+    <Title>Orleans Testing</Title>
+    <Company>Egil Hansen</Company>
+    <Authors>Egil Hansen</Authors>
+    <Description>
+      Deterministic async assertion helpers for Microsoft Orleans test suites.
+      Monitors grain calls and storage operations, then retries assertions until
+      they pass or a configurable timeout is reached.
+    </Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>orleans,testing,async-assertion,grain,egil</PackageTags>
+    <Copyright>Egil Hansen</Copyright>
+    <PackageProjectUrl>https://github.com/egil/framework/tree/main/Egil.Orleans.Testing</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/egil/framework</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <EnablePackageValidation>true</EnablePackageValidation>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DotNet.ReproducibleBuilds">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.Orleans.Runtime" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\..\LICENSE">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+    <None Include="..\..\README.md">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+  </ItemGroup>
+
+  <!-- Before pack: rewrite README.md to a NuGet-friendly version by running
+       mdsnippets with OmitSnippetLinks (strips <a id> anchors and <sup> source
+       links) and removing the NuGet badge (redundant on nuget.org).
+       After pack: restore README.md via git checkout. -->
+  <PropertyGroup>
+    <_ReadmePath>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/../../README.md'))</_ReadmePath>
+    <_ProjectRoot>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/../..'))</_ProjectRoot>
+  </PropertyGroup>
+
+  <Target Name="_PrepareNuGetReadme" BeforeTargets="GenerateNuspec">
+    <Exec Command="dotnet tool restore" WorkingDirectory="$(_ProjectRoot)" />
+    <Exec Command="dotnet mdsnippets --convention InPlaceOverwrite --write-header false --omit-snippet-links true"
+          WorkingDirectory="$(_ProjectRoot)" />
+    <!-- Remove the NuGet badge line (redundant when viewing on nuget.org) -->
+    <WriteLinesToFile File="$(_ReadmePath)" Overwrite="true"
+                     Lines="$([System.Text.RegularExpressions.Regex]::Replace(
+                       $([System.IO.File]::ReadAllText('$(_ReadmePath)')),
+                       '(?m)^\[!\[NuGet\].*\r?\n\r?\n', ''))" />
+  </Target>
+
+  <Target Name="_RestoreReadmeAfterPack" AfterTargets="Pack">
+    <Exec Command="git checkout -- README.md" WorkingDirectory="$(_ProjectRoot)" />
+  </Target>
+
+  <!-- Generate plain-text release notes from conventional commits since the
+       last release tag and inject them into the NuGet package. -->
+  <Target Name="_GenerateReleaseNotes" BeforeTargets="GenerateNuspec"
+          Condition="'$(Configuration)' == 'Release' and '$(SkipReleaseNotes)' != 'true'">
+    <Exec Command="pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;$(_ProjectRoot)/scripts/generate-release-notes.ps1&quot;"
+          WorkingDirectory="$(_ProjectRoot)/.."
+          ConsoleToMSBuild="true"
+          StandardOutputImportance="low"
+          IgnoreExitCode="true">
+      <Output TaskParameter="ConsoleOutput" ItemName="_ReleaseNoteLines" />
+    </Exec>
+    <CreateProperty Value="@(_ReleaseNoteLines, '%0a')">
+      <Output TaskParameter="Value" PropertyName="PackageReleaseNotes" />
+    </CreateProperty>
+  </Target>
+
+</Project>

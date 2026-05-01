@@ -1,0 +1,19 @@
+{
+  "stryker-config": {
+    "project": "src/Egil.Orleans.Testing/Egil.Orleans.Testing.csproj",
+    "test-projects": [
+      "test/Egil.Orleans.Testing.Tests/Egil.Orleans.Testing.Tests.csproj"
+    ],
+    "reporters": [
+      "json",
+      "progress",
+      "cleartext"
+    ],
+    "thresholds": {
+      "high": 80,
+      "low": 60,
+      "break": 0
+    },
+    "additional-timeout": 10000
+  }
+}
