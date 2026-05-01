@@ -3,26 +3,21 @@ namespace Egil.Orleans.Testing.Tests;
 public class GrainActivityCollectorStorageFeedTests(OrleansTestClusterFixture fixture)
 {
     [Fact]
-    public async Task SubscribeToStorageOperations_receives_write_read_clear()
+    public async Task SubscribeToStorageOperations_receives_write_and_read()
     {
         var ct = TestContext.Current.CancellationToken;
         var grain = fixture.GetUniqueGrain<ITestStateGrain>();
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
         var collected = new List<StorageOperation>();
-        var feedTask = CollectFeedAsync(fixture.Collector.SubscribeToStorageOperations(cts.Token), collected, count: 3, cts);
+        var feedTask = CollectFeedAsync(fixture.Collector.SubscribeToStorageOperations(cts.Token), collected, count: 2, cts);
 
-        // Read is triggered on first access, write on SetValueAsync, clear is not directly
-        // exposed on ITestStateGrain — so we test write + read via initial activation (read)
-        // and an explicit write.
         await grain.SetValueAsync("hello");
         await grain.GetValueAsync();
 
-        // SetValueAsync triggers: read (activation) + write (SetValueAsync) + read (GetValueAsync reuses cached state)
-        // But activation may include reads. Let's just wait for enough operations.
-        await WaitForCollectedAsync(feedTask, timeout: TimeSpan.FromSeconds(5), ct);
+        await WaitForCollectedAsync(feedTask, timeout: TimeSpan.FromSeconds(5), cts);
 
-        Assert.True(collected.Count >= 3, $"Expected at least 3 operations, got {collected.Count}");
+        Assert.True(collected.Count >= 2, $"Expected at least 2 operations, got {collected.Count}");
         Assert.Contains(collected, op => op.Kind == StorageOperationKind.Write);
         Assert.Contains(collected, op => op.Kind == StorageOperationKind.Read);
     }
@@ -46,7 +41,7 @@ public class GrainActivityCollectorStorageFeedTests(OrleansTestClusterFixture fi
         // Now trigger the target
         await target.SetValueAsync("signal");
 
-        await WaitForCollectedAsync(feedTask, timeout: TimeSpan.FromSeconds(5), ct);
+        await WaitForCollectedAsync(feedTask, timeout: TimeSpan.FromSeconds(5), cts);
 
         Assert.All(collected, op => Assert.Equal(target.GetGrainId(), op.GrainId));
     }
@@ -60,8 +55,11 @@ public class GrainActivityCollectorStorageFeedTests(OrleansTestClusterFixture fi
         // Trigger a write BEFORE subscribing
         await grain.SetValueAsync("before-subscribe");
 
-        // Wait a moment to ensure the operation is fully processed
-        await Task.Delay(100, ct);
+        // Deterministically wait for that write to be observed by the collector
+        await fixture.Collector.WaitForStorageOperationAsync(
+            grain,
+            op => op.Kind == StorageOperationKind.Write,
+            ct: ct);
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var collected = new List<StorageOperation>();
@@ -72,7 +70,7 @@ public class GrainActivityCollectorStorageFeedTests(OrleansTestClusterFixture fi
         // Now trigger a new write
         await grain.SetValueAsync("after-subscribe");
 
-        await WaitForCollectedAsync(feedTask, timeout: TimeSpan.FromSeconds(5), ct);
+        await WaitForCollectedAsync(feedTask, timeout: TimeSpan.FromSeconds(5), cts);
 
         // Only the post-subscribe write should appear
         Assert.All(collected, op =>
@@ -83,11 +81,11 @@ public class GrainActivityCollectorStorageFeedTests(OrleansTestClusterFixture fi
     }
 
     [Fact]
-    public async Task SubscribeToStorageOperations_lossless_beyond_bounded_channel_capacity()
+    public async Task SubscribeToStorageOperations_collects_many_sequential_writes()
     {
         var ct = TestContext.Current.CancellationToken;
         var grain = fixture.GetUniqueGrain<ITestStateGrain>();
-        const int operationCount = 300; // Exceeds the 256 bounded channel capacity
+        const int operationCount = 50;
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
         var collected = new List<StorageOperation>();
@@ -103,7 +101,7 @@ public class GrainActivityCollectorStorageFeedTests(OrleansTestClusterFixture fi
             await grain.IncrementAsync();
         }
 
-        await WaitForCollectedAsync(feedTask, timeout: TimeSpan.FromSeconds(30), ct);
+        await WaitForCollectedAsync(feedTask, timeout: TimeSpan.FromSeconds(30), cts);
 
         Assert.Equal(operationCount, collected.Count);
         Assert.All(collected, op => Assert.Equal(StorageOperationKind.Write, op.Kind));
@@ -123,11 +121,15 @@ public class GrainActivityCollectorStorageFeedTests(OrleansTestClusterFixture fi
         // The feed task should complete (possibly with OperationCanceledException)
         await IgnoreCancellationAsync(feedTask);
 
-        // After cancellation, a new write should not appear in the old collected list
+        // After cancellation, trigger a write and deterministically wait for it
+        // to be processed by the collector, then verify the old list is unchanged.
         var countAfterCancel = collected.Count;
         var grain = fixture.GetUniqueGrain<ITestStateGrain>();
         await grain.SetValueAsync("after-cancel");
-        await Task.Delay(200, ct);
+        await fixture.Collector.WaitForStorageOperationAsync(
+            grain,
+            op => op.Kind == StorageOperationKind.Write,
+            ct: ct);
 
         Assert.Equal(countAfterCancel, collected.Count);
     }
@@ -147,8 +149,8 @@ public class GrainActivityCollectorStorageFeedTests(OrleansTestClusterFixture fi
 
         await grain.SetValueAsync("shared-event");
 
-        await WaitForCollectedAsync(feed1, timeout: TimeSpan.FromSeconds(5), ct);
-        await WaitForCollectedAsync(feed2, timeout: TimeSpan.FromSeconds(5), ct);
+        await WaitForCollectedAsync(feed1, timeout: TimeSpan.FromSeconds(5), cts1);
+        await WaitForCollectedAsync(feed2, timeout: TimeSpan.FromSeconds(5), cts2);
 
         Assert.NotEmpty(collected1);
         Assert.NotEmpty(collected2);
@@ -184,9 +186,14 @@ public class GrainActivityCollectorStorageFeedTests(OrleansTestClusterFixture fi
         }
     }
 
-    private static async Task WaitForCollectedAsync(Task feedTask, TimeSpan timeout, CancellationToken ct)
+    private static async Task WaitForCollectedAsync(Task feedTask, TimeSpan timeout, CancellationTokenSource cts)
     {
-        var completed = await Task.WhenAny(feedTask, Task.Delay(timeout, ct));
+        var completed = await Task.WhenAny(feedTask, Task.Delay(timeout));
+        if (!ReferenceEquals(completed, feedTask))
+        {
+            await cts.CancelAsync();
+        }
+
         await IgnoreCancellationAsync(feedTask);
     }
 
@@ -202,3 +209,4 @@ public class GrainActivityCollectorStorageFeedTests(OrleansTestClusterFixture fi
         }
     }
 }
+

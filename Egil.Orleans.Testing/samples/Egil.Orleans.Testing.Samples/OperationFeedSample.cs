@@ -20,29 +20,21 @@ public sealed class StorageOperationFeedTests(OrleansTestClusterFixture fixture)
     [Fact]
     public async Task Collect_storage_writes_from_oneway_call()
     {
+        var ct = TestContext.Current.CancellationToken;
         var grain = fixture.GetUniqueGrain<IWarehouseGrain>();
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
-        var writes = new List<StorageOperation>();
 
-        // Start collecting storage operations for the grain BEFORE triggering
-        // the action. The feed is future-only — it does not replay past events.
-        var feedTask = Task.Run(async () =>
-        {
-            await foreach (var op in fixture.Collector.SubscribeToStorageOperations(grain, cts.Token))
-            {
-                if (op.Kind == StorageOperationKind.Write)
-                {
-                    writes.Add(op);
-                    await cts.CancelAsync();
-                }
-            }
-        }, cts.Token);
+        // Start collecting BEFORE triggering the action.
+        // The feed is future-only — it does not replay past events.
+        // Use Take(1) to automatically stop after the first matching write.
+        var collectTask = fixture.Collector
+            .SubscribeToStorageOperations(grain, ct)
+            .Where(op => op.Kind == StorageOperationKind.Write)
+            .Take(1)
+            .ToListAsync(ct);
 
         await grain.ReserveAsync("widget", 10);
 
-        // Wait for the feed to collect the write
-        try { await feedTask; }
-        catch (OperationCanceledException) { }
+        var writes = await collectTask;
 
         Assert.Single(writes);
         Assert.Equal(grain.GetGrainId(), writes[0].GrainId);
@@ -64,28 +56,20 @@ public sealed class GrainCallFeedTests(OrleansTestClusterFixture fixture) : ICla
     [Fact]
     public async Task Collect_grain_calls_from_internal_call()
     {
+        var ct = TestContext.Current.CancellationToken;
         var grain = fixture.GetUniqueGrain<IWarehouseGrain>();
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
-        var calls = new List<IIncomingGrainCallContext>();
 
-        // Start collecting grain calls globally BEFORE triggering the action.
-        // We'll look for the internal ILedgerGrain.AddReservationAsync call.
-        var feedTask = Task.Run(async () =>
-        {
-            await foreach (var ctx in fixture.Collector.SubscribeToGrainCalls(cts.Token))
-            {
-                if (ctx.MethodName == nameof(ILedgerGrain.AddReservationAsync))
-                {
-                    calls.Add(ctx);
-                    await cts.CancelAsync();
-                }
-            }
-        }, cts.Token);
+        // Start collecting BEFORE triggering the action.
+        // Use Take(1) to automatically stop after the first matching call.
+        var collectTask = fixture.Collector
+            .SubscribeToGrainCalls(ct)
+            .Where(ctx => ctx.MethodName == nameof(ILedgerGrain.AddReservationAsync))
+            .Take(1)
+            .ToListAsync(ct);
 
         await grain.ReserveAsync("gadget", 5);
 
-        try { await feedTask; }
-        catch (OperationCanceledException) { }
+        var calls = await collectTask;
 
         Assert.Single(calls);
     }
