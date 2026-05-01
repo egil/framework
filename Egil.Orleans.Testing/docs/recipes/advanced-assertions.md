@@ -12,7 +12,7 @@ Use the advanced methods when:
 
 ## Waiting for a specific storage operation
 
-Fixture reference: [`OrleansTestClusterFixture`](../../README.md#orleans-test-cluster-fixture)
+Fixture reference: [`OrleansTestClusterFixture`](../../README.md#orleanstestclusterfixture-reusable-helper)
 
 <!-- snippet: advanced_storage_assertion -->
 <a id='snippet-advanced_storage_assertion'></a>
@@ -56,7 +56,7 @@ The `StorageOperation` record exposes:
 
 ## Waiting for a specific grain call
 
-Fixture reference: [`OrleansTestClusterFixture`](../../README.md#orleans-test-cluster-fixture)
+Fixture reference: [`OrleansTestClusterFixture`](../../README.md#orleanstestclusterfixture-reusable-helper)
 
 <!-- snippet: advanced_grain_call_assertion -->
 <a id='snippet-advanced_grain_call_assertion'></a>
