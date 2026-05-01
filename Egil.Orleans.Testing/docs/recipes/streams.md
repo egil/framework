@@ -73,15 +73,14 @@ public async Task Explicit_stream_delivers_message_to_subscriber_grain()
     // Publish a message — the grain's OnNextAsync writes state asynchronously.
     await stream.OnNextAsync("hello");
 
-    // Assert after triggering the action. WaitForAssertionAsync retries until
-    // the async delivery finishes and the grain state is observable.
+    // Assert after triggering the action. WaitForAssertionAsync retries until the async delivery completes.
     await fixture.WaitForAssertionAsync(
         async () => Assert.Equal("hello", await grain.GetLastMessageAsync()),
         timeout: TimeSpan.FromSeconds(2),
         ct: TestContext.Current.CancellationToken);
 }
 ```
-<sup><a href='/samples/Egil.Orleans.Testing.Samples/StreamSample.cs#L108-L132' title='Snippet source file'>snippet source</a> | <a href='#snippet-explicit_stream_test' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/samples/Egil.Orleans.Testing.Samples/StreamSample.cs#L108-L130' title='Snippet source file'>snippet source</a> | <a href='#snippet-explicit_stream_test' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 **Key points:**
@@ -159,7 +158,7 @@ public async Task Implicit_stream_delivers_message_to_subscriber_grain()
         ct: TestContext.Current.CancellationToken);
 }
 ```
-<sup><a href='/samples/Egil.Orleans.Testing.Samples/StreamSample.cs#L134-L155' title='Snippet source file'>snippet source</a> | <a href='#snippet-implicit_stream_test' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/samples/Egil.Orleans.Testing.Samples/StreamSample.cs#L132-L151' title='Snippet source file'>snippet source</a> | <a href='#snippet-implicit_stream_test' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 **Key points:**

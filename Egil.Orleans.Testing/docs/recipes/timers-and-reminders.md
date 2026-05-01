@@ -182,7 +182,7 @@ public sealed class ReminderFixture : IAsyncLifetime, IGrainActivityWaiter
         => ((IGrainActivityWaiter)Collector).WaitForAssertionAsync(assertion, filter, timeout, cancellationToken);
 }
 ```
-<sup><a href='/samples/Egil.Orleans.Testing.Samples/ReminderSample.cs#L89-L136' title='Snippet source file'>snippet source</a> | <a href='#snippet-reminder_fixture' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/samples/Egil.Orleans.Testing.Samples/ReminderSample.cs#L86-L133' title='Snippet source file'>snippet source</a> | <a href='#snippet-reminder_fixture' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 ### Reminder test example
@@ -203,15 +203,14 @@ public async Task Reminder_callback_updates_state()
     // Advance the deterministic clock past the reminder due time.
     await fixture.ReminderClock.AdvanceAsync(TimeSpan.FromMinutes(2), TestContext.Current.CancellationToken);
 
-    // Assert after triggering the reminder callback. WaitForAssertionAsync retries
-    // each time grain activity is observed, including ReceiveReminder itself.
+    // Assert after triggering the callback. WaitForAssertionAsync retries until the reminder work is visible.
     await fixture.WaitForAssertionAsync(async () =>
     {
         Assert.Equal("reminder-value", await grain.GetLastValueAsync());
     }, ct: TestContext.Current.CancellationToken);
 }
 ```
-<sup><a href='/samples/Egil.Orleans.Testing.Samples/ReminderSample.cs#L63-L84' title='Snippet source file'>snippet source</a> | <a href='#snippet-reminder_test' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/samples/Egil.Orleans.Testing.Samples/ReminderSample.cs#L63-L81' title='Snippet source file'>snippet source</a> | <a href='#snippet-reminder_test' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 The `ReceiveReminder` callback is an incoming grain call that the collector observes. Even without a storage observer, `WaitForAssertionAsync` retries the assertion each time a grain call signal arrives.
