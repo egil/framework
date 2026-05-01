@@ -7,7 +7,10 @@ public class GrainActivityCollectorReminderWithoutStorageObserverTests
     {
         var collector = new GrainActivityCollector();
         var reminderClock = new ReminderTestClock();
-        await using var cluster = await TestClusterFactory.DeployAsync(collector, collectStorageActivity: false, reminderClock: reminderClock);
+        await using var cluster = await TestClusterFactory.DeployAsync(
+            collector,
+            collectStorageActivity: false,
+            configureClusterBuilder: builder => ReminderTestClock.Attach(builder, reminderClock));
         var grain = cluster.Client.GetGrain<IReminderActivityGrain>(Guid.NewGuid().ToString("N"));
 
         // Register the reminder.
