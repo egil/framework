@@ -1,7 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
 using Orleans.Streams;
-using Orleans.TestingHost;
-using System.Runtime.CompilerServices;
 
 namespace Egil.Orleans.Testing.Samples.Streams;
 
@@ -9,7 +7,7 @@ namespace Egil.Orleans.Testing.Samples.Streams;
 
 internal static class StreamConstants
 {
-    public const string StreamProviderName = "StreamProvider";
+    public const string StreamProviderName = SampleClusterStreamDefaults.ProviderName;
     public const string ExplicitNamespace = "explicit-ns";
     public const string ImplicitNamespace = "implicit-ns";
 }
@@ -154,80 +152,3 @@ public sealed class ImplicitStreamTests(OrleansTestClusterFixture fixture) : ICl
 }
 #endregion
 
-// -- Fixture -----------------------------------------------------------------
-
-#region stream_fixture
-public sealed class OrleansTestClusterFixture : IAsyncLifetime, IGrainActivityWaiter
-{
-    private InProcessTestCluster? cluster;
-
-    public GrainActivityCollector Collector { get; } = new();
-
-    public IGrainFactory GrainFactory => cluster!.Client;
-
-    public GrainId CreateUniqueGrainId<TGrain>([CallerMemberName] string memberName = "")
-        where TGrain : IGrain
-        => CreateUniqueGrainReference<TGrain>(memberName).GetGrainId();
-
-    public TGrain GetUniqueGrain<TGrain>([CallerMemberName] string memberName = "")
-        where TGrain : IGrain
-        => CreateUniqueGrainReference<TGrain>(memberName);
-
-    public IAsyncStream<T> GetStream<T>(string @namespace, Guid key)
-    {
-        var provider = cluster!.Client.GetStreamProvider(StreamConstants.StreamProviderName);
-        return provider.GetStream<T>(StreamId.Create(@namespace, key));
-    }
-
-    public async ValueTask InitializeAsync()
-    {
-        var builder = new InProcessTestClusterBuilder(initialSilosCount: 1);
-        builder.ConfigureSilo((_, siloBuilder) =>
-        {
-            siloBuilder.AddMemoryGrainStorage("Default");
-            siloBuilder.AddMemoryGrainStorage("PubSubStore");
-            siloBuilder.AddMemoryStreams(StreamConstants.StreamProviderName);
-            siloBuilder.AddGrainActivityCollector(Collector)
-                .CollectStorageActivityFromDefault();
-        });
-        builder.ConfigureClient(clientBuilder =>
-            clientBuilder.AddMemoryStreams(StreamConstants.StreamProviderName));
-        cluster = builder.Build();
-        await cluster.DeployAsync();
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        if (cluster is not null)
-        {
-            await cluster.DisposeAsync();
-        }
-    }
-
-    Task<TResult> IGrainActivityWaiter.WaitForAssertionAsync<TResult>(
-        Func<ValueTask<TResult>> assertion,
-        Predicate<GrainActivity>? filter,
-        TimeSpan? timeout,
-        CancellationToken cancellationToken)
-        => ((IGrainActivityWaiter)Collector).WaitForAssertionAsync(assertion, filter, timeout, cancellationToken);
-
-    private TGrain CreateUniqueGrainReference<TGrain>(string memberName)
-        where TGrain : IGrain
-    {
-        var grainType = typeof(TGrain);
-        var grainName = grainType.Name;
-
-        return typeof(IGrainWithStringKey).IsAssignableFrom(grainType)
-            ? (TGrain)GrainFactory.GetGrain(grainType, $"{memberName}-{grainName}-{Guid.NewGuid():N}")
-            : typeof(IGrainWithGuidCompoundKey).IsAssignableFrom(grainType)
-                ? (TGrain)GrainFactory.GetGrain(grainType, Guid.NewGuid(), $"{memberName}-{grainName}")
-                : typeof(IGrainWithGuidKey).IsAssignableFrom(grainType)
-                    ? (TGrain)GrainFactory.GetGrain(grainType, Guid.NewGuid())
-                    : typeof(IGrainWithIntegerCompoundKey).IsAssignableFrom(grainType)
-                        ? (TGrain)GrainFactory.GetGrain(grainType, Random.Shared.NextInt64(1, long.MaxValue), $"{memberName}-{grainName}")
-                        : typeof(IGrainWithIntegerKey).IsAssignableFrom(grainType)
-                            ? (TGrain)GrainFactory.GetGrain(grainType, Random.Shared.NextInt64(1, long.MaxValue))
-                            : throw new NotSupportedException($"Unsupported grain key type for {grainType.FullName}.");
-    }
-}
-#endregion

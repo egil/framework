@@ -133,7 +133,7 @@ public sealed class OrleansTestClusterFixture : IAsyncLifetime, IGrainActivityWa
     public GrainActivityCollector Collector { get; } = new();
 
     // Expose the client grain factory so tests do not need to reach into the cluster directly.
-    public IGrainFactory GrainFactory => cluster!.Client;
+    public IGrainFactory GrainFactory => cluster?.Client ?? throw new InvalidOperationException("Test cluster not initialized.");
 
     // Create a unique GrainId when a test needs to share the same identity across
     // multiple Orleans concepts such as a grain reference and a stream id.

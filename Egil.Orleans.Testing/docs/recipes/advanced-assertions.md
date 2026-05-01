@@ -43,7 +43,7 @@ public sealed class WarehouseStorageOperationTests(OrleansTestClusterFixture fix
     }
 }
 ```
-<sup><a href='/samples/Egil.Orleans.Testing.Samples/AdvancedAssertionsSample.cs#L86-L112' title='Snippet source file'>snippet source</a> | <a href='#snippet-advanced_storage_assertion' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/samples/Egil.Orleans.Testing.Samples/AdvancedAssertionsSample.cs#L84-L110' title='Snippet source file'>snippet source</a> | <a href='#snippet-advanced_storage_assertion' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 The `StorageOperation` record exposes:
@@ -86,7 +86,7 @@ public sealed class WarehouseGrainCallTests(OrleansTestClusterFixture fixture) :
     }
 }
 ```
-<sup><a href='/samples/Egil.Orleans.Testing.Samples/AdvancedAssertionsSample.cs#L114-L139' title='Snippet source file'>snippet source</a> | <a href='#snippet-advanced_grain_call_assertion' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/samples/Egil.Orleans.Testing.Samples/AdvancedAssertionsSample.cs#L112-L137' title='Snippet source file'>snippet source</a> | <a href='#snippet-advanced_grain_call_assertion' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 The `IIncomingGrainCallContext` exposes:
