@@ -45,7 +45,7 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter
     /// </summary>
     /// <param name="assertion">The assertion callback to evaluate.</param>
     /// <param name="timeout">
-    /// The maximum time to wait. When <see langword="null"/>, the package default timeout is used.
+    /// The maximum time to wait. When <see langword="null"/>, <see cref="IGrainActivityWaiter.DefaultWaitTimeout"/> is used.
     /// Timeout enforcement is skipped while a debugger is attached.
     /// </param>
     /// <param name="ct">A token that cancels the wait.</param>
@@ -81,7 +81,7 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter
     /// <typeparam name="TResult">The assertion result type.</typeparam>
     /// <param name="assertion">The assertion callback to evaluate.</param>
     /// <param name="timeout">
-    /// The maximum time to wait. When <see langword="null"/>, the package default timeout is used.
+    /// The maximum time to wait. When <see langword="null"/>, <see cref="IGrainActivityWaiter.DefaultWaitTimeout"/> is used.
     /// Timeout enforcement is skipped while a debugger is attached.
     /// </param>
     /// <param name="ct">A token that cancels the wait.</param>
@@ -119,7 +119,7 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter
     /// <typeparam name="TGrain">The grain interface type.</typeparam>
     /// <param name="grain">The grain whose activity should trigger retries.</param>
     /// <param name="assertion">The assertion callback to evaluate.</param>
-    /// <param name="timeout">The maximum time to wait. When <see langword="null"/>, the package default timeout is used.</param>
+    /// <param name="timeout">The maximum time to wait. When <see langword="null"/>, <see cref="IGrainActivityWaiter.DefaultWaitTimeout"/> is used.</param>
     /// <param name="ct">A token that cancels the wait.</param>
     /// <returns>A task that completes when the assertion succeeds.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="grain"/> or <paramref name="assertion"/> is <see langword="null"/>.</exception>
@@ -205,7 +205,7 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter
     /// Waits for a storage operation matching the supplied predicate.
     /// </summary>
     /// <param name="predicate">Returns <see langword="true"/> when the expected operation has been observed.</param>
-    /// <param name="timeout">The maximum time to wait. When <see langword="null"/>, the package default timeout is used.</param>
+    /// <param name="timeout">The maximum time to wait. When <see langword="null"/>, <see cref="IGrainActivityWaiter.DefaultWaitTimeout"/> is used.</param>
     /// <param name="ct">A token that cancels the wait.</param>
     /// <returns>A task that completes when a matching storage operation is observed.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="predicate"/> is <see langword="null"/>.</exception>
@@ -260,7 +260,7 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter
     /// Waits for an incoming grain call matching the supplied predicate.
     /// </summary>
     /// <param name="predicate">Returns <see langword="true"/> when the expected incoming call has been observed.</param>
-    /// <param name="timeout">The maximum time to wait. When <see langword="null"/>, the package default timeout is used.</param>
+    /// <param name="timeout">The maximum time to wait. When <see langword="null"/>, <see cref="IGrainActivityWaiter.DefaultWaitTimeout"/> is used.</param>
     /// <param name="ct">A token that cancels the wait.</param>
     /// <returns>A task that completes when a matching grain call is observed.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="predicate"/> is <see langword="null"/>.</exception>
@@ -586,7 +586,7 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter
         }
 
         var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeoutCts.CancelAfter(timeout ?? WaitForAssertionDefaults.Timeout);
+        timeoutCts.CancelAfter(timeout ?? IGrainActivityWaiter.DefaultWaitTimeout);
         return timeoutCts;
     }
 
