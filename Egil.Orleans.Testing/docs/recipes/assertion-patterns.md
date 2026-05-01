@@ -1,0 +1,97 @@
+# Assertion Patterns
+
+## Waiting for any grain activity
+
+The basic `WaitForAssertionAsync` overloads retry the assertion each time any grain activity (call or storage operation) is observed. Prefer this form unless you need to filter by grain or inspect implementation details.
+
+```csharp
+await collector.WaitForAssertionAsync(async () =>
+{
+    Assert.Equal("ready", await grain.GetStatusAsync());
+});
+```
+
+## Grain-scoped assertions
+
+Pass a grain reference as the first argument to restrict retriggers to activity from that grain only:
+
+<!-- snippet: grain_scoped_assertions_fixture -->
+<a id='snippet-grain_scoped_assertions_fixture'></a>
+```cs
+/// <summary>
+/// Demonstrates grain-scoped <c>WaitForAssertionAsync</c> overloads.
+/// Activity from an unrelated grain does not retrigger the assertion.
+/// </summary>
+public sealed class CounterGrainTests(GrainScopedAssertionsFixture fixture) : IClassFixture<GrainScopedAssertionsFixture>
+{
+    [Fact]
+    public async Task WaitForAssertionAsync_with_grain_only_retriggers_on_activity_from_that_grain()
+    {
+        var targetGrain = fixture.GrainFactory.GetGrain<ICounterGrain>("target");
+        var unrelatedGrain = fixture.GrainFactory.GetGrain<ICounterGrain>("unrelated");
+
+        await targetGrain.IncrementAsync();
+
+        // Pass the grain to the scoped overload.
+        // Only activity originating from 'targetGrain' will retrigger this assertion.
+        await fixture.Collector.WaitForAssertionAsync(targetGrain, async () =>
+        {
+            Assert.Equal(1, await targetGrain.GetCountAsync());
+        });
+    }
+
+    [Fact]
+    public async Task WaitForAssertionAsync_grain_overload_passes_grain_to_lambda()
+    {
+        var grain = fixture.GrainFactory.GetGrain<ICounterGrain>("lambda-grain");
+
+        await grain.IncrementAsync();
+        await grain.IncrementAsync();
+
+        // The grain reference is forwarded into the lambda so you can assert
+        // without capturing it in a closure.
+        var count = await fixture.Collector.WaitForAssertionAsync(grain, async (g) =>
+        {
+            var c = await g.GetCountAsync();
+            Assert.True(c >= 2);
+            return c;
+        });
+
+        Assert.Equal(2, count);
+    }
+}
+```
+<sup><a href='/samples/Egil.Orleans.Testing.Samples/GrainScopedAssertionSample.cs#L34-L77' title='Snippet source file'>snippet source</a> | <a href='#snippet-grain_scoped_assertions_fixture' title='Start of snippet'>anchor</a></sup>
+<!-- endSnippet -->
+
+## Returning values from assertions
+
+All `WaitForAssertionAsync` overloads have value-returning variants — use `Func<Task<TResult>>` or `Func<ValueTask<TResult>>`:
+
+```csharp
+var count = await collector.WaitForAssertionAsync(async () =>
+{
+    var c = await grain.GetCountAsync();
+    Assert.True(c >= 5);
+    return c;
+});
+// count is the first observed value that satisfied the assertion
+```
+
+## Configuring the timeout
+
+The default timeout is **5 seconds** (or indefinite when a debugger is attached).
+
+Override per-call:
+```csharp
+await collector.WaitForAssertionAsync(
+    async () => Assert.Equal("done", await grain.GetStatusAsync()),
+    timeout: TimeSpan.FromSeconds(10));
+```
+
+Override globally via environment variable:
+```
+WAIT_FOR_ASSERTION_TIMEOUT_SECONDS=15
+```
+
+When the assertion does not pass before the timeout, `WaitForAssertionTimeoutException` is thrown. Its `InnerException` holds the last assertion failure.

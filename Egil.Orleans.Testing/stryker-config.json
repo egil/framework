@@ -1,6 +1,7 @@
 {
   "stryker-config": {
     "project": "src/Egil.Orleans.Testing/Egil.Orleans.Testing.csproj",
+    "test-runner": "mtp",
     "test-projects": [
       "test/Egil.Orleans.Testing.Tests/Egil.Orleans.Testing.Tests.csproj"
     ],

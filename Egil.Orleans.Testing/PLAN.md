@@ -452,9 +452,7 @@ Create `.github/workflows/egil-orleans-testing-ci.yml` following `egil-systemtex
 
 ## NuGet package dependencies (test)
 
-- `Microsoft.NET.Test.Sdk`
-- `xunit.v3`
-- `xunit.runner.visualstudio`
+- `xunit.v3.mtp-v2`
 - `Microsoft.Orleans.TestingHost` — `InProcessTestCluster` for integration tests
 - `Microsoft.Orleans.Server` — silo setup in fixture
-- `coverlet.msbuild` — code coverage
+- `Microsoft.Testing.Extensions.CodeCoverage` — MTP-native code coverage
