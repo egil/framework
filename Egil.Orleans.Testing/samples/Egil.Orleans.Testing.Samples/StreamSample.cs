@@ -105,7 +105,7 @@ public sealed class ListenerState
 // -- Tests -------------------------------------------------------------------
 
 #region explicit_stream_test
-public sealed class ExplicitStreamTests(StreamFixture fixture) : IClassFixture<StreamFixture>
+public sealed class ExplicitStreamTests(OrleansTestClusterFixture fixture) : IClassFixture<OrleansTestClusterFixture>
 {
     [Fact]
     public async Task Explicit_stream_delivers_message_to_subscriber_grain()
@@ -132,7 +132,7 @@ public sealed class ExplicitStreamTests(StreamFixture fixture) : IClassFixture<S
 #endregion
 
 #region implicit_stream_test
-public sealed class ImplicitStreamTests(StreamFixture fixture) : IClassFixture<StreamFixture>
+public sealed class ImplicitStreamTests(OrleansTestClusterFixture fixture) : IClassFixture<OrleansTestClusterFixture>
 {
     [Fact]
     public async Task Implicit_stream_delivers_message_to_subscriber_grain()
@@ -156,7 +156,7 @@ public sealed class ImplicitStreamTests(StreamFixture fixture) : IClassFixture<S
 
 // -- Fixture -----------------------------------------------------------------
 
-public sealed class StreamFixture : IAsyncLifetime, IGrainActivityWaiter
+public sealed class OrleansTestClusterFixture : IAsyncLifetime, IGrainActivityWaiter
 {
     private InProcessTestCluster? cluster;
 
