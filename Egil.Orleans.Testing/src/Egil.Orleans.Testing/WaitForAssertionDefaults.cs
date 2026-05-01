@@ -17,7 +17,7 @@ public static class WaitForAssertionDefaults
     /// </remarks>
     public static readonly TimeSpan Timeout = LoadTimeout();
 
-    private static TimeSpan LoadTimeout()
+    internal static TimeSpan LoadTimeout()
     {
         const double defaultTimeoutSeconds = 5;
         var configuredTimeout = Environment.GetEnvironmentVariable("WAIT_FOR_ASSERTION_TIMEOUT_SECONDS");

@@ -1,16 +1,11 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Orleans.Storage;
-using System.Reflection;
 
 namespace Egil.Orleans.Testing.Tests;
 
 public class GrainActivityCollectorBuilderTests
 {
-    private static readonly Type GrainCallCollectionFilterType = typeof(GrainActivityCollector).Assembly.GetType("Egil.Orleans.Testing.GrainCallCollectionFilter", throwOnError: true)!;
-    private static readonly MethodInfo CloneWithNewKeyMethod =
-        typeof(GrainActivityCollectorBuilder).GetMethod("CloneWithNewKey", BindingFlags.Static | BindingFlags.NonPublic)!;
-
     [Fact]
     public void AddGrainActivityCollector_throws_for_null_builder()
     {
@@ -27,7 +22,7 @@ public class GrainActivityCollectorBuilderTests
     }
 
     [Fact]
-    public void AddGrainActivityCollector_registers_collector_and_call_filter()
+    public void AddGrainActivityCollector_registers_collector_and_returns_builder()
     {
         var builder = new TestSiloBuilder();
         var collector = new GrainActivityCollector();
@@ -36,7 +31,6 @@ public class GrainActivityCollectorBuilderTests
 
         Assert.NotNull(result);
         Assert.Contains(builder.Services, descriptor => descriptor.ServiceType == typeof(GrainActivityCollector) && ReferenceEquals(descriptor.ImplementationInstance, collector));
-        Assert.Contains(builder.Services, descriptor => descriptor.ServiceType == GrainCallCollectionFilterType);
     }
 
     [Fact]
@@ -96,7 +90,6 @@ public class GrainActivityCollectorBuilderTests
 
         using var provider = builder.Services.BuildServiceProvider();
         var decoratedStorage = provider.GetRequiredKeyedService<IGrainStorage>("Default");
-        var resolvedFilter = provider.GetRequiredService(GrainCallCollectionFilterType);
         var grainId = GrainId.Create("test-grain", "builder");
         var state = new TestGrainState<string> { ETag = "etag-1", State = "value" };
         var waitTask = collector.WaitForStorageOperationAsync(
@@ -104,7 +97,6 @@ public class GrainActivityCollectorBuilderTests
             timeout: TimeSpan.FromMilliseconds(250),
             ct: TestContext.Current.CancellationToken);
 
-        Assert.NotNull(resolvedFilter);
         Assert.Same(collector, provider.GetRequiredService<GrainActivityCollector>());
         Assert.NotSame(storage, decoratedStorage);
 
@@ -179,16 +171,6 @@ public class GrainActivityCollectorBuilderTests
         Assert.Equal(1, factoryCallCount);
         Assert.Equal("Egil.Orleans.Testing.Inner::FactoryBased", resolvedKey);
         Assert.Equal(1, storage.WriteCount);
-    }
-
-    [Fact]
-    public void CloneWithNewKey_throws_for_non_keyed_registration()
-    {
-        var descriptor = ServiceDescriptor.Singleton<IGrainStorage>(new FakeGrainStorage());
-
-        var exception = Assert.Throws<TargetInvocationException>(() => CloneWithNewKeyMethod.Invoke(null, [descriptor, "Inner"]));
-
-        Assert.Equal("Only keyed grain storage registrations can be decorated.", exception.InnerException?.Message);
     }
 
     private static ServiceDescriptor GetSingleDescriptor(IServiceCollection services, object key)

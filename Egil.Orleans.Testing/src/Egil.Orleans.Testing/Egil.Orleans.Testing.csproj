@@ -21,7 +21,7 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageTags>orleans,testing,async-assertion,grain,egil</PackageTags>
     <Copyright>Egil Hansen</Copyright>
-    <PackageProjectUrl>https://github.com/egil/framework/tree/main/Egil.Orleans.Testing</PackageProjectUrl>
+    <PackageProjectUrl>https://github.com/egil/framework</PackageProjectUrl>
     <RepositoryUrl>https://github.com/egil/framework</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
@@ -36,6 +36,12 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.Orleans.Runtime" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>Egil.Orleans.Testing.Tests</_Parameter1>
+    </AssemblyAttribute>
   </ItemGroup>
 
   <ItemGroup>
