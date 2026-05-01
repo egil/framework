@@ -137,140 +137,55 @@ public sealed class ReminderGrain(
 
 ### Reminder fixture setup
 
-Create a fixture that owns a `ReminderTestClock` and attaches it to the cluster. Note that **no storage observer** is needed — `WaitForAssertionAsync` retries on grain call signals alone, which includes the `ReceiveReminder` callback:
+Fixture reference: [`OrleansTestClusterFixture`](../../README.md#orleans-test-cluster-fixture)
+
+Create a derived fixture that owns a `ReminderTestClock` and attaches it to the cluster. Note that **no storage observer** is needed — `WaitForAssertionAsync` retries on grain call signals alone, which includes the `ReceiveReminder` callback:
 
 <!-- snippet: reminder_fixture -->
 <a id='snippet-reminder_fixture'></a>
 ```cs
 /// <summary>
-/// Minimal reusable Orleans reminder test fixture.
+/// Reusable Orleans reminder test fixture.
 /// Copy this into your own test project when reminder-driven tests need deterministic time.
 /// </summary>
 /// <remarks>
-/// This fixture has the same general responsibilities as the standard sample fixture:
-/// 1. Own the lifecycle of an <see cref="InProcessTestCluster"/>.
-/// 2. Expose a ready-to-use <see cref="IGrainFactory"/> for test code.
-/// 3. Forward <see cref="IGrainActivityWaiter"/> calls to a <see cref="GrainActivityCollector"/>.
-///
-/// In addition, reminder tests need a dedicated <see cref="ReminderTestClock"/> so time can be
-/// advanced explicitly. Keep this fixture separate from general-purpose fixtures because the
-/// manual clock stops normal time progression inside the cluster.
+/// This fixture extends <see cref="OrleansTestClusterFixture"/> with the one extra capability
+/// reminder tests need: a dedicated <see cref="ReminderTestClock"/> that tests can advance explicitly.
+/// Keep this fixture separate from general-purpose fixtures because the manual clock stops normal
+/// time progression inside the cluster.
 /// </remarks>
-public sealed class ReminderFixture : IAsyncLifetime, IGrainActivityWaiter
+public sealed class ReminderFixture : OrleansTestClusterFixture
 {
-    private InProcessTestCluster? cluster;
-
-    // The collector observes grain calls inside the silo.
-    // For reminders, that is enough because ReceiveReminder is itself an incoming grain call.
-    public GrainActivityCollector Collector { get; } = new();
-
     // This manual clock is the key reminder-specific feature.
     // Tests advance it explicitly to trigger reminder callbacks without waiting on wall-clock time.
     public ReminderTestClock ReminderClock { get; } = new();
 
-    // Expose the client grain factory so tests do not need to reach into the cluster directly.
-    public IGrainFactory GrainFactory => cluster!.Client;
+    // Reminder callbacks arrive as grain calls, so this fixture can rely on call observation alone.
+    // That keeps the sample focused on the reminder-specific behavior instead of storage monitoring.
+    protected override bool CollectStorageActivityFromDefault => false;
 
-    /// <summary>
-    /// Creates a unique <see cref="GrainId"/> for the current test method.
-    /// </summary>
-    /// <remarks>
-    /// This is useful when a reminder test needs to share the same grain identity with
-    /// another Orleans concept while still keeping parallel tests isolated.
-    /// </remarks>
-    public GrainId CreateUniqueGrainId<TGrain>([CallerMemberName] string memberName = "")
-        where TGrain : IGrain
-        => CreateUniqueGrainReference<TGrain>(memberName).GetGrainId();
-
-    /// <summary>
-    /// Gets a grain reference with a test-unique key.
-    /// </summary>
-    /// <remarks>
-    /// Prefer this helper over hard-coded keys in sample-style tests.
-    /// It keeps parallel tests isolated from each other and removes boilerplate
-    /// around choosing the correct Orleans key type for the grain interface.
-    /// </remarks>
-    public TGrain GetUniqueGrain<TGrain>([CallerMemberName] string memberName = "")
-        where TGrain : IGrain
-        => CreateUniqueGrainReference<TGrain>(memberName);
-
-    public async ValueTask InitializeAsync()
+    protected override void ConfigureClusterBuilder(InProcessTestClusterBuilder builder)
     {
-        // Build a one-silo in-process cluster. Reminder samples do not need more topology than that.
-        var builder = new InProcessTestClusterBuilder(initialSilosCount: 1);
-
         // Attach the deterministic clock before configuring the silo so Orleans reminder infrastructure
         // uses the manual time provider from the start.
         ReminderTestClock.Attach(builder, ReminderClock);
-
-        builder.ConfigureSilo((_, siloBuilder) =>
-        {
-            // Register a default storage provider so reminder grains can persist their state
-            // without any external infrastructure.
-            siloBuilder.AddMemoryGrainStorage("Default");
-
-            // Enable the in-memory reminder service for the test cluster.
-            siloBuilder.UseInMemoryReminderService();
-
-            // Only grain call monitoring is required here.
-            // Reminder callbacks show up as incoming grain calls, so WaitForAssertionAsync
-            // can still react even without a storage observer.
-            siloBuilder.AddGrainActivityCollector(Collector);
-        });
-
-        // Build first, then deploy. DeployAsync starts the silo and connects the client.
-        cluster = builder.Build();
-        await cluster.DeployAsync();
     }
 
-    public async ValueTask DisposeAsync()
+    protected override void ConfigureSiloBuilder(ISiloBuilder siloBuilder)
+    {
+        // Enable the in-memory reminder service for the test cluster.
+        siloBuilder.UseInMemoryReminderService();
+    }
+
+    protected override ValueTask DisposeAsyncCore()
     {
         // Dispose the manual clock first so any reminder-specific resources are cleaned up promptly.
         ReminderClock.Dispose();
-
-        // Then tear down the cluster so ports, timers, and background work are not shared
-        // across unrelated tests.
-        if (cluster is not null)
-        {
-            await cluster.DisposeAsync();
-        }
-    }
-
-    // Forward the waiting API through the fixture so tests can stay focused on intent:
-    //   await fixture.WaitForAssertionAsync(...)
-    // instead of:
-    //   await fixture.Collector.WaitForAssertionAsync(...)
-    Task<TResult> IGrainActivityWaiter.WaitForAssertionAsync<TResult>(
-        Func<ValueTask<TResult>> assertion,
-        Predicate<GrainActivity>? filter,
-        TimeSpan? timeout,
-        CancellationToken cancellationToken)
-        => ((IGrainActivityWaiter)Collector).WaitForAssertionAsync(assertion, filter, timeout, cancellationToken);
-
-    private TGrain CreateUniqueGrainReference<TGrain>(string memberName)
-        where TGrain : IGrain
-    {
-        var grainType = typeof(TGrain);
-        var grainName = grainType.Name;
-
-        // Match Orleans key-shape conventions automatically so the calling test
-        // does not need to care whether the grain uses string, Guid, integer,
-        // or compound keys.
-        return typeof(IGrainWithStringKey).IsAssignableFrom(grainType)
-            ? (TGrain)GrainFactory.GetGrain(grainType, $"{memberName}-{grainName}-{Guid.NewGuid():N}")
-            : typeof(IGrainWithGuidCompoundKey).IsAssignableFrom(grainType)
-                ? (TGrain)GrainFactory.GetGrain(grainType, Guid.NewGuid(), $"{memberName}-{grainName}")
-                : typeof(IGrainWithGuidKey).IsAssignableFrom(grainType)
-                    ? (TGrain)GrainFactory.GetGrain(grainType, Guid.NewGuid())
-                    : typeof(IGrainWithIntegerCompoundKey).IsAssignableFrom(grainType)
-                        ? (TGrain)GrainFactory.GetGrain(grainType, Random.Shared.NextInt64(1, long.MaxValue), $"{memberName}-{grainName}")
-                        : typeof(IGrainWithIntegerKey).IsAssignableFrom(grainType)
-                            ? (TGrain)GrainFactory.GetGrain(grainType, Random.Shared.NextInt64(1, long.MaxValue))
-                            : throw new NotSupportedException($"Unsupported grain key type for {grainType.FullName}.");
+        return ValueTask.CompletedTask;
     }
 }
 ```
-<sup><a href='/samples/Egil.Orleans.Testing.Samples/ReminderSample.cs#L87-L215' title='Snippet source file'>snippet source</a> | <a href='#snippet-reminder_fixture' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/samples/Egil.Orleans.Testing.Samples/ReminderSample.cs#L251-L292' title='Snippet source file'>snippet source</a> | <a href='#snippet-reminder_fixture' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 Use a dedicated reminder fixture for this setup. Do not fold `ReminderTestClock.Attach(...)` into a shared fixture that is also used by streams or other time-sensitive tests.
