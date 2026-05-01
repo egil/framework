@@ -41,7 +41,7 @@ public sealed class OrderGrain(
 /// Example: inline <see cref="InProcessTestCluster"/> in a test class,
 /// showing both storage observation and grain call observation.
 /// </summary>
-public sealed class OrderGrainTests : IAsyncLifetime
+public sealed class OrderGrainTests : IAsyncLifetime, IGrainActivityWaiter
 {
     private InProcessTestCluster? cluster;
 
@@ -89,10 +89,9 @@ public sealed class OrderGrainTests : IAsyncLifetime
         // Trigger grain activity.
         await grain.SubmitAsync("laptop");
 
-        // WaitForAssertionAsync retries the assertion each time grain activity
-        // is detected (storage write or grain call), so the assertion runs
-        // immediately, and again each time grain activity fires.
-        await collector.WaitForAssertionAsync(async () =>
+        // Forwarding IGrainActivityWaiter once lets the test call
+        // WaitForAssertionAsync directly instead of collector.WaitForAssertionAsync.
+        await this.WaitForAssertionAsync(async () =>
         {
             Assert.Equal("submitted", await grain.GetStatusAsync());
         }, ct: TestContext.Current.CancellationToken);
@@ -106,12 +105,19 @@ public sealed class OrderGrainTests : IAsyncLifetime
         await grain.SubmitAsync("keyboard");
 
         // Grain-scoped variant: only activity from this specific grain retriggers the assertion.
-        await collector.WaitForAssertionAsync(grain, async (g) =>
+        await this.WaitForAssertionAsync(grain, async (g) =>
         {
             var status = await g.GetStatusAsync();
             Assert.NotNull(status);
             Assert.Equal("submitted", status);
         }, ct: TestContext.Current.CancellationToken);
     }
+
+    Task<TResult> IGrainActivityWaiter.WaitForAssertionAsync<TResult>(
+        Func<ValueTask<TResult>> assertion,
+        Predicate<GrainActivity>? filter,
+        TimeSpan? timeout,
+        CancellationToken ct)
+        => ((IGrainActivityWaiter)collector).WaitForAssertionAsync(assertion, filter, timeout, ct);
 }
 #endregion

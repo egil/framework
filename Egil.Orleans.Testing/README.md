@@ -6,9 +6,9 @@ Deterministic async assertion helpers for [Microsoft Orleans](https://learn.micr
 
 ## Overview
 
-`Egil.Orleans.Testing` provides a `GrainActivityCollector` that monitors grain calls and storage operations during integration tests. Instead of arbitrary `Task.Delay` waits, your assertions are retried automatically each time the collector detects grain activity — making tests both fast and reliable.
+`Egil.Orleans.Testing` provides a `GrainActivityCollector` that monitors grain calls and storage operations during integration tests. Instead of arbitrary `Task.Delay` waits, your assertions are retried automatically each time the collector detects grain activity, making tests both fast and reliable.
 
-The library is **test-framework-agnostic**: it works with xUnit, NUnit, MSTest, or any other framework.
+The library is **test-framework-agnostic**: it works with xUnit, NUnit, MSTest, or any other framework. The examples below use xUnit syntax like `[Fact]` and `IAsyncLifetime` only for concreteness; the collector and waiter patterns are not tied to xUnit.
 
 ## Getting started
 
@@ -20,17 +20,15 @@ dotnet add package Egil.Orleans.Testing
 
 ### 2. Inline setup in a test class
 
-The following is a complete, copy/paste-ready example that shows how to set up an `InProcessTestCluster` directly in a test class with **both** storage observation and grain call observation enabled:
+The following is a complete example that sets up an `InProcessTestCluster` directly in the test class and forwards `IGrainActivityWaiter` so the tests can call `this.WaitForAssertionAsync(...)` directly:
 
 ```csharp
 using Orleans.TestingHost;
-using Orleans.Concurrency;
 using Egil.Orleans.Testing;
 
 // Grain interface and implementation (in your production code)
 public interface IOrderGrain : IGrainWithStringKey
 {
-    [OneWay]
     Task SubmitAsync(string item);
     Task<string?> GetStatusAsync();
 }
@@ -41,9 +39,6 @@ public sealed class OrderGrain(
 {
     public async Task SubmitAsync(string item)
     {
-        // Demo only: simulate real async work so the test has to wait for the eventual update.
-        await Task.Delay(TimeSpan.FromMilliseconds(50));
-
         state.State.Item = item;
         state.State.Status = "submitted";
         await state.WriteStateAsync();
@@ -52,55 +47,64 @@ public sealed class OrderGrain(
     public Task<string?> GetStatusAsync() => Task.FromResult(state.State.Status);
 }
 
-public sealed class OrderGrainTests
+public sealed class OrderGrainTests : IAsyncLifetime, IGrainActivityWaiter
 {
-    [Fact]
-    public async Task SubmitAsync_sets_status_to_submitted()
+    private InProcessTestCluster? cluster;
+    private readonly GrainActivityCollector collector = new();
+
+    public async ValueTask InitializeAsync()
     {
-        // Arrange
-        // The cluster setup is inline here for absolute clarity.
-        // In a larger suite, this would usually move to IClassFixture, AssemblyFixture, or similar.
-        var collector = new GrainActivityCollector();
         var builder = new InProcessTestClusterBuilder(initialSilosCount: 1);
 
         builder.ConfigureSilo((_, siloBuilder) =>
         {
-            siloBuilder.AddMemoryGrainStorage("Default");
+            siloBuilder.AddMemoryGrainStorageAsDefault();
+            siloBuilder.AddMemoryGrainStorage("Orders");
 
-            // AddGrainActivityCollector wires up grain call observation automatically.
-            // CollectStorageActivityFromDefault also enables storage observation.
             siloBuilder.AddGrainActivityCollector(collector)
-                .CollectStorageActivityFromDefault();
+                .CollectStorageActivityFromDefault()
+                .CollectStorageActivityFrom("Orders");
         });
 
-        await using var cluster = builder.Build();
+        cluster = builder.Build();
         await cluster.DeployAsync();
+    }
 
-        var grain = cluster.Client.GetGrain<IOrderGrain>(Guid.NewGuid().ToString());
+    public async ValueTask DisposeAsync()
+    {
+        if (cluster is not null)
+            await cluster.DisposeAsync();
+    }
 
-        // Act
-        // `SubmitAsync` is [OneWay], so the call returns before the delayed write completes.
+    [Fact]
+    public async Task SubmitAsync_sets_status_to_submitted()
+    {
+        var grain = cluster!.Client.GetGrain<IOrderGrain>(Guid.NewGuid().ToString());
+
         await grain.SubmitAsync("laptop");
 
-        // Assert
-        // WaitForAssertionAsync retries the assertion each time grain activity
-        // is detected (storage write or grain call) until it passes or times out.
-        await collector.WaitForAssertionAsync(async () =>
+        await this.WaitForAssertionAsync(async () =>
         {
             Assert.Equal("submitted", await grain.GetStatusAsync());
-        });
+        }, ct: TestContext.Current.CancellationToken);
+    }
+
+    Task<TResult> IGrainActivityWaiter.WaitForAssertionAsync<TResult>(
+        Func<ValueTask<TResult>> assertion,
+        Predicate<GrainActivity>? filter,
+        TimeSpan? timeout,
+        CancellationToken ct)
+        => ((IGrainActivityWaiter)collector).WaitForAssertionAsync(assertion, filter, timeout, ct);
     }
 }
 ```
 
-### 3. Shared fixture (recommended)
+### 3. Reusable Fixture Or Helper Object
 
-When many test classes share the same cluster, a shared fixture is the recommended shape:
+When many tests share the same cluster, it is convenient to wrap the cluster and collector in a reusable object that implements `IGrainActivityWaiter`. In xUnit this could be a class fixture, collection fixture, or assembly fixture. In other frameworks it could be any shared helper with setup and teardown.
 
 ```csharp
-[assembly: AssemblyFixture(typeof(OrleansTestClusterFixture))]
-
-public sealed class OrleansTestClusterFixture : IAsyncLifetime
+public sealed class OrleansTestClusterFixture : IAsyncLifetime, IGrainActivityWaiter
 {
     private InProcessTestCluster? cluster;
 
@@ -131,9 +135,15 @@ public sealed class OrleansTestClusterFixture : IAsyncLifetime
         if (cluster is not null)
             await cluster.DisposeAsync();
     }
+
+    Task<TResult> IGrainActivityWaiter.WaitForAssertionAsync<TResult>(
+        Func<ValueTask<TResult>> assertion,
+        Predicate<GrainActivity>? filter,
+        TimeSpan? timeout,
+        CancellationToken ct)
+        => ((IGrainActivityWaiter)Collector).WaitForAssertionAsync(assertion, filter, timeout, ct);
 }
 
-// Test class — injects the shared fixture
 public class MyGrainTests(OrleansTestClusterFixture fixture)
 {
     [Fact]
@@ -142,7 +152,7 @@ public class MyGrainTests(OrleansTestClusterFixture fixture)
         var grain = fixture.GrainFactory.GetGrain<IMyGrain>(Guid.NewGuid().ToString());
         await grain.DoSomethingAsync();
 
-        await fixture.Collector.WaitForAssertionAsync(async () =>
+        await fixture.WaitForAssertionAsync(async () =>
         {
             Assert.Equal("expected", await grain.GetStateAsync());
         });
@@ -150,10 +160,13 @@ public class MyGrainTests(OrleansTestClusterFixture fixture)
 }
 ```
 
+In xUnit, see the official docs for fixture registration options:
+[Sharing Context between Tests](https://xunit.net/docs/shared-context)
+
 ## Features
 
-- **Standard assertions** — `WaitForAssertionAsync` retries on any detected grain activity (calls or storage operations). Ideal for asserting observable grain behavior.
-- **Grain-scoped assertions** — pass a grain reference to restrict retriggers to that grain only.
+- **Grain-scoped assertions** — pass a grain reference to restrict retriggers to that grain only. This is the best default when one grain owns the state you are asserting.
+- **Standard assertions** — `WaitForAssertionAsync` without a grain scope retries on any detected grain activity (calls or storage operations). Useful when multiple grains contribute to the observed outcome.
 - **Advanced assertions** — `WaitForStorageOperationAsync` and `WaitForGrainCallAsync` wait for events matching a predicate. Use sparingly — these couple tests to implementation details.
 - **Configurable timeout** — defaults to 5 seconds, overridable per call or via the `WAIT_FOR_ASSERTION_TIMEOUT_SECONDS` environment variable. Timeout is automatically bypassed when a debugger is attached.
 - **Test-framework-agnostic** — no runtime dependency on any test framework.

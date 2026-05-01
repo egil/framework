@@ -1,17 +1,8 @@
 # Assertion Patterns
 
-## Waiting for any grain activity
-
-The basic `WaitForAssertionAsync` overloads retry the assertion each time any grain activity (call or storage operation) is observed. Prefer this form unless you need to filter by grain or inspect implementation details.
-
-```csharp
-await collector.WaitForAssertionAsync(async () =>
-{
-    Assert.Equal("ready", await grain.GetStatusAsync());
-});
-```
-
 ## Grain-scoped assertions
+
+When a single grain owns the state you are asserting, prefer passing that grain into `WaitForAssertionAsync`. This keeps retries focused on the grain that actually matters.
 
 Pass a grain reference as the first argument to restrict retriggers to activity from that grain only:
 
@@ -63,6 +54,17 @@ public sealed class CounterGrainTests(GrainScopedAssertionsFixture fixture) : IC
 ```
 <sup><a href='/samples/Egil.Orleans.Testing.Samples/GrainScopedAssertionSample.cs#L34-L77' title='Snippet source file'>snippet source</a> | <a href='#snippet-grain_scoped_assertions_fixture' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
+
+## Waiting for any grain activity
+
+The unscoped `WaitForAssertionAsync` overload retries the assertion each time any grain activity (call or storage operation) is observed. Use it when the observed outcome can be driven by more than one grain, or when you do not have a meaningful grain reference to scope the wait to.
+
+```csharp
+await collector.WaitForAssertionAsync(async () =>
+{
+    Assert.Equal("ready", await grain.GetStatusAsync());
+});
+```
 
 ## Returning values from assertions
 
