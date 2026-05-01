@@ -11,7 +11,7 @@ namespace Egil.Orleans.Testing;
 /// <param name="stateName">The state name passed to the storage provider.</param>
 /// <param name="etag">The storage ETag, when available.</param>
 /// <param name="state">The state payload involved in the operation.</param>
-public sealed record class StorageOperation(
+public readonly record struct StorageOperation(
     StorageOperationKind kind,
     GrainId grainId,
     string storageName,

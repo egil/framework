@@ -12,7 +12,13 @@ public static class GrainActivityWaiterExtensions
 {
     extension(IGrainActivityWaiter waiter)
     {
-        /// <inheritdoc cref="GrainActivityCollector.WaitForAssertionAsync(Func{Task}, TimeSpan?, CancellationToken)"/>
+        /// <summary>
+        /// Waits until the supplied assertion succeeds, retrying whenever any observed grain activity occurs.
+        /// </summary>
+        /// <param name="assertion">The assertion callback to evaluate.</param>
+        /// <param name="timeout">The maximum time to wait. When <see langword="null"/>, <see cref="IGrainActivityWaiter.DefaultWaitTimeout"/> is used.</param>
+        /// <param name="ct">A token that cancels the wait.</param>
+        /// <returns>A task that completes when the assertion succeeds.</returns>
         [StackTraceHidden]
         public Task WaitForAssertionAsync(
             Func<Task> assertion,
@@ -26,7 +32,14 @@ public static class GrainActivityWaiterExtensions
                 grainId: null,
                 ct);
 
-        /// <inheritdoc cref="GrainActivityCollector.WaitForAssertionAsync{TResult}(Func{Task{TResult}}, TimeSpan?, CancellationToken)"/>
+        /// <summary>
+        /// Waits until the supplied assertion succeeds, retrying whenever any observed grain activity occurs.
+        /// </summary>
+        /// <typeparam name="TResult">The assertion result type.</typeparam>
+        /// <param name="assertion">The assertion callback to evaluate.</param>
+        /// <param name="timeout">The maximum time to wait. When <see langword="null"/>, <see cref="IGrainActivityWaiter.DefaultWaitTimeout"/> is used.</param>
+        /// <param name="ct">A token that cancels the wait.</param>
+        /// <returns>The value returned by the successful assertion callback.</returns>
         [StackTraceHidden]
         public Task<TResult> WaitForAssertionAsync<TResult>(
             Func<Task<TResult>> assertion,
@@ -40,7 +53,15 @@ public static class GrainActivityWaiterExtensions
                 grainId: null,
                 ct);
 
-        /// <inheritdoc cref="GrainActivityCollector.WaitForAssertionAsync{TGrain}(TGrain, Func{Task}, TimeSpan?, CancellationToken)"/>
+        /// <summary>
+        /// Waits until the supplied assertion succeeds, retrying only when activity from the specified grain occurs.
+        /// </summary>
+        /// <typeparam name="TGrain">The grain interface type.</typeparam>
+        /// <param name="grain">The grain whose activity should trigger retries.</param>
+        /// <param name="assertion">The assertion callback to evaluate.</param>
+        /// <param name="timeout">The maximum time to wait. When <see langword="null"/>, <see cref="IGrainActivityWaiter.DefaultWaitTimeout"/> is used.</param>
+        /// <param name="ct">A token that cancels the wait.</param>
+        /// <returns>A task that completes when the assertion succeeds.</returns>
         [StackTraceHidden]
         public Task WaitForAssertionAsync<TGrain>(
             TGrain grain,
@@ -56,7 +77,16 @@ public static class GrainActivityWaiterExtensions
                 grain is null ? null : grain.GetGrainId(),
                 ct);
 
-        /// <inheritdoc cref="GrainActivityCollector.WaitForAssertionAsync{TGrain, TResult}(TGrain, Func{Task{TResult}}, TimeSpan?, CancellationToken)"/>
+        /// <summary>
+        /// Waits until the supplied assertion succeeds, retrying only when activity from the specified grain occurs.
+        /// </summary>
+        /// <typeparam name="TGrain">The grain interface type.</typeparam>
+        /// <typeparam name="TResult">The assertion result type.</typeparam>
+        /// <param name="grain">The grain whose activity should trigger retries.</param>
+        /// <param name="assertion">The assertion callback to evaluate.</param>
+        /// <param name="timeout">The maximum time to wait. When <see langword="null"/>, <see cref="IGrainActivityWaiter.DefaultWaitTimeout"/> is used.</param>
+        /// <param name="ct">A token that cancels the wait.</param>
+        /// <returns>The value returned by the successful assertion callback.</returns>
         [StackTraceHidden]
         public Task<TResult> WaitForAssertionAsync<TGrain, TResult>(
             TGrain grain,
@@ -72,7 +102,16 @@ public static class GrainActivityWaiterExtensions
                 grain is null ? null : grain.GetGrainId(),
                 ct);
 
-        /// <inheritdoc cref="GrainActivityCollector.WaitForAssertionAsync{TGrain}(TGrain, Func{TGrain, Task}, TimeSpan?, CancellationToken)"/>
+        /// <summary>
+        /// Waits until the supplied assertion succeeds, retrying only when activity from the specified grain occurs.
+        /// The grain reference is passed to the assertion callback for convenience.
+        /// </summary>
+        /// <typeparam name="TGrain">The grain interface type.</typeparam>
+        /// <param name="grain">The grain whose activity should trigger retries.</param>
+        /// <param name="assertion">The assertion callback that receives the grain reference.</param>
+        /// <param name="timeout">The maximum time to wait. When <see langword="null"/>, <see cref="IGrainActivityWaiter.DefaultWaitTimeout"/> is used.</param>
+        /// <param name="ct">A token that cancels the wait.</param>
+        /// <returns>A task that completes when the assertion succeeds.</returns>
         [StackTraceHidden]
         public Task WaitForAssertionAsync<TGrain>(
             TGrain grain,
@@ -88,7 +127,17 @@ public static class GrainActivityWaiterExtensions
                 grain is null ? null : grain.GetGrainId(),
                 ct);
 
-        /// <inheritdoc cref="GrainActivityCollector.WaitForAssertionAsync{TGrain, TResult}(TGrain, Func{TGrain, Task{TResult}}, TimeSpan?, CancellationToken)"/>
+        /// <summary>
+        /// Waits until the supplied assertion succeeds, retrying only when activity from the specified grain occurs.
+        /// The grain reference is passed to the assertion callback for convenience.
+        /// </summary>
+        /// <typeparam name="TGrain">The grain interface type.</typeparam>
+        /// <typeparam name="TResult">The assertion result type.</typeparam>
+        /// <param name="grain">The grain whose activity should trigger retries.</param>
+        /// <param name="assertion">The assertion callback that receives the grain reference.</param>
+        /// <param name="timeout">The maximum time to wait. When <see langword="null"/>, <see cref="IGrainActivityWaiter.DefaultWaitTimeout"/> is used.</param>
+        /// <param name="ct">A token that cancels the wait.</param>
+        /// <returns>The value returned by the successful assertion callback.</returns>
         [StackTraceHidden]
         public Task<TResult> WaitForAssertionAsync<TGrain, TResult>(
             TGrain grain,

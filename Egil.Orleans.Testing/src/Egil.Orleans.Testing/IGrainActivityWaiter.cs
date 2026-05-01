@@ -41,13 +41,13 @@ public interface IGrainActivityWaiter
     /// <param name="assertion">The assertion callback to evaluate.</param>
     /// <param name="filter">An optional activity filter that limits which signals trigger retries.</param>
     /// <param name="timeout">The maximum time to wait. When <see langword="null"/>, <see cref="DefaultWaitTimeout"/> is used.</param>
-    /// <param name="ct">A token that cancels the wait.</param>
+    /// <param name="cancellationToken">A token that cancels the wait.</param>
     /// <returns>The value returned by the successful assertion callback.</returns>
     Task<TResult> WaitForAssertionAsync<TResult>(
         Func<ValueTask<TResult>> assertion,
         Predicate<GrainActivity>? filter,
         TimeSpan? timeout,
-        CancellationToken ct);
+        CancellationToken cancellationToken);
 
     internal static TimeSpan LoadDefaultWaitTimeout()
     {
