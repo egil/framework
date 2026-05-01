@@ -27,3 +27,9 @@ All code samples are extracted from the [samples project](../../samples/Egil.Orl
 - [Explicit stream subscriptions](streams.md#explicit-stream-subscriptions)
 - [Implicit stream subscriptions](streams.md#implicit-stream-subscriptions)
 - [Fixture setup for streams](streams.md#fixture-setup)
+
+## Operation feeds
+
+- [When to use operation feeds](operation-feeds.md#when-to-use-operation-feeds)
+- [Subscribing to storage operations](operation-feeds.md#subscribing-to-storage-operations)
+- [Subscribing to grain calls](operation-feeds.md#subscribing-to-grain-calls)

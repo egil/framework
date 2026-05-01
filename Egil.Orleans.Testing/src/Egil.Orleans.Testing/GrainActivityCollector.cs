@@ -1,6 +1,6 @@
 using System.Diagnostics;
-using System.Runtime.ExceptionServices;
 using System.Runtime.CompilerServices;
+using System.Runtime.ExceptionServices;
 using System.Threading.Channels;
 
 namespace Egil.Orleans.Testing;
@@ -30,6 +30,8 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter
     private List<ActivitySubscriber> activitySubscribers = [];
     private List<StorageSubscriber> storageSubscribers = [];
     private List<GrainCallSubscriber> grainCallSubscribers = [];
+    private List<LiveFeedSubscriber<StorageOperation>> liveFeedStorageSubscribers = [];
+    private List<LiveFeedSubscriber<IIncomingGrainCallContext>> liveFeedGrainCallSubscribers = [];
     private Queue<StorageOperation> recentStorageOperations = new();
     private Queue<IIncomingGrainCallContext> recentGrainCalls = new();
 
@@ -147,6 +149,232 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter
             timeout,
             grain.GetGrainId(),
             ct);
+    }
+
+    /// <summary>
+    /// Returns a live, future-only feed of all storage operations observed by the collector.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The subscription begins when enumeration starts (i.e. when the first <c>MoveNextAsync</c> call is made).
+    /// Only operations that occur <b>after</b> enumeration begins are delivered — no historical replay is performed.
+    /// Start consuming the feed <b>before</b> triggering the behavior you want to observe.
+    /// </para>
+    /// <para>
+    /// The feed uses an unbounded buffer so slow consumers never lose events. The feed completes
+    /// when <paramref name="ct"/> is cancelled or the caller stops enumerating.
+    /// </para>
+    /// <para><b>Coupling risk:</b> This method exposes low-level persistence implementation details.
+    /// Tests using this feed are tightly coupled to storage providers, write timing, and persistence strategy.
+    /// Prefer <c>WaitForAssertionAsync</c> when you can express the expected behavior through the grain's public API.</para>
+    /// </remarks>
+    /// <param name="ct">A token that stops the feed and removes the subscription.</param>
+    /// <returns>An async enumerable that yields storage operations as they occur.</returns>
+    public async IAsyncEnumerable<StorageOperation> SubscribeToStorageOperations(
+        [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        var channel = Channel.CreateUnbounded<StorageOperation>(new UnboundedChannelOptions
+        {
+            SingleReader = true,
+            SingleWriter = false,
+            AllowSynchronousContinuations = false,
+        });
+
+        var subscriber = new LiveFeedSubscriber<StorageOperation>(channel, GrainIdFilter: null);
+        lock (storageSubscribersLock)
+        {
+            liveFeedStorageSubscribers = [.. liveFeedStorageSubscribers, subscriber];
+        }
+
+        try
+        {
+            await foreach (var operation in channel.Reader.ReadAllAsync(ct).ConfigureAwait(false))
+            {
+                yield return operation;
+            }
+        }
+        finally
+        {
+            lock (storageSubscribersLock)
+            {
+                liveFeedStorageSubscribers = [.. liveFeedStorageSubscribers.Where(s => !ReferenceEquals(s, subscriber))];
+            }
+
+            channel.Writer.TryComplete();
+        }
+    }
+
+    /// <summary>
+    /// Returns a live, future-only feed of storage operations for the specified grain.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The subscription begins when enumeration starts (i.e. when the first <c>MoveNextAsync</c> call is made).
+    /// Only operations that occur <b>after</b> enumeration begins are delivered — no historical replay is performed.
+    /// Start consuming the feed <b>before</b> triggering the behavior you want to observe.
+    /// </para>
+    /// <para>
+    /// The feed uses an unbounded buffer so slow consumers never lose events. The feed completes
+    /// when <paramref name="ct"/> is cancelled or the caller stops enumerating.
+    /// </para>
+    /// <para><b>Coupling risk:</b> This method exposes low-level persistence implementation details.
+    /// Tests using this feed are tightly coupled to storage providers, write timing, and persistence strategy.
+    /// Prefer <c>WaitForAssertionAsync</c> when you can express the expected behavior through the grain's public API.</para>
+    /// </remarks>
+    /// <typeparam name="TGrain">The grain interface type.</typeparam>
+    /// <param name="grain">The grain whose storage operations should be included in the feed.</param>
+    /// <param name="ct">A token that stops the feed and removes the subscription.</param>
+    /// <returns>An async enumerable that yields storage operations for the specified grain as they occur.</returns>
+    public async IAsyncEnumerable<StorageOperation> SubscribeToStorageOperations<TGrain>(
+        TGrain grain,
+        [EnumeratorCancellation] CancellationToken ct = default)
+        where TGrain : IGrain
+    {
+        ArgumentNullException.ThrowIfNull(grain);
+        var grainId = grain.GetGrainId();
+
+        var channel = Channel.CreateUnbounded<StorageOperation>(new UnboundedChannelOptions
+        {
+            SingleReader = true,
+            SingleWriter = false,
+            AllowSynchronousContinuations = false,
+        });
+
+        var subscriber = new LiveFeedSubscriber<StorageOperation>(channel, GrainIdFilter: grainId);
+        lock (storageSubscribersLock)
+        {
+            liveFeedStorageSubscribers = [.. liveFeedStorageSubscribers, subscriber];
+        }
+
+        try
+        {
+            await foreach (var operation in channel.Reader.ReadAllAsync(ct).ConfigureAwait(false))
+            {
+                yield return operation;
+            }
+        }
+        finally
+        {
+            lock (storageSubscribersLock)
+            {
+                liveFeedStorageSubscribers = [.. liveFeedStorageSubscribers.Where(s => !ReferenceEquals(s, subscriber))];
+            }
+
+            channel.Writer.TryComplete();
+        }
+    }
+
+    /// <summary>
+    /// Returns a live, future-only feed of all incoming grain calls observed by the collector.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The subscription begins when enumeration starts (i.e. when the first <c>MoveNextAsync</c> call is made).
+    /// Only calls that occur <b>after</b> enumeration begins are delivered — no historical replay is performed.
+    /// Start consuming the feed <b>before</b> triggering the behavior you want to observe.
+    /// </para>
+    /// <para>
+    /// The feed uses an unbounded buffer so slow consumers never lose events. The feed completes
+    /// when <paramref name="ct"/> is cancelled or the caller stops enumerating.
+    /// </para>
+    /// <para><b>Coupling risk:</b> This method exposes low-level call flow rather than externally observable grain behavior.
+    /// Tests using this feed are tightly coupled to internal call structure and can break when implementation details change.
+    /// Prefer <c>WaitForAssertionAsync</c> for behavior-first assertions.</para>
+    /// </remarks>
+    /// <param name="ct">A token that stops the feed and removes the subscription.</param>
+    /// <returns>An async enumerable that yields incoming grain call contexts as they occur.</returns>
+    public async IAsyncEnumerable<IIncomingGrainCallContext> SubscribeToGrainCalls(
+        [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        var channel = Channel.CreateUnbounded<IIncomingGrainCallContext>(new UnboundedChannelOptions
+        {
+            SingleReader = true,
+            SingleWriter = false,
+            AllowSynchronousContinuations = false,
+        });
+
+        var subscriber = new LiveFeedSubscriber<IIncomingGrainCallContext>(channel, GrainIdFilter: null);
+        lock (grainCallSubscribersLock)
+        {
+            liveFeedGrainCallSubscribers = [.. liveFeedGrainCallSubscribers, subscriber];
+        }
+
+        try
+        {
+            await foreach (var context in channel.Reader.ReadAllAsync(ct).ConfigureAwait(false))
+            {
+                yield return context;
+            }
+        }
+        finally
+        {
+            lock (grainCallSubscribersLock)
+            {
+                liveFeedGrainCallSubscribers = [.. liveFeedGrainCallSubscribers.Where(s => !ReferenceEquals(s, subscriber))];
+            }
+
+            channel.Writer.TryComplete();
+        }
+    }
+
+    /// <summary>
+    /// Returns a live, future-only feed of incoming grain calls for the specified grain.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The subscription begins when enumeration starts (i.e. when the first <c>MoveNextAsync</c> call is made).
+    /// Only calls that occur <b>after</b> enumeration begins are delivered — no historical replay is performed.
+    /// Start consuming the feed <b>before</b> triggering the behavior you want to observe.
+    /// </para>
+    /// <para>
+    /// The feed uses an unbounded buffer so slow consumers never lose events. The feed completes
+    /// when <paramref name="ct"/> is cancelled or the caller stops enumerating.
+    /// </para>
+    /// <para><b>Coupling risk:</b> This method exposes low-level call flow rather than externally observable grain behavior.
+    /// Tests using this feed are tightly coupled to internal call structure and can break when implementation details change.
+    /// Prefer <c>WaitForAssertionAsync</c> for behavior-first assertions.</para>
+    /// </remarks>
+    /// <typeparam name="TGrain">The grain interface type.</typeparam>
+    /// <param name="grain">The grain whose incoming calls should be included in the feed.</param>
+    /// <param name="ct">A token that stops the feed and removes the subscription.</param>
+    /// <returns>An async enumerable that yields incoming grain call contexts for the specified grain as they occur.</returns>
+    public async IAsyncEnumerable<IIncomingGrainCallContext> SubscribeToGrainCalls<TGrain>(
+        TGrain grain,
+        [EnumeratorCancellation] CancellationToken ct = default)
+        where TGrain : IGrain
+    {
+        ArgumentNullException.ThrowIfNull(grain);
+        var grainId = grain.GetGrainId();
+
+        var channel = Channel.CreateUnbounded<IIncomingGrainCallContext>(new UnboundedChannelOptions
+        {
+            SingleReader = true,
+            SingleWriter = false,
+            AllowSynchronousContinuations = false,
+        });
+
+        var subscriber = new LiveFeedSubscriber<IIncomingGrainCallContext>(channel, GrainIdFilter: grainId);
+        lock (grainCallSubscribersLock)
+        {
+            liveFeedGrainCallSubscribers = [.. liveFeedGrainCallSubscribers, subscriber];
+        }
+
+        try
+        {
+            await foreach (var context in channel.Reader.ReadAllAsync(ct).ConfigureAwait(false))
+            {
+                yield return context;
+            }
+        }
+        finally
+        {
+            lock (grainCallSubscribersLock)
+            {
+                liveFeedGrainCallSubscribers = [.. liveFeedGrainCallSubscribers.Where(s => !ReferenceEquals(s, subscriber))];
+            }
+
+            channel.Writer.TryComplete();
+        }
     }
 
     internal void OnStorageOperation(StorageOperation operation)
@@ -363,10 +591,12 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter
     private void PublishStorageOperation(StorageOperation operation)
     {
         StorageSubscriber[] snapshot;
+        LiveFeedSubscriber<StorageOperation>[] liveFeedSnapshot;
         lock (storageSubscribersLock)
         {
             EnqueueRecentEvent(recentStorageOperations, operation);
             snapshot = [.. storageSubscribers];
+            liveFeedSnapshot = [.. liveFeedStorageSubscribers];
         }
 
         foreach (var subscriber in snapshot)
@@ -381,15 +611,27 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter
                 throw new InvalidOperationException("A storage operation subscriber channel is full.");
             }
         }
+
+        foreach (var subscriber in liveFeedSnapshot)
+        {
+            if (subscriber.GrainIdFilter is { } grainId && operation.GrainId != grainId)
+            {
+                continue;
+            }
+
+            subscriber.Channel.Writer.TryWrite(operation);
+        }
     }
 
     private void PublishGrainCall(IIncomingGrainCallContext context)
     {
         GrainCallSubscriber[] snapshot;
+        LiveFeedSubscriber<IIncomingGrainCallContext>[] liveFeedSnapshot;
         lock (grainCallSubscribersLock)
         {
             EnqueueRecentEvent(recentGrainCalls, context);
             snapshot = [.. grainCallSubscribers];
+            liveFeedSnapshot = [.. liveFeedGrainCallSubscribers];
         }
 
         foreach (var subscriber in snapshot)
@@ -403,6 +645,16 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter
             {
                 throw new InvalidOperationException("A grain call subscriber channel is full.");
             }
+        }
+
+        foreach (var subscriber in liveFeedSnapshot)
+        {
+            if (subscriber.GrainIdFilter is { } grainId && context.TargetId != grainId)
+            {
+                continue;
+            }
+
+            subscriber.Channel.Writer.TryWrite(context);
         }
     }
 
@@ -548,4 +800,6 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter
             }
         }
     }
+
+    private sealed record LiveFeedSubscriber<T>(Channel<T> Channel, GrainId? GrainIdFilter);
 }
