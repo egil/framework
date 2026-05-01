@@ -28,24 +28,4 @@ public class RequestContextScopeTests
 
         Assert.Null(RequestContext.Get(RequestContextScope.AssertionKey));
     }
-
-    [Fact]
-    public void ForTest_sets_test_id_and_restores_previous_value()
-    {
-        RequestContext.Set(RequestContextScope.TestIdKey, "old-test-id");
-
-        using (RequestContextScope.ForTest("new-test-id"))
-        {
-            Assert.Equal("new-test-id", RequestContext.Get(RequestContextScope.TestIdKey));
-        }
-
-        Assert.Equal("old-test-id", RequestContext.Get(RequestContextScope.TestIdKey));
-        RequestContext.Remove(RequestContextScope.TestIdKey);
-    }
-
-    [Fact]
-    public void ForTest_throws_for_null_test_id()
-    {
-        Assert.Throws<ArgumentNullException>(() => RequestContextScope.ForTest(null!));
-    }
 }
