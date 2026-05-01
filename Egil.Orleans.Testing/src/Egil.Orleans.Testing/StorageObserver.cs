@@ -1,5 +1,3 @@
-using Orleans;
-using Orleans.Runtime;
 using Orleans.Storage;
 
 namespace Egil.Orleans.Testing;

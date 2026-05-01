@@ -2,8 +2,6 @@ using System.Diagnostics;
 using System.Runtime.ExceptionServices;
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
-using Orleans;
-using Orleans.Runtime;
 
 namespace Egil.Orleans.Testing;
 

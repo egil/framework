@@ -1,6 +1,4 @@
 using System.Runtime.ExceptionServices;
-using Orleans;
-using Orleans.Runtime;
 
 namespace Egil.Orleans.Testing;
 
