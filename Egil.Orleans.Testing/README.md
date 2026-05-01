@@ -23,28 +23,61 @@ dotnet add package Egil.Orleans.Testing
 The following is a complete example that builds an `InProcessTestCluster` directly in the test arrange step:
 
 ```csharp
+using System;
+using System.Threading;
+using System.Threading.Tasks;
 using Orleans.TestingHost;
+using Orleans.Timers;
 using Egil.Orleans.Testing;
 
 // Grain interface and implementation (in your production code)
 public interface IOrderGrain : IGrainWithStringKey
 {
     Task SubmitAsync(string item);
-    Task<string?> GetStatusAsync();
+    Task<string?> GetLastSubmittedItemAsync();
+}
+
+public sealed class OrderState
+{
+    public string? PendingItem { get; set; }
+    public string? LastSubmittedItem { get; set; }
 }
 
 public sealed class OrderGrain(
-    [PersistentState("order", "Default")] IPersistentState<OrderState> state)
+    [PersistentState("order", "Default")] IPersistentState<OrderState> state,
+    ITimerRegistry timerRegistry,
+    IGrainContext grainContext)
     : Grain, IOrderGrain
 {
+    private IGrainTimer? timer;
+
     public async Task SubmitAsync(string item)
     {
-        state.State.Item = item;
-        state.State.Status = "submitted";
+        state.State.PendingItem = item;
         await state.WriteStateAsync();
+
+        timer?.Dispose();
+        timer = timerRegistry.RegisterGrainTimer(
+            grainContext,
+            static (grain, ct) => grain.OnSubmissionCompletedAsync(ct),
+            this,
+            new GrainTimerCreationOptions
+            {
+                DueTime = TimeSpan.FromMilliseconds(1),
+                Period = Timeout.InfiniteTimeSpan,
+            });
     }
 
-    public Task<string?> GetStatusAsync() => Task.FromResult(state.State.Status);
+    public Task<string?> GetLastSubmittedItemAsync()
+        => Task.FromResult(state.State.LastSubmittedItem);
+
+    private async Task OnSubmissionCompletedAsync(CancellationToken cancellationToken)
+    {
+        state.State.LastSubmittedItem = state.State.PendingItem;
+        await state.WriteStateAsync();
+        timer?.Dispose();
+        timer = null;
+    }
 }
 
 public sealed class OrderGrainTests
@@ -57,12 +90,9 @@ public sealed class OrderGrainTests
 
         builder.ConfigureSilo((_, siloBuilder) =>
         {
-            siloBuilder.AddMemoryGrainStorageAsDefault();
-            siloBuilder.AddMemoryGrainStorage("Orders");
-
+            siloBuilder.AddMemoryGrainStorage("Default");
             siloBuilder.AddGrainActivityCollector(collector)
-                .CollectStorageActivityFromDefault()
-                .CollectStorageActivityFrom("Orders");
+                .CollectStorageActivityFromDefault();
         });
 
         await using var cluster = builder.Build();
@@ -72,9 +102,14 @@ public sealed class OrderGrainTests
 
         await grain.SubmitAsync("laptop");
 
+        // SubmitAsync only schedules the follow-up work on a grain timer.
+        // The method returns before the timer callback writes the final state,
+        // so a direct assertion here would race and tempt you to add Task.Delay.
+        // WaitForAssertionAsync retries whenever the collector observes the
+        // timer callback's storage write, which makes the test deterministic.
         await collector.WaitForAssertionAsync(async () =>
         {
-            Assert.Equal("submitted", await grain.GetStatusAsync());
+            Assert.Equal("laptop", await grain.GetLastSubmittedItemAsync());
         }, ct: TestContext.Current.CancellationToken);
     }
 }
