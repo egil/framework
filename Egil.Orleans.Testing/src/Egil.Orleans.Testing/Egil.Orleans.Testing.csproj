@@ -36,6 +36,8 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.Orleans.Runtime" />
+    <PackageReference Include="Microsoft.Orleans.TestingHost" />
+    <PackageReference Include="TimeProviderExtensions" />
   </ItemGroup>
 
   <ItemGroup>
