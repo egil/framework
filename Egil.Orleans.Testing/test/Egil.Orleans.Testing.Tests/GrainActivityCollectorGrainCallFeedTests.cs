@@ -16,7 +16,7 @@ public class GrainActivityCollectorGrainCallFeedTests(OrleansTestClusterFixture 
 
         await grain.SetValueAsync("hello");
 
-        await WaitForCollectedAsync(feedTask, timeout: TimeSpan.FromSeconds(5), ct);
+        await WaitForCollectedAsync(feedTask, timeout: TimeSpan.FromSeconds(5), cts);
 
         Assert.NotEmpty(collected);
         Assert.All(collected, ctx => Assert.Equal(grain.GetGrainId(), ctx.TargetId));
@@ -42,7 +42,7 @@ public class GrainActivityCollectorGrainCallFeedTests(OrleansTestClusterFixture 
         // Now trigger the target
         await target.SetValueAsync("signal");
 
-        await WaitForCollectedAsync(feedTask, timeout: TimeSpan.FromSeconds(5), ct);
+        await WaitForCollectedAsync(feedTask, timeout: TimeSpan.FromSeconds(5), cts);
 
         Assert.All(collected, ctx => Assert.Equal(target.GetGrainId(), ctx.TargetId));
     }
@@ -56,8 +56,11 @@ public class GrainActivityCollectorGrainCallFeedTests(OrleansTestClusterFixture 
         // Trigger a call BEFORE subscribing
         await grain.SetValueAsync("before-subscribe");
 
-        // Wait to ensure the call is fully processed
-        await Task.Delay(100, ct);
+        // Deterministically wait for the pre-subscribe call to be observed
+        await fixture.Collector.WaitForGrainCallAsync(
+            grain,
+            ctx => ctx.MethodName == nameof(ITestStateGrain.SetValueAsync),
+            ct: ct);
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var collected = new List<IIncomingGrainCallContext>();
@@ -68,7 +71,7 @@ public class GrainActivityCollectorGrainCallFeedTests(OrleansTestClusterFixture 
         // Now trigger a new call
         await grain.GetValueAsync();
 
-        await WaitForCollectedAsync(feedTask, timeout: TimeSpan.FromSeconds(5), ct);
+        await WaitForCollectedAsync(feedTask, timeout: TimeSpan.FromSeconds(5), cts);
 
         // Only the post-subscribe call should appear
         Assert.All(collected, ctx =>
@@ -92,11 +95,15 @@ public class GrainActivityCollectorGrainCallFeedTests(OrleansTestClusterFixture 
         // The feed task should complete (possibly with OperationCanceledException)
         await IgnoreCancellationAsync(feedTask);
 
-        // After cancellation, a new call should not appear in the old collected list
+        // After cancellation, trigger a call and deterministically wait for it
+        // to be processed by the collector, then verify the old list is unchanged.
         var countAfterCancel = collected.Count;
         var grain = fixture.GetUniqueGrain<ITestStateGrain>();
         await grain.SetValueAsync("after-cancel");
-        await Task.Delay(200, ct);
+        await fixture.Collector.WaitForGrainCallAsync(
+            grain,
+            ctx => ctx.MethodName == nameof(ITestStateGrain.SetValueAsync),
+            ct: ct);
 
         Assert.Equal(countAfterCancel, collected.Count);
     }
@@ -125,9 +132,14 @@ public class GrainActivityCollectorGrainCallFeedTests(OrleansTestClusterFixture 
         }
     }
 
-    private static async Task WaitForCollectedAsync(Task feedTask, TimeSpan timeout, CancellationToken ct)
+    private static async Task WaitForCollectedAsync(Task feedTask, TimeSpan timeout, CancellationTokenSource cts)
     {
-        var completed = await Task.WhenAny(feedTask, Task.Delay(timeout, ct));
+        var completed = await Task.WhenAny(feedTask, Task.Delay(timeout));
+        if (!ReferenceEquals(completed, feedTask))
+        {
+            await cts.CancelAsync();
+        }
+
         await IgnoreCancellationAsync(feedTask);
     }
 
