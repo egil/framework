@@ -93,6 +93,14 @@ public sealed class OrleansTestClusterFixture : IAsyncLifetime, IGrainActivityWa
     public GrainActivityCollector Collector { get; } = new();
     public IGrainFactory GrainFactory => cluster!.Client;
 
+    public GrainId CreateUniqueGrainId<TGrain>([System.Runtime.CompilerServices.CallerMemberName] string memberName = "")
+        where TGrain : IGrain
+        => CreateUniqueGrainReference<TGrain>(memberName).GetGrainId();
+
+    public TGrain GetUniqueGrain<TGrain>([System.Runtime.CompilerServices.CallerMemberName] string memberName = "")
+        where TGrain : IGrain
+        => CreateUniqueGrainReference<TGrain>(memberName);
+
     public async ValueTask InitializeAsync()
     {
         var builder = new InProcessTestClusterBuilder(initialSilosCount: 1);
@@ -124,6 +132,25 @@ public sealed class OrleansTestClusterFixture : IAsyncLifetime, IGrainActivityWa
         TimeSpan? timeout,
         CancellationToken ct)
         => ((IGrainActivityWaiter)Collector).WaitForAssertionAsync(assertion, filter, timeout, ct);
+
+    private TGrain CreateUniqueGrainReference<TGrain>(string memberName)
+        where TGrain : IGrain
+    {
+        var grainType = typeof(TGrain);
+        var grainName = grainType.Name;
+
+        return typeof(IGrainWithStringKey).IsAssignableFrom(grainType)
+            ? (TGrain)GrainFactory.GetGrain(grainType, $"{memberName}-{grainName}-{Guid.NewGuid():N}")
+            : typeof(IGrainWithGuidCompoundKey).IsAssignableFrom(grainType)
+                ? (TGrain)GrainFactory.GetGrain(grainType, Guid.NewGuid(), $"{memberName}-{grainName}")
+                : typeof(IGrainWithGuidKey).IsAssignableFrom(grainType)
+                    ? (TGrain)GrainFactory.GetGrain(grainType, Guid.NewGuid())
+                    : typeof(IGrainWithIntegerCompoundKey).IsAssignableFrom(grainType)
+                        ? (TGrain)GrainFactory.GetGrain(grainType, Random.Shared.NextInt64(1, long.MaxValue), $"{memberName}-{grainName}")
+                        : typeof(IGrainWithIntegerKey).IsAssignableFrom(grainType)
+                            ? (TGrain)GrainFactory.GetGrain(grainType, Random.Shared.NextInt64(1, long.MaxValue))
+                            : throw new NotSupportedException($"Unsupported grain key type for {grainType.FullName}.");
+    }
 }
 
 public class MyGrainTests(OrleansTestClusterFixture fixture)
@@ -132,7 +159,7 @@ public class MyGrainTests(OrleansTestClusterFixture fixture)
     [Fact]
     public async Task My_grain_does_the_right_thing()
     {
-        var grain = fixture.GrainFactory.GetGrain<IMyGrain>(Guid.NewGuid().ToString());
+        var grain = fixture.GetUniqueGrain<IMyGrain>();
         await grain.DoSomethingAsync();
 
         await fixture.WaitForAssertionAsync(async () =>
