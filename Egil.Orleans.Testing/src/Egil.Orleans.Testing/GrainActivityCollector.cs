@@ -64,40 +64,6 @@ public sealed class GrainActivityCollector
     /// <summary>
     /// Waits until the supplied assertion succeeds, retrying whenever any observed grain activity occurs.
     /// </summary>
-    /// <param name="assertion">The assertion callback to evaluate.</param>
-    /// <param name="timeout">
-    /// The maximum time to wait. When <see langword="null"/>, <see cref="WaitForAssertionDefaults.Timeout"/> is used.
-    /// Timeout enforcement is skipped while a debugger is attached.
-    /// </param>
-    /// <param name="ct">A token that cancels the wait.</param>
-    /// <returns>A task that completes when the assertion succeeds.</returns>
-    /// <exception cref="ArgumentNullException"><paramref name="assertion"/> is <see langword="null"/>.</exception>
-    /// <exception cref="WaitForAssertionTimeoutException">
-    /// Thrown when the assertion does not succeed before the timeout expires. The <see cref="Exception.InnerException"/>
-    /// contains the last assertion failure.
-    /// </exception>
-    /// <example>
-    /// <code><![CDATA[
-    /// await collector.WaitForAssertionAsync(async () =>
-    /// {
-    ///     Assert.True(await grain.IsReadyAsync());
-    /// });
-    /// ]]></code>
-    /// </example>
-    public Task WaitForAssertionAsync(
-        Func<ValueTask> assertion,
-        TimeSpan? timeout = null,
-        CancellationToken ct = default)
-        => WaitForAssertionAsyncCore<bool>(
-            assertion is null ? null! : () => WrapValueTask(assertion),
-            filter: null,
-            timeout,
-            grainId: null,
-            ct);
-
-    /// <summary>
-    /// Waits until the supplied assertion succeeds, retrying whenever any observed grain activity occurs.
-    /// </summary>
     /// <typeparam name="TResult">The assertion result type.</typeparam>
     /// <param name="assertion">The assertion callback to evaluate.</param>
     /// <param name="timeout">
@@ -133,38 +99,6 @@ public sealed class GrainActivityCollector
             ct);
 
     /// <summary>
-    /// Waits until the supplied assertion succeeds, retrying whenever any observed grain activity occurs.
-    /// </summary>
-    /// <typeparam name="TResult">The assertion result type.</typeparam>
-    /// <param name="assertion">The assertion callback to evaluate.</param>
-    /// <param name="timeout">
-    /// The maximum time to wait. When <see langword="null"/>, <see cref="WaitForAssertionDefaults.Timeout"/> is used.
-    /// Timeout enforcement is skipped while a debugger is attached.
-    /// </param>
-    /// <param name="ct">A token that cancels the wait.</param>
-    /// <returns>The value returned by the successful assertion callback.</returns>
-    /// <exception cref="ArgumentNullException"><paramref name="assertion"/> is <see langword="null"/>.</exception>
-    /// <exception cref="WaitForAssertionTimeoutException">
-    /// Thrown when the assertion does not succeed before the timeout expires. The <see cref="Exception.InnerException"/>
-    /// contains the last assertion failure.
-    /// </exception>
-    /// <example>
-    /// <code><![CDATA[
-    /// var value = await collector.WaitForAssertionAsync(async () =>
-    /// {
-    ///     var current = await grain.GetValueAsync();
-    ///     Assert.Equal("done", current);
-    ///     return current;
-    /// });
-    /// ]]></code>
-    /// </example>
-    public Task<TResult> WaitForAssertionAsync<TResult>(
-        Func<ValueTask<TResult>> assertion,
-        TimeSpan? timeout = null,
-        CancellationToken ct = default)
-        => WaitForAssertionAsyncCore(assertion, filter: null, timeout, grainId: null, ct);
-
-    /// <summary>
     /// Waits until the supplied assertion succeeds, retrying only when activity from the specified grain occurs.
     /// </summary>
     /// <typeparam name="TGrain">The grain interface type.</typeparam>
@@ -194,25 +128,6 @@ public sealed class GrainActivityCollector
     /// <summary>
     /// Waits until the supplied assertion succeeds, retrying only when activity from the specified grain occurs.
     /// </summary>
-    public Task WaitForAssertionAsync<TGrain>(
-        TGrain grain,
-        Func<ValueTask> assertion,
-        TimeSpan? timeout = null,
-        CancellationToken ct = default)
-        where TGrain : IGrain
-    {
-        ArgumentNullException.ThrowIfNull(grain);
-        return WaitForAssertionAsyncCore<bool>(
-            assertion is null ? null! : () => WrapValueTask(assertion),
-            CreateActivityFilter(grain.GetGrainId()),
-            timeout,
-            grain.GetGrainId(),
-            ct);
-    }
-
-    /// <summary>
-    /// Waits until the supplied assertion succeeds, retrying only when activity from the specified grain occurs.
-    /// </summary>
     public Task<TResult> WaitForAssertionAsync<TGrain, TResult>(
         TGrain grain,
         Func<Task<TResult>> assertion,
@@ -227,20 +142,6 @@ public sealed class GrainActivityCollector
             timeout,
             grain.GetGrainId(),
             ct);
-    }
-
-    /// <summary>
-    /// Waits until the supplied assertion succeeds, retrying only when activity from the specified grain occurs.
-    /// </summary>
-    public Task<TResult> WaitForAssertionAsync<TGrain, TResult>(
-        TGrain grain,
-        Func<ValueTask<TResult>> assertion,
-        TimeSpan? timeout = null,
-        CancellationToken ct = default)
-        where TGrain : IGrain
-    {
-        ArgumentNullException.ThrowIfNull(grain);
-        return WaitForAssertionAsyncCore(assertion, CreateActivityFilter(grain.GetGrainId()), timeout, grain.GetGrainId(), ct);
     }
 
     /// <summary>
@@ -265,25 +166,6 @@ public sealed class GrainActivityCollector
     /// <summary>
     /// Waits until the supplied assertion succeeds, retrying only when activity from the specified grain occurs.
     /// </summary>
-    public Task WaitForAssertionAsync<TGrain>(
-        TGrain grain,
-        Func<TGrain, ValueTask> assertion,
-        TimeSpan? timeout = null,
-        CancellationToken ct = default)
-        where TGrain : IGrain
-    {
-        ArgumentNullException.ThrowIfNull(grain);
-        return WaitForAssertionAsyncCore<bool>(
-            assertion is null ? null! : () => WrapValueTask(() => assertion(grain)),
-            CreateActivityFilter(grain.GetGrainId()),
-            timeout,
-            grain.GetGrainId(),
-            ct);
-    }
-
-    /// <summary>
-    /// Waits until the supplied assertion succeeds, retrying only when activity from the specified grain occurs.
-    /// </summary>
     public Task<TResult> WaitForAssertionAsync<TGrain, TResult>(
         TGrain grain,
         Func<TGrain, Task<TResult>> assertion,
@@ -294,25 +176,6 @@ public sealed class GrainActivityCollector
         ArgumentNullException.ThrowIfNull(grain);
         return WaitForAssertionAsyncCore<TResult>(
             assertion is null ? null! : () => new ValueTask<TResult>(assertion(grain)),
-            CreateActivityFilter(grain.GetGrainId()),
-            timeout,
-            grain.GetGrainId(),
-            ct);
-    }
-
-    /// <summary>
-    /// Waits until the supplied assertion succeeds, retrying only when activity from the specified grain occurs.
-    /// </summary>
-    public Task<TResult> WaitForAssertionAsync<TGrain, TResult>(
-        TGrain grain,
-        Func<TGrain, ValueTask<TResult>> assertion,
-        TimeSpan? timeout = null,
-        CancellationToken ct = default)
-        where TGrain : IGrain
-    {
-        ArgumentNullException.ThrowIfNull(grain);
-        return WaitForAssertionAsyncCore<TResult>(
-            assertion is null ? null! : () => assertion(grain),
             CreateActivityFilter(grain.GetGrainId()),
             timeout,
             grain.GetGrainId(),
@@ -693,12 +556,6 @@ public sealed class GrainActivityCollector
         });
 
     private static async ValueTask<bool> WrapTask(Func<Task> assertion)
-    {
-        await assertion().ConfigureAwait(false);
-        return true;
-    }
-
-    private static async ValueTask<bool> WrapValueTask(Func<ValueTask> assertion)
     {
         await assertion().ConfigureAwait(false);
         return true;

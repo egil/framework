@@ -49,7 +49,7 @@ siloBuilder.AddGrainActivityCollector(collector)
 - `CollectStorageActivityFrom(string name)` wraps a named storage provider
 - If the user doesn't register storage, only grain calls are monitored (and vice versa)
 
-### Public API — GrainActivityCollector methods (18 total)
+### Public API — GrainActivityCollector methods (10 total)
 
 ```csharp
 public sealed class GrainActivityCollector
@@ -62,16 +62,8 @@ public sealed class GrainActivityCollector
         Func<Task> assertion,
         TimeSpan? timeout = null, CancellationToken ct = default);
 
-    public Task WaitForAssertionAsync(
-        Func<ValueTask> assertion,
-        TimeSpan? timeout = null, CancellationToken ct = default);
-
     public Task<TResult> WaitForAssertionAsync<TResult>(
         Func<Task<TResult>> assertion,
-        TimeSpan? timeout = null, CancellationToken ct = default);
-
-    public Task<TResult> WaitForAssertionAsync<TResult>(
-        Func<ValueTask<TResult>> assertion,
         TimeSpan? timeout = null, CancellationToken ct = default);
 
     // ══════════════════════════════════════════════════════════════
@@ -84,18 +76,8 @@ public sealed class GrainActivityCollector
         TimeSpan? timeout = null, CancellationToken ct = default)
         where TGrain : IGrain;
 
-    public Task WaitForAssertionAsync<TGrain>(
-        TGrain grain, Func<ValueTask> assertion,
-        TimeSpan? timeout = null, CancellationToken ct = default)
-        where TGrain : IGrain;
-
     public Task<TResult> WaitForAssertionAsync<TGrain, TResult>(
         TGrain grain, Func<Task<TResult>> assertion,
-        TimeSpan? timeout = null, CancellationToken ct = default)
-        where TGrain : IGrain;
-
-    public Task<TResult> WaitForAssertionAsync<TGrain, TResult>(
-        TGrain grain, Func<ValueTask<TResult>> assertion,
         TimeSpan? timeout = null, CancellationToken ct = default)
         where TGrain : IGrain;
 
@@ -108,18 +90,8 @@ public sealed class GrainActivityCollector
         TimeSpan? timeout = null, CancellationToken ct = default)
         where TGrain : IGrain;
 
-    public Task WaitForAssertionAsync<TGrain>(
-        TGrain grain, Func<TGrain, ValueTask> assertion,
-        TimeSpan? timeout = null, CancellationToken ct = default)
-        where TGrain : IGrain;
-
     public Task<TResult> WaitForAssertionAsync<TGrain, TResult>(
         TGrain grain, Func<TGrain, Task<TResult>> assertion,
-        TimeSpan? timeout = null, CancellationToken ct = default)
-        where TGrain : IGrain;
-
-    public Task<TResult> WaitForAssertionAsync<TGrain, TResult>(
-        TGrain grain, Func<TGrain, ValueTask<TResult>> assertion,
         TimeSpan? timeout = null, CancellationToken ct = default)
         where TGrain : IGrain;
 
@@ -362,7 +334,7 @@ public enum GrainActivityKind { GrainCall, StorageWrite, StorageRead, StorageCle
 
 ### implement-collector — Implement GrainActivityCollector
 
-The central type. Owns internal channels and exposes all 18 public `WaitFor*` methods.
+The central type. Owns internal channels and exposes all 10 public `WaitFor*` methods.
 All public methods must have thorough XML doc comments — see **XML documentation guidelines** section.
 
 **Class-level docs**: `<summary>` explaining role as central hub, how to register via `AddGrainActivityCollector`, the two tiers (standard behavioral assertions vs advanced implementation-detail assertions).
@@ -377,10 +349,10 @@ All public methods must have thorough XML doc comments — see **XML documentati
 - `internal void OnGrainCall(IIncomingGrainCallContext context)` — emits to both lean and typed channels
 - `internal void OnStorageOperation(StorageOperation op)` — emits to both lean and typed channels
 
-**Public methods** (18 total — see API section above):
-- 4 non-grain-scoped `WaitForAssertionAsync` (Task/ValueTask/Task<T>/ValueTask<T>)
+**Public methods** (10 total — see API section above):
+- 2 non-grain-scoped `WaitForAssertionAsync` (Task/Task<T>)
   - XML docs: `<summary>` explaining retry-on-activity, `<param>` for each param, `<exception>`, `<example>`
-- 8 grain-scoped `WaitForAssertionAsync` (4 without grain in lambda + 4 with grain in lambda)
+- 4 grain-scoped `WaitForAssertionAsync` (2 without grain in lambda + 2 with grain in lambda)
   - XML docs: same as above, plus explain grain-scoping behavior
 - 2 advanced `WaitForStorageOperationAsync` (non-grain-scoped + grain-scoped)
   - XML docs: `<summary>`, `<param>`, `<exception>`, plus `<remarks>` with **coupling warning** (see guidelines)
