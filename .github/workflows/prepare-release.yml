@@ -9,8 +9,7 @@ on:
         type: choice
         required: true
         options:
-          - Egil.Orleans.EventSourcing
-          - Egil.Orleans.Storage
+          - Egil.Orleans.Testing
           - Egil.StronglyTypedPrimitives
           - Egil.SystemTextJson.Migration
       releaseType:
