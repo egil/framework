@@ -90,22 +90,34 @@ public sealed class OrleansTestClusterFixture : IAsyncLifetime, IGrainActivityWa
 {
     private InProcessTestCluster? cluster;
 
+    // The collector observes grain calls and storage writes inside the silo.
+    // WaitForAssertionAsync uses those activity signals to know when to retry assertions.
     public GrainActivityCollector Collector { get; } = new();
+
+    // Expose the client grain factory so tests do not need to reach into the cluster directly.
     public IGrainFactory GrainFactory => cluster!.Client;
 
+    // Create a unique GrainId when a test needs to share the same identity across
+    // multiple Orleans concepts such as a grain reference and a stream id.
     public GrainId CreateUniqueGrainId<TGrain>([System.Runtime.CompilerServices.CallerMemberName] string memberName = "")
         where TGrain : IGrain
         => CreateUniqueGrainReference<TGrain>(memberName).GetGrainId();
 
+    // Get a grain reference with a test-unique key so parallel tests do not collide.
+    // The helper chooses the correct Orleans key shape based on the grain interface type.
     public TGrain GetUniqueGrain<TGrain>([System.Runtime.CompilerServices.CallerMemberName] string memberName = "")
         where TGrain : IGrain
         => CreateUniqueGrainReference<TGrain>(memberName);
 
     public async ValueTask InitializeAsync()
     {
+        // Build a single-silo in-process cluster. This is enough for most integration-style tests
+        // and keeps startup time low.
         var builder = new InProcessTestClusterBuilder(initialSilosCount: 1);
         builder.ConfigureSilo((_, siloBuilder) =>
         {
+            // Register an in-memory default storage provider so grains using
+            // [PersistentState(..., "Default")] can persist state without external dependencies.
             siloBuilder.AddMemoryGrainStorage("Default");
 
             // AddGrainActivityCollector wires up grain call observation automatically.
@@ -116,16 +128,22 @@ public sealed class OrleansTestClusterFixture : IAsyncLifetime, IGrainActivityWa
                 // which lets WaitForAssertionAsync react to persistence-driven changes.
                 .CollectStorageActivityFromDefault();
         });
+
+        // Build first, then deploy. DeployAsync starts the silo and connects the client.
         cluster = builder.Build();
         await cluster.DeployAsync();
     }
 
     public async ValueTask DisposeAsync()
     {
+        // Always tear the cluster down so timers, ports, and background work are not shared
+        // across unrelated tests.
         if (cluster is not null)
             await cluster.DisposeAsync();
     }
 
+    // Forward the waiting API through the fixture so tests can say
+    // `await fixture.WaitForAssertionAsync(...)` instead of going through `fixture.Collector`.
     Task<TResult> IGrainActivityWaiter.WaitForAssertionAsync<TResult>(
         Func<ValueTask<TResult>> assertion,
         Predicate<GrainActivity>? filter,
@@ -139,6 +157,9 @@ public sealed class OrleansTestClusterFixture : IAsyncLifetime, IGrainActivityWa
         var grainType = typeof(TGrain);
         var grainName = grainType.Name;
 
+        // Match Orleans key-shape conventions automatically so the calling test
+        // does not need to care whether the grain uses string, Guid, integer,
+        // or compound keys.
         return typeof(IGrainWithStringKey).IsAssignableFrom(grainType)
             ? (TGrain)GrainFactory.GetGrain(grainType, $"{memberName}-{grainName}-{Guid.NewGuid():N}")
             : typeof(IGrainWithGuidCompoundKey).IsAssignableFrom(grainType)
