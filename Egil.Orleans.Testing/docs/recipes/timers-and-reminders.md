@@ -49,7 +49,7 @@ public sealed class TimerGrain(
     }
 }
 ```
-<sup><a href='/samples/Egil.Orleans.Testing.Samples/TimerSample.cs#L23-L59' title='Snippet source file'>snippet source</a> | <a href='#snippet-timer_grain_implementation' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/samples/Egil.Orleans.Testing.Samples/TimerSample.cs#L21-L57' title='Snippet source file'>snippet source</a> | <a href='#snippet-timer_grain_implementation' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 ### Timer test example
@@ -79,7 +79,7 @@ public sealed class TimerGrainTests(OrleansTestClusterFixture fixture) : IClassF
     }
 }
 ```
-<sup><a href='/samples/Egil.Orleans.Testing.Samples/TimerSample.cs#L63-L83' title='Snippet source file'>snippet source</a> | <a href='#snippet-timer_test' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/samples/Egil.Orleans.Testing.Samples/TimerSample.cs#L61-L81' title='Snippet source file'>snippet source</a> | <a href='#snippet-timer_test' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 The storage write inside `OnTimerTickAsync` triggers the collector, causing `WaitForAssertionAsync` to retry the assertion.
@@ -132,7 +132,7 @@ public sealed class ReminderGrain(
     }
 }
 ```
-<sup><a href='/samples/Egil.Orleans.Testing.Samples/ReminderSample.cs#L23-L58' title='Snippet source file'>snippet source</a> | <a href='#snippet-reminder_grain_implementation' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/samples/Egil.Orleans.Testing.Samples/ReminderSample.cs#L22-L57' title='Snippet source file'>snippet source</a> | <a href='#snippet-reminder_grain_implementation' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 ### Reminder fixture setup
@@ -185,7 +185,7 @@ public sealed class ReminderFixture : OrleansTestClusterFixture
     }
 }
 ```
-<sup><a href='/samples/Egil.Orleans.Testing.Samples/ReminderSample.cs#L251-L292' title='Snippet source file'>snippet source</a> | <a href='#snippet-reminder_fixture' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/samples/Egil.Orleans.Testing.Samples/ReminderSample.cs#L84-L125' title='Snippet source file'>snippet source</a> | <a href='#snippet-reminder_fixture' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 Use a dedicated reminder fixture for this setup. Do not fold `ReminderTestClock.Attach(...)` into a shared fixture that is also used by streams or other time-sensitive tests.
@@ -218,7 +218,7 @@ public sealed class ReminderGrainTests(ReminderFixture fixture) : IClassFixture<
     }
 }
 ```
-<sup><a href='/samples/Egil.Orleans.Testing.Samples/ReminderSample.cs#L62-L83' title='Snippet source file'>snippet source</a> | <a href='#snippet-reminder_test' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/samples/Egil.Orleans.Testing.Samples/ReminderSample.cs#L61-L82' title='Snippet source file'>snippet source</a> | <a href='#snippet-reminder_test' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 The `ReceiveReminder` callback is an incoming grain call that the collector observes. Even without a storage observer, `WaitForAssertionAsync` retries the assertion each time a grain call signal arrives.

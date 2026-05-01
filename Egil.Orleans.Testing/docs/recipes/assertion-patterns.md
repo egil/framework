@@ -54,7 +54,7 @@ public sealed class CounterGrainTests(OrleansTestClusterFixture fixture) : IClas
     }
 }
 ```
-<sup><a href='/samples/Egil.Orleans.Testing.Samples/GrainScopedAssertionSample.cs#L35-L78' title='Snippet source file'>snippet source</a> | <a href='#snippet-grain_scoped_assertions_fixture' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/samples/Egil.Orleans.Testing.Samples/GrainScopedAssertionSample.cs#L32-L75' title='Snippet source file'>snippet source</a> | <a href='#snippet-grain_scoped_assertions_fixture' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 Fixture reference: [`OrleansTestClusterFixture`](../../README.md#orleans-test-cluster-fixture)
