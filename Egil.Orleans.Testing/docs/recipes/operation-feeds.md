@@ -106,7 +106,7 @@ public sealed class GrainCallFeedTests(OrleansTestClusterFixture fixture) : ICla
     }
 }
 ```
-<sup><a href='/samples/Egil.Orleans.Testing.Samples/OperationFeedSample.cs#L51-L91' title='Snippet source file'>snippet source</a> | <a href='#snippet-grain_call_feed' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/samples/Egil.Orleans.Testing.Samples/OperationFeedSample.cs#L45-L77' title='Snippet source file'>snippet source</a> | <a href='#snippet-grain_call_feed' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 Both `SubscribeToGrainCalls` overloads expose:
