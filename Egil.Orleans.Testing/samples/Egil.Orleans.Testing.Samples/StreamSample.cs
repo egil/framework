@@ -156,6 +156,7 @@ public sealed class ImplicitStreamTests(OrleansTestClusterFixture fixture) : ICl
 
 // -- Fixture -----------------------------------------------------------------
 
+#region stream_fixture
 public sealed class OrleansTestClusterFixture : IAsyncLifetime, IGrainActivityWaiter
 {
     private InProcessTestCluster? cluster;
@@ -229,3 +230,4 @@ public sealed class OrleansTestClusterFixture : IAsyncLifetime, IGrainActivityWa
                             : throw new NotSupportedException($"Unsupported grain key type for {grainType.FullName}.");
     }
 }
+#endregion

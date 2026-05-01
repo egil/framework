@@ -177,21 +177,89 @@ public sealed class ImplicitStreamTests(OrleansTestClusterFixture fixture) : ICl
 
 ## Fixture setup
 
-Both explicit and implicit stream tests need a stream provider registered on the silo **and** the client:
+Both explicit and implicit stream tests can use the same `OrleansTestClusterFixture` pattern as the rest of the samples, extended with stream provider setup plus a `GetStream<T>(...)` helper:
 
-```csharp
-builder.ConfigureSilo((_, siloBuilder) =>
+<!-- snippet: stream_fixture -->
+<a id='snippet-stream_fixture'></a>
+```cs
+public sealed class OrleansTestClusterFixture : IAsyncLifetime, IGrainActivityWaiter
 {
-    siloBuilder.AddMemoryGrainStorage("Default");
-    siloBuilder.AddMemoryGrainStorage("PubSubStore");
-    siloBuilder.AddMemoryStreams("StreamProvider");
-    siloBuilder.AddGrainActivityCollector(collector)
-        .CollectStorageActivityFromDefault();
-});
-builder.ConfigureClient(clientBuilder =>
-    clientBuilder.AddMemoryStreams("StreamProvider"));
+    private InProcessTestCluster? cluster;
+
+    public GrainActivityCollector Collector { get; } = new();
+
+    public IGrainFactory GrainFactory => cluster!.Client;
+
+    public GrainId CreateUniqueGrainId<TGrain>([CallerMemberName] string memberName = "")
+        where TGrain : IGrain
+        => CreateUniqueGrainReference<TGrain>(memberName).GetGrainId();
+
+    public TGrain GetUniqueGrain<TGrain>([CallerMemberName] string memberName = "")
+        where TGrain : IGrain
+        => CreateUniqueGrainReference<TGrain>(memberName);
+
+    public IAsyncStream<T> GetStream<T>(string @namespace, Guid key)
+    {
+        var provider = cluster!.Client.GetStreamProvider(StreamConstants.StreamProviderName);
+        return provider.GetStream<T>(StreamId.Create(@namespace, key));
+    }
+
+    public async ValueTask InitializeAsync()
+    {
+        var builder = new InProcessTestClusterBuilder(initialSilosCount: 1);
+        builder.ConfigureSilo((_, siloBuilder) =>
+        {
+            siloBuilder.AddMemoryGrainStorage("Default");
+            siloBuilder.AddMemoryGrainStorage("PubSubStore");
+            siloBuilder.AddMemoryStreams(StreamConstants.StreamProviderName);
+            siloBuilder.AddGrainActivityCollector(Collector)
+                .CollectStorageActivityFromDefault();
+        });
+        builder.ConfigureClient(clientBuilder =>
+            clientBuilder.AddMemoryStreams(StreamConstants.StreamProviderName));
+        cluster = builder.Build();
+        await cluster.DeployAsync();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (cluster is not null)
+        {
+            await cluster.DisposeAsync();
+        }
+    }
+
+    Task<TResult> IGrainActivityWaiter.WaitForAssertionAsync<TResult>(
+        Func<ValueTask<TResult>> assertion,
+        Predicate<GrainActivity>? filter,
+        TimeSpan? timeout,
+        CancellationToken cancellationToken)
+        => ((IGrainActivityWaiter)Collector).WaitForAssertionAsync(assertion, filter, timeout, cancellationToken);
+
+    private TGrain CreateUniqueGrainReference<TGrain>(string memberName)
+        where TGrain : IGrain
+    {
+        var grainType = typeof(TGrain);
+        var grainName = grainType.Name;
+
+        return typeof(IGrainWithStringKey).IsAssignableFrom(grainType)
+            ? (TGrain)GrainFactory.GetGrain(grainType, $"{memberName}-{grainName}-{Guid.NewGuid():N}")
+            : typeof(IGrainWithGuidCompoundKey).IsAssignableFrom(grainType)
+                ? (TGrain)GrainFactory.GetGrain(grainType, Guid.NewGuid(), $"{memberName}-{grainName}")
+                : typeof(IGrainWithGuidKey).IsAssignableFrom(grainType)
+                    ? (TGrain)GrainFactory.GetGrain(grainType, Guid.NewGuid())
+                    : typeof(IGrainWithIntegerCompoundKey).IsAssignableFrom(grainType)
+                        ? (TGrain)GrainFactory.GetGrain(grainType, Random.Shared.NextInt64(1, long.MaxValue), $"{memberName}-{grainName}")
+                        : typeof(IGrainWithIntegerKey).IsAssignableFrom(grainType)
+                            ? (TGrain)GrainFactory.GetGrain(grainType, Random.Shared.NextInt64(1, long.MaxValue))
+                            : throw new NotSupportedException($"Unsupported grain key type for {grainType.FullName}.");
+    }
+}
 ```
+<sup><a href='/samples/Egil.Orleans.Testing.Samples/StreamSample.cs#L159-L233' title='Snippet source file'>snippet source</a> | <a href='#snippet-stream_fixture' title='Start of snippet'>anchor</a></sup>
+<!-- endSnippet -->
 
 - **`PubSubStore`** — required by Orleans for implicit subscription metadata.
 - **`AddMemoryStreams`** on both silo and client — the client needs the provider to publish messages, and the silo needs it to deliver them to grains.
+- **`GetStream<T>(...)`** — keeps stream lookup logic in the fixture so individual tests stay focused on the behavior under test.
 - Keep stream tests on a normal fixture with real time. Do not share a reminder-specific fixture or `ManualTimeProvider` with stream tests, because frozen time can stall Orleans stream internals.
