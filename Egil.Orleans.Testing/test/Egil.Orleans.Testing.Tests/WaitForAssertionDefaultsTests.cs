@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Reflection;
 
 namespace Egil.Orleans.Testing.Tests;
 
@@ -10,7 +9,7 @@ public class WaitForAssertionDefaultsTests
     [Fact]
     public void LoadTimeout_returns_default_when_variable_is_missing()
     {
-        var timeout = WithEnvironmentVariable(TimeoutVariableName, null, InvokeLoadTimeout);
+        var timeout = WithEnvironmentVariable(TimeoutVariableName, null, WaitForAssertionDefaults.LoadTimeout);
 
         Assert.Equal(TimeSpan.FromSeconds(5), timeout);
     }
@@ -21,7 +20,7 @@ public class WaitForAssertionDefaultsTests
     [InlineData("not-a-number")]
     public void LoadTimeout_returns_default_when_variable_is_invalid(string value)
     {
-        var timeout = WithEnvironmentVariable(TimeoutVariableName, value, InvokeLoadTimeout);
+        var timeout = WithEnvironmentVariable(TimeoutVariableName, value, WaitForAssertionDefaults.LoadTimeout);
 
         Assert.Equal(TimeSpan.FromSeconds(5), timeout);
     }
@@ -29,15 +28,10 @@ public class WaitForAssertionDefaultsTests
     [Fact]
     public void LoadTimeout_returns_configured_positive_timeout()
     {
-        var timeout = WithEnvironmentVariable(TimeoutVariableName, 2.5.ToString(CultureInfo.InvariantCulture), InvokeLoadTimeout);
+        var timeout = WithEnvironmentVariable(TimeoutVariableName, 2.5.ToString(CultureInfo.InvariantCulture), WaitForAssertionDefaults.LoadTimeout);
 
         Assert.Equal(TimeSpan.FromSeconds(2.5), timeout);
     }
-
-    private static TimeSpan InvokeLoadTimeout()
-        => (TimeSpan)typeof(WaitForAssertionDefaults)
-            .GetMethod("LoadTimeout", BindingFlags.NonPublic | BindingFlags.Static)!
-            .Invoke(obj: null, parameters: null)!;
 
     private static T WithEnvironmentVariable<T>(string variableName, string? value, Func<T> callback)
     {
