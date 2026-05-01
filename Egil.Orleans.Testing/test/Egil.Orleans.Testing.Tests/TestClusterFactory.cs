@@ -7,14 +7,12 @@ internal static class TestClusterFactory
     public static async Task<InProcessTestCluster> DeployAsync(
         GrainActivityCollector collector,
         bool collectStorageActivity = true,
-        ReminderTestClock? reminderClock = null)
+        Action<InProcessTestClusterBuilder>? configureClusterBuilder = null,
+        Action<ISiloBuilder>? configureSiloBuilder = null,
+        Action<IClientBuilder>? configureClientBuilder = null)
     {
         var builder = new InProcessTestClusterBuilder(initialSilosCount: 1);
-
-        if (reminderClock is not null)
-        {
-            ReminderTestClock.Attach(builder, reminderClock);
-        }
+        configureClusterBuilder?.Invoke(builder);
 
         builder.ConfigureSilo((options, siloBuilder) =>
         {
@@ -28,9 +26,15 @@ internal static class TestClusterFactory
             {
                 collectorBuilder.CollectStorageActivityFrom("Default");
             }
+
+            configureSiloBuilder?.Invoke(siloBuilder);
         });
 
-        builder.ConfigureClient(clientBuilder => clientBuilder.AddMemoryStreams(ActivityFeatureTestConstants.StreamProviderName));
+        builder.ConfigureClient(clientBuilder =>
+        {
+            clientBuilder.AddMemoryStreams(ActivityFeatureTestConstants.StreamProviderName);
+            configureClientBuilder?.Invoke(clientBuilder);
+        });
 
         var cluster = builder.Build();
         await cluster.DeployAsync();

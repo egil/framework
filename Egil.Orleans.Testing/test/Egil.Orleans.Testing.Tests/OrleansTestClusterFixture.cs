@@ -12,7 +12,7 @@ namespace Egil.Orleans.Testing.Tests;
 /// Assembly fixtures do not disable xUnit parallelization, so tests must use unique grain keys
 /// and avoid sharing mutable grain state.
 /// </remarks>
-public sealed class OrleansTestClusterFixture : IAsyncLifetime, IGrainActivityWaiter
+public class OrleansTestClusterFixture : IAsyncLifetime, IGrainActivityWaiter
 {
     private InProcessTestCluster? cluster;
 
@@ -31,15 +31,27 @@ public sealed class OrleansTestClusterFixture : IAsyncLifetime, IGrainActivityWa
     /// </summary>
     public IGrainFactory GrainFactory => Cluster.Client;
 
+    /// <summary>
+    /// Controls whether the shared fixture observes writes to the default grain storage provider.
+    /// </summary>
+    protected virtual bool CollectStorageActivityFromDefault => true;
+
     /// <inheritdoc />
     public async ValueTask InitializeAsync()
     {
-        cluster = await TestClusterFactory.DeployAsync(Collector, collectStorageActivity: true);
+        cluster = await TestClusterFactory.DeployAsync(
+            Collector,
+            collectStorageActivity: CollectStorageActivityFromDefault,
+            configureClusterBuilder: ConfigureClusterBuilder,
+            configureSiloBuilder: ConfigureSiloBuilder,
+            configureClientBuilder: ConfigureClientBuilder);
     }
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
+        await DisposeAsyncCore();
+
         if (cluster is not null)
         {
             await cluster.DisposeAsync();
@@ -74,4 +86,30 @@ public sealed class OrleansTestClusterFixture : IAsyncLifetime, IGrainActivityWa
     public TGrain GetUniqueGrain<TGrain>(string? suffix = null, [CallerMemberName] string memberName = "")
         where TGrain : IGrainWithStringKey
         => GrainFactory.GetGrain<TGrain>(CreateUniqueStringKey(suffix, memberName));
+
+    /// <summary>
+    /// Allows derived fixtures to customize the cluster builder before common registrations run.
+    /// </summary>
+    protected virtual void ConfigureClusterBuilder(InProcessTestClusterBuilder builder)
+    {
+    }
+
+    /// <summary>
+    /// Allows derived fixtures to append feature-specific silo registrations.
+    /// </summary>
+    protected virtual void ConfigureSiloBuilder(ISiloBuilder siloBuilder)
+    {
+    }
+
+    /// <summary>
+    /// Allows derived fixtures to append feature-specific client registrations.
+    /// </summary>
+    protected virtual void ConfigureClientBuilder(IClientBuilder clientBuilder)
+    {
+    }
+
+    /// <summary>
+    /// Allows derived fixtures to dispose reminder clocks or similar resources before the cluster shuts down.
+    /// </summary>
+    protected virtual ValueTask DisposeAsyncCore() => ValueTask.CompletedTask;
 }
