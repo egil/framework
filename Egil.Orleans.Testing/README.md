@@ -53,6 +53,9 @@ public sealed class OrderGrain(
 
     public async Task SubmitAsync(string item)
     {
+        // This extra timer hop is intentionally a little indirect.
+        // It exists here to demonstrate the kind of async follow-up work
+        // that is awkward to test reliably with a plain immediate assertion.
         state.State.PendingItem = item;
         await state.WriteStateAsync();
 
