@@ -4,7 +4,7 @@
 
 Grain timers are supported. A timer callback is a grain-internal method call and also typically writes grain state, so it produces **both** grain call and storage activity signals that `WaitForAssertionAsync` can observe.
 
-Fixture reference: [`OrleansTestClusterFixture`](../../README.md#orleans-test-cluster-fixture)
+Fixture reference: [`OrleansTestClusterFixture`](../../README.md#orleanstestclusterfixture-reusable-helper)
 
 ### Timer grain example
 
@@ -137,7 +137,7 @@ public sealed class ReminderGrain(
 
 ### Reminder fixture setup
 
-Fixture reference: [`OrleansTestClusterFixture`](../../README.md#orleans-test-cluster-fixture)
+Fixture reference: [`OrleansTestClusterFixture`](../../README.md#orleanstestclusterfixture-reusable-helper)
 
 Create a derived fixture that owns a `ReminderTestClock` and attaches it to the cluster. Note that **no storage observer** is needed — `WaitForAssertionAsync` retries on grain call signals alone, which includes the `ReceiveReminder` callback:
 

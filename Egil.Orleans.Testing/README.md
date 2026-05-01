@@ -125,8 +125,7 @@ public sealed class OrderGrainInlineSetupTests
 <sup><a href='/samples/Egil.Orleans.Testing.Samples/GettingStartedSample.cs#L6-L103' title='Snippet source file'>snippet source</a> | <a href='#snippet-readme_inline_setup' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
-<a id="orleans-test-cluster-fixture"></a>
-### 3. Reusable Fixture Or Helper Object
+### OrleansTestClusterFixture Reusable Helper
 
 When many tests share the same cluster, it is convenient to wrap the cluster and collector in a reusable object that implements `IGrainActivityWaiter`. In xUnit this could be a class fixture or collection fixture. In other frameworks it could be any shared helper with setup and teardown.
 
@@ -356,13 +355,13 @@ In xUnit, see the official docs for fixture registration options:
 
 ## Recipes
 
-See [docs/recipes](docs/recipes/README.md) for scenario-driven guides covering:
+See [docs/recipes](https://github.com/egil/framework/tree/main/Egil.Orleans.Testing/docs/recipes/) for scenario-driven guides covering:
 
-- [Assertion patterns](docs/recipes/assertion-patterns.md)
-- [Advanced assertions](docs/recipes/advanced-assertions.md)
-- [Timers and reminders](docs/recipes/timers-and-reminders.md)
-- [Streams](docs/recipes/streams.md)
+- [Assertion patterns](https://github.com/egil/framework/tree/main/Egil.Orleans.Testing/docs/recipes/assertion-patterns.md)
+- [Advanced assertions](https://github.com/egil/framework/tree/main/Egil.Orleans.Testing/docs/recipes/advanced-assertions.md)
+- [Timers and reminders](https://github.com/egil/framework/tree/main/Egil.Orleans.Testing/docs/recipes/timers-and-reminders.md)
+- [Streams](https://github.com/egil/framework/tree/main/Egil.Orleans.Testing/docs/recipes/streams.md)
 
 ## License
 
-[MIT](../LICENSE)
+[MIT](https://github.com/egil/framework/blob/main/LICENSE)
