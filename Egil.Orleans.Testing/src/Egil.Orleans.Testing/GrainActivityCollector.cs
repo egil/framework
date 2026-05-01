@@ -591,12 +591,10 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter
     private void PublishStorageOperation(StorageOperation operation)
     {
         StorageSubscriber[] snapshot;
-        LiveFeedSubscriber<StorageOperation>[] liveFeedSnapshot;
         lock (storageSubscribersLock)
         {
             EnqueueRecentEvent(recentStorageOperations, operation);
             snapshot = [.. storageSubscribers];
-            liveFeedSnapshot = [.. liveFeedStorageSubscribers];
         }
 
         foreach (var subscriber in snapshot)
@@ -612,6 +610,8 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter
             }
         }
 
+        // Live-feed subscribers use copy-on-write; reading the reference is safe without a lock.
+        var liveFeedSnapshot = liveFeedStorageSubscribers;
         foreach (var subscriber in liveFeedSnapshot)
         {
             if (subscriber.GrainIdFilter is { } grainId && operation.GrainId != grainId)
@@ -626,12 +626,10 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter
     private void PublishGrainCall(IIncomingGrainCallContext context)
     {
         GrainCallSubscriber[] snapshot;
-        LiveFeedSubscriber<IIncomingGrainCallContext>[] liveFeedSnapshot;
         lock (grainCallSubscribersLock)
         {
             EnqueueRecentEvent(recentGrainCalls, context);
             snapshot = [.. grainCallSubscribers];
-            liveFeedSnapshot = [.. liveFeedGrainCallSubscribers];
         }
 
         foreach (var subscriber in snapshot)
@@ -647,6 +645,8 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter
             }
         }
 
+        // Live-feed subscribers use copy-on-write; reading the reference is safe without a lock.
+        var liveFeedSnapshot = liveFeedGrainCallSubscribers;
         foreach (var subscriber in liveFeedSnapshot)
         {
             if (subscriber.GrainIdFilter is { } grainId && context.TargetId != grainId)
