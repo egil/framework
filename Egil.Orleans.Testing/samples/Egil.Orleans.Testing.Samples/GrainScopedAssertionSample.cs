@@ -48,7 +48,7 @@ public sealed class CounterGrainTests(GrainScopedAssertionsFixture fixture) : IC
 
         // Pass the grain to the scoped overload.
         // Only activity originating from 'targetGrain' will retrigger this assertion.
-        await fixture.Collector.WaitForAssertionAsync(targetGrain, async () =>
+        await fixture.WaitForAssertionAsync(targetGrain, async () =>
         {
             Assert.Equal(1, await targetGrain.GetCountAsync());
         }, ct: TestContext.Current.CancellationToken);
@@ -64,7 +64,7 @@ public sealed class CounterGrainTests(GrainScopedAssertionsFixture fixture) : IC
 
         // The grain reference is forwarded into the lambda so you can assert
         // without capturing it in a closure.
-        var count = await fixture.Collector.WaitForAssertionAsync(grain, async (g) =>
+        var count = await fixture.WaitForAssertionAsync(grain, async (g) =>
         {
             var c = await g.GetCountAsync();
             Assert.True(c >= 2);
@@ -78,7 +78,7 @@ public sealed class CounterGrainTests(GrainScopedAssertionsFixture fixture) : IC
 
 // -- Shared fixture ----------------------------------------------------------
 
-public sealed class GrainScopedAssertionsFixture : IAsyncLifetime
+public sealed class GrainScopedAssertionsFixture : IAsyncLifetime, IGrainActivityWaiter
 {
     private InProcessTestCluster? cluster;
 
@@ -106,5 +106,12 @@ public sealed class GrainScopedAssertionsFixture : IAsyncLifetime
             await cluster.DisposeAsync();
         }
     }
+
+    Task<TResult> IGrainActivityWaiter.WaitForAssertionAsync<TResult>(
+        Func<ValueTask<TResult>> assertion,
+        Predicate<GrainActivity>? filter,
+        TimeSpan? timeout,
+        CancellationToken ct)
+        => ((IGrainActivityWaiter)Collector).WaitForAssertionAsync(assertion, filter, timeout, ct);
 }
 

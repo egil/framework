@@ -9,7 +9,7 @@ public class GrainActivityCollectorTimeoutTests(OrleansTestClusterFixture fixtur
     {
         var grain = fixture.GetUniqueGrain<ITestStateGrain>();
         var exception = await Assert.ThrowsAsync<WaitForAssertionTimeoutException>(() =>
-            fixture.Collector.WaitForAssertionAsync(
+            fixture.WaitForAssertionAsync(
                 async () => Assert.Equal("expected", await grain.GetValueAsync()),
                 timeout: TimeSpan.FromMilliseconds(150),
                 ct: TestContext.Current.CancellationToken));

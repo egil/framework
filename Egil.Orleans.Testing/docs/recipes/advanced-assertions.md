@@ -13,7 +13,6 @@ Use the advanced methods when:
 ## Waiting for a specific storage operation
 
 <!-- snippet: advanced_storage_assertion -->
-<a id='snippet-advanced_storage_assertion'></a>
 ```cs
 [Fact]
 public async Task WaitForStorageOperationAsync_waits_for_specific_write()
@@ -22,7 +21,8 @@ public async Task WaitForStorageOperationAsync_waits_for_specific_write()
 
     // Start the wait before triggering the operation so no event is missed.
     var waitTask = fixture.Collector.WaitForStorageOperationAsync(
-        op => op.Kind == StorageOperationKind.Write && op.GrainId == grain.GetGrainId());
+        op => op.Kind == StorageOperationKind.Write && op.GrainId == grain.GetGrainId(),
+        ct: TestContext.Current.CancellationToken);
 
     await grain.ReserveAsync(10);
 
@@ -31,7 +31,6 @@ public async Task WaitForStorageOperationAsync_waits_for_specific_write()
     Assert.Equal(10, await grain.GetReservedAsync());
 }
 ```
-<sup><a href='/samples/Egil.Orleans.Testing.Samples/AdvancedAssertionsSample.cs#L48-L63' title='Snippet source file'>snippet source</a> | <a href='#snippet-advanced_storage_assertion' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 The `StorageOperation` record exposes:
@@ -45,7 +44,6 @@ The `StorageOperation` record exposes:
 ## Waiting for a specific grain call
 
 <!-- snippet: advanced_grain_call_assertion -->
-<a id='snippet-advanced_grain_call_assertion'></a>
 ```cs
 [Fact]
 public async Task WaitForGrainCallAsync_waits_for_specific_method_call()
@@ -63,7 +61,6 @@ public async Task WaitForGrainCallAsync_waits_for_specific_method_call()
     await waitTask;
 }
 ```
-<sup><a href='/samples/Egil.Orleans.Testing.Samples/AdvancedAssertionsSample.cs#L66-L79' title='Snippet source file'>snippet source</a> | <a href='#snippet-advanced_grain_call_assertion' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 The `IIncomingGrainCallContext` exposes:

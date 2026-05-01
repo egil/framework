@@ -82,7 +82,7 @@ public sealed class InventoryGrainTests(AdvancedAssertionsFixture fixture) : ICl
 
 // -- Shared fixture ----------------------------------------------------------
 
-public sealed class AdvancedAssertionsFixture : IAsyncLifetime
+public sealed class AdvancedAssertionsFixture : IAsyncLifetime, IGrainActivityWaiter
 {
     private InProcessTestCluster? cluster;
 
@@ -110,5 +110,12 @@ public sealed class AdvancedAssertionsFixture : IAsyncLifetime
             await cluster.DisposeAsync();
         }
     }
+
+    Task<TResult> IGrainActivityWaiter.WaitForAssertionAsync<TResult>(
+        Func<ValueTask<TResult>> assertion,
+        Predicate<GrainActivity>? filter,
+        TimeSpan? timeout,
+        CancellationToken ct)
+        => ((IGrainActivityWaiter)Collector).WaitForAssertionAsync(assertion, filter, timeout, ct);
 }
 

@@ -22,7 +22,6 @@ siloBuilder.AddGrainActivityCollector(collector)
 The simplest way to use the library is to initialize a cluster directly in a test class with `IAsyncLifetime`:
 
 <!-- snippet: getting_started_test_class -->
-<a id='snippet-getting_started_test_class'></a>
 ```cs
 /// <summary>
 /// Example: inline <see cref="InProcessTestCluster"/> in a test class,
@@ -82,7 +81,7 @@ public sealed class OrderGrainTests : IAsyncLifetime
         await collector.WaitForAssertionAsync(async () =>
         {
             Assert.Equal("submitted", await grain.GetStatusAsync());
-        });
+        }, ct: TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -95,14 +94,13 @@ public sealed class OrderGrainTests : IAsyncLifetime
         // Grain-scoped variant: only activity from this specific grain retriggers the assertion.
         await collector.WaitForAssertionAsync(grain, async (g) =>
         {
-            Assert.Equal("keyboard", await g.GetStatusAsync() is not null
-                ? (await g.GetStatusAsync())
-                : throw new Exception("Not yet stored."));
-        });
+            var status = await g.GetStatusAsync();
+            Assert.NotNull(status);
+            Assert.Equal("submitted", status);
+        }, ct: TestContext.Current.CancellationToken);
     }
 }
 ```
-<sup><a href='/samples/Egil.Orleans.Testing.Samples/GettingStartedSample.cs#L38-L103' title='Snippet source file'>snippet source</a> | <a href='#snippet-getting_started_test_class' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 Notes:
@@ -112,13 +110,15 @@ Notes:
 
 ## Using a shared assembly fixture
 
-When many test classes share the same cluster, register it as an assembly fixture and inject the collector:
+When many test classes share the same cluster, register it as an assembly fixture and have it
+implement `IGrainActivityWaiter` so your tests can call `fixture.WaitForAssertionAsync(...)`
+directly:
 
 ```csharp
 // In one file: declare and register the fixture
 [assembly: AssemblyFixture(typeof(OrleansTestClusterFixture))]
 
-public sealed class OrleansTestClusterFixture : IAsyncLifetime
+public sealed class OrleansTestClusterFixture : IAsyncLifetime, IGrainActivityWaiter
 {
     private InProcessTestCluster? cluster;
 
@@ -144,6 +144,13 @@ public sealed class OrleansTestClusterFixture : IAsyncLifetime
         if (cluster is not null)
             await cluster.DisposeAsync();
     }
+
+    Task<TResult> IGrainActivityWaiter.WaitForAssertionAsync<TResult>(
+        Func<ValueTask<TResult>> assertion,
+        Predicate<GrainActivity>? filter,
+        TimeSpan? timeout,
+        CancellationToken ct)
+        => ((IGrainActivityWaiter)Collector).WaitForAssertionAsync(assertion, filter, timeout, ct);
 }
 
 // In each test class: inject the fixture
@@ -155,7 +162,7 @@ public class MyGrainTests(OrleansTestClusterFixture fixture)
         var grain = fixture.GrainFactory.GetGrain<IMyGrain>(Guid.NewGuid().ToString());
         await grain.DoSomethingAsync();
 
-        await fixture.Collector.WaitForAssertionAsync(async () =>
+        await fixture.WaitForAssertionAsync(async () =>
         {
             Assert.Equal("expected", await grain.GetStateAsync());
         });

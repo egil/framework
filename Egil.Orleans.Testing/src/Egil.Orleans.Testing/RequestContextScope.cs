@@ -9,7 +9,7 @@ namespace Egil.Orleans.Testing;
 /// Each helper captures the previous value of the affected key and restores it on disposal.
 /// If the key was previously unset, disposal removes it from <see cref="RequestContext"/>.
 /// </remarks>
-public static class RequestContextScope
+internal static class RequestContextScope
 {
     /// <summary>
     /// The <see cref="RequestContext"/> key used to mark assertion machinery.

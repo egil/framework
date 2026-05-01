@@ -15,6 +15,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Using Include="Egil.Orleans.Testing" />
     <Using Include="Xunit" />
   </ItemGroup>
 

@@ -20,7 +20,7 @@ public class GrainActivityCollectorOneWayTests(OrleansTestClusterFixture fixture
     public async Task WaitForAssertionAsync_observes_oneway_state_change()
     {
         var grain = fixture.GetUniqueGrain<IOneWayActivityGrain>();
-        var waitTask = fixture.Collector.WaitForAssertionAsync(
+        var waitTask = fixture.WaitForAssertionAsync(
             async () => Assert.Equal("ready", await grain.GetLastValueAsync()),
             timeout: TimeSpan.FromSeconds(2),
             ct: TestContext.Current.CancellationToken);

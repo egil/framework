@@ -6,7 +6,7 @@ public class GrainActivityCollectorReminderTests(OrleansTestClusterFixture fixtu
     public async Task WaitForAssertionAsync_observes_reminder_state_change()
     {
         var grain = fixture.GetUniqueGrain<IReminderActivityGrain>();
-        var waitTask = fixture.Collector.WaitForAssertionAsync(
+        var waitTask = fixture.WaitForAssertionAsync(
             async () => Assert.Equal("ready", await grain.GetLastValueAsync()),
             timeout: TimeSpan.FromSeconds(20),
             ct: TestContext.Current.CancellationToken);

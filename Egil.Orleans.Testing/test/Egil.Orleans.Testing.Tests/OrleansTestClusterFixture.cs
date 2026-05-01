@@ -12,7 +12,7 @@ namespace Egil.Orleans.Testing.Tests;
 /// Assembly fixtures do not disable xUnit parallelization, so tests must use unique grain keys
 /// and avoid sharing mutable grain state.
 /// </remarks>
-public sealed class OrleansTestClusterFixture : IAsyncLifetime
+public sealed class OrleansTestClusterFixture : IAsyncLifetime, IGrainActivityWaiter
 {
     private InProcessTestCluster? cluster;
 
@@ -45,6 +45,13 @@ public sealed class OrleansTestClusterFixture : IAsyncLifetime
             await cluster.DisposeAsync();
         }
     }
+
+    Task<TResult> IGrainActivityWaiter.WaitForAssertionAsync<TResult>(
+        Func<ValueTask<TResult>> assertion,
+        Predicate<GrainActivity>? filter,
+        TimeSpan? timeout,
+        CancellationToken ct)
+        => ((IGrainActivityWaiter)Collector).WaitForAssertionAsync(assertion, filter, timeout, ct);
 
     /// <summary>
     /// Creates a unique string key for test resources that must share an identifier with a grain.

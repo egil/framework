@@ -5,7 +5,7 @@ namespace Egil.Orleans.Testing;
 /// <summary>
 /// Provides default configuration for <c>WaitFor*</c> APIs.
 /// </summary>
-public static class WaitForAssertionDefaults
+internal static class WaitForAssertionDefaults
 {
     /// <summary>
     /// Gets the default wait timeout used when callers do not supply one explicitly.
