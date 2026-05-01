@@ -22,6 +22,7 @@ siloBuilder.AddGrainActivityCollector(collector)
 The simplest way to use the library is to initialize a cluster directly in a test class with `IAsyncLifetime`:
 
 <!-- snippet: getting_started_test_class -->
+<a id='snippet-getting_started_test_class'></a>
 ```cs
 /// <summary>
 /// Example: inline <see cref="InProcessTestCluster"/> in a test class,
@@ -101,6 +102,7 @@ public sealed class OrderGrainTests : IAsyncLifetime
     }
 }
 ```
+<sup><a href='/samples/Egil.Orleans.Testing.Samples/GettingStartedSample.cs#L39-L117' title='Snippet source file'>snippet source</a> | <a href='#snippet-getting_started_test_class' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 Notes:

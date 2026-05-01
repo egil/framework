@@ -166,6 +166,7 @@ See [docs/recipes](docs/recipes/README.md) for scenario-driven guides covering:
 - [Assertion patterns](docs/recipes/assertion-patterns.md)
 - [Advanced assertions](docs/recipes/advanced-assertions.md)
 - [Timers and reminders](docs/recipes/timers-and-reminders.md)
+- [Streams](docs/recipes/streams.md)
 
 ## License
 

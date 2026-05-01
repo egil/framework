@@ -111,7 +111,7 @@ public sealed class GrainScopedAssertionsFixture : IAsyncLifetime, IGrainActivit
         Func<ValueTask<TResult>> assertion,
         Predicate<GrainActivity>? filter,
         TimeSpan? timeout,
-        CancellationToken ct)
-        => ((IGrainActivityWaiter)Collector).WaitForAssertionAsync(assertion, filter, timeout, ct);
+        CancellationToken cancellationToken)
+        => ((IGrainActivityWaiter)Collector).WaitForAssertionAsync(assertion, filter, timeout, cancellationToken);
 }
 

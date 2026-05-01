@@ -16,6 +16,7 @@ await collector.WaitForAssertionAsync(async () =>
 Pass a grain reference as the first argument to restrict retriggers to activity from that grain only:
 
 <!-- snippet: grain_scoped_assertions_fixture -->
+<a id='snippet-grain_scoped_assertions_fixture'></a>
 ```cs
 /// <summary>
 /// Demonstrates grain-scoped <c>WaitForAssertionAsync</c> overloads.
@@ -60,6 +61,7 @@ public sealed class CounterGrainTests(GrainScopedAssertionsFixture fixture) : IC
     }
 }
 ```
+<sup><a href='/samples/Egil.Orleans.Testing.Samples/GrainScopedAssertionSample.cs#L34-L77' title='Snippet source file'>snippet source</a> | <a href='#snippet-grain_scoped_assertions_fixture' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 ## Returning values from assertions
