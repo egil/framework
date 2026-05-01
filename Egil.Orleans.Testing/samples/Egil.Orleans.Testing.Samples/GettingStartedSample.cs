@@ -54,14 +54,19 @@ public sealed class OrderGrainTests : IAsyncLifetime
 
         builder.ConfigureSilo((_, siloBuilder) =>
         {
-            // Required: in-memory storage for grain state.
-            siloBuilder.AddMemoryGrainStorage("Default");
+            // Typical: register the default grain storage provider.
+            siloBuilder.AddMemoryGrainStorageAsDefault();
+
+            // Optional: show a secondary named provider as well.
+            siloBuilder.AddMemoryGrainStorage("Orders");
 
             // Enable the activity collector.
             // AddGrainActivityCollector wires up grain call observation automatically.
-            // CollectStorageActivityFromDefault also enables storage observation.
+            // CollectStorageActivityFromDefault enables observation for the default provider.
+            // CollectStorageActivityFrom("Orders") shows how to observe a named provider too.
             siloBuilder.AddGrainActivityCollector(collector)
-                .CollectStorageActivityFromDefault();
+                .CollectStorageActivityFromDefault()
+                .CollectStorageActivityFrom("Orders");
         });
 
         cluster = builder.Build();

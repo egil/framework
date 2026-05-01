@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Threading.Channels;
 using System.Reflection;
 using Orleans.Serialization.Invocation;
 
@@ -5,11 +7,29 @@ namespace Egil.Orleans.Testing.Tests;
 
 public class GrainActivityCollectorCoreTests(OrleansTestClusterFixture fixture)
 {
+    private static readonly int SubscriberChannelCapacity =
+        (int)typeof(GrainActivityCollector).GetField("SubscriberChannelCapacity", BindingFlags.NonPublic | BindingFlags.Static)!.GetRawConstantValue()!;
+
     private static readonly MethodInfo OnStorageOperationMethod =
         typeof(GrainActivityCollector).GetMethod("OnStorageOperation", BindingFlags.Instance | BindingFlags.NonPublic)!;
 
     private static readonly MethodInfo OnGrainCallMethod =
         typeof(GrainActivityCollector).GetMethod("OnGrainCall", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+    private static readonly MethodInfo SubscribeActivitiesMethod =
+        typeof(GrainActivityCollector).GetMethod("SubscribeActivities", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+    private static readonly MethodInfo SubscribeStorageOperationsMethod =
+        typeof(GrainActivityCollector).GetMethod("SubscribeStorageOperations", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+    private static readonly MethodInfo SubscribeGrainCallsMethod =
+        typeof(GrainActivityCollector).GetMethod("SubscribeGrainCalls", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+    private static readonly FieldInfo ActivitySubscribersField =
+        typeof(GrainActivityCollector).GetField("activitySubscribers", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+    private static readonly FieldInfo StorageSubscribersField =
+        typeof(GrainActivityCollector).GetField("storageSubscribers", BindingFlags.Instance | BindingFlags.NonPublic)!;
 
     [Fact]
     public async Task WaitForAssertionAsync_with_grain_parameter_task_throws_for_null_grain()
@@ -140,6 +160,28 @@ public class GrainActivityCollectorCoreTests(OrleansTestClusterFixture fixture)
     }
 
     [Fact]
+    public async Task OnStorageOperation_clear_retries_standard_waits()
+    {
+        var collector = new GrainActivityCollector();
+        var ready = false;
+        var waitTask = collector.WaitForAssertionAsync(
+            () =>
+            {
+                Assert.True(ready);
+                return Task.CompletedTask;
+            },
+            timeout: TimeSpan.FromMilliseconds(250),
+            ct: TestContext.Current.CancellationToken);
+
+        ready = true;
+        InvokeOnStorageOperation(
+            collector,
+            new StorageOperation(StorageOperationKind.Clear, GrainId.Create("test-grain", "clear"), "Default", "state", "etag", 1));
+
+        await waitTask;
+    }
+
+    [Fact]
     public async Task OnGrainCall_retries_standard_waits()
     {
         var collector = new GrainActivityCollector();
@@ -198,6 +240,34 @@ public class GrainActivityCollectorCoreTests(OrleansTestClusterFixture fixture)
     }
 
     [Fact]
+    public void OnStorageOperation_throws_when_activity_subscriber_channel_is_full()
+    {
+        var collector = new GrainActivityCollector();
+        using var subscription = SubscribeActivities(collector, out _);
+        var operation = new StorageOperation(StorageOperationKind.Write, GrainId.Create("test-grain", "activity-full"), "Default", "state", "etag", 1);
+
+        FillToCapacity(() => InvokeOnStorageOperation(collector, operation));
+
+        var exception = Assert.Throws<TargetInvocationException>(() => InvokeOnStorageOperation(collector, operation));
+
+        Assert.Equal("A grain activity subscriber channel is full.", exception.InnerException?.Message);
+    }
+
+    [Fact]
+    public void OnStorageOperation_throws_when_storage_subscriber_channel_is_full()
+    {
+        var collector = new GrainActivityCollector();
+        using var subscription = SubscribeStorageOperations(collector, out _);
+        var operation = new StorageOperation(StorageOperationKind.Write, GrainId.Create("test-grain", "storage-full"), "Default", "state", "etag", 1);
+
+        FillToCapacity(() => InvokeOnStorageOperation(collector, operation));
+
+        var exception = Assert.Throws<TargetInvocationException>(() => InvokeOnStorageOperation(collector, operation));
+
+        Assert.Equal("A storage operation subscriber channel is full.", exception.InnerException?.Message);
+    }
+
+    [Fact]
     public async Task OnGrainCall_publishes_to_WaitForGrainCallAsync()
     {
         var collector = new GrainActivityCollector();
@@ -213,6 +283,52 @@ public class GrainActivityCollectorCoreTests(OrleansTestClusterFixture fixture)
     }
 
     [Fact]
+    public async Task WaitForAssertionAsync_throws_when_activity_stream_completes_unexpectedly()
+    {
+        var collector = new GrainActivityCollector();
+        var waitTask = collector.WaitForAssertionAsync(
+            static () => Task.FromException(new Xunit.Sdk.XunitException("Keep waiting.")),
+            timeout: TimeSpan.FromSeconds(5),
+            ct: TestContext.Current.CancellationToken);
+
+        UnsubscribeFirstSubscriber(collector, ActivitySubscribersField);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => waitTask);
+
+        Assert.Equal("The activity stream completed unexpectedly.", exception.Message);
+    }
+
+    [Fact]
+    public async Task WaitForStorageOperationAsync_throws_when_event_stream_completes_unexpectedly()
+    {
+        var collector = new GrainActivityCollector();
+        var waitTask = collector.WaitForStorageOperationAsync(
+            static _ => false,
+            timeout: TimeSpan.FromSeconds(5),
+            ct: TestContext.Current.CancellationToken);
+
+        UnsubscribeFirstSubscriber(collector, StorageSubscribersField);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => waitTask);
+
+        Assert.Equal("The event stream completed unexpectedly.", exception.Message);
+    }
+
+    [Fact]
+    public void OnGrainCall_throws_when_grain_call_subscriber_channel_is_full()
+    {
+        var collector = new GrainActivityCollector();
+        using var subscription = SubscribeGrainCalls(collector, out _);
+        var context = new TestIncomingGrainCallContext(GrainId.Create("test-grain", "grain-call-full"));
+
+        FillToCapacity(() => InvokeOnGrainCall(collector, context));
+
+        var exception = Assert.Throws<TargetInvocationException>(() => InvokeOnGrainCall(collector, context));
+
+        Assert.Equal("A grain call subscriber channel is full.", exception.InnerException?.Message);
+    }
+
+    [Fact]
     public void OnStorageOperation_throws_for_null_operation()
     {
         var collector = new GrainActivityCollector();
@@ -220,6 +336,17 @@ public class GrainActivityCollectorCoreTests(OrleansTestClusterFixture fixture)
         var exception = Assert.Throws<TargetInvocationException>(() => OnStorageOperationMethod.Invoke(collector, [null]));
 
         Assert.IsType<ArgumentNullException>(exception.InnerException);
+    }
+
+    [Fact]
+    public void OnStorageOperation_throws_for_unknown_operation_kind()
+    {
+        var collector = new GrainActivityCollector();
+        var operation = new StorageOperation((StorageOperationKind)999, GrainId.Create("test-grain", "unknown-kind"), "Default", "state", "etag", 1);
+
+        var exception = Assert.Throws<TargetInvocationException>(() => InvokeOnStorageOperation(collector, operation));
+
+        Assert.IsType<UnreachableException>(exception.InnerException);
     }
 
     [Fact]
@@ -237,6 +364,52 @@ public class GrainActivityCollectorCoreTests(OrleansTestClusterFixture fixture)
 
     private static void InvokeOnGrainCall(GrainActivityCollector collector, IIncomingGrainCallContext context)
         => OnGrainCallMethod.Invoke(collector, [context]);
+
+    private static IDisposable SubscribeActivities(GrainActivityCollector collector, out ChannelReader<GrainActivity> reader)
+    {
+        var args = new object?[] { null, null };
+        var subscription = (IDisposable)SubscribeActivitiesMethod.Invoke(collector, args)!;
+        reader = (ChannelReader<GrainActivity>)args[0]!;
+        return subscription;
+    }
+
+    private static IDisposable SubscribeStorageOperations(GrainActivityCollector collector, out ChannelReader<StorageOperation> reader)
+    {
+        var args = new object?[] { null, null };
+        var subscription = (IDisposable)SubscribeStorageOperationsMethod.Invoke(collector, args)!;
+        reader = (ChannelReader<StorageOperation>)args[0]!;
+        return subscription;
+    }
+
+    private static IDisposable SubscribeGrainCalls(GrainActivityCollector collector, out ChannelReader<IIncomingGrainCallContext> reader)
+    {
+        var args = new object?[] { null, null };
+        var subscription = (IDisposable)SubscribeGrainCallsMethod.Invoke(collector, args)!;
+        reader = (ChannelReader<IIncomingGrainCallContext>)args[0]!;
+        return subscription;
+    }
+
+    private static void FillToCapacity(Action publish)
+    {
+        for (var index = 0; index < SubscriberChannelCapacity; index++)
+        {
+            publish();
+        }
+    }
+
+    private static void UnsubscribeFirstSubscriber(GrainActivityCollector collector, FieldInfo subscribersField)
+    {
+        var subscribers = (System.Collections.IList)subscribersField.GetValue(collector)!;
+        var subscriber = Assert.Single(subscribers.Cast<object>());
+        var unsubscribeMethod = typeof(GrainActivityCollector).GetMethod(
+            "Unsubscribe",
+            BindingFlags.Instance | BindingFlags.NonPublic,
+            binder: null,
+            [subscriber.GetType()],
+            modifiers: null)!;
+
+        unsubscribeMethod.Invoke(collector, [subscriber]);
+    }
 
     private sealed class TestIncomingGrainCallContext(GrainId targetId) : IIncomingGrainCallContext
     {

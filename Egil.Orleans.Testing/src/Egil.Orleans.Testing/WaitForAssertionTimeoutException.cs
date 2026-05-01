@@ -7,6 +7,8 @@ namespace Egil.Orleans.Testing;
 /// </summary>
 /// <remarks>
 /// The <see cref="Exception.InnerException"/> typically contains the last assertion failure encountered before the timeout.
+/// When the timeout comes from a failed assertion retry loop, the visible stack trace is based on that last assertion failure
+/// so the first frames point back to the user's assertion code.
 /// The optional <see cref="GrainId"/> and <see cref="Elapsed"/> properties provide additional troubleshooting context.
 /// </remarks>
 public sealed class WaitForAssertionTimeoutException : Exception, ITestTimeoutException

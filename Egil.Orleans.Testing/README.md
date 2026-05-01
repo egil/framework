@@ -24,11 +24,13 @@ The following is a complete, copy/paste-ready example that shows how to set up a
 
 ```csharp
 using Orleans.TestingHost;
+using Orleans.Concurrency;
 using Egil.Orleans.Testing;
 
 // Grain interface and implementation (in your production code)
 public interface IOrderGrain : IGrainWithStringKey
 {
+    [OneWay]
     Task SubmitAsync(string item);
     Task<string?> GetStatusAsync();
 }
@@ -39,6 +41,9 @@ public sealed class OrderGrain(
 {
     public async Task SubmitAsync(string item)
     {
+        // Demo only: simulate real async work so the test has to wait for the eventual update.
+        await Task.Delay(TimeSpan.FromMilliseconds(50));
+
         state.State.Item = item;
         state.State.Status = "submitted";
         await state.WriteStateAsync();
@@ -47,14 +52,15 @@ public sealed class OrderGrain(
     public Task<string?> GetStatusAsync() => Task.FromResult(state.State.Status);
 }
 
-// Test class — cluster lives inline, no shared fixture required
-public sealed class OrderGrainTests : IAsyncLifetime
+public sealed class OrderGrainTests
 {
-    private InProcessTestCluster? cluster;
-    private readonly GrainActivityCollector collector = new();
-
-    public async ValueTask InitializeAsync()
+    [Fact]
+    public async Task SubmitAsync_sets_status_to_submitted()
     {
+        // Arrange
+        // The cluster setup is inline here for absolute clarity.
+        // In a larger suite, this would usually move to IClassFixture, AssemblyFixture, or similar.
+        var collector = new GrainActivityCollector();
         var builder = new InProcessTestClusterBuilder(initialSilosCount: 1);
 
         builder.ConfigureSilo((_, siloBuilder) =>
@@ -67,36 +73,29 @@ public sealed class OrderGrainTests : IAsyncLifetime
                 .CollectStorageActivityFromDefault();
         });
 
-        cluster = builder.Build();
+        await using var cluster = builder.Build();
         await cluster.DeployAsync();
-    }
 
-    public async ValueTask DisposeAsync()
-    {
-        if (cluster is not null)
-            await cluster.DisposeAsync();
-    }
+        var grain = cluster.Client.GetGrain<IOrderGrain>(Guid.NewGuid().ToString());
 
-    [Fact]
-    public async Task SubmitAsync_sets_status_to_submitted()
-    {
-        var grain = cluster!.Client.GetGrain<IOrderGrain>(Guid.NewGuid().ToString());
-
+        // Act
+        // `SubmitAsync` is [OneWay], so the call returns before the delayed write completes.
         await grain.SubmitAsync("laptop");
 
+        // Assert
         // WaitForAssertionAsync retries the assertion each time grain activity
         // is detected (storage write or grain call) until it passes or times out.
         await collector.WaitForAssertionAsync(async () =>
         {
             Assert.Equal("submitted", await grain.GetStatusAsync());
-        }, ct: TestContext.Current.CancellationToken);
+        });
     }
 }
 ```
 
-### 3. Shared fixture (optional)
+### 3. Shared fixture (recommended)
 
-When many test classes share the same cluster, use an assembly fixture:
+When many test classes share the same cluster, a shared fixture is the recommended shape:
 
 ```csharp
 [assembly: AssemblyFixture(typeof(OrleansTestClusterFixture))]
@@ -114,7 +113,13 @@ public sealed class OrleansTestClusterFixture : IAsyncLifetime
         builder.ConfigureSilo((_, siloBuilder) =>
         {
             siloBuilder.AddMemoryGrainStorage("Default");
+
+            // AddGrainActivityCollector wires up grain call observation automatically.
+            // Most tests should start here even if they do not need low-level assertions.
             siloBuilder.AddGrainActivityCollector(Collector)
+
+                // CollectStorageActivityFromDefault also enables storage observation,
+                // which lets WaitForAssertionAsync react to persistence-driven changes.
                 .CollectStorageActivityFromDefault();
         });
         cluster = builder.Build();
