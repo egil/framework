@@ -124,7 +124,7 @@ public sealed class OrderGrainTests
 When many tests share the same cluster, it is convenient to wrap the cluster and collector in a reusable object that implements `IGrainActivityWaiter`. In xUnit this could be a class fixture or collection fixture. In other frameworks it could be any shared helper with setup and teardown.
 
 ```csharp
-public sealed class OrleansTestClusterFixture : IAsyncLifetime, IGrainActivityWaiter
+public class OrleansTestClusterFixture : IAsyncLifetime, IGrainActivityWaiter
 {
     private InProcessTestCluster? cluster;
 
