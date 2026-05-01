@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Runtime.ExceptionServices;
+using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 using Orleans;
 using Orleans.Runtime;
@@ -10,7 +12,7 @@ namespace Egil.Orleans.Testing;
 /// </summary>
 /// <remarks>
 /// Register an instance with the <c>AddGrainActivityCollector</c> extension method from
-/// <see cref="GrainActivityCollectorSiloBuilderExtensions"/>
+/// <see cref="global::Orleans.Hosting.GrainActivityCollectorSiloBuilderExtensions"/>
 /// and optionally enable storage collection through <see cref="GrainActivityCollectorBuilder"/>.
 /// The standard <c>WaitForAssertionAsync</c> overloads retry assertions based on observed grain activity,
 /// while the advanced wait methods can observe low-level storage operations and incoming grain calls directly.
@@ -50,6 +52,7 @@ public sealed class GrainActivityCollector
     /// });
     /// ]]></code>
     /// </example>
+    [StackTraceHidden]
     public Task WaitForAssertionAsync(
         Func<Task> assertion,
         TimeSpan? timeout = null,
@@ -87,6 +90,7 @@ public sealed class GrainActivityCollector
     /// });
     /// ]]></code>
     /// </example>
+    [StackTraceHidden]
     public Task<TResult> WaitForAssertionAsync<TResult>(
         Func<Task<TResult>> assertion,
         TimeSpan? timeout = null,
@@ -109,6 +113,7 @@ public sealed class GrainActivityCollector
     /// <returns>A task that completes when the assertion succeeds.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="grain"/> or <paramref name="assertion"/> is <see langword="null"/>.</exception>
     /// <exception cref="WaitForAssertionTimeoutException">Thrown when the assertion does not succeed before the timeout expires.</exception>
+    [StackTraceHidden]
     public Task WaitForAssertionAsync<TGrain>(
         TGrain grain,
         Func<Task> assertion,
@@ -128,6 +133,7 @@ public sealed class GrainActivityCollector
     /// <summary>
     /// Waits until the supplied assertion succeeds, retrying only when activity from the specified grain occurs.
     /// </summary>
+    [StackTraceHidden]
     public Task<TResult> WaitForAssertionAsync<TGrain, TResult>(
         TGrain grain,
         Func<Task<TResult>> assertion,
@@ -147,6 +153,7 @@ public sealed class GrainActivityCollector
     /// <summary>
     /// Waits until the supplied assertion succeeds, retrying only when activity from the specified grain occurs.
     /// </summary>
+    [StackTraceHidden]
     public Task WaitForAssertionAsync<TGrain>(
         TGrain grain,
         Func<TGrain, Task> assertion,
@@ -166,6 +173,7 @@ public sealed class GrainActivityCollector
     /// <summary>
     /// Waits until the supplied assertion succeeds, retrying only when activity from the specified grain occurs.
     /// </summary>
+    [StackTraceHidden]
     public Task<TResult> WaitForAssertionAsync<TGrain, TResult>(
         TGrain grain,
         Func<TGrain, Task<TResult>> assertion,
@@ -315,7 +323,8 @@ public sealed class GrainActivityCollector
         PublishActivity(new GrainActivity(context.TargetId, GrainActivityKind.GrainCall, DateTimeOffset.UtcNow));
     }
 
-    private async Task<TResult> WaitForAssertionAsyncCore<TResult>(
+    [StackTraceHidden]
+    private Task<TResult> WaitForAssertionAsyncCore<TResult>(
         Func<ValueTask<TResult>> assertion,
         Predicate<GrainActivity>? filter,
         TimeSpan? timeout,
@@ -324,9 +333,41 @@ public sealed class GrainActivityCollector
     {
         ArgumentNullException.ThrowIfNull(assertion);
 
+        var lastFailure = new StrongBox<Exception?>();
+        var timeoutElapsed = new StrongBox<TimeSpan?>();
+        var loopTask = WaitForAssertionAsyncLoop(assertion, filter, timeout, lastFailure, timeoutElapsed, ct);
+
+        return loopTask
+            .ContinueWith(
+                continuation =>
+                {
+                    if (continuation.IsCompletedSuccessfully)
+                    {
+                        return continuation;
+                    }
+
+                    if (timeoutElapsed.Value is { } elapsed && lastFailure.Value is { } captured)
+                    {
+                        return Task.FromException<TResult>(CreateTimeoutException(captured, grainId, elapsed));
+                    }
+
+                    return continuation;
+                },
+                TaskContinuationOptions.ExecuteSynchronously)
+            .Unwrap();
+    }
+
+    [StackTraceHidden]
+    private async Task<TResult> WaitForAssertionAsyncLoop<TResult>(
+        Func<ValueTask<TResult>> assertion,
+        Predicate<GrainActivity>? filter,
+        TimeSpan? timeout,
+        StrongBox<Exception?> lastFailure,
+        StrongBox<TimeSpan?> timeoutElapsed,
+        CancellationToken ct)
+    {
         using var subscription = SubscribeActivities(out var reader, filter);
         var stopwatch = Stopwatch.StartNew();
-        Exception? lastFailure = null;
 
         using (RequestContextScope.ForAssertion())
         {
@@ -336,7 +377,7 @@ public sealed class GrainActivityCollector
             }
             catch (Exception ex)
             {
-                lastFailure = ex;
+                lastFailure.Value = ex;
             }
         }
 
@@ -355,14 +396,15 @@ public sealed class GrainActivityCollector
                     }
                     catch (Exception ex)
                     {
-                        lastFailure = ex;
+                        lastFailure.Value = ex;
                     }
                 }
             }
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            throw CreateTimeoutException(lastFailure, grainId, stopwatch.Elapsed);
+            timeoutElapsed.Value = stopwatch.Elapsed;
+            throw;
         }
 
         ct.ThrowIfCancellationRequested();
@@ -543,7 +585,14 @@ public sealed class GrainActivityCollector
             ? $"Timed out waiting for Orleans test activity after {elapsed}."
             : $"Timed out waiting for Orleans test activity for grain '{grainId}' after {elapsed}.";
 
-        return new WaitForAssertionTimeoutException(message, innerException, grainId, elapsed);
+        var exception = new WaitForAssertionTimeoutException(message, innerException, grainId, elapsed);
+
+        if (!string.IsNullOrWhiteSpace(innerException?.StackTrace))
+        {
+            ExceptionDispatchInfo.SetRemoteStackTrace(exception, innerException.StackTrace);
+        }
+
+        return exception;
     }
 
     private static Channel<T> CreateChannel<T>() =>
@@ -555,6 +604,7 @@ public sealed class GrainActivityCollector
             AllowSynchronousContinuations = false,
         });
 
+    [StackTraceHidden]
     private static async ValueTask<bool> WrapTask(Func<Task> assertion)
     {
         await assertion().ConfigureAwait(false);

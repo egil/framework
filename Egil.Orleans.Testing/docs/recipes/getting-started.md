@@ -8,12 +8,13 @@ Create a `GrainActivityCollector` and register it with your silo builder before 
 var collector = new GrainActivityCollector();
 
 siloBuilder.AddGrainActivityCollector(collector)
-    .CollectStorageActivityFromDefault();
+    .CollectStorageActivityFromDefault()
+    .CollectStorageActivityFrom("Orders");
 ```
 
 - **`AddGrainActivityCollector`** wires up grain call observation automatically as an `IIncomingGrainCallFilter`.
 - **`CollectStorageActivityFromDefault()`** wraps the `"Default"` storage provider and enables storage observation.
-- Call **`CollectStorageActivityFrom("name")`** instead when your storage provider has a custom name.
+- **`CollectStorageActivityFrom("Orders")`** shows the named-provider variant for non-default storage.
 - Omit the storage call entirely if you only need grain call observation.
 
 ## Inline setup in a test class
@@ -40,14 +41,19 @@ public sealed class OrderGrainTests : IAsyncLifetime
 
         builder.ConfigureSilo((_, siloBuilder) =>
         {
-            // Required: in-memory storage for grain state.
-            siloBuilder.AddMemoryGrainStorage("Default");
+            // Typical: register the default grain storage provider.
+            siloBuilder.AddMemoryGrainStorageAsDefault();
+
+            // Optional: show a secondary named provider as well.
+            siloBuilder.AddMemoryGrainStorage("Orders");
 
             // Enable the activity collector.
             // AddGrainActivityCollector wires up grain call observation automatically.
-            // CollectStorageActivityFromDefault also enables storage observation.
+            // CollectStorageActivityFromDefault enables observation for the default provider.
+            // CollectStorageActivityFrom("Orders") shows how to observe a named provider too.
             siloBuilder.AddGrainActivityCollector(collector)
-                .CollectStorageActivityFromDefault();
+                .CollectStorageActivityFromDefault()
+                .CollectStorageActivityFrom("Orders");
         });
 
         cluster = builder.Build();

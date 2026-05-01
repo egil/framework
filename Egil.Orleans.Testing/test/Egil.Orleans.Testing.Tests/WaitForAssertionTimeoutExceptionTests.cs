@@ -3,6 +3,15 @@ namespace Egil.Orleans.Testing.Tests;
 public class WaitForAssertionTimeoutExceptionTests
 {
     [Fact]
+    public void Constructor_with_message_only_preserves_message()
+    {
+        var exception = new WaitForAssertionTimeoutException("Timed out waiting for assertion.");
+
+        Assert.Equal("Timed out waiting for assertion.", exception.Message);
+        Assert.Null(exception.InnerException);
+    }
+
+    [Fact]
     public void Constructor_preserves_message_and_inner_exception()
     {
         var innerException = new InvalidOperationException("boom");
