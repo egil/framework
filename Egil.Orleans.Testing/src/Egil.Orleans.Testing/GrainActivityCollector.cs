@@ -27,13 +27,12 @@ namespace Egil.Orleans.Testing;
 /// </remarks>
 public sealed class GrainActivityCollector : IGrainActivityWaiter, IDisposable
 {
-    private const int SubscriberChannelCapacity = 256;
     private const int RecentEventHistoryCapacity = 256;
 
-    private readonly object activitySubscribersLock = new();
-    private readonly object storageSubscribersLock = new();
-    private readonly object grainCallSubscribersLock = new();
-    private int disposed;
+    private readonly Lock activitySubscribersLock = new();
+    private readonly Lock storageSubscribersLock = new();
+    private readonly Lock grainCallSubscribersLock = new();
+    private bool disposed;
 
     private List<ActivitySubscriber> activitySubscribers = [];
     private List<StorageSubscriber> storageSubscribers = [];
@@ -182,8 +181,6 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter, IDisposable
     public async IAsyncEnumerable<StorageOperation> SubscribeToStorageOperations(
         [EnumeratorCancellation] CancellationToken ct = default)
     {
-        ObjectDisposedException.ThrowIf(disposed != 0, this);
-
         var channel = Channel.CreateUnbounded<StorageOperation>(new UnboundedChannelOptions
         {
             SingleReader = true,
@@ -194,6 +191,7 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter, IDisposable
         var subscriber = new LiveFeedSubscriber<StorageOperation>(channel, GrainIdFilter: null);
         lock (storageSubscribersLock)
         {
+            ObjectDisposedException.ThrowIf(disposed, this);
             liveFeedStorageSubscribers = [.. liveFeedStorageSubscribers, subscriber];
         }
 
@@ -242,7 +240,6 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter, IDisposable
         where TGrain : IGrain
     {
         ArgumentNullException.ThrowIfNull(grain);
-        ObjectDisposedException.ThrowIf(disposed != 0, this);
         var grainId = grain.GetGrainId();
 
         var channel = Channel.CreateUnbounded<StorageOperation>(new UnboundedChannelOptions
@@ -255,6 +252,7 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter, IDisposable
         var subscriber = new LiveFeedSubscriber<StorageOperation>(channel, GrainIdFilter: grainId);
         lock (storageSubscribersLock)
         {
+            ObjectDisposedException.ThrowIf(disposed, this);
             liveFeedStorageSubscribers = [.. liveFeedStorageSubscribers, subscriber];
         }
 
@@ -298,8 +296,6 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter, IDisposable
     public async IAsyncEnumerable<IIncomingGrainCallContext> SubscribeToGrainCalls(
         [EnumeratorCancellation] CancellationToken ct = default)
     {
-        ObjectDisposedException.ThrowIf(disposed != 0, this);
-
         var channel = Channel.CreateUnbounded<IIncomingGrainCallContext>(new UnboundedChannelOptions
         {
             SingleReader = true,
@@ -310,6 +306,7 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter, IDisposable
         var subscriber = new LiveFeedSubscriber<IIncomingGrainCallContext>(channel, GrainIdFilter: null);
         lock (grainCallSubscribersLock)
         {
+            ObjectDisposedException.ThrowIf(disposed, this);
             liveFeedGrainCallSubscribers = [.. liveFeedGrainCallSubscribers, subscriber];
         }
 
@@ -358,7 +355,6 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter, IDisposable
         where TGrain : IGrain
     {
         ArgumentNullException.ThrowIfNull(grain);
-        ObjectDisposedException.ThrowIf(disposed != 0, this);
         var grainId = grain.GetGrainId();
 
         var channel = Channel.CreateUnbounded<IIncomingGrainCallContext>(new UnboundedChannelOptions
@@ -371,6 +367,7 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter, IDisposable
         var subscriber = new LiveFeedSubscriber<IIncomingGrainCallContext>(channel, GrainIdFilter: grainId);
         lock (grainCallSubscribersLock)
         {
+            ObjectDisposedException.ThrowIf(disposed, this);
             liveFeedGrainCallSubscribers = [.. liveFeedGrainCallSubscribers, subscriber];
         }
 
@@ -423,7 +420,7 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter, IDisposable
         GrainId? grainId,
         CancellationToken ct)
     {
-        ObjectDisposedException.ThrowIf(disposed != 0, this);
+        ObjectDisposedException.ThrowIf(disposed, this);
         ArgumentNullException.ThrowIfNull(assertion);
 
         var lastFailure = new StrongBox<Exception?>();
@@ -501,6 +498,7 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter, IDisposable
         }
 
         ct.ThrowIfCancellationRequested();
+        ObjectDisposedException.ThrowIf(disposed, this);
         throw new InvalidOperationException("The activity stream completed unexpectedly.");
     }
 
@@ -511,7 +509,7 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter, IDisposable
         GrainId? grainId,
         CancellationToken ct)
     {
-        ObjectDisposedException.ThrowIf(disposed != 0, this);
+        ObjectDisposedException.ThrowIf(disposed, this);
         ArgumentNullException.ThrowIfNull(predicate);
         ArgumentNullException.ThrowIfNull(subscribe);
 
@@ -544,6 +542,7 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter, IDisposable
         }
 
         ct.ThrowIfCancellationRequested();
+        ObjectDisposedException.ThrowIf(disposed, this);
         throw new InvalidOperationException("The event stream completed unexpectedly.");
     }
 
@@ -553,6 +552,7 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter, IDisposable
         var subscriber = new ActivitySubscriber(channel, filter);
         lock (activitySubscribersLock)
         {
+            ObjectDisposedException.ThrowIf(disposed, this);
             activitySubscribers = [.. activitySubscribers, subscriber];
         }
 
@@ -566,6 +566,7 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter, IDisposable
         var subscriber = new StorageSubscriber(channel, filter);
         lock (storageSubscribersLock)
         {
+            ObjectDisposedException.ThrowIf(disposed, this);
             history = GetHistorySnapshot(recentStorageOperations, filter);
             storageSubscribers = [.. storageSubscribers, subscriber];
         }
@@ -580,6 +581,7 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter, IDisposable
         var subscriber = new GrainCallSubscriber(channel, filter);
         lock (grainCallSubscribersLock)
         {
+            ObjectDisposedException.ThrowIf(disposed, this);
             history = GetHistorySnapshot(recentGrainCalls, filter);
             grainCallSubscribers = [.. grainCallSubscribers, subscriber];
         }
@@ -590,7 +592,7 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter, IDisposable
 
     private void PublishActivity(GrainActivity activity)
     {
-        if (disposed != 0)
+        if (disposed)
         {
             return;
         }
@@ -603,16 +605,13 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter, IDisposable
                 continue;
             }
 
-            if (!subscriber.Channel.Writer.TryWrite(activity))
-            {
-                throw new InvalidOperationException("A grain activity subscriber channel is full.");
-            }
+            subscriber.Channel.Writer.TryWrite(activity);
         }
     }
 
     private void PublishStorageOperation(StorageOperation operation)
     {
-        if (disposed != 0)
+        if (disposed)
         {
             return;
         }
@@ -631,10 +630,7 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter, IDisposable
                 continue;
             }
 
-            if (!subscriber.Channel.Writer.TryWrite(operation))
-            {
-                throw new InvalidOperationException("A storage operation subscriber channel is full.");
-            }
+            subscriber.Channel.Writer.TryWrite(operation);
         }
 
         // Live-feed subscribers use copy-on-write; reading the reference is safe without a lock.
@@ -652,7 +648,7 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter, IDisposable
 
     private void PublishGrainCall(IIncomingGrainCallContext context)
     {
-        if (disposed != 0)
+        if (disposed)
         {
             return;
         }
@@ -671,10 +667,7 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter, IDisposable
                 continue;
             }
 
-            if (!subscriber.Channel.Writer.TryWrite(context))
-            {
-                throw new InvalidOperationException("A grain call subscriber channel is full.");
-            }
+            subscriber.Channel.Writer.TryWrite(context);
         }
 
         // Live-feed subscribers use copy-on-write; reading the reference is safe without a lock.
@@ -727,10 +720,12 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter, IDisposable
     /// </summary>
     public void Dispose()
     {
-        if (Interlocked.Exchange(ref disposed, 1) != 0)
+        if (disposed)
         {
             return;
         }
+
+        disposed = true;
 
         List<ActivitySubscriber> activitySnapshot;
         lock (activitySubscribersLock)
@@ -816,11 +811,10 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter, IDisposable
     }
 
     private static Channel<T> CreateChannel<T>() =>
-        Channel.CreateBounded<T>(new BoundedChannelOptions(SubscriberChannelCapacity)
+        Channel.CreateUnbounded<T>(new UnboundedChannelOptions
         {
             SingleReader = true,
             SingleWriter = false,
-            FullMode = BoundedChannelFullMode.Wait,
             AllowSynchronousContinuations = false,
         });
 
