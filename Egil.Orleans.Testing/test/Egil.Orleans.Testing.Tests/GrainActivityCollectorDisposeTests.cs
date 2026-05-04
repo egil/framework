@@ -77,6 +77,58 @@ public class GrainActivityCollectorDisposeTests
     }
 
     [Fact]
+    public async Task WaitForAssertionAsync_throws_ObjectDisposedException_when_disposed_during_wait()
+    {
+        var collector = new GrainActivityCollector();
+        var waitStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var waitTask = collector.WaitForAssertionAsync(
+            () =>
+            {
+                waitStarted.TrySetResult();
+                throw new InvalidOperationException("not yet");
+            },
+            ct: TestContext.Current.CancellationToken);
+
+        await waitStarted.Task;
+        collector.Dispose();
+
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => waitTask);
+    }
+
+    [Fact]
+    public async Task WaitForStorageOperationAsync_throws_ObjectDisposedException_when_disposed_during_wait()
+    {
+        var collector = new GrainActivityCollector();
+
+        var waitTask = collector.WaitForStorageOperationAsync(
+            _ => false,
+            ct: TestContext.Current.CancellationToken);
+
+        // Give the wait time to subscribe and block on ReadAllAsync.
+        await Task.Yield();
+        collector.Dispose();
+
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => waitTask);
+    }
+
+    [Fact]
+    public async Task WaitForGrainCallAsync_throws_ObjectDisposedException_when_disposed_during_wait()
+    {
+        var collector = new GrainActivityCollector();
+
+        var waitTask = collector.WaitForGrainCallAsync(
+            _ => false,
+            ct: TestContext.Current.CancellationToken);
+
+        // Give the wait time to subscribe and block on ReadAllAsync.
+        await Task.Yield();
+        collector.Dispose();
+
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => waitTask);
+    }
+
+    [Fact]
     public void OnStorageOperation_is_silent_after_dispose()
     {
         var collector = new GrainActivityCollector();
