@@ -13,8 +13,8 @@ All code samples are extracted from the [samples project](../../samples/Egil.Orl
 
 ## Advanced assertions
 
-- [Waiting for a specific storage operation](advanced-assertions.md#waiting-for-a-specific-storage-operation)
-- [Waiting for a specific grain call](advanced-assertions.md#waiting-for-a-specific-grain-call)
+- [Collecting storage operations](advanced-assertions.md#collecting-storage-operations)
+- [Collecting grain calls](advanced-assertions.md#collecting-grain-calls)
 - [When to prefer advanced over standard assertions](advanced-assertions.md#when-to-prefer-advanced-over-standard-assertions)
 
 ## Timers and reminders
@@ -31,5 +31,5 @@ All code samples are extracted from the [samples project](../../samples/Egil.Orl
 ## Operation feeds
 
 - [When to use operation feeds](operation-feeds.md#when-to-use-operation-feeds)
-- [Subscribing to storage operations](operation-feeds.md#subscribing-to-storage-operations)
-- [Subscribing to grain calls](operation-feeds.md#subscribing-to-grain-calls)
+- [Collecting storage operations](operation-feeds.md#collecting-storage-operations)
+- [Collecting grain calls](operation-feeds.md#collecting-grain-calls)

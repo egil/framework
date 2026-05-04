@@ -12,19 +12,24 @@ public class StorageObserverTests
         using var harness = CreateHarness(new FakeGrainStorage());
         var grainId = GrainId.Create("test-grain", "write");
         var state = new TestGrainState<string> { ETag = "etag-1", State = "value" };
-        var waitTask = harness.Collector.WaitForStorageOperationAsync(
-            operation => operation.Kind == StorageOperationKind.Write
-                && operation.GrainId == grainId
-                && operation.StorageName == "Default"
-                && operation.StateName == "state"
-                && Equals(operation.State, "value")
-                && operation.Etag == "etag-1",
-            timeout: TimeSpan.FromMilliseconds(250),
-            ct: TestContext.Current.CancellationToken);
+        var ct = TestContext.Current.CancellationToken;
+
+        var collectTask = harness.Collector
+            .GetStorageOperationsAsync(cancellationToken: ct)
+            .Where(op => op.Kind == StorageOperationKind.Write
+                && op.GrainId == grainId
+                && op.StorageName == "Default"
+                && op.StateName == "state"
+                && Equals(op.State, "value")
+                && op.Etag == "etag-1")
+            .Take(1)
+            .ToListAsync(ct)
+            .AsTask();
 
         await harness.Storage.WriteStateAsync("state", grainId, state);
-        await waitTask;
+        var collected = await collectTask.WaitAsync(TimeSpan.FromMilliseconds(250), ct);
 
+        Assert.Single(collected);
         Assert.Equal(1, harness.Inner.WriteCount);
     }
 
@@ -34,14 +39,19 @@ public class StorageObserverTests
         using var harness = CreateHarness(new FakeGrainStorage());
         var grainId = GrainId.Create("test-grain", "read");
         var state = new TestGrainState<string> { ETag = "etag-2", State = "value" };
-        var waitTask = harness.Collector.WaitForStorageOperationAsync(
-            operation => operation.Kind == StorageOperationKind.Read && operation.GrainId == grainId,
-            timeout: TimeSpan.FromMilliseconds(250),
-            ct: TestContext.Current.CancellationToken);
+        var ct = TestContext.Current.CancellationToken;
+
+        var collectTask = harness.Collector
+            .GetStorageOperationsAsync(cancellationToken: ct)
+            .Where(op => op.Kind == StorageOperationKind.Read && op.GrainId == grainId)
+            .Take(1)
+            .ToListAsync(ct)
+            .AsTask();
 
         await harness.Storage.ReadStateAsync("state", grainId, state);
-        await waitTask;
+        var collected = await collectTask.WaitAsync(TimeSpan.FromMilliseconds(250), ct);
 
+        Assert.Single(collected);
         Assert.Equal(1, harness.Inner.ReadCount);
     }
 
@@ -51,10 +61,15 @@ public class StorageObserverTests
         using var harness = CreateHarness(new FakeGrainStorage());
         var grainId = GrainId.Create("test-grain", "clear");
         var state = new TestGrainState<string> { ETag = "etag-3", State = "value" };
-        var waitTask = harness.Collector.WaitForStorageOperationAsync(
-            _ => true,
-            timeout: TimeSpan.FromMilliseconds(100),
-            ct: TestContext.Current.CancellationToken);
+        var ct = TestContext.Current.CancellationToken;
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+
+        var collectTask = harness.Collector
+            .GetStorageOperationsAsync(cancellationToken: cts.Token)
+            .Take(1)
+            .ToListAsync(ct)
+            .AsTask();
 
         using (RequestContextScope.ForAssertion())
         {
@@ -62,7 +77,11 @@ public class StorageObserverTests
         }
 
         Assert.Equal(1, harness.Inner.ClearCount);
-        await Assert.ThrowsAsync<WaitForAssertionTimeoutException>(() => waitTask);
+
+        // Cancel after a short delay to verify no event was published
+        await cts.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => collectTask.WaitAsync(TimeSpan.FromMilliseconds(250), ct));
     }
 
     [Fact]

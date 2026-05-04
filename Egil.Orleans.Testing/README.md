@@ -349,7 +349,7 @@ In xUnit, see the official docs for fixture registration options:
 
 - **Grain-scoped assertions** — pass a grain reference to restrict retriggers to that grain only. This is the best default when one grain owns the state you are asserting.
 - **Standard assertions** — `WaitForAssertionAsync` without a grain scope retries on any detected grain activity (calls or storage operations). Useful when multiple grains contribute to the observed outcome.
-- **Advanced assertions** — `WaitForStorageOperationAsync` and `WaitForGrainCallAsync` wait for events matching a predicate. Use sparingly — these couple tests to implementation details.
+- **IAsyncEnumerable feeds** — `GetStorageOperationsAsync` and `GetGrainCallsAsync` return `IAsyncEnumerable<T>` feeds that can be composed with LINQ operators such as `Where`, `Take`, and `Select` for fine-grained event observation. Use `includeExisting: true` to replay recent history.
 - **Configurable timeout** — defaults to 5 seconds, overridable per call or via the `WAIT_FOR_ASSERTION_TIMEOUT_SECONDS` environment variable. Timeout is automatically bypassed when a debugger is attached.
 - **Test-framework-agnostic** — no runtime dependency on any test framework.
 

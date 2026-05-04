@@ -96,29 +96,24 @@ public sealed class GrainActivityCollector
         where TGrain : IGrain;
 
     // ══════════════════════════════════════════════════════════════
-    // Advanced — wait for a specific storage operation
+    // IAsyncEnumerable feeds — collect events with LINQ composition
     // ══════════════════════════════════════════════════════════════
 
-    public Task WaitForStorageOperationAsync(
-        Func<StorageOperation, bool> predicate,
-        TimeSpan? timeout = null, CancellationToken ct = default);
+    public IAsyncEnumerable<GrainActivity> GetGrainActivityAsync(
+        bool includeExisting = false, CancellationToken cancellationToken = default);
 
-    public Task WaitForStorageOperationAsync<TGrain>(
-        TGrain grain, Func<StorageOperation, bool> predicate,
-        TimeSpan? timeout = null, CancellationToken ct = default)
+    public IAsyncEnumerable<StorageOperation> GetStorageOperationsAsync(
+        bool includeExisting = false, CancellationToken cancellationToken = default);
+
+    public IAsyncEnumerable<StorageOperation> GetStorageOperationsAsync<TGrain>(
+        TGrain grain, bool includeExisting = false, CancellationToken cancellationToken = default)
         where TGrain : IGrain;
 
-    // ══════════════════════════════════════════════════════════════
-    // Advanced — wait for a specific grain call
-    // ══════════════════════════════════════════════════════════════
+    public IAsyncEnumerable<IIncomingGrainCallContext> GetGrainCallsAsync(
+        bool includeExisting = false, CancellationToken cancellationToken = default);
 
-    public Task WaitForGrainCallAsync(
-        Func<IIncomingGrainCallContext, bool> predicate,
-        TimeSpan? timeout = null, CancellationToken ct = default);
-
-    public Task WaitForGrainCallAsync<TGrain>(
-        TGrain grain, Func<IIncomingGrainCallContext, bool> predicate,
-        TimeSpan? timeout = null, CancellationToken ct = default)
+    public IAsyncEnumerable<IIncomingGrainCallContext> GetGrainCallsAsync<TGrain>(
+        TGrain grain, bool includeExisting = false, CancellationToken cancellationToken = default)
         where TGrain : IGrain;
 }
 ```
@@ -136,7 +131,7 @@ public sealed class GrainActivityCollector
 | **Provider interface** | None — `GrainActivityCollector` is a concrete class, fixtures expose it directly |
 | **Visibility: GrainCallCollectionFilter** | **Internal** — exposed via builder registration only |
 | **Visibility: StorageObserver** | **Internal** — exposed via builder registration only |
-| **Visibility: StorageOperation** | **Public** — used in advanced `WaitForStorageOperationAsync` methods |
+| **Visibility: StorageOperation** | **Public** — used in `GetStorageOperationsAsync` feed methods |
 | **Visibility: GrainActivity / GrainActivityKind** | **Public** — lean event type for the standard wait methods |
 | **Visibility: channels** | **Internal** — users never subscribe manually |
 | **Id-type overloads** | Dropped — callers resolve grains themselves |
@@ -168,9 +163,9 @@ All public types and methods must have thorough XML doc comments:
 - Same as above, plus explain that only activity from the specified grain triggers retries.
 - For the `Func<TGrain, ...>` overloads, note that the grain reference is passed to the lambda for convenience.
 
-### Advanced methods (`WaitForStorageOperationAsync`, `WaitForGrainCallAsync`)
+### Feed methods (`GetStorageOperationsAsync`, `GetGrainCallsAsync`, `GetGrainActivityAsync`)
 
-- `<summary>` — explain that these wait for a specific event matching the predicate rather than retrying a general assertion.
+- `<summary>` — explain that these return IAsyncEnumerable feeds that can be composed with LINQ operators.
 - `<remarks>` — **must include a coupling warning**:
   > ⚠️ **Coupling risk:** This method inspects low-level implementation details of your grain
   > (storage operations / incoming call context). Tests using this method are tightly coupled
@@ -354,18 +349,19 @@ All public methods must have thorough XML doc comments — see **XML documentati
   - XML docs: `<summary>` explaining retry-on-activity, `<param>` for each param, `<exception>`, `<example>`
 - 4 grain-scoped `WaitForAssertionAsync` (2 without grain in lambda + 2 with grain in lambda)
   - XML docs: same as above, plus explain grain-scoping behavior
-- 2 advanced `WaitForStorageOperationAsync` (non-grain-scoped + grain-scoped)
-  - XML docs: `<summary>`, `<param>`, `<exception>`, plus `<remarks>` with **coupling warning** (see guidelines)
-- 2 advanced `WaitForGrainCallAsync` (non-grain-scoped + grain-scoped)
-  - XML docs: `<summary>`, `<param>`, `<exception>`, plus `<remarks>` with **coupling warning** (see guidelines)
+- 2 `GetStorageOperationsAsync` (global + grain-scoped) → `IAsyncEnumerable<StorageOperation>`
+  - XML docs: `<summary>`, `<param>`, plus `<remarks>` with **coupling warning** (see guidelines)
+- 2 `GetGrainCallsAsync` (global + grain-scoped) → `IAsyncEnumerable<IIncomingGrainCallContext>`
+  - XML docs: `<summary>`, `<param>`, plus `<remarks>` with **coupling warning** (see guidelines)
+- 1 `GetGrainActivityAsync` → `IAsyncEnumerable<GrainActivity>` (core stream)
 
 Each method follows the same pattern:
-1. Subscribe to the appropriate internal channel
-2. Pre-flight check (run assertion/predicate immediately)
+1. Subscribe to the unified internal channel
+2. Pre-flight check (run assertion/predicate immediately) for assertion methods
 3. On each channel event, retry assertion/predicate
 4. Wrap assertion in `RequestContextScope.ForAssertion()` (for assertion methods)
 5. On timeout → throw `WaitForAssertionTimeoutException` with last failure
-6. Unsubscribe on completion/timeout
+6. Unsubscribe on completion/timeout/cancellation
 
 ### implement-internal-sources — Implement internal event sources
 
@@ -426,8 +422,8 @@ public class GrainActivityCollectorBuilder
   - Standard `WaitForAssertionAsync` triggered by grain call
   - Standard `WaitForAssertionAsync` triggered by storage write
   - Grain-scoped `WaitForAssertionAsync` with grain passed to lambda
-  - Advanced `WaitForStorageOperationAsync` with predicate
-  - Advanced `WaitForGrainCallAsync` with predicate
+  - Advanced `GetStorageOperationsAsync` feed with LINQ composition
+  - Advanced `GetGrainCallsAsync` feed with LINQ composition
   - Timeout behavior (expect `WaitForAssertionTimeoutException`)
   - Value-returning assertions
   - Mixed signals (both call + storage active)

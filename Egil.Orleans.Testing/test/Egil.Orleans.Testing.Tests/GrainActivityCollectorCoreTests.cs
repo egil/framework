@@ -27,48 +27,20 @@ public class GrainActivityCollectorCoreTests
     }
 
     [Fact]
-    public async Task WaitForStorageOperationAsync_with_grain_scope_throws_for_null_grain()
+    public void GetStorageOperationsAsync_grain_scope_throws_for_null_grain()
     {
         var collector = new GrainActivityCollector();
 
-        await Assert.ThrowsAsync<ArgumentNullException>(() =>
-            collector.WaitForStorageOperationAsync<ITestStateGrain>(
-                null!,
-                static _ => true,
-                ct: TestContext.Current.CancellationToken));
+        Assert.Throws<ArgumentNullException>(() =>
+            collector.GetStorageOperationsAsync<ITestStateGrain>(null!, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
-    public async Task WaitForGrainCallAsync_with_grain_scope_throws_for_null_grain()
+    public void GetGrainCallsAsync_grain_scope_throws_for_null_grain()
     {
         var collector = new GrainActivityCollector();
 
-        await Assert.ThrowsAsync<ArgumentNullException>(() =>
-            collector.WaitForGrainCallAsync<ITestStateGrain>(
-                null!,
-                static _ => true,
-                ct: TestContext.Current.CancellationToken));
-    }
-
-    [Fact]
-    public async Task WaitForStorageOperationAsync_throws_for_null_predicate()
-    {
-        var collector = new GrainActivityCollector();
-
-        await Assert.ThrowsAsync<ArgumentNullException>(() =>
-            collector.WaitForStorageOperationAsync(
-                (Func<StorageOperation, bool>)null!,
-                ct: TestContext.Current.CancellationToken));
-    }
-
-    [Fact]
-    public async Task WaitForGrainCallAsync_throws_for_null_predicate()
-    {
-        var collector = new GrainActivityCollector();
-
-        await Assert.ThrowsAsync<ArgumentNullException>(() =>
-            collector.WaitForGrainCallAsync(
-                (Func<IIncomingGrainCallContext, bool>)null!,
-                ct: TestContext.Current.CancellationToken));
+        Assert.Throws<ArgumentNullException>(() =>
+            collector.GetGrainCallsAsync<ITestStateGrain>(null!, cancellationToken: TestContext.Current.CancellationToken));
     }
 }

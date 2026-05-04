@@ -3,17 +3,22 @@ namespace Egil.Orleans.Testing.Tests;
 public class GrainActivityCollectorOneWayTests(OrleansTestClusterFixture fixture)
 {
     [Fact]
-    public async Task WaitForGrainCallAsync_matches_oneway_method()
+    public async Task GetGrainCallsAsync_matches_oneway_method()
     {
+        var ct = TestContext.Current.CancellationToken;
         var grain = fixture.GetUniqueGrain<IOneWayActivityGrain>();
-        var waitTask = fixture.Collector.WaitForGrainCallAsync(
-            grain,
-            context => context.MethodName == nameof(IOneWayActivityGrain.NotifyAsync),
-            timeout: TimeSpan.FromSeconds(2),
-            ct: TestContext.Current.CancellationToken);
+
+        var collectTask = fixture.Collector
+            .GetGrainCallsAsync(grain, cancellationToken: ct)
+            .Where(ctx => ctx.MethodName == nameof(IOneWayActivityGrain.NotifyAsync))
+            .Take(1)
+            .ToListAsync(ct)
+            .AsTask();
 
         await grain.NotifyAsync("ready");
-        await waitTask;
+
+        var collected = await collectTask.WaitAsync(TimeSpan.FromSeconds(5), ct);
+        Assert.Single(collected);
     }
 
     [Fact]

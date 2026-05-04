@@ -40,6 +40,38 @@ public sealed class GrainActivityCollectorBuilder
         return this;
     }
 
+    /// <summary>
+    /// Enables storage activity collection for <b>all</b> keyed <see cref="IGrainStorage"/> providers
+    /// currently registered in the service collection.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This method must be called <b>after</b> all storage providers have been registered with the silo builder,
+    /// because it iterates the current service collection to discover providers. Providers registered after this
+    /// call will not be included.
+    /// </para>
+    /// </remarks>
+    /// <returns>The current builder instance.</returns>
+    public GrainActivityCollectorBuilder CollectStorageActivity()
+    {
+        var providerNames = services
+            .Where(descriptor =>
+                descriptor.ServiceType == typeof(IGrainStorage)
+                && descriptor.IsKeyedService
+                && descriptor.ServiceKey is string key
+                && !key.StartsWith("Egil.Orleans.Testing.Inner::", StringComparison.Ordinal))
+            .Select(descriptor => (string)descriptor.ServiceKey!)
+            .Distinct()
+            .ToList();
+
+        foreach (var providerName in providerNames)
+        {
+            DecorateGrainStorage(providerName);
+        }
+
+        return this;
+    }
+
     private void DecorateGrainStorage(string providerName)
     {
         var descriptor = services.LastOrDefault(candidate =>

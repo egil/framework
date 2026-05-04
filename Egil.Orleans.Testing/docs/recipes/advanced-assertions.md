@@ -2,15 +2,16 @@
 
 ## When to prefer advanced over standard assertions
 
-The standard `WaitForAssertionAsync` overloads assert against observable grain behavior — the *what*. The advanced methods (`WaitForStorageOperationAsync`, `WaitForGrainCallAsync`) inspect low-level storage operations and incoming call contexts — the *how*.
+The standard `WaitForAssertionAsync` overloads assert against observable grain behavior — the *what*. The advanced methods (`GetStorageOperationsAsync`, `GetGrainCallsAsync`) collect low-level storage operations and incoming call contexts as `IAsyncEnumerable<T>` feeds — the *how*.
 
 > ⚠️ **Coupling risk:** Tests using the advanced methods are tightly coupled to implementation details. If the grain's internal implementation changes (e.g., switching storage providers, renaming internal methods), these tests may break even if the grain's external contract is unchanged.
 
 Use the advanced methods when:
 - You need to assert that a specific write happened with specific data (e.g., ETag, state snapshot).
 - You need to assert that a specific grain-to-grain call occurred without being able to observe its side effects externally.
+- You need to collect and inspect a specific **number** of events (e.g., `.Take(N)`).
 
-## Waiting for a specific storage operation
+## Collecting storage operations
 
 Fixture reference: [`OrleansTestClusterFixture`](../../README.md#orleanstestclusterfixture-reusable-helper)
 
@@ -18,32 +19,39 @@ Fixture reference: [`OrleansTestClusterFixture`](../../README.md#orleanstestclus
 <a id='snippet-advanced_storage_assertion'></a>
 ```cs
 /// <summary>
-/// Demonstrates advanced wait methods that inspect storage operations directly.
+/// Demonstrates using <c>GetStorageOperationsAsync</c> to collect and inspect storage operations directly.
 /// </summary>
 /// <remarks>
-/// ⚠️ <c>WaitForStorageOperationAsync</c> couples your test to implementation details.
+/// ⚠️ <c>GetStorageOperationsAsync</c> couples your test to implementation details.
 /// Prefer <c>WaitForAssertionAsync</c> when you can assert the externally observable result.
 /// </remarks>
 public sealed class WarehouseStorageOperationTests(OrleansTestClusterFixture fixture) : IClassFixture<OrleansTestClusterFixture>
 {
     [Fact]
-    public async Task WaitForStorageOperationAsync_waits_for_write_from_oneway_call()
+    public async Task GetStorageOperationsAsync_collects_write_from_oneway_call()
     {
+        var ct = TestContext.Current.CancellationToken;
         var grain = fixture.GetUniqueGrain<IWarehouseGrain>();
+
+        // Start collecting BEFORE triggering the action.
+        // Use Take(1) to automatically stop after the first matching write.
+        var collectTask = fixture.Collector
+            .GetStorageOperationsAsync(grain, cancellationToken: ct)
+            .Where(op => op.Kind == StorageOperationKind.Write)
+            .Take(1)
+            .ToListAsync(ct);
 
         await grain.ReserveAsync("widget", 10);
 
-        // Assert after triggering the action. The collector remembers recent
-        // storage activity, so this also works when the write already happened.
-        await fixture.Collector.WaitForStorageOperationAsync(
-            op => op.Kind == StorageOperationKind.Write && op.GrainId == grain.GetGrainId(),
-            ct: TestContext.Current.CancellationToken);
+        var writes = await collectTask;
 
+        Assert.Single(writes);
+        Assert.Equal(grain.GetGrainId(), writes[0].GrainId);
         Assert.Equal(10, await grain.GetReservedAsync("widget"));
     }
 }
 ```
-<sup><a href='/samples/Egil.Orleans.Testing.Samples/AdvancedAssertionsSample.cs#L84-L110' title='Snippet source file'>snippet source</a> | <a href='#snippet-advanced_storage_assertion' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/samples/Egil.Orleans.Testing.Samples/AdvancedAssertionsSample.cs#L84-L118' title='Snippet source file'>snippet source</a> | <a href='#snippet-advanced_storage_assertion' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 The `StorageOperation` record exposes:
@@ -54,7 +62,7 @@ The `StorageOperation` record exposes:
 - `ETag` — the ETag after the operation
 - `State` — the state value as `object?`
 
-## Waiting for a specific grain call
+## Collecting grain calls
 
 Fixture reference: [`OrleansTestClusterFixture`](../../README.md#orleanstestclusterfixture-reusable-helper)
 
@@ -62,31 +70,38 @@ Fixture reference: [`OrleansTestClusterFixture`](../../README.md#orleanstestclus
 <a id='snippet-advanced_grain_call_assertion'></a>
 ```cs
 /// <summary>
-/// Demonstrates advanced wait methods that inspect incoming grain calls directly.
+/// Demonstrates using <c>GetGrainCallsAsync</c> to collect and inspect incoming grain calls directly.
 /// </summary>
 /// <remarks>
-/// ⚠️ <c>WaitForGrainCallAsync</c> couples your test to implementation details.
+/// ⚠️ <c>GetGrainCallsAsync</c> couples your test to implementation details.
 /// Prefer <c>WaitForAssertionAsync</c> when you can assert the externally observable result.
 /// </remarks>
 public sealed class WarehouseGrainCallTests(OrleansTestClusterFixture fixture) : IClassFixture<OrleansTestClusterFixture>
 {
     [Fact]
-    public async Task WaitForGrainCallAsync_waits_for_internal_grain_to_grain_call()
+    public async Task GetGrainCallsAsync_collects_internal_grain_to_grain_call()
     {
+        var ct = TestContext.Current.CancellationToken;
         var grain = fixture.GetUniqueGrain<IWarehouseGrain>();
-
-        await grain.ReserveAsync("gadget", 5);
 
         // The warehouse grain internally calls ILedgerGrain.AddReservationAsync,
         // which is a grain-to-grain call invisible to the original test caller.
-        // The collector keeps recent calls, so you can wait after triggering the action too.
-        await fixture.Collector.WaitForGrainCallAsync(
-            ctx => ctx.MethodName == nameof(ILedgerGrain.AddReservationAsync),
-            ct: TestContext.Current.CancellationToken);
+        // Use Take(1) to automatically stop after the first matching call.
+        var collectTask = fixture.Collector
+            .GetGrainCallsAsync(cancellationToken: ct)
+            .Where(ctx => ctx.MethodName == nameof(ILedgerGrain.AddReservationAsync))
+            .Take(1)
+            .ToListAsync(ct);
+
+        await grain.ReserveAsync("gadget", 5);
+
+        var calls = await collectTask;
+
+        Assert.Single(calls);
     }
 }
 ```
-<sup><a href='/samples/Egil.Orleans.Testing.Samples/AdvancedAssertionsSample.cs#L112-L137' title='Snippet source file'>snippet source</a> | <a href='#snippet-advanced_grain_call_assertion' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/samples/Egil.Orleans.Testing.Samples/AdvancedAssertionsSample.cs#L120-L153' title='Snippet source file'>snippet source</a> | <a href='#snippet-advanced_grain_call_assertion' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 The `IIncomingGrainCallContext` exposes:

@@ -7,11 +7,11 @@ using Egil.Orleans.Testing.Samples.AdvancedAssertions;
 
 #region storage_operation_feed
 /// <summary>
-/// Demonstrates subscribing to a live feed of storage operations
-/// for collecting and inspecting persistence activity.
+/// Demonstrates using <c>GetStorageOperationsAsync</c> to collect and inspect
+/// persistence activity via a live <see cref="IAsyncEnumerable{T}"/> feed.
 /// </summary>
 /// <remarks>
-/// ⚠️ <c>SubscribeToStorageOperations</c> exposes persistence implementation details.
+/// ⚠️ <c>GetStorageOperationsAsync</c> exposes persistence implementation details.
 /// Tests using this feed are tightly coupled to storage providers and write timing.
 /// Prefer <c>WaitForAssertionAsync</c> when you can assert the externally observable result.
 /// </remarks>
@@ -24,10 +24,10 @@ public sealed class StorageOperationFeedTests(OrleansTestClusterFixture fixture)
         var grain = fixture.GetUniqueGrain<IWarehouseGrain>();
 
         // Start collecting BEFORE triggering the action.
-        // The feed is future-only — it does not replay past events.
+        // The feed is future-only by default — it does not replay past events.
         // Use Take(1) to automatically stop after the first matching write.
         var collectTask = fixture.Collector
-            .SubscribeToStorageOperations(grain, ct)
+            .GetStorageOperationsAsync(grain, cancellationToken: ct)
             .Where(op => op.Kind == StorageOperationKind.Write)
             .Take(1)
             .ToListAsync(ct);
@@ -44,11 +44,11 @@ public sealed class StorageOperationFeedTests(OrleansTestClusterFixture fixture)
 
 #region grain_call_feed
 /// <summary>
-/// Demonstrates subscribing to a live feed of incoming grain calls
-/// for collecting and inspecting call flow.
+/// Demonstrates using <c>GetGrainCallsAsync</c> to collect and inspect
+/// incoming grain calls via a live <see cref="IAsyncEnumerable{T}"/> feed.
 /// </summary>
 /// <remarks>
-/// ⚠️ <c>SubscribeToGrainCalls</c> exposes low-level call flow.
+/// ⚠️ <c>GetGrainCallsAsync</c> exposes low-level call flow.
 /// Prefer <c>WaitForAssertionAsync</c> for behavior-first assertions.
 /// </remarks>
 public sealed class GrainCallFeedTests(OrleansTestClusterFixture fixture) : IClassFixture<OrleansTestClusterFixture>
@@ -62,7 +62,7 @@ public sealed class GrainCallFeedTests(OrleansTestClusterFixture fixture) : ICla
         // Start collecting BEFORE triggering the action.
         // Use Take(1) to automatically stop after the first matching call.
         var collectTask = fixture.Collector
-            .SubscribeToGrainCalls(ct)
+            .GetGrainCallsAsync(cancellationToken: ct)
             .Where(ctx => ctx.MethodName == nameof(ILedgerGrain.AddReservationAsync))
             .Take(1)
             .ToListAsync(ct);

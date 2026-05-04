@@ -3,13 +3,13 @@ namespace Egil.Orleans.Testing.Tests;
 public class GrainActivityCollectorStorageFeedTests(OrleansTestClusterFixture fixture)
 {
     [Fact]
-    public async Task SubscribeToStorageOperations_receives_write_and_read()
+    public async Task GetStorageOperationsAsync_receives_write_and_read()
     {
         var ct = TestContext.Current.CancellationToken;
         var grain = fixture.GetUniqueGrain<ITestStateGrain>();
 
         var collectTask = fixture.Collector
-            .SubscribeToStorageOperations(grain, ct)
+            .GetStorageOperationsAsync(grain, cancellationToken: ct)
             .Take(2)
             .ToListAsync(ct)
             .AsTask();
@@ -24,14 +24,14 @@ public class GrainActivityCollectorStorageFeedTests(OrleansTestClusterFixture fi
     }
 
     [Fact]
-    public async Task SubscribeToStorageOperations_grain_scoped_ignores_unrelated_grains()
+    public async Task GetStorageOperationsAsync_grain_scoped_ignores_unrelated_grains()
     {
         var ct = TestContext.Current.CancellationToken;
         var target = fixture.GetUniqueGrain<ITestStateGrain>();
         var other = fixture.GetUniqueGrain<ITestStateGrain>("other");
 
         var collectTask = fixture.Collector
-            .SubscribeToStorageOperations(target, ct)
+            .GetStorageOperationsAsync(target, cancellationToken: ct)
             .Take(1)
             .ToListAsync(ct)
             .AsTask();
@@ -48,7 +48,7 @@ public class GrainActivityCollectorStorageFeedTests(OrleansTestClusterFixture fi
     }
 
     [Fact]
-    public async Task SubscribeToStorageOperations_is_future_only()
+    public async Task GetStorageOperationsAsync_is_future_only_by_default()
     {
         var ct = TestContext.Current.CancellationToken;
         var grain = fixture.GetUniqueGrain<ITestStateGrain>();
@@ -57,13 +57,14 @@ public class GrainActivityCollectorStorageFeedTests(OrleansTestClusterFixture fi
         await grain.SetValueAsync("before-subscribe");
 
         // Deterministically wait for that write to be observed by the collector
-        await fixture.Collector.WaitForStorageOperationAsync(
-            grain,
-            op => op.Kind == StorageOperationKind.Write,
-            ct: ct);
+        await fixture.Collector
+            .GetStorageOperationsAsync(grain, includeExisting: true, cancellationToken: ct)
+            .Where(op => op.Kind == StorageOperationKind.Write)
+            .Take(1)
+            .FirstAsync(ct);
 
         var collectTask = fixture.Collector
-            .SubscribeToStorageOperations(grain, ct)
+            .GetStorageOperationsAsync(grain, cancellationToken: ct)
             .Where(op => op.Kind == StorageOperationKind.Write)
             .Take(1)
             .ToListAsync(ct)
@@ -81,14 +82,14 @@ public class GrainActivityCollectorStorageFeedTests(OrleansTestClusterFixture fi
     }
 
     [Fact]
-    public async Task SubscribeToStorageOperations_collects_many_sequential_writes()
+    public async Task GetStorageOperationsAsync_collects_many_sequential_writes()
     {
         var ct = TestContext.Current.CancellationToken;
         var grain = fixture.GetUniqueGrain<ITestStateGrain>();
         const int operationCount = 50;
 
         var collectTask = fixture.Collector
-            .SubscribeToStorageOperations(grain, ct)
+            .GetStorageOperationsAsync(grain, cancellationToken: ct)
             .Where(op => op.Kind == StorageOperationKind.Write)
             .Take(operationCount)
             .ToListAsync(ct)
@@ -106,13 +107,13 @@ public class GrainActivityCollectorStorageFeedTests(OrleansTestClusterFixture fi
     }
 
     [Fact]
-    public async Task SubscribeToStorageOperations_cancellation_removes_subscription()
+    public async Task GetStorageOperationsAsync_cancellation_removes_subscription()
     {
         var ct = TestContext.Current.CancellationToken;
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
         var collectTask = fixture.Collector
-            .SubscribeToStorageOperations(cts.Token)
+            .GetStorageOperationsAsync(cancellationToken: cts.Token)
             .ToListAsync(ct)
             .AsTask();
 
@@ -124,7 +125,7 @@ public class GrainActivityCollectorStorageFeedTests(OrleansTestClusterFixture fi
     }
 
     [Fact]
-    public async Task SubscribeToStorageOperations_global_receives_events()
+    public async Task GetStorageOperationsAsync_global_receives_events()
     {
         var ct = TestContext.Current.CancellationToken;
         var grain = fixture.GetUniqueGrain<ITestStateGrain>();
@@ -132,7 +133,7 @@ public class GrainActivityCollectorStorageFeedTests(OrleansTestClusterFixture fi
 
         // Use global overload, but filter to our grain to avoid cross-test noise
         var collectTask = fixture.Collector
-            .SubscribeToStorageOperations(ct)
+            .GetStorageOperationsAsync(cancellationToken: ct)
             .Where(op => op.GrainId == grainId)
             .Take(1)
             .ToListAsync(ct)
@@ -147,19 +148,19 @@ public class GrainActivityCollectorStorageFeedTests(OrleansTestClusterFixture fi
     }
 
     [Fact]
-    public async Task SubscribeToStorageOperations_multiple_concurrent_subscribers()
+    public async Task GetStorageOperationsAsync_multiple_concurrent_subscribers()
     {
         var ct = TestContext.Current.CancellationToken;
         var grain = fixture.GetUniqueGrain<ITestStateGrain>();
 
         var feed1 = fixture.Collector
-            .SubscribeToStorageOperations(grain, ct)
+            .GetStorageOperationsAsync(grain, cancellationToken: ct)
             .Take(1)
             .ToListAsync(ct)
             .AsTask();
 
         var feed2 = fixture.Collector
-            .SubscribeToStorageOperations(grain, ct)
+            .GetStorageOperationsAsync(grain, cancellationToken: ct)
             .Take(1)
             .ToListAsync(ct)
             .AsTask();
@@ -173,4 +174,3 @@ public class GrainActivityCollectorStorageFeedTests(OrleansTestClusterFixture fi
         Assert.NotEmpty(collected2);
     }
 }
-

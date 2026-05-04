@@ -26,7 +26,7 @@ Use the solution file from repository root:
 - Use `var` when the type is obvious; keep naming in PascalCase for types/methods.
 - Interfaces use `I*` naming.
 - All public types and methods must have full XML documentation comments (`<summary>`, `<param>`, `<returns>`, `<exception>` as applicable).
-- Advanced methods that expose implementation details (e.g., `WaitForStorageOperationAsync`, `WaitForGrainCallAsync`) must include a `<remarks>` section warning about tight coupling to production code internals.
+- Advanced methods that expose implementation details (e.g., `GetStorageOperationsAsync`, `GetGrainCallsAsync`) must include a `<remarks>` section warning about tight coupling to production code internals.
 
 ## Testing Guidelines
 - Test framework: `xunit.v3.mtp-v2` on Microsoft Testing Platform, with `Microsoft.Testing.Extensions.CodeCoverage` for coverage collection.
