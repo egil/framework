@@ -17,8 +17,15 @@ namespace Egil.Orleans.Testing;
 /// <see cref="GrainActivityCollector"/> also implements <see cref="IGrainActivityWaiter"/>, so fixtures can
 /// forward a single low-level wait primitive and expose the same wait surface through
 /// <see cref="GrainActivityWaiterExtensions"/> without forcing callers through a <c>fixture.Collector</c> hop.
+/// <para>
+/// The collector implements <see cref="IDisposable"/>. Calling <see cref="Dispose"/> completes all
+/// active subscriber channels (causing any pending <c>ReadAllAsync</c> loops to terminate), removes
+/// every subscription, and clears the recent-event history. After disposal, <c>WaitFor*</c> and
+/// <c>SubscribeTo*</c> methods throw <see cref="ObjectDisposedException"/>, while internal publish
+/// methods become silent no-ops to avoid cascading failures during shutdown.
+/// </para>
 /// </remarks>
-public sealed class GrainActivityCollector : IGrainActivityWaiter
+public sealed class GrainActivityCollector : IGrainActivityWaiter, IDisposable
 {
     private const int SubscriberChannelCapacity = 256;
     private const int RecentEventHistoryCapacity = 256;
@@ -26,6 +33,7 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter
     private readonly object activitySubscribersLock = new();
     private readonly object storageSubscribersLock = new();
     private readonly object grainCallSubscribersLock = new();
+    private int disposed;
 
     private List<ActivitySubscriber> activitySubscribers = [];
     private List<StorageSubscriber> storageSubscribers = [];
@@ -174,6 +182,8 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter
     public async IAsyncEnumerable<StorageOperation> SubscribeToStorageOperations(
         [EnumeratorCancellation] CancellationToken ct = default)
     {
+        ObjectDisposedException.ThrowIf(disposed != 0, this);
+
         var channel = Channel.CreateUnbounded<StorageOperation>(new UnboundedChannelOptions
         {
             SingleReader = true,
@@ -232,6 +242,7 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter
         where TGrain : IGrain
     {
         ArgumentNullException.ThrowIfNull(grain);
+        ObjectDisposedException.ThrowIf(disposed != 0, this);
         var grainId = grain.GetGrainId();
 
         var channel = Channel.CreateUnbounded<StorageOperation>(new UnboundedChannelOptions
@@ -287,6 +298,8 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter
     public async IAsyncEnumerable<IIncomingGrainCallContext> SubscribeToGrainCalls(
         [EnumeratorCancellation] CancellationToken ct = default)
     {
+        ObjectDisposedException.ThrowIf(disposed != 0, this);
+
         var channel = Channel.CreateUnbounded<IIncomingGrainCallContext>(new UnboundedChannelOptions
         {
             SingleReader = true,
@@ -345,6 +358,7 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter
         where TGrain : IGrain
     {
         ArgumentNullException.ThrowIfNull(grain);
+        ObjectDisposedException.ThrowIf(disposed != 0, this);
         var grainId = grain.GetGrainId();
 
         var channel = Channel.CreateUnbounded<IIncomingGrainCallContext>(new UnboundedChannelOptions
@@ -409,6 +423,7 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter
         GrainId? grainId,
         CancellationToken ct)
     {
+        ObjectDisposedException.ThrowIf(disposed != 0, this);
         ArgumentNullException.ThrowIfNull(assertion);
 
         var lastFailure = new StrongBox<Exception?>();
@@ -496,6 +511,7 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter
         GrainId? grainId,
         CancellationToken ct)
     {
+        ObjectDisposedException.ThrowIf(disposed != 0, this);
         ArgumentNullException.ThrowIfNull(predicate);
         ArgumentNullException.ThrowIfNull(subscribe);
 
@@ -574,6 +590,11 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter
 
     private void PublishActivity(GrainActivity activity)
     {
+        if (disposed != 0)
+        {
+            return;
+        }
+
         var snapshot = activitySubscribers;
         foreach (var subscriber in snapshot)
         {
@@ -591,6 +612,11 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter
 
     private void PublishStorageOperation(StorageOperation operation)
     {
+        if (disposed != 0)
+        {
+            return;
+        }
+
         StorageSubscriber[] snapshot;
         lock (storageSubscribersLock)
         {
@@ -626,6 +652,11 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter
 
     private void PublishGrainCall(IIncomingGrainCallContext context)
     {
+        if (disposed != 0)
+        {
+            return;
+        }
+
         GrainCallSubscriber[] snapshot;
         lock (grainCallSubscribersLock)
         {
@@ -687,6 +718,73 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter
         }
 
         subscriber.Channel.Writer.TryComplete();
+    }
+
+    /// <summary>
+    /// Completes all active subscriber channels, removes every subscription, and clears
+    /// the recent-event history. After disposal, <c>WaitFor*</c> and <c>SubscribeTo*</c>
+    /// methods throw <see cref="ObjectDisposedException"/>.
+    /// </summary>
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref disposed, 1) != 0)
+        {
+            return;
+        }
+
+        List<ActivitySubscriber> activitySnapshot;
+        lock (activitySubscribersLock)
+        {
+            activitySnapshot = activitySubscribers;
+            activitySubscribers = [];
+        }
+
+        foreach (var subscriber in activitySnapshot)
+        {
+            subscriber.Channel.Writer.TryComplete();
+        }
+
+        List<StorageSubscriber> storageSnapshot;
+        List<LiveFeedSubscriber<StorageOperation>> liveFeedStorageSnapshot;
+        lock (storageSubscribersLock)
+        {
+            storageSnapshot = storageSubscribers;
+            liveFeedStorageSnapshot = liveFeedStorageSubscribers;
+            storageSubscribers = [];
+            liveFeedStorageSubscribers = [];
+            recentStorageOperations.Clear();
+        }
+
+        foreach (var subscriber in storageSnapshot)
+        {
+            subscriber.Channel.Writer.TryComplete();
+        }
+
+        foreach (var subscriber in liveFeedStorageSnapshot)
+        {
+            subscriber.Channel.Writer.TryComplete();
+        }
+
+        List<GrainCallSubscriber> grainCallSnapshot;
+        List<LiveFeedSubscriber<IIncomingGrainCallContext>> liveFeedGrainCallSnapshot;
+        lock (grainCallSubscribersLock)
+        {
+            grainCallSnapshot = grainCallSubscribers;
+            liveFeedGrainCallSnapshot = liveFeedGrainCallSubscribers;
+            grainCallSubscribers = [];
+            liveFeedGrainCallSubscribers = [];
+            recentGrainCalls.Clear();
+        }
+
+        foreach (var subscriber in grainCallSnapshot)
+        {
+            subscriber.Channel.Writer.TryComplete();
+        }
+
+        foreach (var subscriber in liveFeedGrainCallSnapshot)
+        {
+            subscriber.Channel.Writer.TryComplete();
+        }
     }
 
     private static CancellationTokenSource? CreateTimeoutCancellationTokenSource(TimeSpan? timeout, CancellationToken ct)
