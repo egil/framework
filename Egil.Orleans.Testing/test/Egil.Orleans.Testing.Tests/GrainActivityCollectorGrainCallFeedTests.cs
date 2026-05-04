@@ -81,6 +81,29 @@ public class GrainActivityCollectorGrainCallFeedTests(OrleansTestClusterFixture 
     }
 
     [Fact]
+    public async Task SubscribeToGrainCalls_global_receives_events()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var grain = fixture.GetUniqueGrain<ITestStateGrain>();
+        var grainId = grain.GetGrainId();
+
+        // Use global overload, but filter to our grain to avoid cross-test noise
+        var collectTask = fixture.Collector
+            .SubscribeToGrainCalls(ct)
+            .Where(ctx => ctx.TargetId == grainId)
+            .Take(1)
+            .ToListAsync(ct)
+            .AsTask();
+
+        await grain.SetValueAsync("global-test");
+
+        var collected = await collectTask.WaitAsync(TimeSpan.FromSeconds(5), ct);
+
+        Assert.Single(collected);
+        Assert.Equal(grainId, collected[0].TargetId);
+    }
+
+    [Fact]
     public async Task SubscribeToGrainCalls_cancellation_removes_subscription()
     {
         var ct = TestContext.Current.CancellationToken;
