@@ -124,6 +124,29 @@ public class GrainActivityCollectorStorageFeedTests(OrleansTestClusterFixture fi
     }
 
     [Fact]
+    public async Task SubscribeToStorageOperations_global_receives_events()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var grain = fixture.GetUniqueGrain<ITestStateGrain>();
+        var grainId = grain.GetGrainId();
+
+        // Use global overload, but filter to our grain to avoid cross-test noise
+        var collectTask = fixture.Collector
+            .SubscribeToStorageOperations(ct)
+            .Where(op => op.GrainId == grainId)
+            .Take(1)
+            .ToListAsync(ct)
+            .AsTask();
+
+        await grain.SetValueAsync("global-test");
+
+        var collected = await collectTask.WaitAsync(TimeSpan.FromSeconds(5), ct);
+
+        Assert.Single(collected);
+        Assert.Equal(grainId, collected[0].GrainId);
+    }
+
+    [Fact]
     public async Task SubscribeToStorageOperations_multiple_concurrent_subscribers()
     {
         var ct = TestContext.Current.CancellationToken;
