@@ -35,7 +35,7 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter
     private Queue<StorageOperation> recentStorageOperations = new();
     private Queue<IIncomingGrainCallContext> recentGrainCalls = new();
 
-    /// <inheritdoc cref="IGrainActivityWaiter.WaitForAssertionAsync{TResult}(Func{ValueTask{TResult}}, Predicate{GrainActivity}?, TimeSpan?, CancellationToken)"/>
+    /// <inheritdoc cref="IGrainActivityWaiter.WaitForAssertionAsync{TResult}"/>
     [StackTraceHidden]
     public Task<TResult> WaitForAssertionAsync<TResult>(
         Func<ValueTask<TResult>> assertion,
