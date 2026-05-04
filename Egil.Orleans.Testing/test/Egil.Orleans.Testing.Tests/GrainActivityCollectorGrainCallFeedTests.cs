@@ -3,14 +3,14 @@ namespace Egil.Orleans.Testing.Tests;
 public class GrainActivityCollectorGrainCallFeedTests(OrleansTestClusterFixture fixture)
 {
     [Fact]
-    public async Task SubscribeToGrainCalls_receives_grain_calls()
+    public async Task GetGrainCallsAsync_receives_grain_calls()
     {
         var ct = TestContext.Current.CancellationToken;
         var grain = fixture.GetUniqueGrain<ITestStateGrain>();
 
         // Use grain-scoped feed to avoid collecting unrelated system grain calls from the shared cluster
         var collectTask = fixture.Collector
-            .SubscribeToGrainCalls(grain, ct)
+            .GetGrainCallsAsync(grain, cancellationToken: ct)
             .Take(1)
             .ToListAsync(ct)
             .AsTask();
@@ -25,14 +25,14 @@ public class GrainActivityCollectorGrainCallFeedTests(OrleansTestClusterFixture 
     }
 
     [Fact]
-    public async Task SubscribeToGrainCalls_grain_scoped_ignores_unrelated_grains()
+    public async Task GetGrainCallsAsync_grain_scoped_ignores_unrelated_grains()
     {
         var ct = TestContext.Current.CancellationToken;
         var target = fixture.GetUniqueGrain<ITestStateGrain>();
         var other = fixture.GetUniqueGrain<ITestStateGrain>("other");
 
         var collectTask = fixture.Collector
-            .SubscribeToGrainCalls(target, ct)
+            .GetGrainCallsAsync(target, cancellationToken: ct)
             .Take(1)
             .ToListAsync(ct)
             .AsTask();
@@ -49,7 +49,7 @@ public class GrainActivityCollectorGrainCallFeedTests(OrleansTestClusterFixture 
     }
 
     [Fact]
-    public async Task SubscribeToGrainCalls_is_future_only()
+    public async Task GetGrainCallsAsync_is_future_only_by_default()
     {
         var ct = TestContext.Current.CancellationToken;
         var grain = fixture.GetUniqueGrain<ITestStateGrain>();
@@ -58,13 +58,14 @@ public class GrainActivityCollectorGrainCallFeedTests(OrleansTestClusterFixture 
         await grain.SetValueAsync("before-subscribe");
 
         // Deterministically wait for the pre-subscribe call to be observed
-        await fixture.Collector.WaitForGrainCallAsync(
-            grain,
-            ctx => ctx.MethodName == nameof(ITestStateGrain.SetValueAsync),
-            ct: ct);
+        await fixture.Collector
+            .GetGrainCallsAsync(grain, includeExisting: true, cancellationToken: ct)
+            .Where(ctx => ctx.MethodName == nameof(ITestStateGrain.SetValueAsync))
+            .Take(1)
+            .FirstAsync(ct);
 
         var collectTask = fixture.Collector
-            .SubscribeToGrainCalls(grain, ct)
+            .GetGrainCallsAsync(grain, cancellationToken: ct)
             .Take(1)
             .ToListAsync(ct)
             .AsTask();
@@ -81,7 +82,7 @@ public class GrainActivityCollectorGrainCallFeedTests(OrleansTestClusterFixture 
     }
 
     [Fact]
-    public async Task SubscribeToGrainCalls_global_receives_events()
+    public async Task GetGrainCallsAsync_global_receives_events()
     {
         var ct = TestContext.Current.CancellationToken;
         var grain = fixture.GetUniqueGrain<ITestStateGrain>();
@@ -89,7 +90,7 @@ public class GrainActivityCollectorGrainCallFeedTests(OrleansTestClusterFixture 
 
         // Use global overload, but filter to our grain to avoid cross-test noise
         var collectTask = fixture.Collector
-            .SubscribeToGrainCalls(ct)
+            .GetGrainCallsAsync(cancellationToken: ct)
             .Where(ctx => ctx.TargetId == grainId)
             .Take(1)
             .ToListAsync(ct)
@@ -104,13 +105,13 @@ public class GrainActivityCollectorGrainCallFeedTests(OrleansTestClusterFixture 
     }
 
     [Fact]
-    public async Task SubscribeToGrainCalls_cancellation_removes_subscription()
+    public async Task GetGrainCallsAsync_cancellation_removes_subscription()
     {
         var ct = TestContext.Current.CancellationToken;
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
         var collectTask = fixture.Collector
-            .SubscribeToGrainCalls(cts.Token)
+            .GetGrainCallsAsync(cancellationToken: cts.Token)
             .ToListAsync(ct)
             .AsTask();
 

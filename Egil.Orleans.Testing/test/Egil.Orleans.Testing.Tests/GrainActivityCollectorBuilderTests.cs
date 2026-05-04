@@ -92,17 +92,22 @@ public class GrainActivityCollectorBuilderTests
         var decoratedStorage = provider.GetRequiredKeyedService<IGrainStorage>("Default");
         var grainId = GrainId.Create("test-grain", "builder");
         var state = new TestGrainState<string> { ETag = "etag-1", State = "value" };
-        var waitTask = collector.WaitForStorageOperationAsync(
-            operation => operation.StorageName == "Default" && operation.GrainId == grainId,
-            timeout: TimeSpan.FromMilliseconds(250),
-            ct: TestContext.Current.CancellationToken);
+        var ct = TestContext.Current.CancellationToken;
+
+        var collectTask = collector
+            .GetStorageOperationsAsync(cancellationToken: ct)
+            .Where(op => op.StorageName == "Default" && op.GrainId == grainId)
+            .Take(1)
+            .ToListAsync(ct)
+            .AsTask();
 
         Assert.Same(collector, provider.GetRequiredService<GrainActivityCollector>());
         Assert.NotSame(storage, decoratedStorage);
 
         await decoratedStorage.WriteStateAsync("state", grainId, state);
-        await waitTask;
+        var collected = await collectTask.WaitAsync(TimeSpan.FromMilliseconds(250), ct);
 
+        Assert.Single(collected);
         Assert.Equal(1, storage.WriteCount);
         Assert.Single(builder.Services, descriptor => descriptor.ServiceType == typeof(object) && descriptor.IsKeyedService && Equals(descriptor.ServiceKey, "Default"));
     }
@@ -159,13 +164,19 @@ public class GrainActivityCollectorBuilderTests
         var decoratedStorage = provider.GetRequiredKeyedService<IGrainStorage>("FactoryBased");
         var grainId = GrainId.Create("test-grain", "factory-based");
         var state = new TestGrainState<string> { ETag = "etag-1", State = "value" };
-        var waitTask = collector.WaitForStorageOperationAsync(
-            operation => operation.StorageName == "FactoryBased" && operation.GrainId == grainId,
-            timeout: TimeSpan.FromMilliseconds(250),
-            ct: TestContext.Current.CancellationToken);
+        var ct = TestContext.Current.CancellationToken;
+
+        var collectTask = collector
+            .GetStorageOperationsAsync(cancellationToken: ct)
+            .Where(op => op.StorageName == "FactoryBased" && op.GrainId == grainId)
+            .Take(1)
+            .ToListAsync(ct)
+            .AsTask();
 
         await decoratedStorage.WriteStateAsync("state", grainId, state);
-        await waitTask;
+        var collected = await collectTask.WaitAsync(TimeSpan.FromMilliseconds(250), ct);
+
+        Assert.Single(collected);
 
         Assert.NotSame(storage, decoratedStorage);
         Assert.Equal(1, factoryCallCount);

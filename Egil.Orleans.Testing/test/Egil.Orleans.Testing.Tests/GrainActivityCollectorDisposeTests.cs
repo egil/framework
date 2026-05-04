@@ -23,36 +23,12 @@ public class GrainActivityCollectorDisposeTests
     }
 
     [Fact]
-    public async Task WaitForStorageOperationAsync_throws_ObjectDisposedException_after_dispose()
+    public async Task GetStorageOperationsAsync_throws_ObjectDisposedException_after_dispose()
     {
         var collector = new GrainActivityCollector();
         collector.Dispose();
 
-        await Assert.ThrowsAsync<ObjectDisposedException>(() =>
-            collector.WaitForStorageOperationAsync(
-                static _ => true,
-                ct: TestContext.Current.CancellationToken));
-    }
-
-    [Fact]
-    public async Task WaitForGrainCallAsync_throws_ObjectDisposedException_after_dispose()
-    {
-        var collector = new GrainActivityCollector();
-        collector.Dispose();
-
-        await Assert.ThrowsAsync<ObjectDisposedException>(() =>
-            collector.WaitForGrainCallAsync(
-                static _ => true,
-                ct: TestContext.Current.CancellationToken));
-    }
-
-    [Fact]
-    public async Task SubscribeToStorageOperations_throws_ObjectDisposedException_after_dispose()
-    {
-        var collector = new GrainActivityCollector();
-        collector.Dispose();
-
-        var enumerable = collector.SubscribeToStorageOperations(TestContext.Current.CancellationToken);
+        var enumerable = collector.GetStorageOperationsAsync(cancellationToken: TestContext.Current.CancellationToken);
         await Assert.ThrowsAsync<ObjectDisposedException>(async () =>
         {
             await foreach (var _ in enumerable)
@@ -62,12 +38,27 @@ public class GrainActivityCollectorDisposeTests
     }
 
     [Fact]
-    public async Task SubscribeToGrainCalls_throws_ObjectDisposedException_after_dispose()
+    public async Task GetGrainCallsAsync_throws_ObjectDisposedException_after_dispose()
     {
         var collector = new GrainActivityCollector();
         collector.Dispose();
 
-        var enumerable = collector.SubscribeToGrainCalls(TestContext.Current.CancellationToken);
+        var enumerable = collector.GetGrainCallsAsync(cancellationToken: TestContext.Current.CancellationToken);
+        await Assert.ThrowsAsync<ObjectDisposedException>(async () =>
+        {
+            await foreach (var _ in enumerable)
+            {
+            }
+        });
+    }
+
+    [Fact]
+    public async Task GetGrainActivityAsync_throws_ObjectDisposedException_after_dispose()
+    {
+        var collector = new GrainActivityCollector();
+        collector.Dispose();
+
+        var enumerable = collector.GetGrainActivityAsync(cancellationToken: TestContext.Current.CancellationToken);
         await Assert.ThrowsAsync<ObjectDisposedException>(async () =>
         {
             await foreach (var _ in enumerable)
@@ -91,38 +82,6 @@ public class GrainActivityCollectorDisposeTests
             ct: TestContext.Current.CancellationToken);
 
         await waitStarted.Task;
-        collector.Dispose();
-
-        await Assert.ThrowsAsync<ObjectDisposedException>(() => waitTask);
-    }
-
-    [Fact]
-    public async Task WaitForStorageOperationAsync_throws_ObjectDisposedException_when_disposed_during_wait()
-    {
-        var collector = new GrainActivityCollector();
-
-        var waitTask = collector.WaitForStorageOperationAsync(
-            _ => false,
-            ct: TestContext.Current.CancellationToken);
-
-        // Give the wait time to subscribe and block on ReadAllAsync.
-        await Task.Yield();
-        collector.Dispose();
-
-        await Assert.ThrowsAsync<ObjectDisposedException>(() => waitTask);
-    }
-
-    [Fact]
-    public async Task WaitForGrainCallAsync_throws_ObjectDisposedException_when_disposed_during_wait()
-    {
-        var collector = new GrainActivityCollector();
-
-        var waitTask = collector.WaitForGrainCallAsync(
-            _ => false,
-            ct: TestContext.Current.CancellationToken);
-
-        // Give the wait time to subscribe and block on ReadAllAsync.
-        await Task.Yield();
         collector.Dispose();
 
         await Assert.ThrowsAsync<ObjectDisposedException>(() => waitTask);

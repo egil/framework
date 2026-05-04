@@ -20,20 +20,24 @@ public class GrainActivityCollectorReminderTests(OrleansReminderTestClusterFixtu
     }
 
     [Fact]
-    public async Task WaitForGrainCallAsync_observes_reminder_callbacks()
+    public async Task GetGrainCallsAsync_observes_reminder_callbacks()
     {
+        var ct = TestContext.Current.CancellationToken;
         var grain = fixture.GetUniqueGrain<IReminderActivityGrain>();
 
-        var waitTask = fixture.Collector.WaitForGrainCallAsync(
-            grain,
-            context => context.MethodName == nameof(IRemindable.ReceiveReminder),
-            ct: TestContext.Current.CancellationToken);
+        var collectTask = fixture.Collector
+            .GetGrainCallsAsync(grain, cancellationToken: ct)
+            .Where(ctx => ctx.MethodName == nameof(IRemindable.ReceiveReminder))
+            .Take(1)
+            .ToListAsync(ct)
+            .AsTask();
 
         await grain.StartReminderAsync("ready");
 
         // Advance the deterministic clock past the reminder due time.
-        await fixture.ReminderClock.AdvanceAsync(TimeSpan.FromMinutes(2), TestContext.Current.CancellationToken);
+        await fixture.ReminderClock.AdvanceAsync(TimeSpan.FromMinutes(2), ct);
 
-        await waitTask;
+        var collected = await collectTask.WaitAsync(TimeSpan.FromSeconds(5), ct);
+        Assert.Single(collected);
     }
 }

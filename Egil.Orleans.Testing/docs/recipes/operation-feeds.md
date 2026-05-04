@@ -2,7 +2,7 @@
 
 ## When to use operation feeds
 
-The `SubscribeToStorageOperations` and `SubscribeToGrainCalls` methods provide a live, future-only stream of low-level events that you can collect and inspect after triggering grain behavior. Unlike the `WaitFor*` methods, feeds do not have a timeout or a predicate — they simply yield every matching event for as long as you consume them.
+The `GetStorageOperationsAsync` and `GetGrainCallsAsync` methods return live `IAsyncEnumerable<T>` feeds of low-level events that you can collect and inspect after triggering grain behavior. Compose them with standard LINQ operators such as `Where`, `Take`, and `Select` to wait for a specific number of occurrences or filter to a specific grain.
 
 Use feeds when:
 - You want to **collect all** storage operations or grain calls that happened during a test scenario, not just wait for one.
@@ -16,11 +16,11 @@ Use feeds when:
 | Property | Behavior |
 |---|---|
 | Start point | Subscription begins when enumeration starts (first `MoveNextAsync`) |
-| History | Future-only — no replay of past events |
+| History | Future-only by default. Pass `includeExisting: true` to replay recent events (up to 256) before live events. |
 | Buffering | Unbounded — slow consumers never lose events |
 | Completion | Stops when the `CancellationToken` is cancelled or the caller breaks out of the `await foreach` |
 
-## Subscribing to storage operations
+## Collecting storage operations
 
 Fixture reference: [`OrleansTestClusterFixture`](../../README.md#orleanstestclusterfixture-reusable-helper)
 
@@ -28,11 +28,11 @@ Fixture reference: [`OrleansTestClusterFixture`](../../README.md#orleanstestclus
 <a id='snippet-storage_operation_feed'></a>
 ```cs
 /// <summary>
-/// Demonstrates subscribing to a live feed of storage operations
-/// for collecting and inspecting persistence activity.
+/// Demonstrates using <c>GetStorageOperationsAsync</c> to collect and inspect
+/// persistence activity via a live <see cref="IAsyncEnumerable{T}"/> feed.
 /// </summary>
 /// <remarks>
-/// ⚠️ <c>SubscribeToStorageOperations</c> exposes persistence implementation details.
+/// ⚠️ <c>GetStorageOperationsAsync</c> exposes persistence implementation details.
 /// Tests using this feed are tightly coupled to storage providers and write timing.
 /// Prefer <c>WaitForAssertionAsync</c> when you can assert the externally observable result.
 /// </remarks>
@@ -45,10 +45,10 @@ public sealed class StorageOperationFeedTests(OrleansTestClusterFixture fixture)
         var grain = fixture.GetUniqueGrain<IWarehouseGrain>();
 
         // Start collecting BEFORE triggering the action.
-        // The feed is future-only — it does not replay past events.
+        // The feed is future-only by default — it does not replay past events.
         // Use Take(1) to automatically stop after the first matching write.
         var collectTask = fixture.Collector
-            .SubscribeToStorageOperations(grain, ct)
+            .GetStorageOperationsAsync(grain, cancellationToken: ct)
             .Where(op => op.Kind == StorageOperationKind.Write)
             .Take(1)
             .ToListAsync(ct);
@@ -62,24 +62,24 @@ public sealed class StorageOperationFeedTests(OrleansTestClusterFixture fixture)
     }
 }
 ```
-<sup><a href='/samples/Egil.Orleans.Testing.Samples/OperationFeedSample.cs#L14-L49' title='Snippet source file'>snippet source</a> | <a href='#snippet-storage_operation_feed' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/samples/Egil.Orleans.Testing.Samples/OperationFeedSample.cs#L8-L43' title='Snippet source file'>snippet source</a> | <a href='#snippet-storage_operation_feed' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
-Both `SubscribeToStorageOperations` overloads expose:
+Both `GetStorageOperationsAsync` overloads expose:
 - **Global** — receives all storage operations from any grain.
 - **Grain-scoped** — receives only storage operations for the specified grain.
 
-## Subscribing to grain calls
+## Collecting grain calls
 
 <!-- snippet: grain_call_feed -->
 <a id='snippet-grain_call_feed'></a>
 ```cs
 /// <summary>
-/// Demonstrates subscribing to a live feed of incoming grain calls
-/// for collecting and inspecting call flow.
+/// Demonstrates using <c>GetGrainCallsAsync</c> to collect and inspect
+/// incoming grain calls via a live <see cref="IAsyncEnumerable{T}"/> feed.
 /// </summary>
 /// <remarks>
-/// ⚠️ <c>SubscribeToGrainCalls</c> exposes low-level call flow.
+/// ⚠️ <c>GetGrainCallsAsync</c> exposes low-level call flow.
 /// Prefer <c>WaitForAssertionAsync</c> for behavior-first assertions.
 /// </remarks>
 public sealed class GrainCallFeedTests(OrleansTestClusterFixture fixture) : IClassFixture<OrleansTestClusterFixture>
@@ -93,7 +93,7 @@ public sealed class GrainCallFeedTests(OrleansTestClusterFixture fixture) : ICla
         // Start collecting BEFORE triggering the action.
         // Use Take(1) to automatically stop after the first matching call.
         var collectTask = fixture.Collector
-            .SubscribeToGrainCalls(ct)
+            .GetGrainCallsAsync(cancellationToken: ct)
             .Where(ctx => ctx.MethodName == nameof(ILedgerGrain.AddReservationAsync))
             .Take(1)
             .ToListAsync(ct);
@@ -109,7 +109,7 @@ public sealed class GrainCallFeedTests(OrleansTestClusterFixture fixture) : ICla
 <sup><a href='/samples/Egil.Orleans.Testing.Samples/OperationFeedSample.cs#L45-L77' title='Snippet source file'>snippet source</a> | <a href='#snippet-grain_call_feed' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
-Both `SubscribeToGrainCalls` overloads expose:
+Both `GetGrainCallsAsync` overloads expose:
 - **Global** — receives all incoming grain calls from any grain.
 - **Grain-scoped** — receives only calls targeting the specified grain.
 
