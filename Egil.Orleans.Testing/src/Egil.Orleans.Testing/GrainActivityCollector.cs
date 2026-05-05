@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.ExceptionServices;
@@ -34,11 +35,14 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter, IDisposable
 {
     private const int RecentEventHistoryCapacity = 256;
 
-    private readonly Lock subscribersLock = new();
-    private bool disposed;
-
-    private List<Subscriber> subscribers = [];
-    private Queue<GrainActivity> recentActivity = new();
+    // All activity is written to the ring buffer (recentActivity) and fanned out
+    // to subscriber channels under activityLock. This ensures that subscribe+snapshot
+    // (for includeExisting) and publish are mutually exclusive, eliminating
+    // duplicate or missed events.
+    private readonly Lock activityLock = new();
+    private readonly ConcurrentDictionary<Channel<GrainActivity>, object?> subscribers = [];
+    private readonly Queue<GrainActivity> recentActivity = new();
+    private volatile bool disposed;
 
     /// <inheritdoc cref="IGrainActivityWaiter.WaitForAssertionAsync{TResult}"/>
     [StackTraceHidden]
@@ -77,16 +81,22 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter, IDisposable
         var channel = CreateChannel();
         GrainActivity[]? history = null;
 
-        var subscriber = new Subscriber(channel);
-        lock (subscribersLock)
+        if (includeExisting)
         {
-            ObjectDisposedException.ThrowIf(disposed, this);
-            if (includeExisting)
+            // Subscribe and snapshot under the same lock so that Publish cannot
+            // interleave — events before the lock are in the snapshot only, events
+            // after the lock go to the channel only. No duplicates, no gaps.
+            lock (activityLock)
             {
+                ObjectDisposedException.ThrowIf(disposed, this);
+                subscribers[channel] = null;
                 history = [.. recentActivity];
             }
-
-            subscribers = [.. subscribers, subscriber];
+        }
+        else
+        {
+            ObjectDisposedException.ThrowIf(disposed, this);
+            subscribers[channel] = null;
         }
 
         try
@@ -106,11 +116,7 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter, IDisposable
         }
         finally
         {
-            lock (subscribersLock)
-            {
-                subscribers = [.. subscribers.Where(s => !ReferenceEquals(s, subscriber))];
-            }
-
+            subscribers.TryRemove(channel, out _);
             channel.Writer.TryComplete();
         }
     }
@@ -229,6 +235,30 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter, IDisposable
             .Where(ctx => ctx.TargetId == grainId);
     }
 
+    /// <summary>
+    /// Completes all active subscriber channels, removes every subscription, and clears
+    /// the recent-event history. After disposal, <c>WaitFor*</c> and <c>Get*Async</c>
+    /// methods throw <see cref="ObjectDisposedException"/>.
+    /// </summary>
+    public void Dispose()
+    {
+        if (disposed)
+        {
+            return;
+        }
+
+        lock (activityLock)
+        {
+            disposed = true;
+            recentActivity.Clear();
+        }
+
+        foreach (var subscriber in subscribers)
+        {
+            subscriber.Key.Writer.TryComplete();
+        }
+    }
+
     internal void OnStorageOperation(StorageOperation operation)
     {
         Publish(new GrainActivity(
@@ -253,6 +283,29 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter, IDisposable
         {
             GrainCallContext = context,
         });
+    }
+
+    private void Publish(GrainActivity activity)
+    {
+        if (disposed)
+        {
+            return;
+        }
+
+        lock (activityLock)
+        {
+            if (disposed)
+            {
+                return;
+            }
+
+            EnqueueRecentEvent(activity);
+
+            foreach (var subscriber in subscribers)
+            {
+                subscriber.Key.Writer.TryWrite(activity);
+            }
+        }
     }
 
     [StackTraceHidden]
@@ -305,12 +358,8 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter, IDisposable
         // no activity events are lost between the initial assertion attempt and the
         // start of the retry loop.
         var channel = CreateChannel();
-        var subscriber = new Subscriber(channel);
-        lock (subscribersLock)
-        {
-            ObjectDisposedException.ThrowIf(disposed, this);
-            subscribers = [.. subscribers, subscriber];
-        }
+        ObjectDisposedException.ThrowIf(disposed, this);
+        subscribers[channel] = null;
 
         try
         {
@@ -364,60 +413,8 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter, IDisposable
         }
         finally
         {
-            lock (subscribersLock)
-            {
-                subscribers = [.. subscribers.Where(s => !ReferenceEquals(s, subscriber))];
-            }
-
+            subscribers.TryRemove(channel, out _);
             channel.Writer.TryComplete();
-        }
-    }
-
-    private void Publish(GrainActivity activity)
-    {
-        if (Volatile.Read(ref disposed))
-        {
-            return;
-        }
-
-        List<Subscriber> snapshot;
-        lock (subscribersLock)
-        {
-            EnqueueRecentEvent(recentActivity, activity);
-            snapshot = subscribers;
-        }
-
-        foreach (var subscriber in snapshot)
-        {
-            subscriber.Channel.Writer.TryWrite(activity);
-        }
-    }
-
-    /// <summary>
-    /// Completes all active subscriber channels, removes every subscription, and clears
-    /// the recent-event history. After disposal, <c>WaitFor*</c> and <c>Get*Async</c>
-    /// methods throw <see cref="ObjectDisposedException"/>.
-    /// </summary>
-    public void Dispose()
-    {
-        if (disposed)
-        {
-            return;
-        }
-
-        disposed = true;
-
-        List<Subscriber> snapshot;
-        lock (subscribersLock)
-        {
-            snapshot = subscribers;
-            subscribers = [];
-            recentActivity.Clear();
-        }
-
-        foreach (var subscriber in snapshot)
-        {
-            subscriber.Channel.Writer.TryComplete();
         }
     }
 
@@ -457,14 +454,12 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter, IDisposable
             AllowSynchronousContinuations = false,
         });
 
-    private static void EnqueueRecentEvent(Queue<GrainActivity> history, GrainActivity item)
+    private void EnqueueRecentEvent(GrainActivity item)
     {
-        history.Enqueue(item);
-        while (history.Count > RecentEventHistoryCapacity)
+        recentActivity.Enqueue(item);
+        while (recentActivity.Count > RecentEventHistoryCapacity)
         {
-            history.Dequeue();
+            recentActivity.Dequeue();
         }
     }
-
-    private sealed record Subscriber(Channel<GrainActivity> Channel);
 }
