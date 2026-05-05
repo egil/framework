@@ -20,6 +20,7 @@ Use the solution file from repository root:
 - `dotnet test Egil.SystemTextJson.Migration.slnx -c Release`: run test suite (xUnit + Microsoft Testing Platform).
 - `dotnet pack src/Egil.SystemTextJson.Migration/Egil.SystemTextJson.Migration.csproj -c Release`: produce NuGet package.
 - `dotnet run --project perf/Egil.SystemTextJson.Migration.PerfTests -c Release`: run benchmarks.
+- `.\scripts\update-perf-docs.ps1`: after running benchmarks, copy BenchmarkDotNet reports into `docs/perf/` and refresh the README performance summary.
 - `dotnet outdated`: check for dependency updates.
 
 ## Coding Style & Naming Conventions

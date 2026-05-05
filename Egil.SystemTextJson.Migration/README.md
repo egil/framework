@@ -505,6 +505,7 @@ Detailed results with source-generated `JsonSerializerContext`:
 > Full benchmark reports: [source-gen](https://github.com/egil/framework/blob/main/Egil.SystemTextJson.Migration/docs/perf/source-gen-benchmarks.md) · [reflection](https://github.com/egil/framework/blob/main/Egil.SystemTextJson.Migration/docs/perf/reflection-benchmarks.md)
 >
 > Run benchmarks locally with `dotnet run --project perf/Egil.SystemTextJson.Migration.PerfTests -c Release`.
+> Refresh these docs from the latest BenchmarkDotNet output with `.\scripts\update-perf-docs.ps1`.
 
 ## Design notes
 
