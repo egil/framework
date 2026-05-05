@@ -32,6 +32,8 @@ internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry regis
 
     private JsonConverter CreateConverterCore(Type typeToConvert, JsonSerializerOptions options)
     {
+        ValidateTargetMigratorContracts(typeToConvert);
+
         TypeMetadata targetMetadata = registry.GetTypeMetadata(typeToConvert);
 
         // Clone options and replace this factory with a type-excluding instance so metadata lookup can still
@@ -122,6 +124,21 @@ internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry regis
         }
 
         return [.. migrators.Values.Select(static candidate => candidate.Migrator)];
+    }
+
+    private static void ValidateTargetMigratorContracts(Type targetType)
+    {
+        foreach (Type @interface in targetType.GetInterfaces())
+        {
+            if (!@interface.IsGenericType
+                || @interface.ContainsGenericParameters
+                || @interface.GetGenericTypeDefinition() != typeof(IMigrate<,>))
+            {
+                continue;
+            }
+
+            throw new JsonMigrationInvalidTargetMigratorException(targetType, @interface);
+        }
     }
 
     private static MigratorReference? ResolveUndiscriminatedSourceMigrator(

@@ -39,9 +39,20 @@ public record UserV2(string FirstName, string LastName, int Age);
 <!-- endSnippet -->
 
 
+### Choosing a migration contract
+
+Use the contract that matches where the migration logic lives:
+
+| Scenario | Interface | Registration |
+|----------|-----------|--------------|
+| The current `[JsonMigratable]` target type owns the migration logic | `IMigrateFrom<TSource, TTarget>` | No `RegisterMigrator*` call. The target type's contracts are discovered automatically when its converter is created. |
+| A separate external class owns the migration logic | `IMigrate<TSource, TTarget>` | Register the migrator with `RegisterMigrator*` or `RegisterMigratorsFrom*`. |
+
+Do not implement `IMigrate<TSource, TTarget>` directly on a `[JsonMigratable]` type. That interface is reserved for separate external migrator classes.
+
 ### Static migration
 
-When the migration logic naturally belongs on the target type, implement `IMigrateFrom` directly:
+When the migration logic naturally belongs on the target type, implement `IMigrateFrom` directly. These target-owned migrations are discovered automatically; no `RegisterMigrator*` or `RegisterMigratorsFrom*` call is needed:
 
 <!-- snippet: static_migration_type -->
 <a id='snippet-static_migration_type'></a>
@@ -119,7 +130,7 @@ CustomerNameV1 customer = JsonSerializer.Deserialize<CustomerNameV1>(json, optio
 
 ### External migration
 
-When migration logic should live in its own class — for separation of concerns, testability, or because you don't control the target type — implement `IMigrate` and register it:
+When migration logic should live in its own separate class — for separation of concerns, testability, dependency injection, or because you don't control the target type — implement `IMigrate` and register it:
 
 <!-- snippet: external_migrator -->
 <a id='snippet-external_migrator'></a>
@@ -254,7 +265,7 @@ If no service provider is configured, the library falls back to creating the mig
 
 ### Assembly scanning
 
-Register all `IMigrate<,>` implementations in one or more assemblies instead of listing each one:
+Register external `IMigrate<,>` migrator classes in one or more assemblies instead of listing each one. Assembly scanning is not required for target-owned `IMigrateFrom<,>` migrations:
 
 <!-- snippet: assembly_scanning -->
 <a id='snippet-assembly_scanning'></a>
