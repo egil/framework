@@ -79,18 +79,21 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter, IDisposable
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var channel = CreateChannel();
-        GrainActivity[]? history = null;
 
         if (includeExisting)
         {
-            // Subscribe and snapshot under the same lock so that Publish cannot
-            // interleave — events before the lock are in the snapshot only, events
-            // after the lock go to the channel only. No duplicates, no gaps.
+            // Subscribe and prefill the channel with history under the same lock
+            // so that Publish cannot interleave — events before the lock are
+            // written to the channel as history, events after the lock are
+            // written by Publish. No duplicates, no gaps, no array copy.
             lock (activityLock)
             {
                 ObjectDisposedException.ThrowIf(disposed, this);
                 subscribers[channel] = null;
-                history = [.. recentActivity];
+                foreach (var item in recentActivity)
+                {
+                    channel.Writer.TryWrite(item);
+                }
             }
         }
         else
@@ -101,14 +104,6 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter, IDisposable
 
         try
         {
-            if (history is not null)
-            {
-                foreach (var activity in history)
-                {
-                    yield return activity;
-                }
-            }
-
             await foreach (var activity in channel.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
             {
                 yield return activity;
