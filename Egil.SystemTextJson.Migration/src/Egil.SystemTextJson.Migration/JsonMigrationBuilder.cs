@@ -99,7 +99,7 @@ public sealed class JsonMigrationBuilder
 
         typeDiscriminatorResolver = type =>
         {
-            TAttribute? attribute = type.GetCustomAttribute<TAttribute>(inherit: true);
+            TAttribute? attribute = type.GetCustomAttribute<TAttribute>(inherit: false);
             return attribute is null ? null : selector(attribute);
         };
 
