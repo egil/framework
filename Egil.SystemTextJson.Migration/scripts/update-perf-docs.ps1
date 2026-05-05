@@ -87,6 +87,7 @@ $scenarios = @(
     @{ Label = '**No migration (happy path)**'; Method = 'JsonMigratableNoMigration' }
     @{ Label = '**Static migration**';          Method = 'JsonMigratableStaticMigration' }
     @{ Label = '**External migration**';        Method = 'JsonMigratableExternalMigration' }
+    @{ Label = '**Undiscriminated source migration**'; Method = 'JsonMigratableUndiscriminatedSourceMigration' }
     @{ Label = '**Legacy payload**';            Method = 'JsonMigratableLegacyPayload' }
     @{ Label = '**Serialization**';             Method = 'JsonMigratableSerializeNoMigration' }
 )

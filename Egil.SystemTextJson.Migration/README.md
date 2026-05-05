@@ -470,8 +470,9 @@ Every benchmark compares the library against hand-written migration code on top 
 **Key takeaways:**
 
 - **Happy path (no migration needed):** deserialization is ~1.0–1.3× plain STJ with **zero extra allocations**. The overhead comes from the O(1) first-property discriminator check and is constant regardless of payload size.
-- **Migration path:** 1.4–1.5× plain STJ for small payloads, converging toward ~1.0× as payload size grows — the fixed migration overhead is amortized over more data.
-- **Legacy payloads (no discriminator):** 1.0–1.2× plain STJ with **zero extra allocations** — the same as current-version payloads.
+- **Migration path:** static/external discriminator-based migrations are ~1.4× plain STJ for small payloads, converging toward ~1.0× as payload size grows — the fixed migration overhead is amortized over more data.
+- **Undiscriminated source migration:** ~1.0–1.1× plain STJ with **zero extra allocations** compared to a manual source deserialize plus conversion.
+- **Target-shaped legacy payloads (no discriminator):** 1.0–1.2× plain STJ with **zero extra allocations** — the same as current-version payloads.
 - **Serialization:** near 1:1 at larger payloads (ratio ≈ 1.0). Small payloads show ~2× due to the fixed cost of writing the discriminator property.
 
 Detailed results with source-generated `JsonSerializerContext`:
@@ -481,21 +482,24 @@ Detailed results with source-generated `JsonSerializerContext`:
 <!-- perf-summary:start -->
 | Scenario | TagCount | Ratio vs plain STJ | Alloc Ratio |
 |----------|:--------:|:-------------------:|:-----------:|
-| **No migration (happy path)** | 2 | 1.25× | 1.00 |
-|  | 32 | 0.76× | 1.00 |
+| **No migration (happy path)** | 2 | 1.24× | 1.00 |
+|  | 32 | 1.08× | 1.00 |
 |  | 256 | 1.02× | 1.00 |
-| **Static migration** | 2 | 1.43× | 1.13 |
-|  | 32 | 1.22× | 1.04 |
-|  | 256 | 1.06× | 1.01 |
-| **External migration** | 2 | 1.50× | 1.13 |
-|  | 32 | 1.18× | 1.05 |
-|  | 256 | 1.04× | 1.01 |
-| **Legacy payload** | 2 | 1.16× | 1.00 |
-|  | 32 | 1.05× | 1.00 |
-|  | 256 | 0.82× | 1.00 |
-| **Serialization** | 2 | 2.10× | 5.45 |
-|  | 32 | 1.17× | 2.02 |
-|  | 256 | 0.93× | 1.15 |
+| **Static migration** | 2 | 1.42× | 1.00 |
+|  | 32 | 1.14× | 1.00 |
+|  | 256 | 1.02× | 1.00 |
+| **External migration** | 2 | 1.37× | 1.00 |
+|  | 32 | 1.13× | 1.00 |
+|  | 256 | 1.01× | 1.00 |
+| **Undiscriminated source migration** | 2 | 0.99× | 1.00 |
+|  | 32 | 1.07× | 1.00 |
+|  | 256 | 1.02× | 1.00 |
+| **Legacy payload** | 2 | 1.13× | 1.00 |
+|  | 32 | 1.07× | 1.00 |
+|  | 256 | 1.01× | 1.00 |
+| **Serialization** | 2 | 1.81× | 5.45 |
+|  | 32 | 1.08× | 2.02 |
+|  | 256 | 0.89× | 1.15 |
 <!-- perf-summary:end -->
 
 > Full benchmark reports: [source-gen](https://github.com/egil/framework/blob/main/Egil.SystemTextJson.Migration/docs/perf/source-gen-benchmarks.md) · [reflection](https://github.com/egil/framework/blob/main/Egil.SystemTextJson.Migration/docs/perf/reflection-benchmarks.md)
