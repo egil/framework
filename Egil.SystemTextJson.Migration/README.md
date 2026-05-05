@@ -77,6 +77,45 @@ UserV2 user = JsonSerializer.Deserialize<UserV2>(json, options)!;
 <sup><a href='/samples/Egil.SystemTextJson.Migration.Samples/StaticMigrationSample.cs#L25-L33' title='Snippet source file'>snippet source</a> | <a href='#snippet-static_migration_usage' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
+### Discriminator-less object payloads
+
+When stored JSON was written before migration support existed and represents an older source shape, configure the target with `UndiscriminatedSourceType`:
+
+<!-- snippet: legacy_undiscriminated_source_type -->
+<a id='snippet-legacy_undiscriminated_source_type'></a>
+```cs
+[JsonMigratable(
+    TypeDiscriminator = "customer-name-v1",
+    UndiscriminatedSourceType = typeof(CustomerNameV0))]
+public record class CustomerNameV1(string Name)
+    : IMigrateFrom<CustomerNameV0, CustomerNameV1>
+{
+    public static bool TryMigrateFrom(CustomerNameV0 source, out CustomerNameV1 result)
+    {
+        result = new CustomerNameV1($"{source.FirstName} {source.LastName}");
+        return true;
+    }
+}
+```
+<sup><a href='/samples/Egil.SystemTextJson.Migration.Samples/LegacyPayloadSample.cs#L19-L32' title='Snippet source file'>snippet source</a> | <a href='#snippet-legacy_undiscriminated_source_type' title='Start of snippet'>anchor</a></sup>
+<!-- endSnippet -->
+
+<!-- snippet: legacy_undiscriminated_source_usage -->
+<a id='snippet-legacy_undiscriminated_source_usage'></a>
+```cs
+var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+options.AddJsonMigrationSupport();
+
+// Existing stored JSON was written before migration support existed,
+// so it has no $type discriminator. CustomerNameV1 opts in to treating
+// discriminator-less objects as CustomerNameV0 and runs its migrator.
+var json = """{"firstName":"Jane","lastName":"Doe"}""";
+
+CustomerNameV1 customer = JsonSerializer.Deserialize<CustomerNameV1>(json, options)!;
+// customer is CustomerNameV1 { Name = "Jane Doe" }
+```
+<sup><a href='/samples/Egil.SystemTextJson.Migration.Samples/LegacyPayloadSample.cs#L79-L90' title='Snippet source file'>snippet source</a> | <a href='#snippet-legacy_undiscriminated_source_usage' title='Start of snippet'>anchor</a></sup>
+<!-- endSnippet -->
 
 ### External migration
 

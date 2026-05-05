@@ -104,6 +104,14 @@ options.AddJsonMigrationSupport(builder =>
 
 > **Note:** External migrators must be registered explicitly via `RegisterMigrator<T>()` or discovered via `RegisterMigratorsFromAssembly()`. They support DI via `UseServiceProvider()`.
 
+## Migrating from object payloads without discriminators
+
+When adopting migration support for a type that already has stored JSON, older object payloads may not contain a `$type` discriminator. If those payloads should be read as a previous source shape instead of the current target shape, set `UndiscriminatedSourceType` on the target's `[JsonMigratable]` attribute.
+
+The configured source type does not need `[JsonMigratable]`; it only needs JSON metadata and a matching static or registered external migrator to the target. The opt-in names exactly one source type, so targets with several object migrators remain deterministic.
+
+See [Migrating discriminator-less object payloads from a source type](legacy-adoption.md#migrating-discriminator-less-object-payloads-from-a-source-type) for a complete sample.
+
 ## Migrating from non-object JSON payloads
 
 When the stored JSON is not an object — for example, a plain array or a primitive value — the library can still migrate it to a structured target type. This is useful when the original data model stored a simple value (like a `List<string>` or a raw `string`) and you later upgraded to a richer type.

@@ -132,7 +132,7 @@ internal sealed partial class JsonMigratableConverter<T>(MigratorContext context
 
         if (probe.TokenType is JsonTokenType.EndObject)
         {
-            return InspectionResult.LegacyPayload;
+            return InspectUndiscriminatedObject(out migrator);
         }
 
         if (probe.TokenType is not JsonTokenType.PropertyName)
@@ -189,6 +189,12 @@ internal sealed partial class JsonMigratableConverter<T>(MigratorContext context
             ThrowUnknownDiscriminator(ref probe);
         }
 
+        InspectionResult undiscriminatedObjectResult = InspectUndiscriminatedObject(out migrator);
+        if (undiscriminatedObjectResult is InspectionResult.MigrationRequired)
+        {
+            return undiscriminatedObjectResult;
+        }
+
         // The first property didn't match any discriminator. Before treating
         // as a legacy payload, check for dictionary-kind migrators — dictionaries
         // serialize as JSON objects but have no discriminator.
@@ -199,6 +205,14 @@ internal sealed partial class JsonMigratableConverter<T>(MigratorContext context
         }
 
         return InspectionResult.LegacyPayload;
+    }
+
+    private InspectionResult InspectUndiscriminatedObject(out MigratorReference? migrator)
+    {
+        migrator = context.UndiscriminatedSourceMigrator;
+        return migrator is not null
+            ? InspectionResult.MigrationRequired
+            : InspectionResult.LegacyPayload;
     }
 
     private MigratorReference? FindMigratorByDiscriminator(ref Utf8JsonReader reader)
