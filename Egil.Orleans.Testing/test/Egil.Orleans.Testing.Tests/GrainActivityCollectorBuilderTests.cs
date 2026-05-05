@@ -184,6 +184,81 @@ public class GrainActivityCollectorBuilderTests
         Assert.Equal(1, storage.WriteCount);
     }
 
+    [Fact]
+    public void CollectStorageActivity_discovers_all_keyed_providers()
+    {
+        var builder = new TestSiloBuilder();
+        builder.Services.Add(ServiceDescriptor.KeyedSingleton(typeof(IGrainStorage), "Default", new FakeGrainStorage()));
+        builder.Services.Add(ServiceDescriptor.KeyedSingleton(typeof(IGrainStorage), "Archive", new FakeGrainStorage()));
+
+        builder.AddGrainActivityCollector(new GrainActivityCollector())
+            .CollectStorageActivity();
+
+        Assert.Single(GetDescriptors(builder.Services, "Egil.Orleans.Testing.Inner::Default"));
+        Assert.Single(GetDescriptors(builder.Services, "Egil.Orleans.Testing.Inner::Archive"));
+        Assert.NotNull(GetSingleDescriptor(builder.Services, "Default").KeyedImplementationFactory);
+        Assert.NotNull(GetSingleDescriptor(builder.Services, "Archive").KeyedImplementationFactory);
+    }
+
+    [Fact]
+    public void CollectStorageActivity_skips_inner_registrations()
+    {
+        var builder = new TestSiloBuilder();
+        builder.Services.Add(ServiceDescriptor.KeyedSingleton(typeof(IGrainStorage), "Default", new FakeGrainStorage()));
+        builder.Services.Add(ServiceDescriptor.KeyedSingleton(typeof(IGrainStorage), "Egil.Orleans.Testing.Inner::Default", new FakeGrainStorage()));
+
+        builder.AddGrainActivityCollector(new GrainActivityCollector())
+            .CollectStorageActivity();
+
+        // The manually added inner registration should not be decorated again
+        Assert.Single(GetDescriptors(builder.Services, "Egil.Orleans.Testing.Inner::Default"));
+    }
+
+    [Fact]
+    public void CollectStorageActivity_is_idempotent()
+    {
+        var builder = new TestSiloBuilder();
+        builder.Services.Add(ServiceDescriptor.KeyedSingleton(typeof(IGrainStorage), "Default", new FakeGrainStorage()));
+
+        var collectorBuilder = builder.AddGrainActivityCollector(new GrainActivityCollector());
+        collectorBuilder.CollectStorageActivity();
+        collectorBuilder.CollectStorageActivity();
+
+        Assert.Single(GetDescriptors(builder.Services, "Default"));
+        Assert.Single(GetDescriptors(builder.Services, "Egil.Orleans.Testing.Inner::Default"));
+    }
+
+    [Fact]
+    public void CollectStorageActivity_ignores_non_keyed_registrations()
+    {
+        var builder = new TestSiloBuilder();
+        // Non-keyed registration — should not be discovered
+        builder.Services.AddSingleton<IGrainStorage>(new FakeGrainStorage());
+        builder.Services.Add(ServiceDescriptor.KeyedSingleton(typeof(IGrainStorage), "Named", new FakeGrainStorage()));
+
+        builder.AddGrainActivityCollector(new GrainActivityCollector())
+            .CollectStorageActivity();
+
+        // Only the keyed "Named" provider should be decorated
+        Assert.Single(GetDescriptors(builder.Services, "Egil.Orleans.Testing.Inner::Named"));
+        Assert.Empty(GetDescriptors(builder.Services, "Egil.Orleans.Testing.Inner::"));
+    }
+
+    [Fact]
+    public void CollectStorageActivity_with_no_providers_is_noop()
+    {
+        var builder = new TestSiloBuilder();
+
+        var collectorBuilder = builder.AddGrainActivityCollector(new GrainActivityCollector());
+
+        // Should not throw
+        collectorBuilder.CollectStorageActivity();
+
+        Assert.DoesNotContain(builder.Services, d =>
+            d.ServiceType == typeof(IGrainStorage) && d.IsKeyedService &&
+            d.ServiceKey is string key && key.StartsWith("Egil.Orleans.Testing.Inner::", StringComparison.Ordinal));
+    }
+
     private static ServiceDescriptor GetSingleDescriptor(IServiceCollection services, object key)
         => Assert.Single(GetDescriptors(services, key));
 
