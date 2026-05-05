@@ -3,11 +3,12 @@
     Updates performance documentation from BenchmarkDotNet output.
 
 .DESCRIPTION
-    Reads BDN -report-github.md files from the perf project artifacts,
+    Reads BDN -report-github.md files from BenchmarkDotNet artifacts,
     copies full reports to docs/perf/, and updates the curated summary
     table in README.md.
 
 .EXAMPLE
+    dotnet run --project perf/Egil.SystemTextJson.Migration.PerfTests -c Release
     ./scripts/update-perf-docs.ps1
 #>
 [CmdletBinding()]
@@ -16,7 +17,15 @@ param()
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 
-$artifactsDir = Join-Path $root 'perf\Egil.SystemTextJson.Migration.PerfTests\BenchmarkDotNet.Artifacts\results'
+$artifactDirCandidates = @(
+    (Join-Path $root 'perf\Egil.SystemTextJson.Migration.PerfTests\BenchmarkDotNet.Artifacts\results'),
+    (Join-Path $root 'BenchmarkDotNet.Artifacts\results')
+)
+$artifactsDir = $artifactDirCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $artifactsDir) {
+    Write-Error "Benchmark reports not found. Run benchmarks first: dotnet run --project perf\Egil.SystemTextJson.Migration.PerfTests -c Release"
+}
+
 $docsDir = Join-Path $root 'docs\perf'
 $readme = Join-Path $root 'README.md'
 
