@@ -55,6 +55,59 @@ public class RegistrationAndTrackingTests
     }
 
     [Fact]
+    public void Target_owned_static_migrator_is_discovered_without_registration()
+    {
+        var options = CreateOptions();
+
+        var json = JsonSerializer.Serialize(new PrecedenceV1("Egil Hansen", 42), options);
+        var migrated = JsonSerializer.Deserialize<PrecedenceV2>(json, options);
+
+        Assert.NotNull(migrated);
+        Assert.Equal("static", migrated.MigrationPath);
+    }
+
+    [Fact]
+    public void Json_migratable_type_implementing_external_migrator_contract_for_itself_throws_detailed_error()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.AddJsonMigrationSupport();
+
+        var exception = Assert.Throws<JsonMigrationInvalidTargetMigratorException>(
+            () => JsonSerializer.Deserialize<InvalidSelfMigratorTarget>("{}", options));
+
+        Assert.Equal(typeof(InvalidSelfMigratorTarget), exception.TargetType);
+        Assert.Equal(
+            typeof(IMigrate<InvalidSelfMigratorSource, InvalidSelfMigratorTarget>),
+            exception.MigratorContractType);
+        Assert.Contains(nameof(InvalidSelfMigratorTarget), exception.Message, StringComparison.Ordinal);
+        Assert.Contains("IMigrate<", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("IMigrateFrom<", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("RegisterMigrator", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("Choosing a migration contract", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("README", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Json_migratable_type_implementing_external_migrator_contract_for_other_target_throws_detailed_error()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.AddJsonMigrationSupport();
+
+        var exception = Assert.Throws<JsonMigrationInvalidTargetMigratorException>(
+            () => JsonSerializer.Deserialize<InvalidOtherMigratorHost>("{}", options));
+
+        Assert.Equal(typeof(InvalidOtherMigratorHost), exception.TargetType);
+        Assert.Equal(
+            typeof(IMigrate<InvalidOtherMigratorSource, InvalidOtherMigratorTarget>),
+            exception.MigratorContractType);
+        Assert.Contains(nameof(InvalidOtherMigratorHost), exception.Message, StringComparison.Ordinal);
+        Assert.Contains(nameof(InvalidOtherMigratorTarget), exception.Message, StringComparison.Ordinal);
+        Assert.Contains("IMigrateFrom<", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("RegisterMigratorsFrom", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("Choosing a migration contract", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Scoped_assembly_scan_registers_external_migrator()
     {
         var options = CreateOptions(builder => builder.RegisterMigratorsFromAssembly(typeof(TrackingExternalMigrator).Assembly));
@@ -411,6 +464,37 @@ public class PrecedenceExternalMigrator : IMigrate<PrecedenceV1, PrecedenceV2>
             names.Length > 1 ? names[1] : string.Empty,
             source.Age,
             "external");
+        return true;
+    }
+}
+
+[JsonMigratable]
+public record class InvalidSelfMigratorSource(string Name);
+
+[JsonMigratable]
+public record class InvalidSelfMigratorTarget(string Name) :
+    IMigrate<InvalidSelfMigratorSource, InvalidSelfMigratorTarget>
+{
+    public bool TryMigrateFrom(InvalidSelfMigratorSource source, out InvalidSelfMigratorTarget result)
+    {
+        result = new InvalidSelfMigratorTarget(source.Name);
+        return true;
+    }
+}
+
+[JsonMigratable]
+public record class InvalidOtherMigratorSource(string Name);
+
+[JsonMigratable]
+public record class InvalidOtherMigratorTarget(string Name);
+
+[JsonMigratable]
+public record class InvalidOtherMigratorHost(string Name) :
+    IMigrate<InvalidOtherMigratorSource, InvalidOtherMigratorTarget>
+{
+    public bool TryMigrateFrom(InvalidOtherMigratorSource source, out InvalidOtherMigratorTarget result)
+    {
+        result = new InvalidOtherMigratorTarget(source.Name);
         return true;
     }
 }
