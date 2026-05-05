@@ -14,8 +14,9 @@ internal sealed record TypeMetadata(
         string? defaultDiscriminatorPropertyName = null)
     {
         JsonMigratableAttribute? attribute = type.GetCustomAttribute<JsonMigratableAttribute>(inherit: true);
+        JsonMigratableAttribute? declaredAttribute = type.GetCustomAttribute<JsonMigratableAttribute>(inherit: false);
         string? customDiscriminator = typeDiscriminatorResolver?.Invoke(type);
-        string discriminator = customDiscriminator ?? attribute?.TypeDiscriminator ?? type.FullName ?? type.Name;
+        string discriminator = customDiscriminator ?? declaredAttribute?.TypeDiscriminator ?? type.FullName ?? type.Name;
         string propertyName = attribute?.TypeDiscriminatorPropertyName ?? defaultDiscriminatorPropertyName ?? "$type";
         return new TypeMetadata(type, discriminator, propertyName, attribute?.UndiscriminatedSourceType);
     }

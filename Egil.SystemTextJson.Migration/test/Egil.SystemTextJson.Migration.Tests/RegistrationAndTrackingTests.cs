@@ -154,6 +154,61 @@ public class RegistrationAndTrackingTests
     }
 
     [Fact]
+    public void Derived_source_without_own_discriminator_does_not_inherit_base_discriminator()
+    {
+        var options = CreateOptions(static builder => builder.RegisterMigrator<DerivedDiscriminatorMigrator>());
+
+        var migrated = JsonSerializer.Deserialize<DerivedDiscriminatorTarget>(
+            $$"""
+            {"$type":"{{typeof(DerivedDiscriminatorSource).FullName}}","name":"Egil Hansen","age":42}
+            """,
+            options);
+
+        Assert.NotNull(migrated);
+        Assert.Equal("Egil", migrated.FirstName);
+        Assert.Equal("Hansen", migrated.LastName);
+        Assert.Equal(42, migrated.Age);
+    }
+
+    [Fact]
+    public void Derived_json_migratable_discriminator_overrides_base_json_migratable_discriminator()
+    {
+        var options = CreateOptions(static builder => builder.RegisterMigrator<DerivedJsonDiscriminatorMigrator>());
+
+        var migrated = JsonSerializer.Deserialize<DerivedJsonDiscriminatorTarget>(
+            """
+            {"$type":"derived-json-source","name":"Egil Hansen","age":42}
+            """,
+            options);
+
+        Assert.NotNull(migrated);
+        Assert.Equal("Egil", migrated.FirstName);
+        Assert.Equal("Hansen", migrated.LastName);
+        Assert.Equal(42, migrated.Age);
+    }
+
+    [Fact]
+    public void Derived_custom_discriminator_attribute_overrides_base_custom_discriminator_attribute()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.AddJsonMigrationSupport(builder => builder
+            .GetTypeDiscriminatorFrom<MigrationAliasAttribute>(static attribute => attribute.Alias)
+            .RegisterMigrator<DerivedAliasDiscriminatorMigrator>());
+        options.TypeInfoResolverChain.Add(TrackingJsonContext.Default);
+
+        var migrated = JsonSerializer.Deserialize<DerivedAliasDiscriminatorTarget>(
+            """
+            {"$type":"derived-alias-source","name":"Egil Hansen","age":42}
+            """,
+            options);
+
+        Assert.NotNull(migrated);
+        Assert.Equal("Egil", migrated.FirstName);
+        Assert.Equal("Hansen", migrated.LastName);
+        Assert.Equal(42, migrated.Age);
+    }
+
+    [Fact]
     public void Source_generated_context_only_works_when_metadata_is_complete()
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
@@ -424,6 +479,72 @@ public class AliasFallbackMigrator : IMigrate<AliasFallbackSource, AliasFallback
     }
 }
 
+[JsonMigratable(TypeDiscriminator = "base-discriminator-source")]
+public record class BaseDiscriminatorSource(string Name, int Age);
+
+public record class DerivedDiscriminatorSource(string Name, int Age) : BaseDiscriminatorSource(Name, Age);
+
+[JsonMigratable]
+public record class DerivedDiscriminatorTarget(string FirstName, string LastName, int Age);
+
+public class DerivedDiscriminatorMigrator : IMigrate<DerivedDiscriminatorSource, DerivedDiscriminatorTarget>
+{
+    public bool TryMigrateFrom(DerivedDiscriminatorSource source, out DerivedDiscriminatorTarget result)
+    {
+        var names = source.Name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        result = new DerivedDiscriminatorTarget(
+            names.Length > 0 ? names[0] : string.Empty,
+            names.Length > 1 ? names[1] : string.Empty,
+            source.Age);
+        return true;
+    }
+}
+
+[JsonMigratable(TypeDiscriminator = "base-json-source")]
+public record class BaseJsonDiscriminatorSource(string Name, int Age);
+
+[JsonMigratable(TypeDiscriminator = "derived-json-source")]
+public record class DerivedJsonDiscriminatorSource(string Name, int Age) : BaseJsonDiscriminatorSource(Name, Age);
+
+[JsonMigratable]
+public record class DerivedJsonDiscriminatorTarget(string FirstName, string LastName, int Age);
+
+public class DerivedJsonDiscriminatorMigrator : IMigrate<DerivedJsonDiscriminatorSource, DerivedJsonDiscriminatorTarget>
+{
+    public bool TryMigrateFrom(DerivedJsonDiscriminatorSource source, out DerivedJsonDiscriminatorTarget result)
+    {
+        var names = source.Name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        result = new DerivedJsonDiscriminatorTarget(
+            names.Length > 0 ? names[0] : string.Empty,
+            names.Length > 1 ? names[1] : string.Empty,
+            source.Age);
+        return true;
+    }
+}
+
+[MigrationAlias("base-alias-source")]
+[JsonMigratable]
+public record class BaseAliasDiscriminatorSource(string Name, int Age);
+
+[MigrationAlias("derived-alias-source")]
+public record class DerivedAliasDiscriminatorSource(string Name, int Age) : BaseAliasDiscriminatorSource(Name, Age);
+
+[JsonMigratable]
+public record class DerivedAliasDiscriminatorTarget(string FirstName, string LastName, int Age);
+
+public class DerivedAliasDiscriminatorMigrator : IMigrate<DerivedAliasDiscriminatorSource, DerivedAliasDiscriminatorTarget>
+{
+    public bool TryMigrateFrom(DerivedAliasDiscriminatorSource source, out DerivedAliasDiscriminatorTarget result)
+    {
+        var names = source.Name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        result = new DerivedAliasDiscriminatorTarget(
+            names.Length > 0 ? names[0] : string.Empty,
+            names.Length > 1 ? names[1] : string.Empty,
+            source.Age);
+        return true;
+    }
+}
+
 [JsonMigratable(TypeDiscriminator = "dup-source")]
 public record class DuplicateDiscriminatorSourceA(string Name, int Age);
 
@@ -586,6 +707,12 @@ public sealed class CallbackLifecycleTarget :
 [JsonSerializable(typeof(PrecedenceV2))]
 [JsonSerializable(typeof(ScanSource))]
 [JsonSerializable(typeof(ScanTarget))]
+[JsonSerializable(typeof(DerivedDiscriminatorSource))]
+[JsonSerializable(typeof(DerivedDiscriminatorTarget))]
+[JsonSerializable(typeof(DerivedJsonDiscriminatorSource))]
+[JsonSerializable(typeof(DerivedJsonDiscriminatorTarget))]
+[JsonSerializable(typeof(DerivedAliasDiscriminatorSource))]
+[JsonSerializable(typeof(DerivedAliasDiscriminatorTarget))]
 [JsonSerializable(typeof(ServiceProviderSource))]
 [JsonSerializable(typeof(ServiceProviderTarget))]
 public partial class TrackingJsonContext : JsonSerializerContext;
