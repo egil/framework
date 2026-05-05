@@ -73,6 +73,8 @@ public abstract class MigrationScenarioBenchmarksBase
     private byte[] migratableStaticMigrationPayload = null!;
     private byte[] plainExternalMigrationPayload = null!;
     private byte[] migratableExternalMigrationPayload = null!;
+    private byte[] plainUndiscriminatedSourceMigrationPayload = null!;
+    private byte[] migratableUndiscriminatedSourceMigrationPayload = null!;
     private byte[] plainLegacyPayload = null!;
     private byte[] migratableLegacyPayload = null!;
     private PerfCurrentStatePlain plainCurrentState = null!;
@@ -106,6 +108,9 @@ public abstract class MigrationScenarioBenchmarksBase
 
         plainExternalMigrationPayload = JsonSerializer.SerializeToUtf8Bytes(new PerfExternalPlainV1("Egil Hansen", 42, tags), plainOptions);
         migratableExternalMigrationPayload = JsonSerializer.SerializeToUtf8Bytes(new PerfExternalV1("Egil Hansen", 42, tags), migratableExternalOptions);
+
+        plainUndiscriminatedSourceMigrationPayload = JsonSerializer.SerializeToUtf8Bytes(new PerfUndiscriminatedPlainV1("Egil Hansen", 42, tags), plainOptions);
+        migratableUndiscriminatedSourceMigrationPayload = JsonSerializer.SerializeToUtf8Bytes(new PerfUndiscriminatedV1("Egil Hansen", 42, tags), plainOptions);
 
         plainLegacyPayload = JsonSerializer.SerializeToUtf8Bytes(new PerfExternalPlainV2("Egil", "Hansen", 42, tags), plainOptions);
         migratableLegacyPayload = JsonSerializer.SerializeToUtf8Bytes(new PerfExternalV2("Egil", "Hansen", 42, tags), plainOptions);
@@ -150,6 +155,19 @@ public abstract class MigrationScenarioBenchmarksBase
     {
         PerfExternalPlainV1 source = JsonSerializer.Deserialize<PerfExternalPlainV1>(plainExternalMigrationPayload, plainOptions)!;
         return PerfExternalPlainV2.ManualFrom(source);
+    }
+
+    [Benchmark]
+    [BenchmarkCategory("Deserialize", "UndiscriminatedSourceMigration")]
+    public PerfUndiscriminatedV2 JsonMigratableUndiscriminatedSourceMigration()
+        => JsonSerializer.Deserialize<PerfUndiscriminatedV2>(migratableUndiscriminatedSourceMigrationPayload, migratableStaticOptions)!;
+
+    [Benchmark(Baseline = true)]
+    [BenchmarkCategory("Deserialize", "UndiscriminatedSourceMigration")]
+    public PerfUndiscriminatedPlainV2 PlainStjUndiscriminatedSourceMigrationManual()
+    {
+        PerfUndiscriminatedPlainV1 source = JsonSerializer.Deserialize<PerfUndiscriminatedPlainV1>(plainUndiscriminatedSourceMigrationPayload, plainOptions)!;
+        return PerfUndiscriminatedPlainV2.ManualFrom(source);
     }
 
     [Benchmark]
@@ -302,6 +320,43 @@ public class PerfExternalMigrator : IMigrate<PerfExternalV1, PerfExternalV2>
     }
 }
 
+public record class PerfUndiscriminatedPlainV1(string Name, int Age, string[] Tags);
+
+public record class PerfUndiscriminatedPlainV2(string FirstName, string LastName, int Age, string[] Tags)
+{
+    public static PerfUndiscriminatedPlainV2 ManualFrom(PerfUndiscriminatedPlainV1 source)
+    {
+        var names = source.Name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return new PerfUndiscriminatedPlainV2(
+            names.Length > 0 ? names[0] : string.Empty,
+            names.Length > 1 ? names[1] : string.Empty,
+            source.Age,
+            source.Tags);
+    }
+}
+
+public record class PerfUndiscriminatedV1(string Name, int Age, string[] Tags);
+
+[JsonMigratable(UndiscriminatedSourceType = typeof(PerfUndiscriminatedV1))]
+public record class PerfUndiscriminatedV2(string FirstName, string LastName, int Age, string[] Tags) :
+    IJsonMigrationTracked,
+    IMigrateFrom<PerfUndiscriminatedV1, PerfUndiscriminatedV2>
+{
+    [JsonIgnore]
+    public bool MigratedDuringDeserialization { get; set; }
+
+    public static bool TryMigrateFrom(PerfUndiscriminatedV1 source, out PerfUndiscriminatedV2 result)
+    {
+        var names = source.Name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        result = new PerfUndiscriminatedV2(
+            names.Length > 0 ? names[0] : string.Empty,
+            names.Length > 1 ? names[1] : string.Empty,
+            source.Age,
+            source.Tags);
+        return true;
+    }
+}
+
 [JsonSourceGenerationOptions]
 [JsonSerializable(typeof(PerfCurrentStatePlain))]
 [JsonSerializable(typeof(PerfCurrentStateMigratable))]
@@ -314,4 +369,8 @@ public class PerfExternalMigrator : IMigrate<PerfExternalV1, PerfExternalV2>
 [JsonSerializable(typeof(PerfExternalV1))]
 [JsonSerializable(typeof(PerfExternalV2))]
 [JsonSerializable(typeof(PerfExternalPolymorphicPlainV1))]
+[JsonSerializable(typeof(PerfUndiscriminatedPlainV1))]
+[JsonSerializable(typeof(PerfUndiscriminatedPlainV2))]
+[JsonSerializable(typeof(PerfUndiscriminatedV1))]
+[JsonSerializable(typeof(PerfUndiscriminatedV2))]
 public partial class PerfJsonContext : JsonSerializerContext;
