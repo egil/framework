@@ -100,8 +100,11 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter, IDisposable
             }
             else
             {
-                ObjectDisposedException.ThrowIf(disposed, this);
-                subscribers[channel] = null;
+                lock (activityLock)
+                {
+                    ObjectDisposedException.ThrowIf(disposed, this);
+                    subscribers[channel] = null;
+                }
             }
 
             await foreach (var activity in channel.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
@@ -353,8 +356,11 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter, IDisposable
         // no activity events are lost between the initial assertion attempt and the
         // start of the retry loop.
         var channel = CreateChannel();
-        ObjectDisposedException.ThrowIf(disposed, this);
-        subscribers[channel] = null;
+        lock (activityLock)
+        {
+            ObjectDisposedException.ThrowIf(disposed, this);
+            subscribers[channel] = null;
+        }
 
         try
         {
