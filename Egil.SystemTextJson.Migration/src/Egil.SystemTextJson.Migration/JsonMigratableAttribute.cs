@@ -22,4 +22,10 @@ public sealed class JsonMigratableAttribute : Attribute
     /// When explicitly set on the attribute usage, this overrides the builder-level handling.
     /// </summary>
     public JsonMigrationFailureHandling MigrationFailureHandling { get; set; } = JsonMigrationFailureHandling.ThrowJsonException;
+
+    /// <summary>
+    /// Gets or sets the source type to assume when deserializing an object payload without a recognized discriminator.
+    /// When not set, discriminator-less object payloads are deserialized directly as the target type.
+    /// </summary>
+    public Type? UndiscriminatedSourceType { get; set; }
 }

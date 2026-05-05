@@ -7,6 +7,7 @@ internal sealed record MigratorContext(
     TypeMetadata TargetMetadata,
     MigratorReference[] Migrators,
     string[] SourceDiscriminatorPropertyNames,
+    MigratorReference? UndiscriminatedSourceMigrator,
     JsonMigrationFailureHandling MigrationFailureHandling)
 {
     public byte[] TargetDiscriminatorPropertyNameUtf8 { get; } = System.Text.Encoding.UTF8.GetBytes(TargetMetadata.DiscriminatorPropertyName);

@@ -44,6 +44,7 @@ All code samples are extracted from the [samples project](../../samples/Egil.Sys
 ## Legacy & incremental adoption
 
 - [Adopting the library with existing stored JSON](legacy-adoption.md#adopting-the-library-with-existing-stored-json)
+- [Migrating discriminator-less object payloads from a source type](legacy-adoption.md#migrating-discriminator-less-object-payloads-from-a-source-type)
 - [Discriminator not in first position](legacy-adoption.md#discriminator-not-in-first-position)
 
 ## AOT & source generation

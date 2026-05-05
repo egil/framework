@@ -14,6 +14,23 @@ public record class OrderV2(string ItemName, int Quantity)
     }
 }
 
+public record class CustomerNameV0(string FirstName, string LastName);
+
+#region legacy_undiscriminated_source_type
+[JsonMigratable(
+    TypeDiscriminator = "customer-name-v1",
+    UndiscriminatedSourceType = typeof(CustomerNameV0))]
+public record class CustomerNameV1(string Name)
+    : IMigrateFrom<CustomerNameV0, CustomerNameV1>
+{
+    public static bool TryMigrateFrom(CustomerNameV0 source, out CustomerNameV1 result)
+    {
+        result = new CustomerNameV1($"{source.FirstName} {source.LastName}");
+        return true;
+    }
+}
+#endregion
+
 public sealed class LegacyPayloadSampleTests
 {
     [Fact]
@@ -54,5 +71,24 @@ public sealed class LegacyPayloadSampleTests
         Assert.NotNull(order);
         Assert.Equal("Widget", order.ItemName);
         Assert.Equal(5, order.Quantity);
+    }
+
+    [Fact]
+    public void Undiscriminated_source_payload_is_migrated()
+    {
+        #region legacy_undiscriminated_source_usage
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.AddJsonMigrationSupport();
+
+        // Existing stored JSON was written before migration support existed,
+        // so it has no $type discriminator. CustomerNameV1 opts in to treating
+        // discriminator-less objects as CustomerNameV0 and runs its migrator.
+        var json = """{"firstName":"Jane","lastName":"Doe"}""";
+
+        CustomerNameV1 customer = JsonSerializer.Deserialize<CustomerNameV1>(json, options)!;
+        // customer is CustomerNameV1 { Name = "Jane Doe" }
+        #endregion
+
+        Assert.Equal("Jane Doe", customer.Name);
     }
 }

@@ -5,7 +5,8 @@ namespace Egil.SystemTextJson.Migration.Migrations;
 internal sealed record TypeMetadata(
     Type Type,
     string Discriminator,
-    string DiscriminatorPropertyName)
+    string DiscriminatorPropertyName,
+    Type? UndiscriminatedSourceType)
 {
     public static TypeMetadata FromType(
         Type type,
@@ -16,6 +17,6 @@ internal sealed record TypeMetadata(
         string? customDiscriminator = typeDiscriminatorResolver?.Invoke(type);
         string discriminator = customDiscriminator ?? attribute?.TypeDiscriminator ?? type.FullName ?? type.Name;
         string propertyName = attribute?.TypeDiscriminatorPropertyName ?? defaultDiscriminatorPropertyName ?? "$type";
-        return new TypeMetadata(type, discriminator, propertyName);
+        return new TypeMetadata(type, discriminator, propertyName, attribute?.UndiscriminatedSourceType);
     }
 }

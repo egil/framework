@@ -455,6 +455,7 @@ public class MutationCoverageTests
         object? targetMetadata = contextType.GetProperty("TargetMetadata")?.GetValue(originalContext);
         object? migrators = contextType.GetProperty("Migrators")?.GetValue(originalContext);
         object? sourceDiscriminatorPropertyNames = contextType.GetProperty("SourceDiscriminatorPropertyNames")?.GetValue(originalContext);
+        object? undiscriminatedSourceMigrator = contextType.GetProperty("UndiscriminatedSourceMigrator")?.GetValue(originalContext);
         object? migrationFailureHandling = contextType.GetProperty("MigrationFailureHandling")?.GetValue(originalContext);
 
         Assert.NotNull(targetMetadata);
@@ -467,7 +468,7 @@ public class MutationCoverageTests
             contextType,
             BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
             binder: null,
-            args: [untypedTargetTypeInfo, targetMetadata, migrators, sourceDiscriminatorPropertyNames, migrationFailureHandling],
+            args: [untypedTargetTypeInfo, targetMetadata, migrators, sourceDiscriminatorPropertyNames, undiscriminatedSourceMigrator, migrationFailureHandling],
             culture: null)!;
 
         object converterInstance = Activator.CreateInstance(

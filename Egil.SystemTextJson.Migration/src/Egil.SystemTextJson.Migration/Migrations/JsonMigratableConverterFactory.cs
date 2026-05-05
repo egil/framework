@@ -61,6 +61,11 @@ internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry regis
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
+        MigratorReference? undiscriminatedSourceMigrator = ResolveUndiscriminatedSourceMigrator(
+            typeToConvert,
+            targetMetadata,
+            migrators);
+
         // Freeze the metadata options so that internal STJ methods like
         // GetTypeInfoInternal (called by JsonResumableConverter<T>.Read) use the
         // read-only cache path instead of the mutable path which silently returns null
@@ -72,6 +77,7 @@ internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry regis
             targetMetadata,
             migrators,
             sourcePropertyNames,
+            undiscriminatedSourceMigrator,
             registry.GetMigrationFailureHandling(typeToConvert));
 
         Type converterType = typeof(JsonMigratableConverter<>).MakeGenericType(typeToConvert);
@@ -116,6 +122,27 @@ internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry regis
         }
 
         return [.. migrators.Values.Select(static candidate => candidate.Migrator)];
+    }
+
+    private static MigratorReference? ResolveUndiscriminatedSourceMigrator(
+        Type targetType,
+        TypeMetadata targetMetadata,
+        MigratorReference[] migrators)
+    {
+        Type? sourceType = targetMetadata.UndiscriminatedSourceType;
+        if (sourceType is null)
+        {
+            return null;
+        }
+
+        MigratorReference? match = migrators.FirstOrDefault(migrator => migrator.SourceType == sourceType);
+        if (match is not null)
+        {
+            return match;
+        }
+
+        throw new InvalidOperationException(
+            $"Target type '{targetType.FullName}' configures '{nameof(JsonMigratableAttribute.UndiscriminatedSourceType)}' as '{sourceType.FullName}', but no migrator was found for '{sourceType.FullName}' -> '{targetType.FullName}'.");
     }
 
     private static void AddMigratorCandidate(
