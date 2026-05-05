@@ -80,30 +80,30 @@ public sealed class GrainActivityCollector : IGrainActivityWaiter, IDisposable
     {
         var channel = CreateChannel();
 
-        if (includeExisting)
+        try
         {
-            // Subscribe and prefill the channel with history under the same lock
-            // so that Publish cannot interleave — events before the lock are
-            // written to the channel as history, events after the lock are
-            // written by Publish. No duplicates, no gaps, no array copy.
-            lock (activityLock)
+            if (includeExisting)
+            {
+                // Subscribe and prefill the channel with history under the same lock
+                // so that Publish cannot interleave — events before the lock are
+                // written to the channel as history, events after the lock are
+                // written by Publish. No duplicates, no gaps, no array copy.
+                lock (activityLock)
+                {
+                    ObjectDisposedException.ThrowIf(disposed, this);
+                    subscribers[channel] = null;
+                    foreach (var item in recentActivity)
+                    {
+                        channel.Writer.TryWrite(item);
+                    }
+                }
+            }
+            else
             {
                 ObjectDisposedException.ThrowIf(disposed, this);
                 subscribers[channel] = null;
-                foreach (var item in recentActivity)
-                {
-                    channel.Writer.TryWrite(item);
-                }
             }
-        }
-        else
-        {
-            ObjectDisposedException.ThrowIf(disposed, this);
-            subscribers[channel] = null;
-        }
 
-        try
-        {
             await foreach (var activity in channel.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
             {
                 yield return activity;
