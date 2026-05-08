@@ -20,7 +20,7 @@ public sealed class OrderGrainTests(OrleansTestClusterFixture fixture) : IClassF
     [Fact]
     public async Task StartSubmissionProcessingAsync_sets_last_submitted_item()
     {
-        var grain = fixture.GetUniqueGrain<IOrderGrain>();
+        var grain = fixture.GrainFactory.GetGrain<IOrderGrain>(Guid.NewGuid());
 
         // Starts async follow-up work on the grain, such as a one-way call,
         // grain timer, or reminder, and returns before that work completes.
