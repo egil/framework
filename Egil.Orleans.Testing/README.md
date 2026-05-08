@@ -10,6 +10,28 @@ Deterministic async assertion helpers for [Microsoft Orleans](https://learn.micr
 
 The library is **test-framework-agnostic**: it works with xUnit, NUnit, MSTest, or any other framework. The examples below use xUnit syntax like `[Fact]` only for concreteness; the collector and waiter patterns are not tied to xUnit.
 
+## TLDR
+
+Once your Orleans test cluster is configured with a `GrainActivityCollector`, tests can trigger work on a grain and wait deterministically for the asynchronous follow-up work to complete:
+
+```cs
+public sealed class OrderGrainTests(OrleansTestClusterFixture fixture) : IClassFixture<OrleansTestClusterFixture>
+{
+    [Fact]
+    public async Task SubmitAsync_sets_last_submitted_item()
+    {
+        var grain = fixture.GetUniqueGrain<IOrderGrain>();
+
+        await grain.SubmitAsync("laptop");
+
+        await fixture.WaitForAssertionAsync(async () =>
+        {
+            Assert.Equal("laptop", await grain.GetLastSubmittedItemAsync());
+        }, ct: TestContext.Current.CancellationToken);
+    }
+}
+```
+
 ## Getting started
 
 ### 1. Install the package
