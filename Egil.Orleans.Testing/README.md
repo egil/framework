@@ -18,16 +18,19 @@ Once your Orleans test cluster is configured with a `GrainActivityCollector`, te
 public sealed class OrderGrainTests(OrleansTestClusterFixture fixture) : IClassFixture<OrleansTestClusterFixture>
 {
     [Fact]
-    public async Task SubmitAsync_sets_last_submitted_item()
+    public async Task StartSubmissionProcessingAsync_sets_last_submitted_item()
     {
         var grain = fixture.GetUniqueGrain<IOrderGrain>();
 
-        await grain.SubmitAsync("laptop");
+        // Starts async follow-up work on the grain, such as a one-way call,
+        // grain timer, or reminder, and returns before that work completes.
+        await grain.StartSubmissionProcessingAsync("laptop");
 
-        await fixture.WaitForAssertionAsync(async () =>
+        // Retries the assertion only when this grain reports activity.
+        await fixture.WaitForAssertionAsync(grain, async () =>
         {
             Assert.Equal("laptop", await grain.GetLastSubmittedItemAsync());
-        }, ct: TestContext.Current.CancellationToken);
+        });
     }
 }
 ```
