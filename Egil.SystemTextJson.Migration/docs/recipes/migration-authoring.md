@@ -390,4 +390,4 @@ options.AddJsonMigrationSupport(builder =>
 });
 ```
 
-> **Note:** Bidirectional migration is specifically designed for the case where two distinct types reference each other. True cycles through three or more intermediate types (A → B → C → A) are not supported and will still result in an error.
+> **Note:** Bidirectional and cyclic migration works for any number of types. Two types can migrate from each other (A ↔ B), and longer cycles (A → B → C → A) are equally supported. Each type's converter automatically excludes types already being resolved in the current chain to prevent infinite recursion.

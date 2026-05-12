@@ -99,6 +99,57 @@ public class BidirectionalMigrationTests
         Assert.Equal("world", x.Name);
         Assert.Equal(99, x.Age);
     }
+
+    [Fact]
+    public void Three_type_cycle_migrate_A_to_B()
+    {
+        var a = new CycleA("alpha", 1);
+        var json = JsonSerializer.Serialize(a, options);
+
+        var b = JsonSerializer.Deserialize<CycleB>(json, options);
+
+        Assert.NotNull(b);
+        Assert.Equal("alpha", b.Label);
+        Assert.Equal(1, b.Value);
+    }
+
+    [Fact]
+    public void Three_type_cycle_migrate_B_to_C()
+    {
+        var b = new CycleB("beta", 2);
+        var json = JsonSerializer.Serialize(b, options);
+
+        var c = JsonSerializer.Deserialize<CycleC>(json, options);
+
+        Assert.NotNull(c);
+        Assert.Equal("beta", c.Tag);
+        Assert.Equal(2, c.Count);
+    }
+
+    [Fact]
+    public void Three_type_cycle_migrate_C_to_A()
+    {
+        var c = new CycleC("gamma", 3);
+        var json = JsonSerializer.Serialize(c, options);
+
+        var a = JsonSerializer.Deserialize<CycleA>(json, options);
+
+        Assert.NotNull(a);
+        Assert.Equal("gamma", a.Name);
+        Assert.Equal(3, a.Age);
+    }
+
+    [Fact]
+    public void Three_type_cycle_roundtrip_each_type()
+    {
+        var a = new CycleA("a", 1);
+        var b = new CycleB("b", 2);
+        var c = new CycleC("c", 3);
+
+        Assert.Equal(a, JsonSerializer.Deserialize<CycleA>(JsonSerializer.Serialize(a, options), options));
+        Assert.Equal(b, JsonSerializer.Deserialize<CycleB>(JsonSerializer.Serialize(b, options), options));
+        Assert.Equal(c, JsonSerializer.Deserialize<CycleC>(JsonSerializer.Serialize(c, options), options));
+    }
 }
 
 // Static bidirectional migration types
@@ -145,6 +196,40 @@ public class BlueGreenExternalYtoX : IMigrate<BlueGreenExtY, BlueGreenExtX>
     public bool TryMigrateFrom(BlueGreenExtY source, out BlueGreenExtX result)
     {
         result = new BlueGreenExtX(source.Label, source.Value);
+        return true;
+    }
+}
+
+// Three-type cycle: A → B → C → A
+[JsonMigratable(TypeDiscriminator = "cycle-a")]
+public record class CycleA(string Name, int Age) :
+    IMigrateFrom<CycleC, CycleA>
+{
+    public static bool TryMigrateFrom(CycleC source, out CycleA result)
+    {
+        result = new CycleA(source.Tag, source.Count);
+        return true;
+    }
+}
+
+[JsonMigratable(TypeDiscriminator = "cycle-b")]
+public record class CycleB(string Label, int Value) :
+    IMigrateFrom<CycleA, CycleB>
+{
+    public static bool TryMigrateFrom(CycleA source, out CycleB result)
+    {
+        result = new CycleB(source.Name, source.Age);
+        return true;
+    }
+}
+
+[JsonMigratable(TypeDiscriminator = "cycle-c")]
+public record class CycleC(string Tag, int Count) :
+    IMigrateFrom<CycleB, CycleC>
+{
+    public static bool TryMigrateFrom(CycleB source, out CycleC result)
+    {
+        result = new CycleC(source.Label, source.Value);
         return true;
     }
 }
