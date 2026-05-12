@@ -3,6 +3,18 @@ namespace Egil.SystemTextJson.Migration;
 /// <summary>
 /// Marks a type as migration-aware during JSON serialization and deserialization.
 /// </summary>
+/// <remarks>
+/// <para>
+/// This attribute cannot be combined with <c>[JsonPolymorphic]</c> / <c>[JsonDerivedType]</c>
+/// on the same type hierarchy. System.Text.Json's polymorphic infrastructure requires every
+/// converter in a polymorphic hierarchy to support its internal metadata protocol, which is
+/// not extensible from outside the runtime assembly. Attempting to combine the two throws
+/// <see cref="NotSupportedException"/> at type-info configuration or (de)serialization time.
+/// </para>
+/// <para>
+/// See the <c>polymorphism.md</c> recipe for details and recommended workarounds.
+/// </para>
+/// </remarks>
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct, AllowMultiple = false, Inherited = true)]
 public sealed class JsonMigratableAttribute : Attribute
 {

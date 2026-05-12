@@ -2,6 +2,8 @@
 
 These are built-in `System.Text.Json` interfaces that complement the migration library. They are not part of this library, but they are commonly needed in migration scenarios.
 
+> **Note on `[JsonPolymorphic]` / `[JsonDerivedType]`:** These STJ attributes **cannot** be combined with `[JsonMigratable]` on the same type hierarchy. See [polymorphism.md](polymorphism.md) for the reason and recommended workarounds.
+
 ## Using `IJsonOnDeserialized` for post-migration validation
 
 Implement `IJsonOnDeserialized` on the target type to validate or normalize data after deserialization. This runs for current-format payloads deserialized by STJ:

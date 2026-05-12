@@ -69,6 +69,10 @@ All code samples are extracted from the [samples project](../../samples/Egil.Sys
 - [Using `IJsonOnSerializing` to prepare data before serialization](stj-features.md#using-ijsononserializing-to-prepare-data-before-serialization)
 - [Combining `IJsonOnDeserialized` with `IJsonMigrationTracked`](stj-features.md#combining-ijsonondeserialized-with-ijsonmigrationtracked)
 
+## Polymorphism
+
+- [`[JsonPolymorphic]` compatibility](polymorphism.md) — current limitation and recommended workarounds
+
 ## Real-world integration patterns
 
 - [Database / cache migration on read](integration-patterns.md#database--cache-migration-on-read)
