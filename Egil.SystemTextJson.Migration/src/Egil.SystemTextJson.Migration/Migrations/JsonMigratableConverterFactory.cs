@@ -13,17 +13,17 @@ internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry regis
     private const string TryMigrateFromMethodName = nameof(IMigrateFrom<,>.TryMigrateFrom);
 
     private readonly JsonMigrationRegistry registry = registry;
-    private readonly Type? excludedType;
+    private readonly HashSet<Type> excludedTypes = [];
 
-    internal JsonMigratableConverterFactory(JsonMigrationRegistry registry, Type excludedType)
+    internal JsonMigratableConverterFactory(JsonMigrationRegistry registry, HashSet<Type> excludedTypes)
         : this(registry)
     {
-        this.excludedType = excludedType;
+        this.excludedTypes = excludedTypes;
     }
 
     /// <inheritdoc/>
     public override bool CanConvert(Type typeToConvert)
-        => (excludedType is null || typeToConvert != excludedType)
+        => !excludedTypes.Contains(typeToConvert)
             && typeToConvert.GetCustomAttribute<JsonMigratableAttribute>(inherit: true) is not null;
 
     /// <inheritdoc/>
@@ -40,7 +40,7 @@ internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry regis
         // apply migration converters for nested migratable types.
         var metadataOptions = new JsonSerializerOptions(options);
         metadataOptions.Converters.Remove(this);
-        metadataOptions.Converters.Add(new JsonMigratableConverterFactory(registry, typeToConvert));
+        metadataOptions.Converters.Add(new JsonMigratableConverterFactory(registry, new HashSet<Type>(excludedTypes) { typeToConvert }));
 
         // Attach a modifier that injects the discriminator property during type info resolution.
         // This is necessary because internal STJ caching may re-resolve type info from the resolver

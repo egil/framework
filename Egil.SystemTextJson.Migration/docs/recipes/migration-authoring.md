@@ -314,3 +314,80 @@ public static bool TryMigrateFrom(V0 source, out V3 result)
 ```
 
 > **Note:** The library supports both approaches. Choose based on whether code reuse or performance matters more in your scenario.
+
+## Bidirectional migration (blue/green deployments)
+
+In blue/green deployment scenarios two service versions may run side by side, each writing its own schema. Both types must be able to read the other's payloads. The library supports this by allowing **bidirectional** migration — type `X` migrates from `Y` *and* type `Y` migrates from `X` — so each version can deserialize the other's payloads.
+
+### Static bidirectional migration
+
+Each type implements `IMigrateFrom` for the other:
+
+```csharp
+[JsonMigratable(TypeDiscriminator = "order-blue")]
+public record OrderBlue(string Name, int Quantity)
+    : IMigrateFrom<OrderGreen, OrderBlue>
+{
+    public static bool TryMigrateFrom(OrderGreen source, out OrderBlue result)
+    {
+        result = new OrderBlue(source.Label, source.Count);
+        return true;
+    }
+}
+
+[JsonMigratable(TypeDiscriminator = "order-green")]
+public record OrderGreen(string Label, int Count)
+    : IMigrateFrom<OrderBlue, OrderGreen>
+{
+    public static bool TryMigrateFrom(OrderBlue source, out OrderGreen result)
+    {
+        result = new OrderGreen(source.Name, source.Quantity);
+        return true;
+    }
+}
+```
+
+The **blue** service deserializes as `OrderBlue` — payloads tagged `"order-green"` are automatically migrated. The **green** service deserializes as `OrderGreen` — payloads tagged `"order-blue"` are automatically migrated. Payloads that already match the target type are deserialized directly with no migration overhead.
+
+### External bidirectional migration
+
+The same pattern works with external migrator classes:
+
+```csharp
+[JsonMigratable(TypeDiscriminator = "order-blue")]
+public record OrderBlue(string Name, int Quantity);
+
+[JsonMigratable(TypeDiscriminator = "order-green")]
+public record OrderGreen(string Label, int Count);
+
+public class BlueToGreenMigrator : IMigrate<OrderBlue, OrderGreen>
+{
+    public bool TryMigrateFrom(OrderBlue source, out OrderGreen result)
+    {
+        result = new OrderGreen(source.Name, source.Quantity);
+        return true;
+    }
+}
+
+public class GreenToBlueMigrator : IMigrate<OrderGreen, OrderBlue>
+{
+    public bool TryMigrateFrom(OrderGreen source, out OrderBlue result)
+    {
+        result = new OrderBlue(source.Label, source.Count);
+        return true;
+    }
+}
+```
+
+Register both migrators during setup:
+
+```csharp
+var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+options.AddJsonMigrationSupport(builder =>
+{
+    builder.RegisterMigrator<BlueToGreenMigrator>();
+    builder.RegisterMigrator<GreenToBlueMigrator>();
+});
+```
+
+> **Note:** Bidirectional and cyclic migration works for any number of types. Two types can migrate from each other (A ↔ B), and longer cycles (A → B → C → A) are equally supported. Each type's converter automatically excludes types already being resolved in the current chain to prevent infinite recursion.
