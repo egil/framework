@@ -317,7 +317,7 @@ public static bool TryMigrateFrom(V0 source, out V3 result)
 
 ## Bidirectional migration (blue/green deployments)
 
-In blue/green deployment scenarios two service versions may run side by side, each writing its own schema. Both types must be able to read the other's payloads. The library supports this by allowing **bidirectional** migration — type `X` migrates from `Y` *and* type `Y` migrates from `X` — without triggering a cycle error.
+In blue/green deployment scenarios two service versions may run side by side, each writing its own schema. Both types must be able to read the other's payloads. The library supports this by allowing **bidirectional** migration — type `X` migrates from `Y` *and* type `Y` migrates from `X` — so each version can deserialize the other's payloads.
 
 ### Static bidirectional migration
 
