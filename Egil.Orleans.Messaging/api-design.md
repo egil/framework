@@ -106,12 +106,13 @@ Users pick one of two paths for `T`:
   for record-of-primitives shapes. Breaks silently if state holds
   `ImmutableArray<>` (reference-equality trap) — user must override
   `Equals` themselves in that case.
-- **Path B — inherit `VersionedState<TSelf>`**
-  (`MyState : VersionedState<MyState>`). Framework owns equality via a
-  per-write `Guid Version`. Immune to any collection-equality issues in
-  the state graph. Recommended default for any non-trivial state.
+- **Path B — inherit `VersionedState`**
+  (`MyState : VersionedState`). Library stamps a per-write `Guid Version`.
+  Recovery path pattern-matches on `VersionedState` and compares `Version`
+  directly — immune to collection-equality issues in the state graph.
+  Recommended default for any non-trivial state.
 
-See §3a for the `VersionedState<TSelf>` base class.
+See §3a for `VersionedState` and why the generic layer was removed.
 
 ### Activation: state is auto-populated
 
@@ -361,15 +362,15 @@ public sealed record OutboxMessageEnvelope<T>(
 [GenerateSerializer]
 public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquatable<Outbox<T>>
 {
-    [Id(0)] private readonly GrainId _sender;
-    [Id(1)] private readonly long _latestSequenceNumber;
-    [Id(2)] private readonly ImmutableArray<OutboxMessageEnvelope<T>> _items;
-    [Id(3)] private readonly DateTimeOffset? _epoch;
+    [Id(0)] private readonly GrainId sender;
+    [Id(1)] private readonly long latestSequenceNumber;
+    [Id(2)] private readonly ImmutableArray<OutboxMessageEnvelope<T>> items;
+    [Id(3)] private readonly DateTimeOffset? epoch;
 
     // Non-persisted; no [Id]. Mutable, registered post-construction.
     [NonSerialized]
     [JsonIgnore]
-    private TimeProvider _time = TimeProvider.System;
+    private TimeProvider time = TimeProvider.System;
 
     internal Outbox(
         GrainId sender,
@@ -377,54 +378,53 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
         ImmutableArray<OutboxMessageEnvelope<T>> items,
         DateTimeOffset? epoch)
     {
-        _sender = sender;
-        _latestSequenceNumber = latestSequenceNumber;
-        _items = items;
-        _epoch = epoch;
+        this.sender = sender;
+        this.latestSequenceNumber = latestSequenceNumber;
+        this.items = items;
+        this.epoch = epoch;
     }
 
-    public static Outbox<T> Empty(GrainId sender) =>
+    public static Outbox<T> Create(GrainId sender) =>
         new(sender, latestSequenceNumber: 0, items: [], epoch: null);
 
-    public void RegisterTimeProvider(TimeProvider time) => _time = time;
+    public void RegisterTimeProvider(TimeProvider time) => this.time = time;
 
-    public GrainId Sender => _sender;
-    public long LatestSequenceNumber => _latestSequenceNumber;
-    public DateTimeOffset? Epoch => _epoch;
-    public int Count => _items.Length;
-    public bool IsEmpty => _items.IsDefaultOrEmpty;
-    public OutboxMessageEnvelope<T> this[int index] => _items[index];
+    public GrainId Sender => sender;
+    public long LatestSequenceNumber => latestSequenceNumber;
+    public DateTimeOffset? Epoch => epoch;
+    public int Count => items.Length;
+    public bool IsEmpty => items.IsDefaultOrEmpty;
+    public OutboxMessageEnvelope<T> this[int index] => items[index];
 
     public IEnumerator<OutboxMessageEnvelope<T>> GetEnumerator()
-        => ((IEnumerable<OutboxMessageEnvelope<T>>)_items).GetEnumerator();
+        => ((IEnumerable<OutboxMessageEnvelope<T>>)items).GetEnumerator();
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
     public Outbox<T> Add(T message) { /* increments seq, stamps epoch on first call */ }
-    public Outbox<T> Remove(OutboxSequenceToken token) { /* removes by seq number */ }
-    public Outbox<T> RemoveRange(IEnumerable<OutboxSequenceToken> tokens) { /* batch remove */ }
+    public Outbox<T> Remove(OutboxSequenceToken token) { /* removes FIFO head if token matches */ }
+    public Outbox<T> RemoveRange(IEnumerable<OutboxSequenceToken> tokens) { /* removes matching FIFO prefix */ }
     public Outbox<T> Clear() { /* removes all items, preserves LatestSequenceNumber + Epoch */ }
 
-    // O(1) fingerprint equality — see below.
-    public bool Equals(Outbox<T>? other) { /* fingerprint check */ }
+    // O(1) sequence equality — see below.
+    public bool Equals(Outbox<T>? other) { /* metadata + first/last sequence check */ }
     public override bool Equals(object? obj) => obj is Outbox<T> o && Equals(o);
-    public override int GetHashCode()
-        => HashCode.Combine(_sender, _latestSequenceNumber, _items.Length, _epoch);
+    public override int GetHashCode() { /* metadata + first/last sequence hash */ }
 }
 ```
 
 ### Epoch semantics
 
-- `Empty(sender)` → `epoch = null`, `LatestSequenceNumber = 0`.
+- `Create(sender)` → `epoch = null`, `LatestSequenceNumber = 0`.
 - First `Add()` → stamps `epoch = now`. Persisted with state.
 - Subsequent `Add()` → same epoch, incrementing sequence number.
 - `Clear()` → removes items, **preserves** `LatestSequenceNumber` and
   `Epoch`. This is the normal "postman drained successfully" path.
-- `Empty(sender)` again → **resets both** epoch (to null) and sequence
+- `Create(sender)` again → **resets both** epoch (to null) and sequence
   number (to 0). This is the nuclear option — the next `Add` starts a
   fresh epoch. Receivers see `token.Epoch > stored.Epoch` and accept.
 
 **`Clear()` is the normal path.** Grains should almost never call
-`Empty(sender)` on an active outbox. `Empty` is for construction-time
+`Create(sender)` on an active outbox. `Create` is for construction-time
 initialisation and deliberate ops-level sequence-space resets.
 Document and warn.
 
@@ -440,22 +440,28 @@ The outbox can grow unbounded if postman targets are down. Mitigation:
 - **Documentation:** storage providers have entity size limits (e.g.
   Azure Table = 1MB). Document the risk of unbounded growth.
 
-### O(1) fingerprint equality
+### O(1) sequence equality
 
 Two `Outbox<T>` values are equal when
-`(Sender, LatestSequenceNumber, Epoch, Count, _items[0].Seq, _items[^1].Seq)`
-matches. Constant-time regardless of `_items.Length`.
+`(Sender, LatestSequenceNumber, Epoch, Count, first sequence number, last sequence number)`
+matches. Constant-time regardless of `items.Length`.
 
-Invariant holds by construction: `Outbox<T>` is a sealed class with
-private readonly backing fields. The only mutation paths are the four
-public methods (`Add` / `Remove` / `RemoveRange` / `Clear`), each of
-which changes at least one fingerprint field.
+This relies on the outbox invariant that sequence numbers are assigned
+only by `Add` and pending items are removed only in FIFO order. Under
+that invariant, matching first and last sequence numbers with matching
+count identifies the same contiguous pending sequence window. Equality
+therefore stays independent of outbox depth and does not need a separate
+persisted fingerprint field.
+
+If two outboxes have the same sender, epoch, high-water mark, count, and
+sequence-window endpoints but different payloads, the outbox was used in
+a way that broke encapsulation/invariants. Equality does not attempt to
+detect that invalid state.
 
 ### Why these choices
 
 - **Sealed class, not record.** No `with`, no synthesized copy
-  constructor. Mutation through four methods only — fingerprint
-  invariant holds by construction. Reference type because
+  constructor. Mutation through four methods only. Reference type because
   `RegisterTimeProvider` is a void mutator.
 - **`Add(T payload)` not `Add(envelope)`.** Outbox owns sequence
   assignment. Callers cannot fabricate sequence numbers.
@@ -463,7 +469,9 @@ which changes at least one fingerprint field.
   `MessageTracker`. Successor instances carry the provider forward.
 - **Lazy `Epoch`.** A grain that never sends doesn't burn a fresh epoch
   on storage.
-- **`Remove(token)` not `Remove(envelope)`.** Token is the identity.
+- **`Remove(token)` not `Remove(envelope)`.** Token is the identity, but
+  removal is constrained to the FIFO head to preserve the contiguous
+  pending-sequence invariant.
 - **`LatestSequenceNumber` is a separate field.** After flush, items are
   empty; high-water mark persists independently.
 
@@ -476,9 +484,9 @@ restart from zero. Acceptable for burst retry policies.
 
 ---
 
-## 3a. `VersionedState<TSelf>` — structural equality across `ImmutableArray<T>`
+## 3a. `VersionedState` — version-based equality for recovery
 
-**Status:** Settled.
+**Status:** Settled. Generic `VersionedState<TSelf>` removed — see below.
 
 ### Problem
 
@@ -495,41 +503,41 @@ public abstract record VersionedState
 {
     [Id(0)] public Guid Version { get; internal set; } = Guid.CreateVersion7();
 }
-
-[GenerateSerializer]
-public abstract record VersionedState<TSelf> : VersionedState
-    where TSelf : VersionedState<TSelf>
-{
-    public virtual bool Equals(VersionedState<TSelf>? other) =>
-        other is not null && Version == other.Version;
-
-    public override int GetHashCode() => Version.GetHashCode();
-}
 ```
 
 User state:
 
 ```csharp
 [GenerateSerializer]
-public sealed record MyState : VersionedState<MyState>
+public sealed record MyState : VersionedState
 {
-    [Id(1)] public Outbox<MyEvent> Outbox { get; init; } = Outbox<MyEvent>.Empty(sender);
+    [Id(1)] public Outbox<MyEvent> Outbox { get; init; } = Outbox<MyEvent>.Create(sender);
     [Id(2)] public ImmutableArray<Something> Items { get; init; } = [];
 }
 ```
 
-### Why this shape
+### Why the generic `VersionedState<TSelf>` was removed
 
-- **`Guid Version` with `internal set`.** Library code can write
-  `Version`; user code cannot. Hard compile-time fence.
-- **`set`, not `init`.** Library mutates caller's reference during
-  `WriteAsync` to stamp new version.
-- **`Guid.CreateVersion7()`.** Sortable UUID v7 (.NET 9+). Cheap,
-  collision-free at this rate.
-- **Initialiser on property.** Fresh records get non-empty version
-  before any write.
-- **Two-layer base.** Non-generic `VersionedState` gives `StateManager`
-  a single type to test against. Generic layer carries typed equality.
+The original design had a two-layer hierarchy where the generic layer
+overrode `Equals` to compare only `Version`, bypassing `ImmutableArray`
+reference-equality. However:
+
+1. **The Equals override was broken.** When the user writes
+   `sealed record MyState : VersionedState<MyState>`, the compiler
+   generates `MyState.Equals(MyState?)` that calls `base.Equals(other)`
+   (the version-only check) **AND** adds property-level checks for all
+   of `MyState`'s declared properties. So `ImmutableArray` comparisons
+   still happen in the generated code.
+2. **The recovery path doesn't need it.** `IStateManager<T>.WriteAsync`
+   does `if (newState is VersionedState v)` and compares `v.Version`
+   directly via pattern matching — it never relies on `T.Equals()` for
+   VersionedState-derived types.
+3. **`IEquatable<T>` on `IStateManager<T>` is satisfied automatically**
+   by the record-generated equality for non-VersionedState types.
+
+The non-generic `VersionedState` provides everything the library needs:
+the `Version` property, a single type for pattern matching at runtime,
+and the `[JsonInclude]` + `internal set` fence.
 
 ### Why `Version` is internal-set, not user-settable
 
@@ -555,21 +563,21 @@ each upstream source. Two source kinds:
 ### Shape
 
 **Sealed class** (not record — consistent with `Outbox<T>`, avoids
-`_time` field participating in record-synthesized equality).
+`time` field participating in record-synthesized equality).
 
 ```csharp
 [GenerateSerializer]
 public sealed class MessageTracker
 {
-    [Id(0)] private ImmutableDictionary<StreamId, StreamEntry> _stream;
-    [Id(1)] private ImmutableDictionary<GrainId, OutboxEntry> _outbox;
+    [Id(0)] private ImmutableDictionary<StreamId, StreamEntry> streams;
+    [Id(1)] private ImmutableDictionary<GrainId, OutboxEntry> outbox;
 
     // Non-persisted; no [Id]. Mutable.
     [NonSerialized]
     [JsonIgnore]
-    private TimeProvider _time = TimeProvider.System;
+    private TimeProvider time = TimeProvider.System;
 
-    public void RegisterTimeProvider(TimeProvider time) => _time = time;
+    public void RegisterTimeProvider(TimeProvider time) => this.time = time;
 
     public bool ProcessMessage(StreamCursor cursor, out MessageTracker next);
     public bool ProcessMessage(OutboxSequenceToken token, out MessageTracker next);
@@ -648,7 +656,7 @@ responsibilities:
 1. **Subscribe** to stream namespaces during `OnActivateAsync`.
 2. **Resume** from last accepted `StreamCursor` per namespace.
 3. **Dispatch** with projected `StreamCursor`.
-4. **Per-subscription error handling** via `.OnError(...)`.
+4. **Per-subscription error handling** via the optional `onError` callback.
 
 ### Why a facade, not a base class
 
@@ -660,31 +668,27 @@ uses `StreamManager` as a field.
 ```csharp
 public sealed class StreamManager
 {
-    public static StreamManagerBuilder ForGrain(
-        Grain owner,
-        MessageTracker trackerSnapshot,
-        IServiceProvider services);
-}
-
-public sealed class StreamManagerBuilder
-{
-    public StreamSubscriptionBuilder<TEvent> Subscribe<TEvent>(
+    public StreamManager Subscribe<TEvent>(
         string streamNamespace,
-        bool resumeUsingLatestSequenceToken = true);
+        Func<TEvent, StreamSequenceToken, ValueTask> onNextAsync,
+        Action<string, Exception>? onError = default,
+        bool passLatestSequenceTokenOnResume = true);
 
-    public StreamManager Build();
+    public StreamManager Subscribe<TEvent>(
+        string streamNamespace,
+        Func<TEvent, StreamSequenceToken, Task> onNextAsync,
+        Action<string, Exception>? onError = default,
+        bool passLatestSequenceTokenOnResume = true);
 }
 
-public sealed class StreamSubscriptionBuilder<TEvent>
+public static class StreamManagerExtensions
 {
-    public StreamSubscriptionBuilder<TEvent> OnNext(
-        Func<TEvent, StreamCursor, ValueTask> handler);
-
-    public StreamSubscriptionBuilder<TEvent> OnError(
-        Func<Exception, StreamCursor?, ValueTask> handler);
-
-    public StreamManagerBuilder Done();
+    public static StreamManager InitializeStreamManager<TGrain>(
+        this TGrain grain,
+        MessageTracker trackerSnapshot)
+        where TGrain : IGrainBase;
 }
+
 ```
 
 ### Typical wiring
@@ -695,33 +699,30 @@ public override async Task OnActivateAsync(CancellationToken ct)
     var state = await stateManager.ReadAsync();
     state.Tracker.RegisterTimeProvider(timeProvider);
 
-    streamManager = StreamManager.ForGrain(this, state.Tracker, services)
-        .Subscribe<PriceTick>("electricity-prices")
-            .OnNext(HandlePriceTickAsync)
-            .OnError(LogStreamErrorAsync)
-            .Done()
-        .Subscribe<TariffChanged>("tariff-events")
-            .OnNext(HandleTariffChangedAsync)
-            .Done()
-        .Build();
+    streamManager = this.InitializeStreamManager(state.Tracker)
+        .Subscribe("electricity-prices", HandlePriceTickAsync, LogStreamError)
+        .Subscribe("tariff-events", HandleTariffChangedAsync);
 }
 ```
 
+The `TEvent` generic argument is usually inferred from the handler method
+group. Users only specify it for inline lambdas or ambiguous method groups.
+
 ### Resume semantics
 
-- `Build()` reads `trackerSnapshot.LatestStream(streamId)` once per
-  subscription.
+- Each subscription reads `trackerSnapshot.LatestStream(streamId)` once
+  when `Subscribe(...)` activates it.
 - If cursor exists → hydrate `StreamSequenceToken`, pass to
   `SubscribeAsync`.
 - If null → subscribe without token (provider default, typically:
   start from current).
-- Tracker read once at `Build()` time, never again. Handler is the
+- Tracker read once at subscription time, never again. Handler is the
   only path that mutates the tracker.
 
 ### Per-subscription `OnError`
 
-Signature: `Func<Exception, StreamCursor?, ValueTask>`. Default when
-omitted: log + emit counter, do NOT rethrow.
+Signature: `Action<string, Exception>`, where the string is the stream
+namespace. Default when omitted: log + emit counter, do NOT rethrow.
 
 ### One-provider-per-namespace
 
@@ -744,31 +745,39 @@ STJ converter for a closed set of known subtypes discriminated on
 Unknown subtype throws at serialization time — silently dropping the
 cursor would corrupt dedup.
 
-### Custom EH adapter for enriched tokens
+### Event Hub adapter for enriched tokens
 
-Optional pattern. To opt into `EnrichedEventHubSequenceToken` (carries
-`EnqueuedTime`, see §5 projection constraint table), the silo wires a
-custom `IEventHubDataAdapter` via `UseDataAdapter`:
+The library ships `EnrichedEventHubAdapter`, a public unsealed
+`EventHubDataAdapter` subclass. It opts Event Hub streams into
+`EnrichedEventHubSequenceToken`, which carries:
+
+- `EnqueuedTime` — broker-side enqueue time for lag measurement.
+- `StreamProviderName` — provider identity for dedup and multi-provider
+  edge cases.
+- `TraceParent` — W3C traceparent captured from the producer-side
+  `Activity.Current?.Id`.
+
+Users who want the built-in behavior register it with
+`UseEnrichedDataAdapter()` on `IEventHubStreamConfigurator`:
 
 ```csharp
-internal sealed class EnrichedEventHubAdapter(Serializer serializer)
-    : EventHubDataAdapter(serializer)
+siloBuilder.AddEventHubStreams("orders", b =>
 {
-    public override StreamSequenceToken GetSequenceToken(
-        EventHubMessage eventHubMessage, int eventIndex)
-    {
-        var seqNum = eventHubMessage.SequenceNumber;
-        return new EnrichedEventHubSequenceToken(
-            eventHubMessage.Offset,
-            seqNum,
-            eventIndex,
-            eventHubMessage.EnqueuedTimeUtc);
-    }
-}
+    b.UseEnrichedDataAdapter();
+    // ... other Event Hub config
+});
 ```
 
-`StreamManager` is unaware of the adapter — the enrichment surfaces
-through `StreamCursor.TryGetEnqueuedTime(...)` in the user's `OnNext`.
+Users who need custom adapter behavior can subclass
+`EnrichedEventHubAdapter` and register their subclass via Orleans'
+`UseDataAdapter` directly. The library intentionally provides no
+generic registration helper for custom subclasses because those adapters
+usually need extra services/options.
+
+`StreamManager` is unaware of Event Hubs specifically — enrichment
+surfaces through `StreamCursor.TryGetEnqueuedTime(...)`,
+`StreamCursor.TryGetStreamProviderName(...)`, and
+`StreamCursor.TryGetTraceParent(...)`.
 
 ### OpenTelemetry trace correlation
 
@@ -777,20 +786,24 @@ correlate consumer-side spans with producer-side spans without creating
 multi-hour distributed traces, `StreamManager` should use
 `ActivityLink`s, not parent chaining:
 
-- Producer side (in a custom `ToQueueMessage` override on the adapter):
-  stash `Activity.Current?.Id` into `EventData.Properties["traceparent"]`
+- Producer side (`EnrichedEventHubAdapter.ToQueueMessage<T>`): stash
+  `Activity.Current?.Id` into `EventData.Properties["traceparent"]`
   before the event hits EH.
+- Adapter ingest side (`EnrichedEventHubAdapter.GetStreamPosition`):
+  extract `EventData.Properties["traceparent"]` into
+  `EnrichedEventHubSequenceToken.TraceParent`.
 - Consumer side (in `StreamManager`'s OnNext wrapper): read the
-  property, parse into `ActivityContext`, start the OnNext span with
+  token's traceparent, parse into `ActivityContext`, start the OnNext span with
   `ActivityKind.Consumer` and `links: [new ActivityLink(parsedContext)]`.
 
 This produces separate traces per delivery, each with a link back to
 the producer span. OTel backends render the cross-trace arrow without
 collapsing weeks of traffic into one trace.
 
-The adapter override is the user's responsibility (it lives in their
-custom `IEventHubDataAdapter`); the consumer-side parse+link is a
-library concern owned by `StreamManager`.
+The built-in adapter owns producer-side propagation for users who call
+`UseEnrichedDataAdapter()`. Custom adapters should preserve the same
+`traceparent` property behavior if they want `StreamManager` to create
+links.
 
 ### Telemetry
 
@@ -845,8 +858,8 @@ Grains using this library should follow a functional-command model:
 - **Safe concurrency.** Reads never block writes. Writes are serialised
   by the runtime. No custom locks.
 - **Recovery-friendly.** `IStateManager<T>.WriteAsync` recovery path
-  relies on `VersionedState<T>.Equals` — works because state is a
-  value type (record with `Version` equality).
+  pattern-matches `VersionedState` and compares `Version` directly —
+  works because the library stamps a v7 UUID on every write.
 - **Outbox replaces side effects.** Instead of "write state + call
   service" (two failure points), it's "write state with outbox item"
   (one atomic write) + "processor retries delivery" (idempotent).
@@ -856,7 +869,7 @@ Grains using this library should follow a functional-command model:
 - No compile-time prevention of injecting `HttpClient` or calling
   external services in command methods. This is a documentation and
   code-review concern.
-- No base class. The pattern emerges from the types: `VersionedState<T>`
+- No base class. The pattern emerges from the types: `VersionedState`
   is a record (immutable), `IStateManager<T>.WriteAsync` takes a new
   value (not mutation), `Outbox<T>.Add` returns a new instance.
 - Future: Roslyn analyzers could warn on external I/O inside methods
@@ -1073,13 +1086,10 @@ public abstract record VersionedState
 {
     [Id(0)] public Guid Version { get; internal set; }
 }
-
-[GenerateSerializer]
-public abstract record VersionedState<TSelf> : VersionedState<TSelf>
-{
-    // Inherits [Id(0)] from parent. Child IDs start fresh at [Id(0)].
-}
 ```
+
+> **Note:** The generic `VersionedState<TSelf>` layer was removed.
+> See §3a for rationale. Child record IDs start fresh at `[Id(0)]`.
 
 ### System.Text.Json serialization
 
@@ -1091,9 +1101,9 @@ This ensures correct round-tripping through storage providers that use
 STJ (e.g., Orleans's Cosmos, blob, or custom providers configured with
 `System.Text.Json`).
 
-**Newtonsoft.Json is not supported.** Users whose storage providers use
-Newtonsoft must either configure their provider for STJ or write their
-own converters. Documented as a known limitation.
+**Newtonsoft.Json is not supported out of the box.** Users whose storage
+providers use Newtonsoft can write and register their own converters.
+Documented as a known limitation.
 
 | Type | Converter approach |
 |------|-------------------|
@@ -1122,7 +1132,7 @@ generic types. The factory's `CreateConverter` method creates the closed
 
 ### Non-serialized fields
 
-Service-reference fields like `TimeProvider _time` get both
+Service-reference fields like `TimeProvider time` get both
 `[NonSerialized]` and `[JsonIgnore]` — belt-and-suspenders:
 
 - **No `[Id]`** → Orleans `[GenerateSerializer]` skips them.
@@ -1184,7 +1194,7 @@ concurrency behavior.
 Matching `Egil.Orleans.Testing` convention:
 
 - **100% branch coverage** on core types: `Outbox<T>`,
-  `MessageTracker`, `StateManager<T>`, `VersionedState<T>`,
+  `MessageTracker`, `StateManager<T>`, `VersionedState`,
   `OutboxProcessor<T>`.
 - **95% branch coverage** on supporting types: `OutboxSequenceToken`,
   `StreamCursor`, `StreamManager`, `OutboxMessageEnvelope<T>`,
