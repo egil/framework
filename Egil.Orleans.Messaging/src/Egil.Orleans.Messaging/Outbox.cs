@@ -73,7 +73,7 @@ namespace Egil.Orleans.Messaging;
 /// </typeparam>
 [GenerateSerializer]
 [Alias("egil.orleans.messaging.Outbox`1")]
-// [JsonConverter(typeof(OutboxJsonConverterFactory))]
+[JsonConverter(typeof(OutboxJsonConverterFactory))]
 public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquatable<Outbox<T>>
 {
     [Id(0)] private readonly GrainId sender;
