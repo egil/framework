@@ -24,6 +24,7 @@
     <PackageReference Include="Microsoft.Orleans.Server" />
     <PackageReference Include="Microsoft.Orleans.TestingHost" />
     <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" />
+    <PackageReference Include="TimeProviderExtensions" />
     <PackageReference Include="xunit.v3.mtp-v2" />
   </ItemGroup>
 
