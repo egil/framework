@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Egil.Orleans.Messaging/Egil.Orleans.Messaging.csproj" />
+  </Folder>
+  <Folder Name="/test/">
+    <Project Path="test/Egil.Orleans.Messaging.Tests/Egil.Orleans.Messaging.Tests.csproj" />
+  </Folder>
+</Solution>

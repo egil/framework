@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsTestProject>true</IsTestProject>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Egil.Orleans.Messaging.Tests</RootNamespace>
+    <TargetFramework>net10.0</TargetFramework>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Egil.Orleans.Messaging" />
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Orleans.Sdk" />
+    <PackageReference Include="Microsoft.Orleans.Server" />
+    <PackageReference Include="Microsoft.Orleans.TestingHost" />
+    <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" />
+    <PackageReference Include="xunit.v3.mtp-v2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Egil.Orleans.Messaging\Egil.Orleans.Messaging.csproj" />
+  </ItemGroup>
+
+</Project>
