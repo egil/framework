@@ -207,4 +207,5 @@ public sealed class OutboxTests
 
         Assert.NotEqual(left, right);
     }
+
 }
