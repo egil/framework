@@ -9,7 +9,7 @@ namespace Egil.Orleans.Messaging;
 /// <para>
 /// <b>Zero ceremony:</b> Implementing this interface is one of two obligations
 /// for grains using the outbox pattern (the other is calling
-/// <c>InitializeOutboxProcessor</c> in <c>OnActivateAsync</c>). No manual
+/// <c>RegisterOutboxProcessor</c> in <c>OnActivateAsync</c>). No manual
 /// <c>ReceiveReminder</c> override is needed — the DIM discovers the
 /// <see cref="IOutboxComponent"/> registered on the grain context and
 /// forwards the callback.
@@ -27,7 +27,7 @@ namespace Egil.Orleans.Messaging;
 /// </code>
 /// </para>
 /// <para>
-/// <b>Compiler enforcement:</b> The <c>InitializeOutboxProcessor</c>
+/// <b>Compiler enforcement:</b> The <c>RegisterOutboxProcessor</c>
 /// extension method constrains <c>TGrain : IOutboxGrain, IGrainBase</c>,
 /// so grains that forget to implement this interface get a compile error.
 /// </para>

@@ -48,7 +48,7 @@ namespace Egil.Orleans.Messaging;
 /// <b>Grain integration:</b> Two obligations (both compiler-enforced):
 /// <list type="number">
 /// <item>Implement <see cref="IOutboxGrain"/>.</item>
-/// <item>Call <c>InitializeOutboxProcessor(...)</c> in <c>OnActivateAsync</c>.</item>
+/// <item>Call <c>RegisterOutboxProcessor(...)</c> in <c>OnActivateAsync</c>.</item>
 /// </list>
 /// No <c>ReceiveReminder</c> override needed — the <see cref="IOutboxGrain"/>
 /// DIM handles it. No manual timer/reminder lifecycle. No telemetry wiring.
@@ -150,7 +150,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     /// <summary>
     /// Attaches this processor to the grain's <see cref="IGrainContext"/> as
     /// a component so the <see cref="IOutboxGrain"/> DIM can discover it.
-    /// Called internally by <c>InitializeOutboxProcessor</c>.
+    /// Called internally by <c>RegisterOutboxProcessor</c>.
     /// </summary>
     internal void AttachToGrain()
     {

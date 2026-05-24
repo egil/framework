@@ -51,16 +51,47 @@ internal sealed class OutboxJsonConverterFactory : JsonConverterFactory
                 return null;
             }
 
-            return new Outbox<T>(
-                GrainId.Create(model.Sender.Type, model.Sender.Key),
-                model.LatestSequenceNumber,
-                [.. model.Items.Select(static item => new OutboxMessageEnvelope<T>(
+            if (model.Sender is null)
+            {
+                throw new JsonException("Missing Sender.");
+            }
+
+            if (model.Items.IsDefault)
+            {
+                throw new JsonException("Missing Items.");
+            }
+
+            var items = ImmutableArray.CreateBuilder<OutboxMessageEnvelope<T>>(model.Items.Length);
+            foreach (var item in model.Items)
+            {
+                if (item is null)
+                {
+                    throw new JsonException("Missing Item.");
+                }
+
+                if (item.Token is null)
+                {
+                    throw new JsonException("Missing Token.");
+                }
+
+                if (item.Token.Sender is null)
+                {
+                    throw new JsonException("Missing Token.Sender.");
+                }
+
+                items.Add(new OutboxMessageEnvelope<T>(
                     new OutboxSequenceToken(
                         item.Token.SequenceNumber,
                         GrainId.Create(item.Token.Sender.Type, item.Token.Sender.Key),
                         item.Token.Timestamp,
                         item.Token.Epoch),
-                    item.Message))],
+                    item.Message));
+            }
+
+            return new Outbox<T>(
+                GrainId.Create(model.Sender.Type, model.Sender.Key),
+                model.LatestSequenceNumber,
+                items.ToImmutable(),
                 model.Epoch);
         }
 
@@ -86,18 +117,18 @@ internal sealed class OutboxJsonConverterFactory : JsonConverterFactory
     }
 
     private sealed record OutboxJsonModel<T>(
-        GrainIdJsonModel Sender,
+        GrainIdJsonModel? Sender,
         long LatestSequenceNumber,
         DateTimeOffset? Epoch,
-        ImmutableArray<OutboxMessageEnvelopeJsonModel<T>> Items);
+        ImmutableArray<OutboxMessageEnvelopeJsonModel<T>?> Items);
 
     private sealed record OutboxMessageEnvelopeJsonModel<T>(
-        OutboxSequenceTokenJsonModel Token,
+        OutboxSequenceTokenJsonModel? Token,
         T Message);
 
     private sealed record OutboxSequenceTokenJsonModel(
         long SequenceNumber,
-        GrainIdJsonModel Sender,
+        GrainIdJsonModel? Sender,
         DateTimeOffset Timestamp,
         DateTimeOffset Epoch);
 
