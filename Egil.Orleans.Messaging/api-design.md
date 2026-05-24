@@ -664,13 +664,13 @@ public sealed class StreamManager
 {
     public StreamManager AddSubscription<TEvent>(
         string streamNamespace,
-        Func<TEvent, StreamSequenceToken, ValueTask> onNextAsync,
+        Func<TEvent, StreamSequenceToken?, ValueTask> onNextAsync,
         Action<string, Exception>? onError = default,
         bool passLatestSequenceTokenOnResume = true);
 
     public StreamManager AddSubscription<TEvent>(
         string streamNamespace,
-        Func<TEvent, StreamSequenceToken, Task> onNextAsync,
+        Func<TEvent, StreamSequenceToken?, Task> onNextAsync,
         Action<string, Exception>? onError = default,
         bool passLatestSequenceTokenOnResume = true);
 
@@ -911,7 +911,7 @@ in the `Clever.PricingEngine` codebase.
 is first-registered-wins against the item's runtime type — order from
 most specific to least specific (like a `switch`).
 
-- Per-item exceptions are caught and surfaced through `OnPostErrorAsync`
+- Per-item exceptions are caught and surfaced through `ReconcileFailedAsync`
   with attempt count (in-memory, resets on reactivation) — the grain
   decides: leave item in state to retry, or remove to dead-letter after
   N attempts.
@@ -955,8 +955,8 @@ public enum OutboxPostmanExecutionMode
     /// Postmen in this mode must not read or mutate activation-local grain
     /// state. They may call other grains through IGrainFactory or use
     /// external services which are safe to use from thread-pool code.
-    /// PendingItems, OnPostedAsync, and OnPostFailedAsync still execute on
-    /// the Orleans activation scheduler.
+    /// PendingItems, AcknowledgePostedAsync, and ReconcileFailedAsync still
+    /// execute on the Orleans activation scheduler.
     /// </remarks>
     ThreadPool
 }
@@ -968,9 +968,9 @@ state because they execute under Orleans activation scheduling.
 `ThreadPool` is for blocking or legacy postmen. In this mode postmen must
 not read or mutate activation-local grain state. They should be static or
 otherwise state-free and use services such as `IGrainFactory` to deliver the
-message. Only the fast grain callbacks (`PendingItems`, `OnPostedAsync`,
-`OnPostFailedAsync`) run on the Orleans activation scheduler and respect
-`Interleave`.
+message. Only the fast grain callbacks (`PendingItems`,
+`AcknowledgePostedAsync`, `ReconcileFailedAsync`) run on the Orleans
+activation scheduler and respect `Interleave`.
 
 ### Grain integration pattern
 
@@ -988,10 +988,10 @@ public interface IOutboxGrain : IRemindable
     }
 }
 
-// 2. C# 14 extension for InitializeOutboxProcessor.
+// 2. C# 14 extension for RegisterOutboxProcessor.
 extension<TGrain>(TGrain grain) where TGrain : IOutboxGrain, IGrainBase
 {
-    public OutboxProcessor<TOutbox> InitializeOutboxProcessor<TOutbox>(
+    public OutboxProcessor<TOutbox> RegisterOutboxProcessor<TOutbox>(
         OutboxProcessorOptions<TOutbox> options) where TOutbox : notnull
     {
         var services = grain.GrainContext.ActivationServices;
@@ -1015,15 +1015,16 @@ public sealed class OutboxProcessorOptions<TOutbox> where TOutbox : notnull
     /// Snapshot of pending items. Called once per post run from a grain turn.
     public required Func<ImmutableArray<TOutbox>> PendingItems { get; init; }
 
-    /// Items successfully posted. Grain must remove from backing collection.
+    /// Acknowledges successfully posted items.
+    /// Expected to remove those items from the durable outbox state.
     public required Func<ImmutableArray<TOutbox>, CancellationToken, ValueTask>
-        OnPostedAsync { get; init; }
+        AcknowledgePostedAsync { get; init; }
 
     /// Failed items with exception and attempt count (in-memory, resets on
     /// reactivation). Grain decides: leave to retry, or remove to
     /// dead-letter after N attempts. If null, failed items retry silently.
     public Func<ImmutableArray<(TOutbox Item, Exception Error, int Attempt)>,
-        CancellationToken, ValueTask>? OnPostFailedAsync { get; init; }
+        CancellationToken, ValueTask>? ReconcileFailedAsync { get; init; }
 
     /// Max time per post run. Set below grain's response timeout.
     public TimeSpan ProcessingTimeout { get; init; } = TimeSpan.FromSeconds(20);
@@ -1050,6 +1051,21 @@ Naming note: `PendingItems` intentionally names the role of the callback
 rather than an imperative method (`GetPending`). `OutboxAccessor` was
 considered, but it is less precise because the processor does not need
 general outbox access, only a pending-item snapshot.
+
+`AcknowledgePostedAsync` and `ReconcileFailedAsync` are reconciliation
+callbacks, not passive notifications:
+
+- `AcknowledgePostedAsync` is expected to remove successfully posted items
+  from the durable outbox and persist that change. If acknowledged items
+  still appear in `PendingItems` after the callback returns, the processor
+  treats them as pending and they may be posted again.
+- `ReconcileFailedAsync` is the grain's policy hook for failed items. The
+  grain may leave them in the outbox for retry, remove them, move them to
+  dead-letter state, or make any other durable state change. If null, failed
+  items are left pending and retried silently.
+- After either callback returns, the processor reads `PendingItems` again
+  before scheduling retry/reminder work. The latest pending snapshot is the
+  source of truth.
 
 ### `OutboxProcessor<TOutbox>`
 
@@ -1092,7 +1108,7 @@ internal interface IOutboxComponent
 Two obligations (both compiler-enforced):
 
 1. Implement `IOutboxGrain`.
-2. Call `InitializeOutboxProcessor(...)` in `OnActivateAsync`.
+2. Call `RegisterOutboxProcessor(...)` in `OnActivateAsync`.
 
 No `ReceiveReminder` override needed (DIM handles it). No manual
 timer/reminder lifecycle. No telemetry wiring.
@@ -1120,10 +1136,14 @@ public async Task ReceiveReminder(string name, TickStatus status)
   supplied to the processor and avoids implying ad-hoc outbox operations.
 - **First-registered-wins postman matching.** Simple dispatch model.
   Order most-specific first. Unmatched items → `NoPostmanRegisteredException`
-  via `OnPostFailedAsync`.
+  via `ReconcileFailedAsync`.
 - **`PostAsync` swallows per-item errors.** Grain observes failures via
-  `OnPostFailedAsync` with attempt count. Processor never drops items
+  `ReconcileFailedAsync` with attempt count. Processor never drops items
   silently unless the grain explicitly removes them.
+- **Acknowledgement is explicit.** Successfully posted items are not removed
+  by the processor directly. The grain removes and persists them in
+  `AcknowledgePostedAsync`, preserving the outbox invariant that all durable
+  state changes go through the owning grain's state manager.
 - **`PostInBackgroundAsync` uses the same path as retry.** It schedules a
   timer-backed drain and returns quickly so a grain command can commit an
   outbox item and return to its caller without waiting for external
@@ -1278,7 +1298,7 @@ metrics for state read/write, activation lifecycle, messaging layer.
 
 - `IOutboxGrain` — marker + DIM for `ReceiveReminder`. Kept: DIM saves
   real boilerplate for the 80% case (grains with no other reminders).
-  Generic constraint on `InitializeOutboxProcessor` ensures type-safe
+  Generic constraint on `RegisterOutboxProcessor` ensures type-safe
   opt-in.
 - `IOutboxComponent` — internal. Not part of public API.
 
@@ -1321,7 +1341,7 @@ specific behavior:
 - **Interleaved-read grain** — exercises `[AlwaysInterleave]` reads
   seeing only committed state while a write is in-flight.
 - **Stuck postman grain** — exercises `ProcessingTimeout` behavior,
-  `OnPostErrorAsync` with timeout exception.
+  `ReconcileFailedAsync` with timeout exception.
 - **Multi-reminder grain** — exercises `IOutboxGrain` DIM with grain
   that also has its own reminders (DIM shadowing).
 

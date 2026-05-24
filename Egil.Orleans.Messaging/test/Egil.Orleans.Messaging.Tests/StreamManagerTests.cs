@@ -149,21 +149,21 @@ public sealed class StreamManagerTestGrain(
 
     public Task<StreamManagerTestState> GetStateAsync() => Task.FromResult(state.State);
 
-    private async ValueTask HandleValueTaskAsync(string item, StreamSequenceToken token)
+    private async ValueTask HandleValueTaskAsync(string item, StreamSequenceToken? token)
     {
         TrackStreamCursor(StreamManagerTestNamespaces.ValueTask, token);
         state.State.ValueTaskValue = item;
         await state.WriteStateAsync();
     }
 
-    private async Task HandleTaskAsync(string item, StreamSequenceToken token)
+    private async Task HandleTaskAsync(string item, StreamSequenceToken? token)
     {
         TrackStreamCursor(StreamManagerTestNamespaces.Task, token);
         state.State.TaskValue = item;
         await state.WriteStateAsync();
     }
 
-    private async ValueTask HandleFailureAsync(string item, StreamSequenceToken token)
+    private async ValueTask HandleFailureAsync(string item, StreamSequenceToken? token)
     {
         if (item == "fail")
         {
@@ -175,14 +175,14 @@ public sealed class StreamManagerTestGrain(
         await state.WriteStateAsync();
     }
 
-    private async ValueTask HandleResumeAsync(string item, StreamSequenceToken token)
+    private async ValueTask HandleResumeAsync(string item, StreamSequenceToken? token)
     {
         TrackStreamCursor(StreamManagerTestNamespaces.Resume, token);
         state.State.ResumeValue = item;
         await state.WriteStateAsync();
     }
 
-    private void TrackStreamCursor(string streamNamespace, StreamSequenceToken token)
+    private void TrackStreamCursor(string streamNamespace, StreamSequenceToken? token)
     {
         var cursor = new StreamCursor(StreamId.Create(streamNamespace, this.GetPrimaryKey()), token);
         if (state.State.Tracker.ProcessMessage(cursor, out var next))

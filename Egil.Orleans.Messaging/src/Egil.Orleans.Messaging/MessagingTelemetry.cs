@@ -35,7 +35,7 @@ internal static class MessagingTelemetry
 
     public static void RecordOutboxReceiveLag(OutboxSequenceToken token, DateTimeOffset receivedAt)
     {
-        var lag = receivedAt - token.Timestamp;
+        var lag = ClampLag(receivedAt - token.Timestamp);
         OutboxReceiveLag.Record(
             lag.TotalMilliseconds,
             new TagList
@@ -55,7 +55,7 @@ internal static class MessagingTelemetry
             return;
         }
 
-        var lag = receivedAt - enqueuedTime;
+        var lag = ClampLag(receivedAt - enqueuedTime);
         var tags = new TagList
         {
             { "messaging.system", "orleans" },
@@ -71,6 +71,11 @@ internal static class MessagingTelemetry
         }
 
         StreamReceiveLag.Record(lag.TotalMilliseconds, tags);
+    }
+
+    private static TimeSpan ClampLag(TimeSpan lag)
+    {
+        return lag < TimeSpan.Zero ? TimeSpan.Zero : lag;
     }
 
     private static TagList StreamTags(string streamNamespace, string status)
