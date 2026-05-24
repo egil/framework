@@ -402,3 +402,5 @@ FodyWeavers.xsd
 # Verify
 *.received.*
 *.received/
+.dotnet/.dotnet/sdk-advertising
+.dotnet/.dotnet
