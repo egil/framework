@@ -6,7 +6,7 @@ public sealed class StateManagerTests
     public async Task ReadAsync_refreshes_state_from_storage()
     {
         var storage = new FakePersistentState(new TestState("initial"));
-        var manager = new StateManager<TestState>(storage);
+        var manager = new DefaultStateManager<TestState>(storage);
         storage.State = new TestState("fresh");
 
         await manager.ReadAsync();
@@ -18,7 +18,7 @@ public sealed class StateManagerTests
     public async Task WriteAsync_success_updates_committed_state()
     {
         var storage = new FakePersistentState(new TestState("initial"));
-        var manager = new StateManager<TestState>(storage);
+        var manager = new DefaultStateManager<TestState>(storage);
         var next = new TestState("next");
 
         await manager.WriteAsync(next);
@@ -35,7 +35,7 @@ public sealed class StateManagerTests
             WriteException = new TimeoutException("write timeout"),
             OnRead = state => state.State = new TestState("next")
         };
-        var manager = new StateManager<TestState>(storage);
+        var manager = new DefaultStateManager<TestState>(storage);
         var next = new TestState("next");
 
         await manager.WriteAsync(next);
@@ -52,7 +52,7 @@ public sealed class StateManagerTests
             WriteException = writeException,
             OnRead = state => state.State = new TestState("other")
         };
-        var manager = new StateManager<TestState>(storage);
+        var manager = new DefaultStateManager<TestState>(storage);
 
         var ex = await Assert.ThrowsAsync<TimeoutException>(() => manager.WriteAsync(new TestState("next")));
 
@@ -69,7 +69,7 @@ public sealed class StateManagerTests
             WriteException = writeException,
             ReadException = new InvalidOperationException("read failed")
         };
-        var manager = new StateManager<TestState>(storage);
+        var manager = new DefaultStateManager<TestState>(storage);
 
         var ex = await Assert.ThrowsAsync<TimeoutException>(() => manager.WriteAsync(new TestState("next")));
 
@@ -82,7 +82,7 @@ public sealed class StateManagerTests
     {
         var original = new VersionedTestState("initial");
         var storage = new FakePersistentVersionedState(original);
-        var manager = new StateManager<VersionedTestState>(storage);
+        var manager = new DefaultStateManager<VersionedTestState>(storage);
         var next = new VersionedTestState("next") { Version = Guid.Empty };
 
         await manager.WriteAsync(next);
