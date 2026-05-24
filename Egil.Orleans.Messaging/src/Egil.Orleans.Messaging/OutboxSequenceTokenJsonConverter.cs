@@ -21,12 +21,42 @@ internal sealed class OutboxSequenceTokenJsonConverter : JsonConverter<OutboxSeq
     /// <inheritdoc/>
     public override OutboxSequenceToken? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
-        throw new NotImplementedException();
+        var model = JsonSerializer.Deserialize<OutboxSequenceTokenJsonModel>(ref reader, options);
+        if (model is null)
+        {
+            return null;
+        }
+
+        if (model.Sender is null)
+        {
+            throw new JsonException("Missing Sender.");
+        }
+
+        return new OutboxSequenceToken(
+            model.SequenceNumber,
+            GrainId.Create(model.Sender.Type, model.Sender.Key),
+            model.Timestamp,
+            model.Epoch);
     }
 
     /// <inheritdoc/>
     public override void Write(Utf8JsonWriter writer, OutboxSequenceToken value, JsonSerializerOptions options)
     {
-        throw new NotImplementedException();
+        JsonSerializer.Serialize(
+            writer,
+            new OutboxSequenceTokenJsonModel(
+                value.SequenceNumber,
+                new GrainIdJsonModel(value.Sender.Type.ToString()!, value.Sender.Key.ToString()!),
+                value.Timestamp,
+                value.Epoch),
+            options);
     }
+
+    private sealed record OutboxSequenceTokenJsonModel(
+        long SequenceNumber,
+        GrainIdJsonModel? Sender,
+        DateTimeOffset Timestamp,
+        DateTimeOffset Epoch);
+
+    private sealed record GrainIdJsonModel(string Type, string Key);
 }
