@@ -79,6 +79,69 @@ public sealed class OutboxJsonConverterFactoryTests
         Assert.Equal("Missing Items.", exception.Message);
     }
 
+    [Fact]
+    public void JsonSerializer_throws_json_exception_for_missing_item()
+    {
+        var json = """
+            {
+              "Sender": { "Type": "test/sender", "Key": "one" },
+              "LatestSequenceNumber": 1,
+              "Epoch": "2026-05-23T12:30:00+00:00",
+              "Items": [ null ]
+            }
+            """;
+
+        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<Outbox<string>>(json));
+        Assert.Equal("Missing Item.", exception.Message);
+    }
+
+    [Fact]
+    public void JsonSerializer_throws_json_exception_for_missing_item_token()
+    {
+        var json = """
+            {
+              "Sender": { "Type": "test/sender", "Key": "one" },
+              "LatestSequenceNumber": 1,
+              "Epoch": "2026-05-23T12:30:00+00:00",
+              "Items": [
+                {
+                  "Token": null,
+                  "Message": "order-17"
+                }
+              ]
+            }
+            """;
+
+        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<Outbox<string>>(json));
+        Assert.Equal("Missing Token.", exception.Message);
+    }
+
+    [Fact]
+    public void JsonSerializer_throws_json_exception_for_missing_item_token_sender()
+    {
+        var json = """
+            {
+              "Sender": { "Type": "test/sender", "Key": "one" },
+              "LatestSequenceNumber": 1,
+              "Epoch": "2026-05-23T12:30:00+00:00",
+              "Items": [
+                {
+                  "Token": {
+                    "SequenceNumber": 1,
+                    "Sender": null,
+                    "Timestamp": "2026-05-23T12:30:00+00:00",
+                    "Epoch": "2026-05-23T12:30:00+00:00"
+                  },
+                  "Message": "order-17"
+                }
+              ]
+            }
+            """;
+
+        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<Outbox<string>>(json));
+        Assert.Equal("Missing Token.Sender.", exception.Message);
+    }
+
     private sealed record ComplexMessage(string OrderId, int Quantity, NestedMessage Route);
 
     private sealed record NestedMessage(string Name, bool IsExpress);

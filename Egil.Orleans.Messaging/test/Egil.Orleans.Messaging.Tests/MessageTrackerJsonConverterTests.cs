@@ -75,6 +75,49 @@ public sealed class MessageTrackerJsonConverterTests
     }
 
     [Fact]
+    public void JsonSerializer_deserializes_null_stream_and_outbox_arrays_as_empty_tracker()
+    {
+        var json = """
+            {
+              "Streams": null,
+              "Outboxes": null
+            }
+            """;
+
+        var roundTripped = JsonSerializer.Deserialize<MessageTracker>(json);
+
+        Assert.NotNull(roundTripped);
+        Assert.Null(roundTripped.LatestStream(StreamId.Create("orders", "one")));
+        Assert.Null(roundTripped.LatestOutbox(GrainId.Create("test/sender", "one")));
+    }
+
+    [Fact]
+    public void JsonSerializer_deserializes_tracked_stream_without_sequence_token()
+    {
+        var streamId = StreamId.Create("orders", "no-token");
+        var json = """
+            {
+              "Streams": [
+                {
+                  "StreamId": "orders/no-token",
+                  "LastPosition": {
+                    "StreamId": "orders/no-token",
+                    "Token": null
+                  },
+                  "Received": "2026-05-23T12:30:00+00:00"
+                }
+              ],
+              "Outboxes": []
+            }
+            """;
+
+        var roundTripped = JsonSerializer.Deserialize<MessageTracker>(json);
+
+        Assert.NotNull(roundTripped);
+        Assert.Equal(new StreamCursor(streamId, null), roundTripped.LatestStream(streamId));
+    }
+
+    [Fact]
     public void JsonSerializer_throws_for_unknown_stream_token_kind()
     {
         var json = """
@@ -98,6 +141,96 @@ public sealed class MessageTrackerJsonConverterTests
             """;
 
         Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<MessageTracker>(json));
+    }
+
+    [Theory]
+    [InlineData("event-hub")]
+    [InlineData("event-hub-v2")]
+    [InlineData("enriched-event-hub")]
+    public void JsonSerializer_throws_for_event_hub_stream_token_without_offset(string kind)
+    {
+        var json = $$"""
+            {
+              "Streams": [
+                {
+                  "StreamId": "orders/one",
+                  "LastPosition": {
+                    "StreamId": "orders/one",
+                    "Token": {
+                      "Kind": "{{kind}}",
+                      "SequenceNumber": 1,
+                      "EventIndex": 0,
+                      "EnqueuedTime": "2026-05-23T12:30:00+00:00",
+                      "StreamProviderName": "provider-a"
+                    }
+                  },
+                  "Received": "2026-05-23T12:30:00+00:00"
+                }
+              ],
+              "Outboxes": []
+            }
+            """;
+
+        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<MessageTracker>(json));
+        Assert.Equal("Missing EventHubOffset.", exception.Message);
+    }
+
+    [Fact]
+    public void JsonSerializer_throws_for_enriched_stream_token_without_enqueued_time()
+    {
+        var json = """
+            {
+              "Streams": [
+                {
+                  "StreamId": "orders/one",
+                  "LastPosition": {
+                    "StreamId": "orders/one",
+                    "Token": {
+                      "Kind": "enriched-event-hub",
+                      "SequenceNumber": 1,
+                      "EventIndex": 0,
+                      "EventHubOffset": "42",
+                      "StreamProviderName": "provider-a"
+                    }
+                  },
+                  "Received": "2026-05-23T12:30:00+00:00"
+                }
+              ],
+              "Outboxes": []
+            }
+            """;
+
+        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<MessageTracker>(json));
+        Assert.Equal("Missing EnqueuedTime.", exception.Message);
+    }
+
+    [Fact]
+    public void JsonSerializer_throws_for_enriched_stream_token_without_stream_provider_name()
+    {
+        var json = """
+            {
+              "Streams": [
+                {
+                  "StreamId": "orders/one",
+                  "LastPosition": {
+                    "StreamId": "orders/one",
+                    "Token": {
+                      "Kind": "enriched-event-hub",
+                      "SequenceNumber": 1,
+                      "EventIndex": 0,
+                      "EventHubOffset": "42",
+                      "EnqueuedTime": "2026-05-23T12:30:00+00:00"
+                    }
+                  },
+                  "Received": "2026-05-23T12:30:00+00:00"
+                }
+              ],
+              "Outboxes": []
+            }
+            """;
+
+        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<MessageTracker>(json));
+        Assert.Equal("Missing StreamProviderName.", exception.Message);
     }
 
     private sealed class UnsupportedSequenceToken(long sequenceNumber, int eventIndex) : StreamSequenceToken
