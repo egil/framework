@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Orleans.Streams;
 
 namespace Egil.Orleans.Messaging;
@@ -42,7 +43,7 @@ namespace Egil.Orleans.Messaging;
 /// </param>
 [GenerateSerializer]
 [Alias("egil.orleans.messaging.StreamCursor")]
-// [JsonConverter(typeof(StreamCursorJsonConverter))]
+[JsonConverter(typeof(StreamCursorJsonConverter))]
 public sealed record StreamCursor(
     [property: Id(0)] StreamId StreamId,
     [property: Id(1)] StreamSequenceToken? Token)
@@ -68,7 +69,14 @@ public sealed record StreamCursor(
     /// </returns>
     public bool TryGetEnqueuedTime(out DateTimeOffset enqueuedTime)
     {
-        throw new NotImplementedException();
+        if (Token is EnrichedEventHubSequenceToken token)
+        {
+            enqueuedTime = token.EnqueuedTime;
+            return true;
+        }
+
+        enqueuedTime = default;
+        return false;
     }
 
     /// <summary>
@@ -91,7 +99,14 @@ public sealed record StreamCursor(
     /// </returns>
     public bool TryGetStreamProviderName([NotNullWhen(true)] out string? streamProviderName)
     {
-        throw new NotImplementedException();
+        if (Token is EnrichedEventHubSequenceToken token)
+        {
+            streamProviderName = token.StreamProviderName;
+            return true;
+        }
+
+        streamProviderName = null;
+        return false;
     }
 
     /// <summary>
@@ -120,6 +135,13 @@ public sealed record StreamCursor(
     /// </returns>
     public bool TryGetTraceParent([NotNullWhen(true)] out string? traceParent)
     {
-        throw new NotImplementedException();
+        if (Token is EnrichedEventHubSequenceToken token && token.TraceParent is not null)
+        {
+            traceParent = token.TraceParent;
+            return true;
+        }
+
+        traceParent = null;
+        return false;
     }
 }
