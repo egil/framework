@@ -26,6 +26,18 @@ public abstract class StronglyTypedPrimitiveGeneratorTestBase
             //"bool",
         };
 
+    protected static Task Verify(
+        string input,
+        string underlyingType,
+        LanguageVersion languageVersion,
+        out Compilation compilation)
+        => SnapshotTestHelper.Verify<StronglyTypedPrimitiveGenerator>(
+            input,
+            languageVersion,
+            out compilation,
+            SnapshotTestHelper.GetParameterText(underlyingType, languageVersion)
+        );
+
     [Fact]
     public async Task StandardX()
     {
@@ -66,8 +78,9 @@ public class Plain_type : StronglyTypedPrimitiveGeneratorTestBase
             public readonly partial record struct Foo({{underlyingType}} Value);
             """;
 
-        await SnapshotTestHelper.Verify<StronglyTypedPrimitiveGenerator>(
+        await Verify(
             input,
+            underlyingType,
             languageVersion,
             out var compilation
         );
@@ -92,8 +105,9 @@ public class No_namespace : StronglyTypedPrimitiveGeneratorTestBase
             public readonly partial record struct Foo({{underlyingType}} Value);
             """;
 
-        await SnapshotTestHelper.Verify<StronglyTypedPrimitiveGenerator>(
+        await Verify(
             input,
+            underlyingType,
             languageVersion,
             out var compilation
         );
@@ -120,8 +134,9 @@ public class Alt_type_param_name : StronglyTypedPrimitiveGeneratorTestBase
             public readonly partial record struct Foo({{underlyingType}} Data);
             """;
 
-        await SnapshotTestHelper.Verify<StronglyTypedPrimitiveGenerator>(
+        await Verify(
             input,
+            underlyingType,
             languageVersion,
             out var compilation
         );
@@ -152,8 +167,9 @@ public class Custom_IsValueValid : StronglyTypedPrimitiveGeneratorTestBase
             }
             """;
 
-        await SnapshotTestHelper.Verify<StronglyTypedPrimitiveGenerator>(
+        await Verify(
             input,
+            underlyingType,
             languageVersion,
             out var compilation
         );
@@ -188,8 +204,9 @@ public class Custom_IParsable_Parse : StronglyTypedPrimitiveGeneratorTestBase
             }
             """;
 
-        await SnapshotTestHelper.Verify<StronglyTypedPrimitiveGenerator>(
+        await Verify(
             input,
+            underlyingType,
             languageVersion,
             out var compilation
         );
@@ -227,8 +244,9 @@ public class Custom_IParsable_TryParse : StronglyTypedPrimitiveGeneratorTestBase
             }
             """;
 
-        await SnapshotTestHelper.Verify<StronglyTypedPrimitiveGenerator>(
+        await Verify(
             input,
+            underlyingType,
             languageVersion,
             out var compilation
         );
@@ -261,8 +279,9 @@ public class Custom_IFormattable_ToString : StronglyTypedPrimitiveGeneratorTestB
             }
             """;
 
-        await SnapshotTestHelper.Verify<StronglyTypedPrimitiveGenerator>(
+        await Verify(
             input,
+            underlyingType,
             languageVersion,
             out var compilation
         );
@@ -296,8 +315,9 @@ public class Custom_IFormattable_ToString_with_format : StronglyTypedPrimitiveGe
             }
             """;
 
-        await SnapshotTestHelper.Verify<StronglyTypedPrimitiveGenerator>(
+        await Verify(
             input,
+            underlyingType,
             languageVersion,
             out var compilation
         );
@@ -330,8 +350,9 @@ public class Custom_IFormattable_ToString_with_format_and_formatProvider : Stron
             }
             """;
 
-        await SnapshotTestHelper.Verify<StronglyTypedPrimitiveGenerator>(
+        await Verify(
             input,
+            underlyingType,
             languageVersion,
             out var compilation
         );
