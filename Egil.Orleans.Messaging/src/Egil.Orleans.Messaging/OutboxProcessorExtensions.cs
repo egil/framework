@@ -23,15 +23,15 @@ public static class OutboxProcessorExtensions
     /// <code>
     /// public override async Task OnActivateAsync(CancellationToken ct)
     /// {
-    ///     outboxProcessor = this.InitializeOutboxProcessor(new OutboxProcessorOptions&lt;IMyEvent&gt;
+    ///     outboxProcessor = this.RegisterOutboxProcessor(new OutboxProcessorOptions&lt;IMyEvent&gt;
     ///     {
-    ///         GetPending = () => stateManager.State.Outbox
+    ///         PendingItems = () => stateManager.State.Outbox
     ///             .Select(e => e.Message).ToImmutableArray(),
-    ///         OnPostCompletedAsync = async (items, ct) =>
+    ///         OnPostedAsync = async (items, ct) =>
     ///         {
     ///             // remove delivered items and persist
     ///         },
-    ///         OnPostErrorAsync = async (failures, ct) =>
+    ///         OnPostFailedAsync = async (failures, ct) =>
     ///         {
     ///             // log, dead-letter, or leave for retry
     ///         },
@@ -55,7 +55,7 @@ public static class OutboxProcessorExtensions
     /// in a grain field for later <see cref="OutboxProcessor{TOutbox}.PostAsync"/>
     /// calls.
     /// </returns>
-    public static OutboxProcessor<TOutbox> InitializeOutboxProcessor<TGrain, TOutbox>(
+    public static OutboxProcessor<TOutbox> RegisterOutboxProcessor<TGrain, TOutbox>(
         this TGrain grain,
         OutboxProcessorOptions<TOutbox> options)
         where TGrain : IGrainBase, IOutboxGrain

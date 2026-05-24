@@ -58,8 +58,9 @@ public sealed class StreamManager
     private readonly Func<string, IStreamProvider> getStreamProvider;
     private readonly Func<string, StreamId> getStreamId;
     private readonly ILogger logger;
-    private readonly List<Func<CancellationToken, Task>> subscriptions = [];
+    private readonly List<Func<CancellationToken, Task<object>>> subscriptions = [];
     private readonly List<object> subscriptionHandles = [];
+    private bool subscribed;
 
     private StreamManager(
         IGrainBase owner,
@@ -136,9 +137,11 @@ public sealed class StreamManager
     /// runtime enforced).
     /// </param>
     /// <param name="onNextAsync">
-    /// Receives the deserialized event and the <see cref="StreamSequenceToken"/>
-    /// representing this event's position. The handler should update the grain's
-    /// <see cref="MessageTracker"/> and persist state before returning.
+    /// Receives the deserialized event and optional <see cref="StreamSequenceToken"/>
+    /// representing this event's position. Some stream providers may deliver a
+    /// <c>null</c> token. The handler should update the grain's
+    /// <see cref="MessageTracker"/> when a token is available and persist state
+    /// before returning.
     /// </param>
     /// <param name="onError">
     /// Optional synchronous error handler. Receives the stream namespace and the
@@ -157,12 +160,16 @@ public sealed class StreamManager
     /// </returns>
     public StreamManager AddSubscription<TEvent>(
         string streamNamespace,
-        Func<TEvent, StreamSequenceToken, ValueTask> onNextAsync,
+        Func<TEvent, StreamSequenceToken?, ValueTask> onNextAsync,
         Action<string, Exception>? onError = default,
         bool passLatestSequenceTokenOnResume = true)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(streamNamespace);
         ArgumentNullException.ThrowIfNull(onNextAsync);
+        if (subscribed)
+        {
+            throw new InvalidOperationException("Cannot add stream subscriptions after SubscribeAsync has been called.");
+        }
 
         var streamProvider = getStreamProvider(streamNamespace);
         var streamId = getStreamId(streamNamespace);
@@ -196,9 +203,11 @@ public sealed class StreamManager
     /// runtime enforced).
     /// </param>
     /// <param name="onNextAsync">
-    /// Receives the deserialized event and the <see cref="StreamSequenceToken"/>
-    /// representing this event's position. The handler should update the grain's
-    /// <see cref="MessageTracker"/> and persist state before returning.
+    /// Receives the deserialized event and optional <see cref="StreamSequenceToken"/>
+    /// representing this event's position. Some stream providers may deliver a
+    /// <c>null</c> token. The handler should update the grain's
+    /// <see cref="MessageTracker"/> when a token is available and persist state
+    /// before returning.
     /// </param>
     /// <param name="onError">
     /// Optional synchronous error handler. Receives the stream namespace and the
@@ -217,7 +226,7 @@ public sealed class StreamManager
     /// </returns>
     public StreamManager AddSubscription<TEvent>(
         string streamNamespace,
-        Func<TEvent, StreamSequenceToken, Task> onNextAsync,
+        Func<TEvent, StreamSequenceToken?, Task> onNextAsync,
         Action<string, Exception>? onError = default,
         bool passLatestSequenceTokenOnResume = true)
     {
@@ -236,11 +245,35 @@ public sealed class StreamManager
     /// <param name="cancellationToken">Cancellation token for activation-time subscription setup.</param>
     public async Task SubscribeAsync(CancellationToken cancellationToken = default)
     {
+        if (subscribed)
+        {
+            throw new InvalidOperationException("StreamManager subscriptions have already been established.");
+        }
+
         cancellationToken.ThrowIfCancellationRequested();
-        await Task.WhenAll(subscriptions.Select(subscription => subscription(cancellationToken))).ConfigureAwait(false);
+        subscribed = true;
+        var subscriptionTasks = subscriptions.Select(subscription => subscription(cancellationToken)).ToArray();
+
+        try
+        {
+            var handles = await Task.WhenAll(subscriptionTasks).ConfigureAwait(false);
+            subscriptionHandles.AddRange(handles);
+        }
+        catch
+        {
+            foreach (var task in subscriptionTasks)
+            {
+                if (task.Status is TaskStatus.RanToCompletion)
+                {
+                    subscriptionHandles.Add(task.Result);
+                }
+            }
+
+            throw;
+        }
     }
 
-    private async Task SubscribeCoreAsync<TEvent>(
+    private async Task<object> SubscribeCoreAsync<TEvent>(
         string streamNamespace,
         IAsyncStream<TEvent> stream,
         IAsyncObserver<TEvent> observer,
@@ -254,15 +287,15 @@ public sealed class StreamManager
             if (token is null)
             {
                 var handle = await stream.SubscribeAsync(observer).ConfigureAwait(false);
-                subscriptionHandles.Add(handle);
+                MessagingTelemetry.RecordStreamSubscription(streamNamespace, "established");
+                return handle;
             }
             else
             {
                 var handle = await stream.SubscribeAsync(observer, token, null!).ConfigureAwait(false);
-                subscriptionHandles.Add(handle);
+                MessagingTelemetry.RecordStreamSubscription(streamNamespace, "established");
+                return handle;
             }
-
-            MessagingTelemetry.RecordStreamSubscription(streamNamespace, "established");
         }
         catch (Exception ex)
         {
@@ -277,7 +310,7 @@ public sealed class StreamManager
         StreamId streamId,
         TEvent item,
         StreamSequenceToken? token,
-        Func<TEvent, StreamSequenceToken, ValueTask> onNextAsync,
+        Func<TEvent, StreamSequenceToken?, ValueTask> onNextAsync,
         Action<string, Exception>? onError)
     {
         var cursor = new StreamCursor(streamId, token);
@@ -286,7 +319,7 @@ public sealed class StreamManager
         using var activity = StartConsumerActivity(streamNamespace, cursor);
         try
         {
-            await onNextAsync(item, token!).ConfigureAwait(false);
+            await onNextAsync(item, token).ConfigureAwait(false);
 
             MessagingTelemetry.RecordStreamMessage(streamNamespace, "accepted");
             MessagingTelemetry.RecordStreamHandlerDuration(streamNamespace, "accepted", Stopwatch.GetElapsedTime(started).TotalMilliseconds);
@@ -380,7 +413,7 @@ public sealed class StreamManager
         StreamManager manager,
         string streamNamespace,
         StreamId streamId,
-        Func<TEvent, StreamSequenceToken, ValueTask> onNextAsync,
+        Func<TEvent, StreamSequenceToken?, ValueTask> onNextAsync,
         Action<string, Exception>? onError)
         : IAsyncObserver<TEvent>
     {

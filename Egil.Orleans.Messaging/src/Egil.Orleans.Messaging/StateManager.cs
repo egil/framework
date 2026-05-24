@@ -185,8 +185,43 @@ public abstract class StateManagerBase<T> : IStateManager<T>
     /// <inheritdoc/>
     public async Task ClearAsync()
     {
-        await storage.ClearStateAsync();
-        state = storage.State;
+        var previousState = state;
+        var recoveryReadSucceeded = false;
+
+        try
+        {
+            await storage.ClearStateAsync();
+            state = storage.State;
+            return;
+        }
+        catch
+        {
+            try
+            {
+                await storage.ReadStateAsync();
+                recoveryReadSucceeded = true;
+
+                if (!storage.RecordExists)
+                {
+                    state = storage.State;
+                    return;
+                }
+
+                state = storage.State;
+            }
+            catch
+            {
+                // no-op; rethrow original clear error below
+            }
+
+            if (!recoveryReadSucceeded)
+            {
+                state = previousState;
+                storage.State = previousState;
+            }
+
+            throw;
+        }
     }
 
     /// <summary>

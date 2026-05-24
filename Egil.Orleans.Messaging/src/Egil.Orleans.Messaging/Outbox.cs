@@ -303,9 +303,17 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
     }
 
     /// <summary>
-    /// O(1) equality over sender, sequence metadata, epoch, count, first
-    /// sequence number, and last sequence number.
+    /// O(1) equality over the outbox identity and sequence fingerprint:
+    /// sender, latest sequence number, epoch, count, first sequence number,
+    /// and last sequence number.
     /// </summary>
+    /// <remarks>
+    /// This intentionally does not compare message payloads. The outbox owns
+    /// sequence assignment, removal is FIFO-only, and sequence numbers are never
+    /// reused within an epoch. Under those invariants the metadata fingerprint
+    /// uniquely represents the pending outbox contents for equality/recovery
+    /// purposes while avoiding an O(n) payload walk during state comparisons.
+    /// </remarks>
     public bool Equals(Outbox<T>? other)
     {
         return ReferenceEquals(this, other)
