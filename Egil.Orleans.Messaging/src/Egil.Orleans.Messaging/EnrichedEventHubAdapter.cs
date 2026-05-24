@@ -146,7 +146,13 @@ public class EnrichedEventHubAdapter : EventHubDataAdapter
         StreamSequenceToken token,
         Dictionary<string, object> requestContext)
     {
-        throw new NotImplementedException();
+        var queueMessage = base.ToQueueMessage(streamId, events, token, requestContext);
+        if (Activity.Current?.Id is { } traceParent)
+        {
+            queueMessage.Properties[TraceParentPropertyKey] = traceParent;
+        }
+
+        return queueMessage;
     }
 
     /// <summary>
@@ -175,7 +181,23 @@ public class EnrichedEventHubAdapter : EventHubDataAdapter
     /// </returns>
     public override StreamSequenceToken GetSequenceToken(ref CachedMessage cachedMessage)
     {
-        throw new NotImplementedException();
+        var offset = cachedMessage.Segment.Array is null
+            ? string.Empty
+            : GetOffset(cachedMessage) ?? string.Empty;
+
+        var enqueueTimeUtc = cachedMessage.EnqueueTimeUtc.Kind switch
+        {
+            DateTimeKind.Unspecified => DateTime.SpecifyKind(cachedMessage.EnqueueTimeUtc, DateTimeKind.Utc),
+            DateTimeKind.Local => cachedMessage.EnqueueTimeUtc.ToUniversalTime(),
+            _ => cachedMessage.EnqueueTimeUtc
+        };
+
+        return new EnrichedEventHubSequenceToken(
+            offset,
+            cachedMessage.SequenceNumber,
+            cachedMessage.EventIndex,
+            new DateTimeOffset(enqueueTimeUtc),
+            StreamProviderName);
     }
 
     /// <summary>
@@ -208,6 +230,26 @@ public class EnrichedEventHubAdapter : EventHubDataAdapter
         string partition,
         Azure.Messaging.EventHubs.EventData queueMessage)
     {
-        throw new NotImplementedException();
+        var streamPosition = base.GetStreamPosition(partition, queueMessage);
+        var traceParent = queueMessage.Properties.TryGetValue(TraceParentPropertyKey, out var value)
+            ? value as string ?? value?.ToString()
+            : null;
+
+        var (offset, sequenceNumber, eventIndex) = streamPosition.SequenceToken switch
+        {
+            EventHubSequenceTokenV2 token => (token.EventHubOffset, token.SequenceNumber, token.EventIndex),
+            EventHubSequenceToken token => (token.EventHubOffset, token.SequenceNumber, token.EventIndex),
+            _ => (queueMessage.OffsetString ?? string.Empty, queueMessage.SequenceNumber, 0)
+        };
+
+        var enrichedToken = new EnrichedEventHubSequenceToken(
+            offset ?? string.Empty,
+            sequenceNumber,
+            eventIndex,
+            queueMessage.EnqueuedTime,
+            StreamProviderName,
+            traceParent);
+
+        return new StreamPosition(streamPosition.StreamId, enrichedToken);
     }
 }
