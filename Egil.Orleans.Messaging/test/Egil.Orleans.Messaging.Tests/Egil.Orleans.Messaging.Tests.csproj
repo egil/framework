@@ -8,6 +8,9 @@
     <RootNamespace>Egil.Orleans.Messaging.Tests</RootNamespace>
     <TargetFramework>net10.0</TargetFramework>
     <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+    <Include>[Egil.Orleans.Messaging]*</Include>
+    <Exclude>[*.Tests]*</Exclude>
+    <ExcludeByFile>**/*Tests.cs</ExcludeByFile>
   </PropertyGroup>
 
   <ItemGroup>
@@ -20,12 +23,18 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="coverlet.msbuild">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
     <PackageReference Include="Microsoft.Orleans.Sdk" />
     <PackageReference Include="Microsoft.Orleans.Server" />
     <PackageReference Include="Microsoft.Orleans.TestingHost" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" />
     <PackageReference Include="TimeProviderExtensions" />
-    <PackageReference Include="xunit.v3.mtp-v2" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
   </ItemGroup>
 
   <ItemGroup>

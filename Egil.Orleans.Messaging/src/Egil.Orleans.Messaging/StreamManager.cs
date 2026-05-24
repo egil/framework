@@ -254,23 +254,8 @@ public sealed class StreamManager
         subscribed = true;
         var subscriptionTasks = subscriptions.Select(subscription => subscription(cancellationToken)).ToArray();
 
-        try
-        {
-            var handles = await Task.WhenAll(subscriptionTasks).ConfigureAwait(false);
-            subscriptionHandles.AddRange(handles);
-        }
-        catch
-        {
-            foreach (var task in subscriptionTasks)
-            {
-                if (task.Status is TaskStatus.RanToCompletion)
-                {
-                    subscriptionHandles.Add(task.Result);
-                }
-            }
-
-            throw;
-        }
+        var handles = await Task.WhenAll(subscriptionTasks).ConfigureAwait(false);
+        subscriptionHandles.AddRange(handles);
     }
 
     private async Task<object> SubscribeCoreAsync<TEvent>(
