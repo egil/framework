@@ -114,6 +114,7 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
 
         if (!streams.TryGetValue(cursor.StreamId, out var entry))
         {
+            MessagingTelemetry.RecordStreamReceiveLag(cursor, now);
             next = CreateTracker(streams.Add(cursor.StreamId, new StreamEntry(cursor, now)), outbox);
             return true;
         }
@@ -124,6 +125,7 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
             return false;
         }
 
+        MessagingTelemetry.RecordStreamReceiveLag(cursor, now);
         next = CreateTracker(streams.SetItem(cursor.StreamId, new StreamEntry(cursor, now)), outbox);
         return true;
     }
@@ -145,18 +147,21 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
 
         if (!outbox.TryGetValue(token.Sender, out var entry))
         {
+            MessagingTelemetry.RecordOutboxReceiveLag(token, now);
             next = CreateTracker(streams, outbox.Add(token.Sender, new OutboxEntry(token.Epoch, token.SequenceNumber, now)));
             return true;
         }
 
         if (token.Epoch > entry.Epoch)
         {
+            MessagingTelemetry.RecordOutboxReceiveLag(token, now);
             next = CreateTracker(streams, outbox.SetItem(token.Sender, new OutboxEntry(token.Epoch, token.SequenceNumber, now)));
             return true;
         }
 
         if (token.Epoch == entry.Epoch && token.SequenceNumber > entry.LastSequenceNumber)
         {
+            MessagingTelemetry.RecordOutboxReceiveLag(token, now);
             next = CreateTracker(streams, outbox.SetItem(token.Sender, new OutboxEntry(entry.Epoch, token.SequenceNumber, now)));
             return true;
         }

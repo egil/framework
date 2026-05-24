@@ -29,6 +29,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\..\Egil.Orleans.Testing\src\Egil.Orleans.Testing\Egil.Orleans.Testing.csproj" />
     <ProjectReference Include="..\..\src\Egil.Orleans.Messaging\Egil.Orleans.Messaging.csproj" />
   </ItemGroup>
 
