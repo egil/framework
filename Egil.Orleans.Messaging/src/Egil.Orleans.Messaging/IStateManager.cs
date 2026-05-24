@@ -20,7 +20,7 @@ namespace Egil.Orleans.Messaging;
 /// <b>Usage:</b> Inject <see cref="IPersistentState{TState}"/> as normal via
 /// <c>[PersistentState]</c>, then initialize it during <c>OnActivateAsync</c>:
 /// <code>
-/// stateManager = this.InitializeStateManager("state", storage);
+/// stateManager = this.RegisterStateManager("state", storage);
 /// </code>
 /// The raw <see cref="IPersistentState{TState}"/> should not be accessed
 /// directly after wrapping — doing so bypasses the committed-state fence.
