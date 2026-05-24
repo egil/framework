@@ -1,3 +1,6 @@
+using Microsoft.Extensions.DependencyInjection;
+using Orleans.Serialization;
+
 namespace Egil.Orleans.Messaging;
 
 /// <summary>
@@ -58,6 +61,11 @@ public static class EnrichedEventHubAdapterExtensions
     public static void UseEnrichedDataAdapter(
         this IEventHubStreamConfigurator configurator)
     {
-        throw new NotImplementedException();
+        ArgumentNullException.ThrowIfNull(configurator);
+
+        configurator.UseDataAdapter((services, streamProviderName) =>
+            new EnrichedEventHubAdapter(
+                streamProviderName,
+                services.GetRequiredService<Serializer>()));
     }
 }
