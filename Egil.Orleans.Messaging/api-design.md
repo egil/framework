@@ -65,10 +65,11 @@ that guarantees the grain's observable `State` is never out of sync with
 what is durably persisted, even when `WriteStateAsync` fails ambiguously
 (timeout, network drop, server 5xx, ETag conflict).
 
-Grain code injects `IStateManager<MyState>`; the raw
-`IPersistentState<MyState>` stays internal to the wrapper. This is
-non-negotiable — exposing both is the loophole that lets grain authors
-read stale `storage.State` after a failed write.
+Grain code injects `IPersistentState<MyState>` as normal, then registers an
+`IStateManager<MyState>` wrapper during activation. After that point, the raw
+`IPersistentState<MyState>` should stay internal to the wrapper. This is
+non-negotiable — exposing both is the loophole that lets grain authors read
+stale `storage.State` after a failed write.
 
 ### Interface
 
@@ -253,33 +254,40 @@ Extension methods can't provide this fence because the grain still holds
 ### Grain wiring
 
 ```csharp
-// User injects IPersistentState<T> as normal, wraps in OnActivateAsync.
+// User injects IPersistentState<T> as normal, registers wrapper in activation.
 [PersistentState("state")] IPersistentState<MyState> storage;
 IStateManager<MyState> stateManager;
 
 public override Task OnActivateAsync(CancellationToken ct)
 {
-    stateManager = storage.AsStateManager();
+    stateManager = this.RegisterStateManager("state", storage);
     // ...
 }
 ```
 
-`AsStateManager()` is an extension method on `IPersistentState<T>`.
-Internally:
+`RegisterStateManager()` is an extension method on `IGrainBase`. Internally:
 
 ```csharp
-public static IStateManager<T> AsStateManager<T>(this IPersistentState<T> storage)
-    where T : class, IEquatable<T>
-{
-    // Future: check DI for IStateManagerFactory to resolve
-    // provider-specific implementations.
-    return new StateManager<T>(storage);
-}
+public static IStateManager<TState> RegisterStateManager<TGrain, TState>(
+    this TGrain grain,
+    string storageName,
+    IPersistentState<TState> storage)
+    where TGrain : IGrainBase
+    where TState : class, IEquatable<TState>
 ```
 
-No DI registration needed for v1. When provider-specific overrides ship
-later, the extension checks DI for a registered `IStateManagerFactory`,
-falls back to default `StateManager<T>`. No breaking change.
+The silo must register a keyed `IStateManagerFactory<T>` for each storage
+name used by grains:
+
+```csharp
+siloBuilder.AddDefaultStateManager("state");
+```
+
+Provider-specific overrides can be supplied with `AddStateManagerFactory(...)`.
+The activation-time `RegisterStateManager(...)` call mirrors
+`RegisterStreamManager(...)` and `RegisterGrainTimer(...)`: the grain registers
+the runtime helper once during activation and uses the returned manager for
+all subsequent state reads and writes.
 
 ---
 

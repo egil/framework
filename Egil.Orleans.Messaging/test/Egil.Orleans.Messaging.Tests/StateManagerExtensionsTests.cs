@@ -5,7 +5,7 @@ namespace Egil.Orleans.Messaging.Tests;
 public sealed class StateManagerExtensionsTests
 {
     [Fact]
-    public void InitializeStateManagerCore_resolves_keyed_factory_and_wraps_persistent_state()
+    public void RegisterStateManagerCore_resolves_keyed_factory_and_wraps_persistent_state()
     {
         var storageName = "state";
         var services = new ServiceCollection();
@@ -13,7 +13,7 @@ public sealed class StateManagerExtensionsTests
         var provider = services.BuildServiceProvider();
         var storage = new FakePersistentState(new TestState("initial"));
 
-        var manager = StateManagerExtensions.InitializeStateManagerCore(
+        var manager = StateManagerExtensions.RegisterStateManagerCore(
             provider,
             storageName,
             storage,
@@ -24,13 +24,13 @@ public sealed class StateManagerExtensionsTests
     }
 
     [Fact]
-    public void InitializeStateManagerCore_throws_for_missing_keyed_registration()
+    public void RegisterStateManagerCore_throws_for_missing_keyed_registration()
     {
         var provider = new ServiceCollection().BuildServiceProvider();
         var storage = new FakePersistentState(new TestState("initial"));
 
         var ex = Assert.Throws<InvalidOperationException>(() =>
-            StateManagerExtensions.InitializeStateManagerCore(
+            StateManagerExtensions.RegisterStateManagerCore(
                 provider,
                 "missing",
                 storage,
@@ -42,35 +42,35 @@ public sealed class StateManagerExtensionsTests
     }
 
     [Fact]
-    public void InitializeStateManager_throws_for_null_grain()
+    public void RegisterStateManager_throws_for_null_grain()
     {
         var storage = new FakePersistentState(new TestState("initial"));
 
         var ex = Assert.Throws<ArgumentNullException>(() =>
-            StateManagerExtensions.InitializeStateManager<TestGrainBase, TestState>(null!, "state", storage));
+            StateManagerExtensions.RegisterStateManager<TestGrainBase, TestState>(null!, "state", storage));
 
         Assert.Equal("grain", ex.ParamName);
     }
 
     [Fact]
-    public void InitializeStateManager_throws_for_empty_storage_name()
+    public void RegisterStateManager_throws_for_empty_storage_name()
     {
         var grain = new FakeGrainBase();
         var storage = new FakePersistentState(new TestState("initial"));
 
         var ex = Assert.Throws<ArgumentException>(() =>
-            grain.InitializeStateManager(" ", storage));
+            grain.RegisterStateManager(" ", storage));
 
         Assert.Equal("storageName", ex.ParamName);
     }
 
     [Fact]
-    public void InitializeStateManager_throws_for_null_storage()
+    public void RegisterStateManager_throws_for_null_storage()
     {
         var grain = new FakeGrainBase();
 
         var ex = Assert.Throws<ArgumentNullException>(() =>
-            grain.InitializeStateManager<TestGrainBase, TestState>("state", null!));
+            grain.RegisterStateManager<TestGrainBase, TestState>("state", null!));
 
         Assert.Equal("storage", ex.ParamName);
     }

@@ -21,7 +21,7 @@ public static class StateManagerExtensions
     ///
     /// public override Task OnActivateAsync(CancellationToken ct)
     /// {
-    ///     stateManager = this.InitializeStateManager("state", storage);
+    ///     stateManager = this.RegisterStateManager("state", storage);
     ///     // ...
     /// }
     /// </code>
@@ -51,7 +51,7 @@ public static class StateManagerExtensions
     /// <returns>
     /// A keyed <see cref="IStateManager{T}"/> instance.
     /// </returns>
-    public static IStateManager<TState> InitializeStateManager<TGrain, TState>(
+    public static IStateManager<TState> RegisterStateManager<TGrain, TState>(
         this TGrain grain,
         string storageName,
         IPersistentState<TState> storage)
@@ -62,14 +62,14 @@ public static class StateManagerExtensions
         ArgumentException.ThrowIfNullOrWhiteSpace(storageName);
         ArgumentNullException.ThrowIfNull(storage);
 
-        return InitializeStateManagerCore(
+        return RegisterStateManagerCore(
             grain.GrainContext.ActivationServices,
             storageName,
             storage,
             grain.GetType());
     }
 
-    internal static IStateManager<TState> InitializeStateManagerCore<TState>(
+    internal static IStateManager<TState> RegisterStateManagerCore<TState>(
         IServiceProvider activationServices,
         string storageName,
         IPersistentState<TState> storage,
