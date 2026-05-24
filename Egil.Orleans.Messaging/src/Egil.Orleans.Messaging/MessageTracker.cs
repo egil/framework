@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Text.Json.Serialization;
+using Orleans.Streams;
 
 namespace Egil.Orleans.Messaging;
 
@@ -42,7 +43,7 @@ namespace Egil.Orleans.Messaging;
 /// </para>
 /// <para>
 /// <b>Eviction:</b> Five overloads, one rule — remove entries where
-/// <c>entry.Received &lt; olderThan</c>. No separate <c>Forget</c> API.
+/// <c>entry.Received &lt;= olderThan</c>. No separate <c>Forget</c> API.
 /// <c>Evict(id, DateTimeOffset.MaxValue)</c> is the documented idiom for
 /// unconditional removal of a single source entry.
 /// </para>
@@ -60,7 +61,7 @@ namespace Egil.Orleans.Messaging;
 /// </remarks>
 [GenerateSerializer]
 [Alias("egil.orleans.messaging.MessageTracker")]
-// [JsonConverter(typeof(MessageTrackerJsonConverter))]
+[JsonConverter(typeof(MessageTrackerJsonConverter))]
 public sealed class MessageTracker : IEquatable<MessageTracker>
 {
     [Id(0)] private readonly ImmutableDictionary<StreamId, StreamEntry> streams;
@@ -83,7 +84,7 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
         outbox = ImmutableDictionary<GrainId, OutboxEntry>.Empty;
     }
 
-    private MessageTracker(
+    internal MessageTracker(
         ImmutableDictionary<StreamId, StreamEntry> streams,
         ImmutableDictionary<GrainId, OutboxEntry> outbox)
     {
@@ -109,7 +110,22 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
     /// <returns><c>true</c> if accepted (new message); <c>false</c> if duplicate.</returns>
     public bool ProcessMessage(StreamCursor cursor, out MessageTracker next)
     {
-        throw new NotImplementedException();
+        var now = time.GetUtcNow();
+
+        if (!streams.TryGetValue(cursor.StreamId, out var entry))
+        {
+            next = CreateTracker(streams.Add(cursor.StreamId, new StreamEntry(cursor, now)), outbox);
+            return true;
+        }
+
+        if (!IsNewer(cursor.Token, entry.LastPosition.Token))
+        {
+            next = this;
+            return false;
+        }
+
+        next = CreateTracker(streams.SetItem(cursor.StreamId, new StreamEntry(cursor, now)), outbox);
+        return true;
     }
 
     /// <summary>
@@ -125,7 +141,28 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
     /// <returns><c>true</c> if accepted; <c>false</c> if duplicate or stale.</returns>
     public bool ProcessMessage(OutboxSequenceToken token, out MessageTracker next)
     {
-        throw new NotImplementedException();
+        var now = time.GetUtcNow();
+
+        if (!outbox.TryGetValue(token.Sender, out var entry))
+        {
+            next = CreateTracker(streams, outbox.Add(token.Sender, new OutboxEntry(token.Epoch, token.SequenceNumber, now)));
+            return true;
+        }
+
+        if (token.Epoch > entry.Epoch)
+        {
+            next = CreateTracker(streams, outbox.SetItem(token.Sender, new OutboxEntry(token.Epoch, token.SequenceNumber, now)));
+            return true;
+        }
+
+        if (token.Epoch == entry.Epoch && token.SequenceNumber > entry.LastSequenceNumber)
+        {
+            next = CreateTracker(streams, outbox.SetItem(token.Sender, new OutboxEntry(entry.Epoch, token.SequenceNumber, now)));
+            return true;
+        }
+
+        next = this;
+        return false;
     }
 
     /// <summary>
@@ -135,7 +172,7 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
     /// </summary>
     public StreamCursor? LatestStream(StreamId stream)
     {
-        throw new NotImplementedException();
+        return streams.TryGetValue(stream, out var entry) ? entry.LastPosition : null;
     }
 
     /// <summary>
@@ -145,69 +182,185 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
     /// </summary>
     public OutboxSequenceToken? LatestOutbox(GrainId sender)
     {
-        throw new NotImplementedException();
+        return outbox.TryGetValue(sender, out var entry)
+            ? new OutboxSequenceToken(entry.LastSequenceNumber, sender, entry.Received, entry.Epoch)
+            : null;
     }
 
     /// <summary>
     /// Removes all entries (both stream and outbox) where
-    /// <c>entry.Received &lt; <paramref name="olderThan"/></c>.
+    /// <c>entry.Received &lt;= <paramref name="olderThan"/></c>.
     /// </summary>
     public MessageTracker Evict(DateTimeOffset olderThan)
     {
-        throw new NotImplementedException();
+        var newStreams = FilterByReceived(streams, olderThan, static entry => entry.Received, out var streamsChanged);
+        var newOutbox = FilterByReceived(outbox, olderThan, static entry => entry.Received, out var outboxChanged);
+
+        return streamsChanged || outboxChanged
+            ? CreateTracker(newStreams, newOutbox)
+            : this;
     }
 
     /// <summary>
     /// Removes stream entries where
-    /// <c>entry.Received &lt; <paramref name="olderThan"/></c>.
+    /// <c>entry.Received &lt;= <paramref name="olderThan"/></c>.
     /// Outbox entries are unaffected.
     /// </summary>
     public MessageTracker EvictStreams(DateTimeOffset olderThan)
     {
-        throw new NotImplementedException();
+        var newStreams = FilterByReceived(streams, olderThan, static entry => entry.Received, out var changed);
+        return changed ? CreateTracker(newStreams, outbox) : this;
     }
 
     /// <summary>
     /// Removes outbox entries where
-    /// <c>entry.Received &lt; <paramref name="olderThan"/></c>.
+    /// <c>entry.Received &lt;= <paramref name="olderThan"/></c>.
     /// Stream entries are unaffected.
     /// </summary>
     public MessageTracker EvictOutboxes(DateTimeOffset olderThan)
     {
-        throw new NotImplementedException();
+        var newOutbox = FilterByReceived(outbox, olderThan, static entry => entry.Received, out var changed);
+        return changed ? CreateTracker(streams, newOutbox) : this;
     }
 
     /// <summary>
     /// Removes the entry for the given <paramref name="stream"/> if
-    /// <c>entry.Received &lt; <paramref name="olderThan"/></c>.
+    /// <c>entry.Received &lt;= <paramref name="olderThan"/></c>.
     /// Use <c>DateTimeOffset.MaxValue</c> to unconditionally remove.
     /// </summary>
     public MessageTracker Evict(StreamId stream, DateTimeOffset olderThan)
     {
-        throw new NotImplementedException();
+        if (!streams.TryGetValue(stream, out var entry) || entry.Received > olderThan)
+        {
+            return this;
+        }
+
+        return CreateTracker(streams.Remove(stream), outbox);
     }
 
     /// <summary>
     /// Removes the entry for the given outbox <paramref name="sender"/> if
-    /// <c>entry.Received &lt; <paramref name="olderThan"/></c>.
+    /// <c>entry.Received &lt;= <paramref name="olderThan"/></c>.
     /// Use <c>DateTimeOffset.MaxValue</c> to unconditionally remove.
     /// </summary>
     public MessageTracker Evict(GrainId sender, DateTimeOffset olderThan)
     {
-        throw new NotImplementedException();
+        if (!outbox.TryGetValue(sender, out var entry) || entry.Received > olderThan)
+        {
+            return this;
+        }
+
+        return CreateTracker(streams, outbox.Remove(sender));
     }
 
     /// <inheritdoc/>
     public bool Equals(MessageTracker? other)
     {
-        throw new NotImplementedException();
+        if (ReferenceEquals(this, other))
+        {
+            return true;
+        }
+
+        if (other is null || streams.Count != other.streams.Count || outbox.Count != other.outbox.Count)
+        {
+            return false;
+        }
+
+        foreach (var item in streams)
+        {
+            if (!other.streams.TryGetValue(item.Key, out var otherEntry) || !item.Value.Equals(otherEntry))
+            {
+                return false;
+            }
+        }
+
+        foreach (var item in outbox)
+        {
+            if (!other.outbox.TryGetValue(item.Key, out var otherEntry) || !item.Value.Equals(otherEntry))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <inheritdoc/>
     public override bool Equals(object? obj) => obj is MessageTracker o && Equals(o);
 
     /// <inheritdoc/>
-    public override int GetHashCode() => HashCode.Combine(streams.Count, outbox.Count);
+    public override int GetHashCode()
+    {
+        return HashCode.Combine(
+            streams.Count,
+            AggregateHash(streams),
+            outbox.Count,
+            AggregateHash(outbox));
+    }
+
+    private MessageTracker CreateTracker(
+        ImmutableDictionary<StreamId, StreamEntry> streams,
+        ImmutableDictionary<GrainId, OutboxEntry> outbox)
+    {
+        var next = new MessageTracker(streams, outbox)
+        {
+            time = time
+        };
+
+        return next;
+    }
+
+    private static bool IsNewer(StreamSequenceToken? candidate, StreamSequenceToken? stored)
+    {
+        if (stored is null)
+        {
+            return candidate is not null;
+        }
+
+        if (candidate is null)
+        {
+            return false;
+        }
+
+        return StreamSequenceTokenUtilities.Newer(candidate, stored);
+    }
+
+    private static ImmutableDictionary<TKey, TValue> FilterByReceived<TKey, TValue>(
+        ImmutableDictionary<TKey, TValue> source,
+        DateTimeOffset olderThan,
+        Func<TValue, DateTimeOffset> receivedSelector,
+        out bool changed)
+        where TKey : notnull
+    {
+        var builder = ImmutableDictionary.CreateBuilder<TKey, TValue>();
+        changed = false;
+
+        foreach (var item in source)
+        {
+            if (receivedSelector(item.Value) <= olderThan)
+            {
+                changed = true;
+                continue;
+            }
+
+            builder.Add(item);
+        }
+
+        return changed ? builder.ToImmutable() : source;
+    }
+
+    private static int AggregateHash<TKey, TValue>(ImmutableDictionary<TKey, TValue> dictionary)
+        where TKey : notnull
+    {
+        var hash = 0;
+
+        foreach (var item in dictionary)
+        {
+            hash ^= HashCode.Combine(item.Key, item.Value);
+        }
+
+        return hash;
+    }
 
     /// <summary>
     /// Internal entry tracking a stream source's last known position and
