@@ -1,3 +1,5 @@
+using Orleans.Storage;
+
 namespace Egil.Orleans.Messaging;
 
 /// <summary>
@@ -72,6 +74,7 @@ internal sealed class StateManager<T> : IStateManager<T>
     where T : class, IEquatable<T>
 {
     private readonly IPersistentState<T> storage;
+    private T state;
 
     /// <summary>
     /// Creates a new <see cref="StateManager{T}"/> wrapping the given
@@ -85,30 +88,87 @@ internal sealed class StateManager<T> : IStateManager<T>
     internal StateManager(IPersistentState<T> storage)
     {
         this.storage = storage;
+        state = storage.State;
     }
 
     /// <inheritdoc/>
     public T State
     {
-        get => throw new NotImplementedException();
+        get => state;
     }
 
     /// <inheritdoc/>
-    public Task ReadAsync()
+    public async Task ReadAsync()
     {
-        throw new NotImplementedException();
+        await storage.ReadStateAsync();
+        state = storage.State;
     }
 
     /// <inheritdoc/>
-    public Task WriteAsync(T newState, WritePolicy policy = WritePolicy.Concurrent)
+    public async Task WriteAsync(T newState, WritePolicy policy = WritePolicy.Concurrent)
     {
-        throw new NotImplementedException();
+        var previousState = state;
+        var previousEtag = storage.Etag;
+
+        if (newState is VersionedState versioned)
+        {
+            versioned.Version = Guid.CreateVersion7();
+        }
+
+        if (policy == WritePolicy.Force)
+        {
+            TrySetEtag(storage, null);
+        }
+
+        storage.State = newState;
+
+        try
+        {
+            await storage.WriteStateAsync();
+            state = newState;
+            return;
+        }
+        catch (Exception ex)
+        {
+            try
+            {
+                await storage.ReadStateAsync();
+                var persisted = storage.State;
+
+                if (ex is InconsistentStateException)
+                {
+                    storage.State = previousState;
+                    TrySetEtag(storage, previousEtag);
+                    throw;
+                }
+
+                if (IsEquivalent(persisted, newState))
+                {
+                    state = persisted;
+                    return;
+                }
+
+                storage.State = previousState;
+                TrySetEtag(storage, previousEtag);
+                throw;
+            }
+            catch when (ex is not InconsistentStateException)
+            {
+                // no-op; throw original below
+            }
+
+            state = previousState;
+            storage.State = previousState;
+            TrySetEtag(storage, previousEtag);
+            throw;
+        }
     }
 
     /// <inheritdoc/>
-    public Task ClearAsync()
+    public async Task ClearAsync()
     {
-        throw new NotImplementedException();
+        await storage.ClearStateAsync();
+        state = storage.State;
     }
 
     /// <summary>
@@ -119,6 +179,23 @@ internal sealed class StateManager<T> : IStateManager<T>
     /// </summary>
     private static bool IsEquivalent(T persisted, T attempted)
     {
-        throw new NotImplementedException();
+        if (persisted is VersionedState persistedVersioned
+            && attempted is VersionedState attemptedVersioned)
+        {
+            return persistedVersioned.Version == attemptedVersioned.Version;
+        }
+
+        return persisted.Equals(attempted);
+    }
+
+    private static void TrySetEtag(IPersistentState<T> storage, string? etag)
+    {
+        var property = storage.GetType().GetProperty(nameof(IPersistentState<T>.Etag));
+        if (property is null || !property.CanWrite)
+        {
+            return;
+        }
+
+        property.SetValue(storage, etag);
     }
 }
