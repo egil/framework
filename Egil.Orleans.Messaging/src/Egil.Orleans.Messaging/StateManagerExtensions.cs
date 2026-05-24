@@ -53,6 +53,7 @@ public static class StateManagerExtensions
     public static IStateManager<T> AsStateManager<T>(this IPersistentState<T> storage)
         where T : class, IEquatable<T>
     {
-        throw new NotImplementedException();
+        ArgumentNullException.ThrowIfNull(storage);
+        return new StateManager<T>(storage);
     }
 }
