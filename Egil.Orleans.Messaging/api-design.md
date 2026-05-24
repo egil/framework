@@ -567,6 +567,8 @@ each upstream source. Two source kinds:
 
 ```csharp
 [GenerateSerializer]
+[Alias("egil.orleans.messaging.MessageTracker")]
+[JsonConverter(typeof(MessageTrackerJsonConverter))]
 public sealed class MessageTracker
 {
     [Id(0)] private ImmutableDictionary<StreamId, StreamEntry> streams;
@@ -633,7 +635,7 @@ public sealed class MessageTracker
 
 ### `Evict` — uniform cleanup
 
-Five overloads, one rule: remove entries where `entry.Received < olderThan`.
+Five overloads, one rule: remove entries where `entry.Received <= olderThan`.
 No separate `Forget` API — `Evict(id, DateTimeOffset.MaxValue)` is the
 documented idiom for unconditional clear.
 
