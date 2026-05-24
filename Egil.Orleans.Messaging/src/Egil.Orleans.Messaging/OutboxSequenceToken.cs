@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Egil.Orleans.Messaging;
 
 /// <summary>
@@ -51,7 +53,7 @@ namespace Egil.Orleans.Messaging;
 /// </param>
 [GenerateSerializer]
 [Alias("egil.orleans.messaging.OutboxSequenceToken")]
-// [JsonConverter(typeof(OutboxSequenceTokenJsonConverter))]
+[JsonConverter(typeof(OutboxSequenceTokenJsonConverter))]
 public sealed record OutboxSequenceToken(
     [property: Id(0)] long SequenceNumber,
     [property: Id(1)] GrainId Sender,
