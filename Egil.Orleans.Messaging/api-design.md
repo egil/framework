@@ -877,7 +877,7 @@ Grains using this library should follow a functional-command model:
 
 ## 7. `OutboxProcessor<T>` — timer + reminder driven dispatch
 
-**Status:** Settled.
+**Status:** Open, current direction captured here.
 
 Grain-scoped component that owns the timer, reminder, and postman
 dispatch lifecycle for draining `Outbox<T>`. Modelled after the
@@ -891,9 +891,18 @@ in the `Clever.PricingEngine` codebase.
 - **GrainTimer** for in-process fast retry while activated.
 - **Durable Reminder** for cross-activation recovery. Reactivates the
   grain if it deactivates with pending items. Timer arms on activation.
-- **Non-reentrant assumption.** Orleans default turn-based concurrency
-  serialises calls; the processor adds no internal locks. Not safe on
-  `[Reentrant]` grains — document and enforce.
+- **Single active drain.** At most one send attempt may run per activation.
+  `PostAsync`, `PostInBackgroundAsync`, timer callbacks, and reminder
+  callbacks all coalesce through the same drain gate. If a post run is
+  already active, additional requests mark another run as desired rather
+  than starting concurrently.
+- **Callback interleaving is explicit.** `Interleave` mirrors Orleans'
+  `GrainTimerCreationOptions.Interleave` and controls whether processor
+  callbacks run interleaved with other grain turns. It does not by itself
+  permit overlapping post runs.
+- **Keep-alive is explicit.** `KeepAlive` mirrors Orleans'
+  `GrainTimerCreationOptions.KeepAlive` and controls whether an active
+  processor timer keeps the grain activation alive.
 
 ### Postman dispatch
 
@@ -911,6 +920,57 @@ most specific to least specific (like a `switch`).
   `NoPostmanRegisteredException`.
 - `PostAsync` only throws `TimeoutException` (per-run timeout),
   `OperationCanceledException` (caller token), or callback exceptions.
+
+Postman callbacks can run in one of two execution modes:
+
+```csharp
+public enum OutboxPostmanExecutionMode
+{
+    /// <summary>
+    /// Executes postman callbacks on the Orleans activation scheduler.
+    /// </summary>
+    /// <remarks>
+    /// This is the default and recommended mode.
+    ///
+    /// The Orleans activation scheduler is the per-activation scheduler that
+    /// provides Orleans' turn-based execution model. Work scheduled on it
+    /// runs as grain work: it is single-threaded per activation and obeys
+    /// Orleans request scheduling, reentrancy, and timer interleaving rules.
+    ///
+    /// Use this mode for normal async postmen. Well-behaved async libraries
+    /// should be awaited directly and do not need to be moved to the .NET
+    /// thread pool.
+    /// </remarks>
+    GrainScheduler,
+
+    /// <summary>
+    /// Executes postman callbacks on the .NET thread pool, outside the
+    /// Orleans activation scheduler.
+    /// </summary>
+    /// <remarks>
+    /// This is an escape hatch for blocking or legacy postmen which would
+    /// otherwise block the grain scheduler. It should not be used merely
+    /// because a postman performs asynchronous I/O.
+    ///
+    /// Postmen in this mode must not read or mutate activation-local grain
+    /// state. They may call other grains through IGrainFactory or use
+    /// external services which are safe to use from thread-pool code.
+    /// PendingItems, OnPostedAsync, and OnPostFailedAsync still execute on
+    /// the Orleans activation scheduler.
+    /// </remarks>
+    ThreadPool
+}
+```
+
+`GrainScheduler` is the safe default. Postmen may close over activation
+state because they execute under Orleans activation scheduling.
+
+`ThreadPool` is for blocking or legacy postmen. In this mode postmen must
+not read or mutate activation-local grain state. They should be static or
+otherwise state-free and use services such as `IGrainFactory` to deliver the
+message. Only the fast grain callbacks (`PendingItems`, `OnPostedAsync`,
+`OnPostFailedAsync`) run on the Orleans activation scheduler and respect
+`Interleave`.
 
 ### Grain integration pattern
 
@@ -952,26 +1012,44 @@ extension<TGrain>(TGrain grain) where TGrain : IOutboxGrain, IGrainBase
 ```csharp
 public sealed class OutboxProcessorOptions<TOutbox> where TOutbox : notnull
 {
-    /// Snapshot of pending items. Called once per post run.
-    public required Func<ImmutableArray<TOutbox>> GetPending { get; init; }
+    /// Snapshot of pending items. Called once per post run from a grain turn.
+    public required Func<ImmutableArray<TOutbox>> PendingItems { get; init; }
 
     /// Items successfully posted. Grain must remove from backing collection.
     public required Func<ImmutableArray<TOutbox>, CancellationToken, ValueTask>
-        OnPostCompletedAsync { get; init; }
+        OnPostedAsync { get; init; }
 
     /// Failed items with exception and attempt count (in-memory, resets on
     /// reactivation). Grain decides: leave to retry, or remove to
     /// dead-letter after N attempts. If null, failed items retry silently.
     public Func<ImmutableArray<(TOutbox Item, Exception Error, int Attempt)>,
-        CancellationToken, ValueTask>? OnPostErrorAsync { get; init; }
+        CancellationToken, ValueTask>? OnPostFailedAsync { get; init; }
 
     /// Max time per post run. Set below grain's response timeout.
     public TimeSpan ProcessingTimeout { get; init; } = TimeSpan.FromSeconds(20);
 
     /// Timer + reminder period. Orleans reminders fire at most once/minute.
     public TimeSpan RetryDelay { get; init; } = TimeSpan.FromMinutes(2);
+
+    /// Whether processor timer callbacks may interleave with other grain turns.
+    /// Mirrors GrainTimerCreationOptions.Interleave.
+    public bool Interleave { get; init; } = false;
+
+    /// Whether an active processor timer keeps the activation alive.
+    /// Mirrors GrainTimerCreationOptions.KeepAlive.
+    public bool KeepAlive { get; init; } = false;
+
+    /// Controls whether postmen run on the Orleans activation scheduler or on
+    /// the .NET thread pool.
+    public OutboxPostmanExecutionMode PostmanExecution { get; init; } =
+        OutboxPostmanExecutionMode.GrainScheduler;
 }
 ```
+
+Naming note: `PendingItems` intentionally names the role of the callback
+rather than an imperative method (`GetPending`). `OutboxAccessor` was
+considered, but it is less precise because the processor does not need
+general outbox access, only a pending-item snapshot.
 
 ### `OutboxProcessor<TOutbox>`
 
@@ -985,10 +1063,19 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         Func<TSub, Task> postman) where TSub : TOutbox;
     public OutboxProcessor<TOutbox> AddPostman<TSub>(
         Func<TSub, CancellationToken, Task> postman) where TSub : TOutbox;
+    public OutboxProcessor<TOutbox> AddPostman<TSub>(
+        Func<TSub, IGrainFactory, CancellationToken, ValueTask> postman)
+        where TSub : TOutbox;
 
     /// Posts pending items. Safe to call from grain's task scheduler.
     /// Arms timer/reminder if items remain, unregisters if empty.
     public ValueTask PostAsync(CancellationToken cancellationToken = default);
+
+    /// Schedules posting through the same timer-backed drain path used for
+    /// retry. Returns after the run has been scheduled, not after posting
+    /// completes. Multiple calls coalesce into a single active drain.
+    public ValueTask PostInBackgroundAsync(
+        CancellationToken cancellationToken = default);
 
     /// Called by IOutboxGrain DIM. No-ops for unknown reminder names.
     public ValueTask ReceiveReminderAsync(string reminderName, TickStatus status);
@@ -1028,12 +1115,30 @@ public async Task ReceiveReminder(string name, TickStatus status)
 - **Callback-based, not DI service.** Grain controls dispatch logic,
   can pass its own state to the postman. DI service adds indirection
   without clear benefit.
+- **`PendingItems`, not `GetPending`.** The option is a callback consumed
+  by the processor, not a method users call. The name describes the data
+  supplied to the processor and avoids implying ad-hoc outbox operations.
 - **First-registered-wins postman matching.** Simple dispatch model.
   Order most-specific first. Unmatched items → `NoPostmanRegisteredException`
-  via `OnPostErrorAsync`.
+  via `OnPostFailedAsync`.
 - **`PostAsync` swallows per-item errors.** Grain observes failures via
-  `OnPostErrorAsync` with attempt count. Processor never drops items
+  `OnPostFailedAsync` with attempt count. Processor never drops items
   silently unless the grain explicitly removes them.
+- **`PostInBackgroundAsync` uses the same path as retry.** It schedules a
+  timer-backed drain and returns quickly so a grain command can commit an
+  outbox item and return to its caller without waiting for external
+  delivery.
+- **No overlapping drains, regardless of `Interleave`.** `Interleave`
+  controls Orleans callback scheduling only. Internal drain gating still
+  ensures one send attempt at a time.
+- **`ThreadPool` is opt-in.** Blocking or legacy delivery can run outside
+  the Orleans activation scheduler, but postmen in that mode must not
+  touch activation-local grain state. Use `IGrainFactory` or injected
+  services instead.
+- **Do not offload normal async libraries.** Orleans guidance is to await
+  well-behaved async libraries directly. `ThreadPool` exists for code
+  that blocks synchronously or otherwise must escape the Orleans
+  scheduler.
 - **One postman per item.** First-registered-wins, not broadcast.
   Simpler error semantics, no partial-success ambiguity.
 - **DIM on `IOutboxGrain`.** Zero ceremony. Grain author never writes
@@ -1154,6 +1259,7 @@ metrics for state read/write, activation lifecycle, messaging layer.
 |---------------------------|-----------|--------------------------------------|
 | `outbox.post.duration`    | Histogram | Post run duration (ms)               |
 | `outbox.post.item.duration` | Histogram | Per-item postman dispatch duration |
+| `outbox.post.item.age`    | Histogram | Message age at dispatch time (ms), when the item carries a sent/enqueued timestamp |
 | `outbox.post.items`       | Counter   | Items successfully dispatched        |
 | `outbox.post.errors`      | Counter   | Items that failed dispatch           |
 | `outbox.depth`            | Gauge     | Pending items per grain type         |
@@ -1162,6 +1268,9 @@ metrics for state read/write, activation lifecycle, messaging layer.
 - `grain.type` — owning grain type name
 - `event.type` — outbox item type name
 - `success` — `true`/`false` on per-item histograms
+- `postman.execution` — `grain_scheduler` or `thread_pool`
+- `failure.type` — exception type name for failed dispatch
+- `postman.type` — registered postman target type or delegate owner, when available
 
 **ActivitySource:** `egil.orleans.messaging` for distributed traces.
 
