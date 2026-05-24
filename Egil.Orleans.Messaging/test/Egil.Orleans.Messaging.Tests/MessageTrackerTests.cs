@@ -260,4 +260,72 @@ public sealed class MessageTrackerTests
         Assert.NotEqual(left, right);
     }
 
+    [Fact]
+    public void Equals_returns_false_when_stream_keys_differ_but_counts_match()
+    {
+        var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
+        var left = CreateTracker(
+            stream: new StreamCursor(StreamId.Create("orders", "one"), new EventSequenceToken(7)),
+            received: now);
+        var right = CreateTracker(
+            stream: new StreamCursor(StreamId.Create("orders", "two"), new EventSequenceToken(7)),
+            received: now);
+
+        Assert.NotEqual(left, right);
+    }
+
+    [Fact]
+    public void Equals_returns_false_when_stream_values_differ_but_keys_match()
+    {
+        var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
+        var streamId = StreamId.Create("orders", "one");
+        var left = CreateTracker(new StreamCursor(streamId, new EventSequenceToken(7)), now);
+        var right = CreateTracker(new StreamCursor(streamId, new EventSequenceToken(8)), now);
+
+        Assert.NotEqual(left, right);
+    }
+
+    [Fact]
+    public void Equals_returns_false_when_outbox_keys_differ_but_counts_match()
+    {
+        var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
+        var left = CreateTracker(
+            outbox: new OutboxSequenceToken(1, GrainId.Create("test/sender", "one"), now, now),
+            received: now);
+        var right = CreateTracker(
+            outbox: new OutboxSequenceToken(1, GrainId.Create("test/sender", "two"), now, now),
+            received: now);
+
+        Assert.NotEqual(left, right);
+    }
+
+    [Fact]
+    public void Equals_returns_false_when_outbox_values_differ_but_keys_match()
+    {
+        var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
+        var sender = GrainId.Create("test/sender", "one");
+        var left = CreateTracker(new OutboxSequenceToken(1, sender, now, now), now);
+        var right = CreateTracker(new OutboxSequenceToken(2, sender, now, now), now);
+
+        Assert.NotEqual(left, right);
+    }
+
+    private static MessageTracker CreateTracker(StreamCursor stream, DateTimeOffset received)
+    {
+        var tracker = new MessageTracker();
+        tracker.RegisterTimeProvider(new ManualTimeProvider(received));
+        tracker.ProcessMessage(stream, out tracker);
+
+        return tracker;
+    }
+
+    private static MessageTracker CreateTracker(OutboxSequenceToken outbox, DateTimeOffset received)
+    {
+        var tracker = new MessageTracker();
+        tracker.RegisterTimeProvider(new ManualTimeProvider(received));
+        tracker.ProcessMessage(outbox, out tracker);
+
+        return tracker;
+    }
+
 }
