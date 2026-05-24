@@ -92,7 +92,7 @@ public class EnrichedEventHubSequenceToken : EventHubSequenceTokenV2
     /// The index of the event within a batch at the same sequence number.
     /// </param>
     /// <param name="enqueuedTime">
-    /// The <see cref="DateTime"/> (UTC) when the event was enqueued at the
+    /// The <see cref="DateTimeOffset"/> when the event was enqueued at the
     /// Event Hub broker.
     /// </param>
     /// <param name="streamProviderName">
@@ -107,12 +107,12 @@ public class EnrichedEventHubSequenceToken : EventHubSequenceTokenV2
         string offset,
         long sequenceNumber,
         int eventIndex,
-        DateTime enqueuedTime,
+        DateTimeOffset enqueuedTime,
         string streamProviderName,
         string? traceParent = null)
         : base(offset, sequenceNumber, eventIndex)
     {
-        EnqueuedTime = new DateTimeOffset(enqueuedTime, TimeSpan.Zero);
+        EnqueuedTime = enqueuedTime;
         StreamProviderName = streamProviderName;
         TraceParent = traceParent;
     }
