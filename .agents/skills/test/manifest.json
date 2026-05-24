@@ -1,0 +1,9 @@
+{
+  "version": "1.0.0",
+  "category": "Testing",
+  "packages": [
+    "xunit.v3",
+    "Microsoft.Orleans.TestingHost",
+    "Egil.Orleans.Testing"
+  ]
+}

@@ -29,6 +29,7 @@ Use the solution file from repository root:
 - Advanced methods that expose implementation details (e.g., `GetStorageOperationsAsync`, `GetGrainCallsAsync`) must include a `<remarks>` section warning about tight coupling to production code internals.
 
 ## Testing Guidelines
+- Follow the repo test skill at `../.agents/skills/test/SKILL.md` for TDD, test-after, refactoring, fake/builder usage, and production/test change discipline.
 - Test framework: `xunit.v3.mtp-v2` on Microsoft Testing Platform, with `Microsoft.Testing.Extensions.CodeCoverage` for coverage collection.
 - Put tests in `test/Egil.Orleans.Testing.Tests` and name files/classes with `*Tests`.
 - Test method names should describe behavior clearly.
@@ -44,24 +45,7 @@ Use the solution file from repository root:
 - Commit logical units of work that follow Conventional Commit principles.
 - Commit code should be warning-free (`Release` builds fail on warnings).
 - Break development tasks into individual steps; do not mix refactoring and new features in one commit.
-- Never change both production code (under /src) and test code (under /test) at the same time without running tests between the two. Change one or the other, then run tests.
-
-- When adding new features or fixing bugs in production code (under /src), follow this process:
-  1. Write a failing test covering the change.
-  2. Run the test, ensure it fails and fails for the expected reason.
-  3. Implement the feature and/or fix in production code.
-  4. Run the test again, confirm it now passes.
-  5. When the new test passes, run all tests to ensure no other tests have broken.
-
-- When adding new tests to existing features, follow this process:
-  1. Write the test, but invert the assertion.
-  2. Run the test, ensure it fails and fails for the expected reason.
-  3. Correct the assertion in the test.
-  4. Run the test again, confirm it now passes.
-
-- When refactoring production code (under /src), follow this process:
-  1. Refactor production code.
-  2. Run all tests, confirm all still pass.
+- Use `../.agents/skills/test/SKILL.md` for the detailed testing workflow instead of duplicating it here.
 
 ## Commit & Pull Request Guidelines
 Git history favors Conventional Commit-style messages, often with scope `ot` for this project:

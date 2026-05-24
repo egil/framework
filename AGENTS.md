@@ -70,24 +70,7 @@ Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
 - Work one project at a time. Don't bundle unrelated changes across projects in one commit.
 - Commit logical units of work; keep commits small and focused.
 - `Release` builds fail on warnings. Make sure each commit is warning-free.
-- Never change both production code (under `/src`) and test code (under `/test`) in a single step without running tests in between. Change one or the other, then run tests.
-
-For new features or bug fixes in production code:
-1. Write a failing test covering the change.
-2. Run the test; confirm it fails for the expected reason.
-3. Implement the change in `/src`.
-4. Run the test; confirm it now passes.
-5. Run the full project test suite to confirm nothing else broke.
-
-For new tests against existing behavior:
-1. Write the test with the assertion inverted.
-2. Run it; confirm it fails for the expected reason.
-3. Correct the assertion.
-4. Run it; confirm it now passes.
-
-For refactors:
-1. Refactor production code.
-2. Run all tests in the affected project; confirm all still pass.
+- Follow the repo test skill at `.agents/skills/test/SKILL.md` for TDD, test-after, refactoring, fake/builder usage, and production/test change discipline.
 
 ## Build, Test, and Tooling
 Each project has its own solution file (`<project>/<project>.slnx`). Run `dotnet restore`, `dotnet build`, `dotnet test`, and `dotnet pack` against the relevant project's solution. Per-project `AGENTS.md` files document the exact commands and any project-specific tooling (BenchmarkDotNet, mdsnippets, etc.).
