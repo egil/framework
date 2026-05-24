@@ -1,77 +1,13 @@
+using System.Collections.Immutable;
+using System.Diagnostics;
+using Microsoft.Extensions.Logging;
+
 namespace Egil.Orleans.Messaging;
 
 /// <summary>
 /// Grain-scoped component that owns the timer, reminder, and postman dispatch
 /// lifecycle for draining an <see cref="Outbox{T}"/>.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <b>Architecture:</b> Each grain with an outbox gets its own
-/// <see cref="OutboxProcessor{TOutbox}"/> — no external scan, no registry,
-/// no second store.
-/// <list type="bullet">
-/// <item><b>GrainTimer</b> for in-process fast retry while activated.</item>
-/// <item><b>Durable Reminder</b> for cross-activation recovery. Reactivates
-/// the grain if it deactivates with pending items.</item>
-/// </list>
-/// </para>
-/// <para>
-/// <b>Non-reentrant assumption:</b> Relies on Orleans default turn-based
-/// concurrency — adds no internal locks. <b>Not safe</b> on
-/// <c>[Reentrant]</c> grains. Document and enforce via code review.
-/// </para>
-/// <para>
-/// <b>Postman dispatch:</b> The grain registers one or more postmen via
-/// <see cref="AddPostman{TSub}(Func{TSub, ValueTask})"/>, each handling a
-/// subtype of <typeparamref name="TOutbox"/>. Matching is
-/// <b>first-registered-wins</b> against the item's runtime type — register
-/// from most specific to least specific (like a <c>switch</c>).
-/// <list type="bullet">
-/// <item>Each item dispatches to exactly <b>one</b> postman.</item>
-/// <item>Items whose runtime type matches no postman → reported as failed
-/// with <see cref="NoPostmanRegisteredException"/> via
-/// <see cref="OutboxProcessorOptions{TOutbox}.OnPostErrorAsync"/>.</item>
-/// <item>Per-item exceptions are caught and surfaced through
-/// <see cref="OutboxProcessorOptions{TOutbox}.OnPostErrorAsync"/> with
-/// an in-memory attempt count that resets on grain reactivation.</item>
-/// </list>
-/// </para>
-/// <para>
-/// <b><see cref="PostAsync"/> error contract:</b> Only throws
-/// <see cref="TimeoutException"/> (per-run timeout),
-/// <see cref="OperationCanceledException"/> (caller token), or callback
-/// exceptions from <see cref="OutboxProcessorOptions{TOutbox}.OnPostCompletedAsync"/>
-/// / <see cref="OutboxProcessorOptions{TOutbox}.OnPostErrorAsync"/>. Per-item
-/// postman failures are swallowed and routed to the error callback.
-/// </para>
-/// <para>
-/// <b>Grain integration:</b> Two obligations (both compiler-enforced):
-/// <list type="number">
-/// <item>Implement <see cref="IOutboxGrain"/>.</item>
-/// <item>Call <c>RegisterOutboxProcessor(...)</c> in <c>OnActivateAsync</c>.</item>
-/// </list>
-/// No <c>ReceiveReminder</c> override needed — the <see cref="IOutboxGrain"/>
-/// DIM handles it. No manual timer/reminder lifecycle. No telemetry wiring.
-/// </para>
-/// <para>
-/// <b>Escape hatch:</b> Grains with their own reminders can forward unknown
-/// reminder names to <see cref="ReceiveReminderAsync"/>:
-/// <code>
-/// public async Task ReceiveReminder(string name, TickStatus status)
-/// {
-///     if (name == MyOwnReminder) { await DoMyWork(); return; }
-///     await outboxProcessor.ReceiveReminderAsync(name, status);
-/// }
-/// </code>
-/// </para>
-/// <para>
-/// <b>Telemetry:</b> Emits to meter <c>egil.orleans.messaging</c>:
-/// <c>outbox.post.duration</c> (histogram), <c>outbox.post.item.duration</c>
-/// (histogram), <c>outbox.post.items</c> (counter), <c>outbox.post.errors</c>
-/// (counter), <c>outbox.depth</c> (gauge). Tags: <c>grain.type</c>,
-/// <c>event.type</c>, <c>success</c>.
-/// </para>
-/// </remarks>
 /// <typeparam name="TOutbox">
 /// The base type of items in the outbox. Postmen can handle subtypes via
 /// <see cref="AddPostman{TSub}(Func{TSub, ValueTask})"/>.
@@ -79,82 +15,366 @@ namespace Egil.Orleans.Messaging;
 public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     where TOutbox : notnull
 {
-    internal OutboxProcessor() { }
+    private const string ReminderPrefix = "egil.orleans.messaging.outbox.";
+
+    private readonly IGrainBase owner;
+    private readonly IGrainFactory grainFactory;
+    private readonly OutboxProcessorOptions<TOutbox> options;
+    private readonly ILogger logger;
+    private readonly List<PostmanRegistration> postmen = [];
+    private readonly Dictionary<TOutbox, int> attempts = [];
+    private readonly string grainType;
+    private readonly string reminderName;
+    private IGrainTimer? timer;
+    private IGrainReminder? reminder;
+    private bool drainActive;
+    private bool drainRequested;
+
+    internal OutboxProcessor(
+        IGrainBase owner,
+        IGrainFactory grainFactory,
+        OutboxProcessorOptions<TOutbox> options,
+        ILogger logger)
+    {
+        ArgumentNullException.ThrowIfNull(owner);
+        ArgumentNullException.ThrowIfNull(grainFactory);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(logger);
+
+        if (options.ProcessingTimeout <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(options), "ProcessingTimeout must be greater than zero.");
+        }
+
+        if (options.RetryDelay <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(options), "RetryDelay must be greater than zero.");
+        }
+
+        this.owner = owner;
+        this.grainFactory = grainFactory;
+        this.options = options;
+        this.logger = logger;
+        grainType = owner.GetType().Name;
+        reminderName = ReminderPrefix + typeof(TOutbox).FullName;
+    }
+
+    internal string ReminderName => reminderName;
 
     /// <summary>
     /// Registers a postman that handles items of type <typeparamref name="TSub"/>.
     /// </summary>
-    /// <remarks>
-    /// <b>Order matters.</b> Postmen are matched first-registered-wins against
-    /// the item's runtime type. Register from most specific to least specific.
-    /// Returns <c>this</c> for fluent chaining during <c>OnActivateAsync</c>.
-    /// </remarks>
-    /// <typeparam name="TSub">The subtype this postman handles.</typeparam>
-    /// <param name="postman">
-    /// Async callback that delivers the item. Per-item exceptions are caught
-    /// and surfaced through <see cref="OutboxProcessorOptions{TOutbox}.OnPostErrorAsync"/>.
-    /// </param>
-    /// <returns>This processor for chaining.</returns>
     public OutboxProcessor<TOutbox> AddPostman<TSub>(
         Func<TSub, ValueTask> postman) where TSub : TOutbox
     {
-        throw new NotImplementedException();
+        ArgumentNullException.ThrowIfNull(postman);
+        return AddPostmanCore<TSub>((item, _) => postman(item));
     }
 
     /// <inheritdoc cref="AddPostman{TSub}(Func{TSub, ValueTask})"/>
     public OutboxProcessor<TOutbox> AddPostman<TSub>(
         Func<TSub, Task> postman) where TSub : TOutbox
     {
-        throw new NotImplementedException();
+        ArgumentNullException.ThrowIfNull(postman);
+        return AddPostmanCore<TSub>((item, _) => new ValueTask(postman(item)));
     }
 
     /// <inheritdoc cref="AddPostman{TSub}(Func{TSub, ValueTask})"/>
-    /// <param name="postman">
-    /// Async callback with cancellation support. The token is the per-run
-    /// timeout from <see cref="OutboxProcessorOptions{TOutbox}.ProcessingTimeout"/>.
-    /// </param>
     public OutboxProcessor<TOutbox> AddPostman<TSub>(
         Func<TSub, CancellationToken, Task> postman) where TSub : TOutbox
     {
-        throw new NotImplementedException();
+        ArgumentNullException.ThrowIfNull(postman);
+        return AddPostmanCore<TSub>((item, cancellationToken) => new ValueTask(postman(item, cancellationToken)));
+    }
+
+    /// <inheritdoc cref="AddPostman{TSub}(Func{TSub, ValueTask})"/>
+    public OutboxProcessor<TOutbox> AddPostman<TSub>(
+        Func<TSub, IGrainFactory, CancellationToken, ValueTask> postman) where TSub : TOutbox
+    {
+        ArgumentNullException.ThrowIfNull(postman);
+        return AddPostmanCore<TSub>((item, cancellationToken) => postman(item, grainFactory, cancellationToken));
     }
 
     /// <summary>
     /// Posts all pending items by dispatching each to its matching postman.
-    /// Arms timer/reminder if items remain; unregisters if the outbox is empty.
+    /// Arms timer/reminder if items remain; unregisters retry work if empty.
     /// </summary>
-    /// <remarks>
-    /// Safe to call from the grain's task scheduler (turn-based). Does not
-    /// throw for per-item postman failures — those are routed to
-    /// <see cref="OutboxProcessorOptions{TOutbox}.OnPostErrorAsync"/>. Only
-    /// throws <see cref="TimeoutException"/>,
-    /// <see cref="OperationCanceledException"/>, or callback exceptions.
-    /// </remarks>
-    /// <param name="cancellationToken">Optional cancellation token.</param>
-    public ValueTask PostAsync(CancellationToken cancellationToken = default)
+    public async ValueTask PostAsync(CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException();
+        if (drainActive)
+        {
+            drainRequested = true;
+            return;
+        }
+
+        drainActive = true;
+        try
+        {
+            do
+            {
+                drainRequested = false;
+                await DrainOnceAsync(cancellationToken).ConfigureAwait(false);
+            }
+            while (drainRequested);
+        }
+        finally
+        {
+            drainActive = false;
+        }
+    }
+
+    /// <summary>
+    /// Schedules a timer-backed post run and returns after scheduling.
+    /// </summary>
+    public async ValueTask PostInBackgroundAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (options.PendingItems().IsDefaultOrEmpty)
+        {
+            await DisableRetryAsync().ConfigureAwait(false);
+            return;
+        }
+
+        EnsureTimer(TimeSpan.Zero);
+        await EnsureReminderAsync().ConfigureAwait(false);
     }
 
     /// <summary>
     /// Called by the <see cref="IOutboxGrain"/> DIM when a reminder fires.
     /// No-ops for reminder names not owned by this processor.
     /// </summary>
-    /// <param name="reminderName">The reminder name from Orleans.</param>
-    /// <param name="status">The tick status from Orleans.</param>
     public ValueTask ReceiveReminderAsync(string reminderName, TickStatus status)
     {
-        throw new NotImplementedException();
+        return string.Equals(reminderName, this.reminderName, StringComparison.Ordinal)
+            ? PostAsync()
+            : ValueTask.CompletedTask;
     }
 
     /// <summary>
     /// Attaches this processor to the grain's <see cref="IGrainContext"/> as
     /// a component so the <see cref="IOutboxGrain"/> DIM can discover it.
-    /// Called internally by <c>RegisterOutboxProcessor</c>.
     /// </summary>
     internal void AttachToGrain()
     {
-        throw new NotImplementedException();
+        owner.GrainContext.SetComponent<IOutboxComponent>(this);
+    }
+
+    private OutboxProcessor<TOutbox> AddPostmanCore<TSub>(
+        Func<TSub, CancellationToken, ValueTask> postman) where TSub : TOutbox
+    {
+        postmen.Add(new PostmanRegistration(
+            typeof(TSub),
+            (item, cancellationToken) => postman((TSub)item, cancellationToken)));
+
+        return this;
+    }
+
+    private async Task DrainOnceAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var pending = options.PendingItems();
+        MessagingTelemetry.RecordOutboxDepth(grainType, pending.IsDefault ? 0 : pending.Length);
+
+        if (pending.IsDefaultOrEmpty)
+        {
+            await DisableRetryAsync().ConfigureAwait(false);
+            return;
+        }
+
+        using var timeout = new CancellationTokenSource(options.ProcessingTimeout);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
+        var started = Stopwatch.GetTimestamp();
+        var posted = ImmutableArray.CreateBuilder<TOutbox>();
+        var failed = ImmutableArray.CreateBuilder<(TOutbox Item, Exception Error, int Attempt)>();
+
+        try
+        {
+            foreach (var item in pending)
+            {
+                linked.Token.ThrowIfCancellationRequested();
+                await DispatchItemAsync(item, posted, failed, linked.Token).ConfigureAwait(false);
+            }
+
+            if (posted.Count > 0)
+            {
+                await options.AcknowledgePostedAsync(posted.ToImmutable(), linked.Token).ConfigureAwait(false);
+                foreach (var item in posted)
+                {
+                    attempts.Remove(item);
+                }
+            }
+
+            if (failed.Count > 0 && options.ReconcileFailedAsync is { } reconcileFailed)
+            {
+                await reconcileFailed(failed.ToImmutable(), linked.Token).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && timeout.IsCancellationRequested)
+        {
+            throw new TimeoutException($"Outbox post run exceeded the configured timeout of {options.ProcessingTimeout}.");
+        }
+        finally
+        {
+            MessagingTelemetry.RecordOutboxPostDuration(
+                grainType,
+                options.PostmanExecution,
+                Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+        }
+
+        await ReconcileRetryStateAsync().ConfigureAwait(false);
+    }
+
+    private async Task DispatchItemAsync(
+        TOutbox item,
+        ImmutableArray<TOutbox>.Builder posted,
+        ImmutableArray<(TOutbox Item, Exception Error, int Attempt)>.Builder failed,
+        CancellationToken cancellationToken)
+    {
+        var started = Stopwatch.GetTimestamp();
+        var itemType = item.GetType();
+        var postman = FindPostman(itemType);
+        if (postman is null)
+        {
+            var error = new NoPostmanRegisteredException(itemType);
+            logger.LogWarning(
+                error,
+                "No outbox postman registered for item type {OutboxItemType} on grain {GrainType}.",
+                itemType.FullName,
+                grainType);
+            failed.Add((item, error, IncrementAttempt(item)));
+            MessagingTelemetry.RecordOutboxPostError(grainType, itemType.Name, error);
+            return;
+        }
+
+        try
+        {
+            await InvokePostmanAsync(postman, item, cancellationToken).ConfigureAwait(false);
+            posted.Add(item);
+            MessagingTelemetry.RecordOutboxPostItem(
+                grainType,
+                itemType.Name,
+                postman.ItemType.Name,
+                options.PostmanExecution,
+                success: true,
+                Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogError(
+                ex,
+                "Outbox postman failed for item type {OutboxItemType} on grain {GrainType}.",
+                itemType.FullName,
+                grainType);
+            failed.Add((item, ex, IncrementAttempt(item)));
+            MessagingTelemetry.RecordOutboxPostError(grainType, itemType.Name, ex);
+            MessagingTelemetry.RecordOutboxPostItem(
+                grainType,
+                itemType.Name,
+                postman.ItemType.Name,
+                options.PostmanExecution,
+                success: false,
+                Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+        }
+    }
+
+    private ValueTask InvokePostmanAsync(
+        PostmanRegistration postman,
+        TOutbox item,
+        CancellationToken cancellationToken)
+    {
+        if (options.PostmanExecution is OutboxPostmanExecutionMode.GrainScheduler)
+        {
+            return postman.Invoke(item, cancellationToken);
+        }
+
+        return new ValueTask(Task.Run(
+            async () => await postman.Invoke(item, cancellationToken).ConfigureAwait(false),
+            cancellationToken));
+    }
+
+    private PostmanRegistration? FindPostman(Type itemType)
+    {
+        foreach (var postman in postmen)
+        {
+            if (postman.ItemType.IsAssignableFrom(itemType))
+            {
+                return postman;
+            }
+        }
+
+        return null;
+    }
+
+    private int IncrementAttempt(TOutbox item)
+    {
+        attempts.TryGetValue(item, out var current);
+        var next = current + 1;
+        attempts[item] = next;
+        return next;
+    }
+
+    private async Task ReconcileRetryStateAsync()
+    {
+        var pending = options.PendingItems();
+        MessagingTelemetry.RecordOutboxDepth(grainType, pending.IsDefault ? 0 : pending.Length);
+
+        if (pending.IsDefaultOrEmpty)
+        {
+            await DisableRetryAsync().ConfigureAwait(false);
+            return;
+        }
+
+        EnsureTimer(options.RetryDelay);
+        await EnsureReminderAsync().ConfigureAwait(false);
+    }
+
+    private void EnsureTimer(TimeSpan dueTime)
+    {
+        var options = new GrainTimerCreationOptions(dueTime, this.options.RetryDelay)
+        {
+            Interleave = this.options.Interleave,
+            KeepAlive = this.options.KeepAlive
+        };
+
+        if (timer is null)
+        {
+            timer = owner.RegisterGrainTimer(
+                static (processor, cancellationToken) => processor.PostAsync(cancellationToken).AsTask(),
+                this,
+                options);
+            return;
+        }
+
+        timer.Change(dueTime, this.options.RetryDelay);
+    }
+
+    private async Task EnsureReminderAsync()
+    {
+        var period = Max(options.RetryDelay, TimeSpan.FromMinutes(1));
+        reminder = await owner.RegisterOrUpdateReminder(reminderName, period, period).ConfigureAwait(false);
+    }
+
+    private async Task DisableRetryAsync()
+    {
+        timer?.Dispose();
+        timer = null;
+
+        var activeReminder = reminder ?? await owner.GetReminder(reminderName).ConfigureAwait(false);
+        if (activeReminder is not null)
+        {
+            await owner.UnregisterReminder(activeReminder).ConfigureAwait(false);
+            reminder = null;
+        }
+    }
+
+    private static TimeSpan Max(TimeSpan left, TimeSpan right) => left >= right ? left : right;
+
+    private sealed record PostmanRegistration(
+        Type ItemType,
+        Func<TOutbox, CancellationToken, ValueTask> Postman)
+    {
+        public ValueTask Invoke(TOutbox item, CancellationToken cancellationToken) =>
+            Postman(item, cancellationToken);
     }
 }
 

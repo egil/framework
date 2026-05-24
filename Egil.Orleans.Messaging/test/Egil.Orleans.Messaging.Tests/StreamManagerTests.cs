@@ -70,6 +70,28 @@ public sealed class StreamManagerTests(MessagingTestClusterFixture fixture) : IC
             async () => Assert.Equal("resumed", (await grain.GetStateAsync()).ResumeValue),
             ct: TestContext.Current.CancellationToken);
     }
+
+    [Fact]
+    public async Task SubscribeAsync_rejects_duplicate_subscription_initialization()
+    {
+        var grain = fixture.GrainFactory.GetGrain<IStreamManagerTestGrain>(Guid.NewGuid());
+        await grain.EnsureActiveAsync();
+
+        var exceptionType = await grain.SubscribeAgainAsync();
+
+        Assert.Equal(nameof(InvalidOperationException), exceptionType);
+    }
+
+    [Fact]
+    public async Task AddSubscription_rejects_configuration_after_subscribe()
+    {
+        var grain = fixture.GrainFactory.GetGrain<IStreamManagerTestGrain>(Guid.NewGuid());
+        await grain.EnsureActiveAsync();
+
+        var exceptionType = await grain.AddSubscriptionAfterSubscribeAsync();
+
+        Assert.Equal(nameof(InvalidOperationException), exceptionType);
+    }
 }
 
 internal static class StreamManagerTestNamespaces
@@ -87,6 +109,10 @@ public interface IStreamManagerTestGrain : IGrainWithGuidKey
     Task SeedResumeCursorAsync(long sequenceNumber);
 
     Task DeactivateAsync();
+
+    Task<string?> SubscribeAgainAsync();
+
+    Task<string?> AddSubscriptionAfterSubscribeAsync();
 
     Task<StreamManagerTestState> GetStateAsync();
 }
@@ -148,6 +174,34 @@ public sealed class StreamManagerTestGrain(
     }
 
     public Task<StreamManagerTestState> GetStateAsync() => Task.FromResult(state.State);
+
+    public async Task<string?> SubscribeAgainAsync()
+    {
+        try
+        {
+            await streamManager!.SubscribeAsync();
+            return null;
+        }
+        catch (Exception ex)
+        {
+            return ex.GetType().Name;
+        }
+    }
+
+    public Task<string?> AddSubscriptionAfterSubscribeAsync()
+    {
+        try
+        {
+            streamManager!.AddSubscription<string>(
+                "not-registered",
+                static (_, _) => ValueTask.CompletedTask);
+            return Task.FromResult<string?>(null);
+        }
+        catch (Exception ex)
+        {
+            return Task.FromResult<string?>(ex.GetType().Name);
+        }
+    }
 
     private async ValueTask HandleValueTaskAsync(string item, StreamSequenceToken? token)
     {
