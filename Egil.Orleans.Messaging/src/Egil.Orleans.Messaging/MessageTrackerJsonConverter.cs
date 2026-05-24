@@ -1,5 +1,11 @@
+using System.Collections.Immutable;
+using System.Reflection;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Orleans.Providers.Streams.Common;
+using Orleans.Streaming.EventHubs;
+using Orleans.Streams;
 
 namespace Egil.Orleans.Messaging;
 
@@ -18,21 +24,231 @@ namespace Egil.Orleans.Messaging;
 /// </para>
 /// <para>
 /// Registered on <see cref="MessageTracker"/> via <c>[JsonConverter]</c>.
-/// STJ discovers the attribute automatically — no user-side
+/// STJ discovers the attribute automatically - no user-side
 /// <see cref="JsonSerializerOptions"/> configuration needed.
 /// </para>
 /// </remarks>
 internal sealed class MessageTrackerJsonConverter : JsonConverter<MessageTracker>
 {
+    private static readonly FieldInfo StreamsField = typeof(MessageTracker).GetField(
+        "streams",
+        BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+    private static readonly FieldInfo OutboxField = typeof(MessageTracker).GetField(
+        "outbox",
+        BindingFlags.Instance | BindingFlags.NonPublic)!;
+
     /// <inheritdoc/>
     public override MessageTracker? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
-        throw new NotImplementedException();
+        var model = JsonSerializer.Deserialize<MessageTrackerJsonModel>(ref reader, options);
+        if (model is null)
+        {
+            return null;
+        }
+
+        var streams = ImmutableDictionary.CreateBuilder<StreamId, MessageTracker.StreamEntry>();
+        foreach (var item in model.Streams ?? Array.Empty<StreamEntryJsonModel>())
+        {
+            streams.Add(
+                ParseStreamId(item.StreamId),
+                new MessageTracker.StreamEntry(
+                    FromJsonModel(item.LastPosition),
+                    item.Received));
+        }
+
+        var outbox = ImmutableDictionary.CreateBuilder<GrainId, MessageTracker.OutboxEntry>();
+        foreach (var item in model.Outboxes ?? Array.Empty<OutboxEntryJsonModel>())
+        {
+            outbox.Add(
+                ParseGrainId(item.Sender),
+                new MessageTracker.OutboxEntry(
+                    item.Epoch,
+                    item.LastSequenceNumber,
+                    item.Received));
+        }
+
+        return new MessageTracker(streams.ToImmutable(), outbox.ToImmutable());
     }
 
     /// <inheritdoc/>
     public override void Write(Utf8JsonWriter writer, MessageTracker value, JsonSerializerOptions options)
     {
-        throw new NotImplementedException();
+        var streams = GetStreams(value);
+        var outbox = GetOutbox(value);
+
+        var streamModels = new StreamEntryJsonModel[streams.Count];
+        var streamIndex = 0;
+        foreach (var item in streams)
+        {
+            streamModels[streamIndex++] = new StreamEntryJsonModel(
+                item.Key.ToString(),
+                ToJsonModel(item.Value.LastPosition),
+                item.Value.Received);
+        }
+
+        var outboxModels = new OutboxEntryJsonModel[outbox.Count];
+        var outboxIndex = 0;
+        foreach (var item in outbox)
+        {
+            outboxModels[outboxIndex++] = new OutboxEntryJsonModel(
+                ToJsonModel(item.Key),
+                item.Value.Epoch,
+                item.Value.LastSequenceNumber,
+                item.Value.Received);
+        }
+
+        JsonSerializer.Serialize(
+            writer,
+            new MessageTrackerJsonModel(streamModels, outboxModels),
+            options);
+    }
+
+    private static ImmutableDictionary<StreamId, MessageTracker.StreamEntry> GetStreams(MessageTracker value) =>
+        (ImmutableDictionary<StreamId, MessageTracker.StreamEntry>)StreamsField.GetValue(value)!;
+
+    private static ImmutableDictionary<GrainId, MessageTracker.OutboxEntry> GetOutbox(MessageTracker value) =>
+        (ImmutableDictionary<GrainId, MessageTracker.OutboxEntry>)OutboxField.GetValue(value)!;
+
+    private static StreamId ParseStreamId(string value) =>
+        StreamId.Parse(Encoding.UTF8.GetBytes(value));
+
+    private static GrainId ParseGrainId(GrainIdJsonModel value) =>
+        GrainId.Create(value.Type, value.Key);
+
+    private static StreamCursor FromJsonModel(StreamCursorJsonModel model) =>
+        new(ParseStreamId(model.StreamId), FromJsonModel(model.Token));
+
+    private static StreamSequenceToken? FromJsonModel(StreamSequenceTokenJsonModel? model)
+    {
+        if (model is null)
+        {
+            return null;
+        }
+
+        return model.Kind switch
+        {
+            StreamSequenceTokenKinds.EventSequenceToken => new EventSequenceToken(model.SequenceNumber, model.EventIndex),
+            StreamSequenceTokenKinds.EventSequenceTokenV2 => new EventSequenceTokenV2(model.SequenceNumber, model.EventIndex),
+            StreamSequenceTokenKinds.EventHubSequenceToken => new EventHubSequenceToken(
+                model.EventHubOffset ?? throw new JsonException("Missing EventHubOffset."),
+                model.SequenceNumber,
+                model.EventIndex),
+            StreamSequenceTokenKinds.EventHubSequenceTokenV2 => new EventHubSequenceTokenV2(
+                model.EventHubOffset ?? throw new JsonException("Missing EventHubOffset."),
+                model.SequenceNumber,
+                model.EventIndex),
+            StreamSequenceTokenKinds.EnrichedEventHubSequenceToken => new EnrichedEventHubSequenceToken(
+                model.EventHubOffset ?? throw new JsonException("Missing EventHubOffset."),
+                model.SequenceNumber,
+                model.EventIndex,
+                model.EnqueuedTime ?? throw new JsonException("Missing EnqueuedTime."),
+                model.StreamProviderName ?? throw new JsonException("Missing StreamProviderName."),
+                model.TraceParent),
+            _ => throw new JsonException($"Unsupported stream sequence token kind '{model.Kind}'.")
+        };
+    }
+
+    private static StreamCursorJsonModel ToJsonModel(StreamCursor value) =>
+        new(
+            value.StreamId.ToString(),
+            ToJsonModel(value.Token));
+
+    private static StreamSequenceTokenJsonModel? ToJsonModel(StreamSequenceToken? value)
+    {
+        if (value is null)
+        {
+            return null;
+        }
+
+        return value switch
+        {
+            EnrichedEventHubSequenceToken token => new StreamSequenceTokenJsonModel(
+                StreamSequenceTokenKinds.EnrichedEventHubSequenceToken,
+                token.SequenceNumber,
+                token.EventIndex,
+                token.EventHubOffset,
+                token.EnqueuedTime,
+                token.StreamProviderName,
+                token.TraceParent),
+            EventHubSequenceTokenV2 token => new StreamSequenceTokenJsonModel(
+                StreamSequenceTokenKinds.EventHubSequenceTokenV2,
+                token.SequenceNumber,
+                token.EventIndex,
+                token.EventHubOffset,
+                null,
+                null,
+                null),
+            EventHubSequenceToken token => new StreamSequenceTokenJsonModel(
+                StreamSequenceTokenKinds.EventHubSequenceToken,
+                token.SequenceNumber,
+                token.EventIndex,
+                token.EventHubOffset,
+                null,
+                null,
+                null),
+            EventSequenceTokenV2 token => new StreamSequenceTokenJsonModel(
+                StreamSequenceTokenKinds.EventSequenceTokenV2,
+                token.SequenceNumber,
+                token.EventIndex,
+                null,
+                null,
+                null,
+                null),
+            EventSequenceToken token => new StreamSequenceTokenJsonModel(
+                StreamSequenceTokenKinds.EventSequenceToken,
+                token.SequenceNumber,
+                token.EventIndex,
+                null,
+                null,
+                null,
+                null),
+            _ => throw new NotSupportedException(
+                $"Unsupported stream sequence token type '{value.GetType().FullName}'.")
+        };
+    }
+
+    private static GrainIdJsonModel ToJsonModel(GrainId grainId) =>
+        new(grainId.Type.ToString()!, grainId.Key.ToString()!);
+
+    private sealed record MessageTrackerJsonModel(
+        StreamEntryJsonModel[]? Streams,
+        OutboxEntryJsonModel[]? Outboxes);
+
+    private sealed record StreamEntryJsonModel(
+        string StreamId,
+        StreamCursorJsonModel LastPosition,
+        DateTimeOffset Received);
+
+    private sealed record OutboxEntryJsonModel(
+        GrainIdJsonModel Sender,
+        DateTimeOffset Epoch,
+        long LastSequenceNumber,
+        DateTimeOffset Received);
+
+    private sealed record StreamCursorJsonModel(
+        string StreamId,
+        StreamSequenceTokenJsonModel? Token);
+
+    private sealed record StreamSequenceTokenJsonModel(
+        string Kind,
+        long SequenceNumber,
+        int EventIndex,
+        string? EventHubOffset,
+        DateTimeOffset? EnqueuedTime,
+        string? StreamProviderName,
+        string? TraceParent);
+
+    private sealed record GrainIdJsonModel(
+        string Type,
+        string Key);
+
+    private static class StreamSequenceTokenKinds
+    {
+        public const string EventSequenceToken = "event-sequence";
+        public const string EventSequenceTokenV2 = "event-sequence-v2";
+        public const string EventHubSequenceToken = "event-hub";
+        public const string EventHubSequenceTokenV2 = "event-hub-v2";
+        public const string EnrichedEventHubSequenceToken = "enriched-event-hub";
     }
 }
