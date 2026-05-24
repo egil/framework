@@ -4,17 +4,14 @@
     <CentralPackageTransitivePinningEnabled>false</CentralPackageTransitivePinningEnabled>
     <NoWarn>$(NoWarn);NU1507</NoWarn>
   </PropertyGroup>
-
   <ItemGroup Label="Code Analyzers">
     <GlobalPackageVersion Include="Meziantou.Analyzer" Version="2.0.186" PrivateAssets="All" />
     <GlobalPackageVersion Include="SonarAnalyzer.CSharp" Version="10.5.0.109200" PrivateAssets="All" />
   </ItemGroup>
-
   <ItemGroup Label="Building">
     <PackageVersion Include="DotNet.ReproducibleBuilds" Version="2.0.2" />
     <PackageVersion Include="Nerdbank.GitVersioning" Version="3.9.50" />
   </ItemGroup>
-
   <ItemGroup Label="Orleans">
     <PackageVersion Include="Microsoft.Orleans.Reminders" Version="10.1.0" />
     <PackageVersion Include="Microsoft.Orleans.Runtime" Version="10.1.0" />
@@ -24,14 +21,12 @@
     <PackageVersion Include="Microsoft.Orleans.Streaming.EventHubs" Version="10.1.0" />
     <PackageVersion Include="Microsoft.Orleans.TestingHost" Version="10.1.0" />
   </ItemGroup>
-
   <ItemGroup Label="Testing">
-    <PackageVersion Include="coverlet.msbuild" Version="8.0.0" />
-    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.13.0" />
-    <PackageVersion Include="Microsoft.Testing.Extensions.CodeCoverage" Version="18.6.2" />
+    <PackageVersion Include="coverlet.msbuild" Version="10.0.1" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.5.1" />
     <PackageVersion Include="TimeProviderExtensions" Version="1.0.0" />
     <PackageVersion Include="xunit.v3" Version="3.2.2" />
     <PackageVersion Include="xunit.v3.mtp-v2" Version="3.2.2" />
-    <PackageVersion Include="xunit.runner.visualstudio" Version="3.0.2" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
   </ItemGroup>
 </Project>
