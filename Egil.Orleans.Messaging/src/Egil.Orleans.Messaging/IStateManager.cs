@@ -18,9 +18,9 @@ namespace Egil.Orleans.Messaging;
 /// </para>
 /// <para>
 /// <b>Usage:</b> Inject <see cref="IPersistentState{TState}"/> as normal via
-/// <c>[PersistentState]</c>, then wrap it during <c>OnActivateAsync</c>:
+/// <c>[PersistentState]</c>, then initialize it during <c>OnActivateAsync</c>:
 /// <code>
-/// stateManager = storage.AsStateManager();
+/// stateManager = this.InitializeStateManager("state", storage);
 /// </code>
 /// The raw <see cref="IPersistentState{TState}"/> should not be accessed
 /// directly after wrapping — doing so bypasses the committed-state fence.
@@ -125,11 +125,7 @@ public interface IStateManager<T>
     /// </para>
     /// </remarks>
     /// <param name="newState">The new state value to persist.</param>
-    /// <param name="policy">
-    /// Concurrency policy. <see cref="WritePolicy.Concurrent"/> (default) uses
-    /// the provider's ETag check. <see cref="WritePolicy.Force"/> bypasses it.
-    /// </param>
-    Task WriteAsync(T newState, WritePolicy policy = WritePolicy.Concurrent);
+    Task WriteAsync(T newState);
 
     /// <summary>
     /// Clears the persisted state, resetting it to <c>default</c>.

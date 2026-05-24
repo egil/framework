@@ -73,23 +73,14 @@ read stale `storage.State` after a failed write.
 ### Interface
 
 ```csharp
-public enum WritePolicy { Concurrent, Force }
-
 public interface IStateManager<T> where T : class, IEquatable<T>
 {
     T State { get; }
     Task ReadAsync();
-    Task WriteAsync(T newState, WritePolicy policy = WritePolicy.Concurrent);
+    Task WriteAsync(T newState);
     Task ClearAsync();
 }
 ```
-
-`WritePolicy.Force` is a rare last-resort escape hatch — nulls
-`storage.Etag` before writing so the underlying provider skips its
-optimistic-concurrency check. Version stamping and the read-back-on-
-failure recovery path still run identically. See §3a for why this lives
-at the `IStateManager` layer rather than as a settable `Version`
-property on `VersionedState`.
 
 Constraints on `T`:
 
@@ -148,18 +139,13 @@ internal sealed class StateManager<T>(IPersistentState<T> storage) : IStateManag
 
     public Task ReadAsync() => storage.ReadStateAsync();
 
-    public async Task WriteAsync(T newState, WritePolicy policy = WritePolicy.Concurrent)
+    public async Task WriteAsync(T newState)
     {
         var previous = storage.State;
 
         if (newState is VersionedState versioned)
         {
             versioned.Version = Guid.CreateVersion7();
-        }
-
-        if (policy == WritePolicy.Force)
-        {
-            storage.Etag = null;
         }
 
         storage.State = newState;
@@ -543,8 +529,6 @@ and the `[JsonInclude]` + `internal set` fence.
 
 `IPersistentState<T>.Etag` is storage concurrency. `Version` is
 library-internal recovery decoration. Conflating them erases a layer.
-Force-write escape hatch lives on `IStateManager<T>` via
-`WritePolicy.Force`.
 
 ---
 
@@ -1199,8 +1183,7 @@ Matching `Egil.Orleans.Testing` convention:
   `MessageTracker`, `StateManager<T>`, `VersionedState`,
   `OutboxProcessor<T>`.
 - **95% branch coverage** on supporting types: `OutboxSequenceToken`,
-  `StreamCursor`, `StreamManager`, `OutboxMessageEnvelope<T>`,
-  `WritePolicy`.
+  `StreamCursor`, `StreamManager`, `OutboxMessageEnvelope<T>`.
 
 ### Test grain shape
 
@@ -1208,7 +1191,7 @@ Purpose-built test grains in the test assembly, each targeting a
 specific behavior:
 
 - **Write recovery grain** — exercises `StateManager<T>.WriteAsync`
-  failure + recovery path, double failure, `WritePolicy.Force`.
+  failure + recovery path and double failure.
 - **Outbox drain grain** — exercises `Outbox<T>` Add/Remove/Clear,
   epoch reset, `OutboxProcessor` timer/reminder lifecycle, postman
   dispatch + error callback with attempt count.
