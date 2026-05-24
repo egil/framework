@@ -3,10 +3,26 @@ using Orleans.Storage;
 namespace Egil.Orleans.Messaging;
 
 /// <summary>
-/// Default implementation of <see cref="IStateManager{T}"/>. Wraps an
-/// <see cref="IPersistentState{T}"/> and adds committed-state fencing,
+/// Classifies a storage write failure for recovery decisions.
+/// </summary>
+public enum WriteFailureKind
+{
+    /// <summary>
+    /// Unknown outcome. The write may have persisted. Run read-back recovery.
+    /// </summary>
+    UnknownOutcome,
+
+    /// <summary>
+    /// The write definitely did not persist. Skip read-back and rethrow.
+    /// </summary>
+    DidNotPersist
+}
+
+/// <summary>
+/// Base implementation of <see cref="IStateManager{T}"/>. Wraps an
+/// <see cref="IPersistentState{T}"/> and provides committed-state fencing,
 /// version stamping for <see cref="VersionedState"/>-derived types, and
-/// automatic write recovery.
+/// configurable write-failure recovery behavior.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -55,11 +71,9 @@ namespace Egil.Orleans.Messaging;
 /// </list>
 /// </para>
 /// <para>
-/// <b>Concurrency:</b> <see cref="WritePolicy.Concurrent"/> (default) uses
-/// the storage provider's ETag for optimistic concurrency. Writes against
-/// stale ETags fail with <c>InconsistentStateException</c>.
-/// <see cref="WritePolicy.Force"/> nulls the ETag before writing, bypassing
-/// the concurrency check — use only for admin repair operations.
+/// <b>Concurrency:</b> Uses the storage provider's optimistic concurrency
+/// checks (typically ETag-based). Writes against stale versions fail with
+/// <c>InconsistentStateException</c>.
 /// </para>
 /// <para>
 /// <b>Thread safety:</b> Relies on Orleans turn-based concurrency. Not safe
@@ -70,23 +84,15 @@ namespace Egil.Orleans.Messaging;
 /// <typeparam name="T">
 /// <inheritdoc cref="IStateManager{T}" path="/typeparam"/>
 /// </typeparam>
-internal sealed class StateManager<T> : IStateManager<T>
+public abstract class StateManagerBase<T> : IStateManager<T>
     where T : class, IEquatable<T>
 {
     private readonly IPersistentState<T> storage;
     private T state;
 
-    /// <summary>
-    /// Creates a new <see cref="StateManager{T}"/> wrapping the given
-    /// <paramref name="storage"/> facet.
-    /// </summary>
-    /// <param name="storage">
-    /// The Orleans persistent state facet to wrap. The manager takes full
-    /// ownership — callers must not read or write <paramref name="storage"/>
-    /// directly after wrapping.
-    /// </param>
-    internal StateManager(IPersistentState<T> storage)
+    protected StateManagerBase(IPersistentState<T> storage)
     {
+        ArgumentNullException.ThrowIfNull(storage);
         this.storage = storage;
         state = storage.State;
     }
@@ -105,19 +111,15 @@ internal sealed class StateManager<T> : IStateManager<T>
     }
 
     /// <inheritdoc/>
-    public async Task WriteAsync(T newState, WritePolicy policy = WritePolicy.Concurrent)
+    public async Task WriteAsync(T newState)
     {
+        ArgumentNullException.ThrowIfNull(newState);
+
         var previousState = state;
-        var previousEtag = storage.Etag;
 
         if (newState is VersionedState versioned)
         {
             versioned.Version = Guid.CreateVersion7();
-        }
-
-        if (policy == WritePolicy.Force)
-        {
-            TrySetEtag(storage, null);
         }
 
         storage.State = newState;
@@ -125,31 +127,46 @@ internal sealed class StateManager<T> : IStateManager<T>
         try
         {
             await storage.WriteStateAsync();
-            state = newState;
+            state = storage.State;
             return;
         }
         catch (Exception ex)
         {
+            var failureKind = ClassifyWriteFailure(ex);
+            if (failureKind is WriteFailureKind.DidNotPersist)
+            {
+                // Provider-specific classification says the write never reached durable storage.
+                // Revert our local fence immediately and rethrow the original write error.
+                state = previousState;
+                storage.State = previousState;
+                throw;
+            }
+
             try
             {
+                // Unknown outcome: write may have persisted despite the exception.
+                // Read back from storage to distinguish "lost response" from "real failure."
                 await storage.ReadStateAsync();
                 var persisted = storage.State;
 
                 if (ex is InconsistentStateException)
                 {
+                    // Concurrency conflicts must be surfaced even if values happen to match.
+                    // A coincidental equality must not hide an optimistic concurrency violation.
                     storage.State = previousState;
-                    TrySetEtag(storage, previousEtag);
                     throw;
                 }
 
                 if (IsEquivalent(persisted, newState))
                 {
+                    // Lost-response case: write landed, but acknowledgement failed.
+                    // Advance committed fence to persisted value and swallow write exception.
                     state = persisted;
                     return;
                 }
 
+                // Read-back proved write did not land; restore local snapshot and rethrow.
                 storage.State = previousState;
-                TrySetEtag(storage, previousEtag);
                 throw;
             }
             catch when (ex is not InconsistentStateException)
@@ -157,9 +174,10 @@ internal sealed class StateManager<T> : IStateManager<T>
                 // no-op; throw original below
             }
 
+            // Write failed and recovery read also failed: keep committed fence coherent by
+            // reverting to the pre-write snapshot, then surface the original write error.
             state = previousState;
             storage.State = previousState;
-            TrySetEtag(storage, previousEtag);
             throw;
         }
     }
@@ -172,11 +190,10 @@ internal sealed class StateManager<T> : IStateManager<T>
     }
 
     /// <summary>
-    /// Determines whether the persisted state matches the attempted write.
-    /// For <see cref="VersionedState"/>-derived types, compares
-    /// <see cref="VersionedState.Version"/> directly. For plain types, falls
-    /// back to <see cref="IEquatable{T}.Equals(T)"/>.
+    /// Classifies a write failure so the base can decide recovery behavior.
     /// </summary>
+    protected abstract WriteFailureKind ClassifyWriteFailure(Exception exception);
+
     private static bool IsEquivalent(T persisted, T attempted)
     {
         if (persisted is VersionedState persistedVersioned
@@ -187,15 +204,23 @@ internal sealed class StateManager<T> : IStateManager<T>
 
         return persisted.Equals(attempted);
     }
+}
 
-    private static void TrySetEtag(IPersistentState<T> storage, string? etag)
+/// <summary>
+/// Default <see cref="IStateManager{T}"/> implementation for general storage providers.
+/// </summary>
+public sealed class DefaultStateManager<T> : StateManagerBase<T>
+    where T : class, IEquatable<T>
+{
+    public DefaultStateManager(IPersistentState<T> storage)
+        : base(storage)
     {
-        var property = storage.GetType().GetProperty(nameof(IPersistentState<T>.Etag));
-        if (property is null || !property.CanWrite)
-        {
-            return;
-        }
+    }
 
-        property.SetValue(storage, etag);
+    /// <inheritdoc/>
+    protected override WriteFailureKind ClassifyWriteFailure(Exception exception)
+    {
+        ArgumentNullException.ThrowIfNull(exception);
+        return WriteFailureKind.UnknownOutcome;
     }
 }
