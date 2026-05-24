@@ -639,7 +639,7 @@ fake-clock tests.
 Grain-level facade around Orleans implicit subscriptions. Four
 responsibilities:
 
-1. **Subscribe** to stream namespaces during `OnActivateAsync`.
+1. **Configure** stream namespaces during `OnActivateAsync`.
 2. **Resume** from last accepted `StreamCursor` per namespace.
 3. **Dispatch** with projected `StreamCursor`.
 4. **Per-subscription error handling** via the optional `onError` callback.
@@ -654,22 +654,24 @@ uses `StreamManager` as a field.
 ```csharp
 public sealed class StreamManager
 {
-    public StreamManager Subscribe<TEvent>(
+    public StreamManager AddSubscription<TEvent>(
         string streamNamespace,
         Func<TEvent, StreamSequenceToken, ValueTask> onNextAsync,
         Action<string, Exception>? onError = default,
         bool passLatestSequenceTokenOnResume = true);
 
-    public StreamManager Subscribe<TEvent>(
+    public StreamManager AddSubscription<TEvent>(
         string streamNamespace,
         Func<TEvent, StreamSequenceToken, Task> onNextAsync,
         Action<string, Exception>? onError = default,
         bool passLatestSequenceTokenOnResume = true);
+
+    public Task SubscribeAsync(CancellationToken cancellationToken = default);
 }
 
 public static class StreamManagerExtensions
 {
-    public static StreamManager InitializeStreamManager<TGrain>(
+    public static StreamManager RegisterStreamManager<TGrain>(
         this TGrain grain,
         MessageTracker trackerSnapshot)
         where TGrain : IGrainBase;
@@ -685,9 +687,11 @@ public override async Task OnActivateAsync(CancellationToken ct)
     var state = await stateManager.ReadAsync();
     state.Tracker.RegisterTimeProvider(timeProvider);
 
-    streamManager = this.InitializeStreamManager(state.Tracker)
-        .Subscribe("electricity-prices", HandlePriceTickAsync, LogStreamError)
-        .Subscribe("tariff-events", HandleTariffChangedAsync);
+    streamManager = this.RegisterStreamManager(state.Tracker)
+        .AddSubscription("electricity-prices", HandlePriceTickAsync, LogStreamError)
+        .AddSubscription("tariff-events", HandleTariffChangedAsync);
+
+    await streamManager.SubscribeAsync(ct);
 }
 ```
 
@@ -697,7 +701,7 @@ group. Users only specify it for inline lambdas or ambiguous method groups.
 ### Resume semantics
 
 - Each subscription reads `trackerSnapshot.LatestStream(streamId)` once
-  when `Subscribe(...)` activates it.
+  when `SubscribeAsync(...)` establishes configured subscriptions.
 - If cursor exists → hydrate `StreamSequenceToken`, pass to
   `SubscribeAsync`.
 - If null → subscribe without token (provider default, typically:

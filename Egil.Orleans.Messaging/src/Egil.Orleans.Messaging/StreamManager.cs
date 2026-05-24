@@ -1,3 +1,6 @@
+using System.Diagnostics;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Orleans.Streams;
 
 namespace Egil.Orleans.Messaging;
@@ -16,9 +19,10 @@ namespace Egil.Orleans.Messaging;
 /// <code>
 /// public override async Task OnActivateAsync(CancellationToken ct)
 /// {
-///     streamManager = this.InitializeStreamManager(state.Tracker)
-///         .Subscribe("electricity-prices", HandlePriceTickAsync, LogStreamError)
-///         .Subscribe("tariff-events", HandleTariffChangedAsync);
+///     streamManager = this.RegisterStreamManager(state.Tracker)
+///         .AddSubscription("electricity-prices", HandlePriceTickAsync, LogStreamError)
+///         .AddSubscription("tariff-events", HandleTariffChangedAsync);
+///     await streamManager.SubscribeAsync(ct);
 /// }
 /// </code>
 /// </para>
@@ -49,7 +53,27 @@ namespace Egil.Orleans.Messaging;
 /// </remarks>
 public sealed class StreamManager
 {
-    private StreamManager() { }
+    private readonly IGrainBase owner;
+    private readonly MessageTracker trackerSnapshot;
+    private readonly Func<string, IStreamProvider> getStreamProvider;
+    private readonly Func<string, StreamId> getStreamId;
+    private readonly ILogger logger;
+    private readonly List<Func<CancellationToken, Task>> subscriptions = [];
+    private readonly List<object> subscriptionHandles = [];
+
+    private StreamManager(
+        IGrainBase owner,
+        MessageTracker trackerSnapshot,
+        Func<string, IStreamProvider> getStreamProvider,
+        Func<string, StreamId> getStreamId,
+        ILogger logger)
+    {
+        this.owner = owner;
+        this.trackerSnapshot = trackerSnapshot;
+        this.getStreamProvider = getStreamProvider;
+        this.getStreamId = getStreamId;
+        this.logger = logger;
+    }
 
     /// <summary>
     /// Creates a <see cref="StreamManager"/> for the given grain.
@@ -65,11 +89,40 @@ public sealed class StreamManager
         IGrainBase owner,
         MessageTracker trackerSnapshot)
     {
-        throw new NotImplementedException();
+        ArgumentNullException.ThrowIfNull(owner);
+        ArgumentNullException.ThrowIfNull(trackerSnapshot);
+
+        var services = owner.GrainContext.ActivationServices;
+        var loggerFactory = services.GetService<ILoggerFactory>();
+        var logger = loggerFactory?.CreateLogger<StreamManager>()
+            ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<StreamManager>.Instance;
+
+        return Create(
+            owner,
+            trackerSnapshot,
+            streamNamespace => services.GetRequiredKeyedService<IStreamProvider>(streamNamespace),
+            streamNamespace => CreateStreamId(owner, streamNamespace),
+            logger);
+    }
+
+    internal static StreamManager Create(
+        IGrainBase owner,
+        MessageTracker trackerSnapshot,
+        Func<string, IStreamProvider> getStreamProvider,
+        Func<string, StreamId> getStreamId,
+        ILogger logger)
+    {
+        ArgumentNullException.ThrowIfNull(owner);
+        ArgumentNullException.ThrowIfNull(trackerSnapshot);
+        ArgumentNullException.ThrowIfNull(getStreamProvider);
+        ArgumentNullException.ThrowIfNull(getStreamId);
+        ArgumentNullException.ThrowIfNull(logger);
+
+        return new StreamManager(owner, trackerSnapshot, getStreamProvider, getStreamId, logger);
     }
 
     /// <summary>
-    /// Declares a subscription to the given <paramref name="streamNamespace"/>.
+    /// Adds a subscription configuration for the given <paramref name="streamNamespace"/>.
     /// </summary>
     /// <typeparam name="TEvent">
     /// The expected event type on this stream namespace. Must match the type
@@ -102,13 +155,25 @@ public sealed class StreamManager
     /// <returns>
     /// This <see cref="StreamManager"/> instance for fluent subscription chaining.
     /// </returns>
-    public StreamManager Subscribe<TEvent>(
+    public StreamManager AddSubscription<TEvent>(
         string streamNamespace,
         Func<TEvent, StreamSequenceToken, ValueTask> onNextAsync,
         Action<string, Exception>? onError = default,
         bool passLatestSequenceTokenOnResume = true)
     {
-        throw new NotImplementedException();
+        ArgumentException.ThrowIfNullOrWhiteSpace(streamNamespace);
+        ArgumentNullException.ThrowIfNull(onNextAsync);
+
+        var streamProvider = getStreamProvider(streamNamespace);
+        var streamId = getStreamId(streamNamespace);
+        var stream = streamProvider.GetStream<TEvent>(streamId);
+        var observer = new StreamObserver<TEvent>(this, streamNamespace, streamId, onNextAsync, onError);
+        var latestCursor = passLatestSequenceTokenOnResume
+            ? trackerSnapshot.LatestStream(streamId)
+            : null;
+
+        subscriptions.Add(ct => SubscribeCoreAsync(streamNamespace, stream, observer, latestCursor?.Token, ct));
+        return this;
     }
 
     /// <summary>
@@ -150,12 +215,180 @@ public sealed class StreamManager
     /// <returns>
     /// This <see cref="StreamManager"/> instance for fluent subscription chaining.
     /// </returns>
-    public StreamManager Subscribe<TEvent>(
+    public StreamManager AddSubscription<TEvent>(
         string streamNamespace,
         Func<TEvent, StreamSequenceToken, Task> onNextAsync,
         Action<string, Exception>? onError = default,
         bool passLatestSequenceTokenOnResume = true)
     {
-        throw new NotImplementedException();
+        ArgumentNullException.ThrowIfNull(onNextAsync);
+
+        return AddSubscription<TEvent>(
+            streamNamespace,
+            (item, token) => new ValueTask(onNextAsync(item, token)),
+            onError,
+            passLatestSequenceTokenOnResume);
+    }
+
+    /// <summary>
+    /// Establishes all configured Orleans stream subscriptions.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token for activation-time subscription setup.</param>
+    public async Task SubscribeAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        await Task.WhenAll(subscriptions.Select(subscription => subscription(cancellationToken))).ConfigureAwait(false);
+    }
+
+    private async Task SubscribeCoreAsync<TEvent>(
+        string streamNamespace,
+        IAsyncStream<TEvent> stream,
+        IAsyncObserver<TEvent> observer,
+        StreamSequenceToken? token,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (token is null)
+            {
+                var handle = await stream.SubscribeAsync(observer).ConfigureAwait(false);
+                subscriptionHandles.Add(handle);
+            }
+            else
+            {
+                var handle = await stream.SubscribeAsync(observer, token, null!).ConfigureAwait(false);
+                subscriptionHandles.Add(handle);
+            }
+
+            MessagingTelemetry.RecordStreamSubscription(streamNamespace, "established");
+        }
+        catch (Exception ex)
+        {
+            MessagingTelemetry.RecordStreamSubscription(streamNamespace, "errored");
+            logger.LogError(ex, "Stream subscription failed for namespace {StreamNamespace}.", streamNamespace);
+            throw;
+        }
+    }
+
+    private async Task OnNextAsync<TEvent>(
+        string streamNamespace,
+        StreamId streamId,
+        TEvent item,
+        StreamSequenceToken? token,
+        Func<TEvent, StreamSequenceToken, ValueTask> onNextAsync,
+        Action<string, Exception>? onError)
+    {
+        var cursor = new StreamCursor(streamId, token);
+        var started = Stopwatch.GetTimestamp();
+
+        using var activity = StartConsumerActivity(streamNamespace, cursor);
+        try
+        {
+            await onNextAsync(item, token!).ConfigureAwait(false);
+
+            MessagingTelemetry.RecordStreamMessage(streamNamespace, "accepted");
+            MessagingTelemetry.RecordStreamHandlerDuration(streamNamespace, "accepted", Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+        }
+        catch (Exception ex)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            activity?.AddTag("exception.type", ex.GetType().FullName);
+            activity?.AddTag("exception.message", ex.Message);
+            MessagingTelemetry.RecordStreamMessage(streamNamespace, "rejected");
+            MessagingTelemetry.RecordStreamHandlerError(streamNamespace);
+            MessagingTelemetry.RecordStreamHandlerDuration(streamNamespace, "rejected", Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+            HandleError(streamNamespace, ex, onError);
+        }
+    }
+
+    private Task OnErrorAsync(string streamNamespace, Exception ex, Action<string, Exception>? onError)
+    {
+        MessagingTelemetry.RecordStreamSubscription(streamNamespace, "errored");
+        HandleError(streamNamespace, ex, onError);
+        return Task.CompletedTask;
+    }
+
+    private void HandleError(string streamNamespace, Exception ex, Action<string, Exception>? onError)
+    {
+        if (onError is null)
+        {
+            logger.LogError(ex, "Stream handler failed for namespace {StreamNamespace}.", streamNamespace);
+            return;
+        }
+
+        try
+        {
+            onError(streamNamespace, ex);
+        }
+        catch (Exception callbackException)
+        {
+            logger.LogError(
+                callbackException,
+                "Stream error callback failed for namespace {StreamNamespace}. Original error: {OriginalError}",
+                streamNamespace,
+                ex.Message);
+        }
+    }
+
+    private Activity? StartConsumerActivity(string streamNamespace, StreamCursor cursor)
+    {
+        var tags = new KeyValuePair<string, object?>[]
+        {
+            new("messaging.system", "orleans"),
+            new("messaging.operation", "process"),
+            new("messaging.destination.name", streamNamespace),
+            new("orleans.grain.id", owner.GrainContext.GrainId.ToString())
+        };
+
+        if (cursor.TryGetTraceParent(out var traceParent)
+            && ActivityContext.TryParse(traceParent, traceState: null, isRemote: true, out var linkedContext))
+        {
+            return MessagingTelemetry.ActivitySource.StartActivity(
+                "orleans.stream.process",
+                ActivityKind.Consumer,
+                parentContext: default,
+                tags: tags,
+                links: [new ActivityLink(linkedContext)]);
+        }
+
+        return MessagingTelemetry.ActivitySource.StartActivity(
+            "orleans.stream.process",
+            ActivityKind.Consumer,
+            parentContext: default,
+            tags: tags);
+    }
+
+    private static StreamId CreateStreamId(IGrainBase owner, string streamNamespace)
+    {
+        var grainId = owner.GrainContext.GrainId;
+        if (GrainIdKeyExtensions.TryGetGuidKey(grainId, out var guidKey, out _))
+        {
+            return StreamId.Create(streamNamespace, guidKey);
+        }
+
+        if (GrainIdKeyExtensions.TryGetIntegerKey(grainId, out var longKey, out _))
+        {
+            return StreamId.Create(streamNamespace, longKey);
+        }
+
+        return StreamId.Create(streamNamespace, grainId.Key.ToString());
+    }
+
+    private sealed class StreamObserver<TEvent>(
+        StreamManager manager,
+        string streamNamespace,
+        StreamId streamId,
+        Func<TEvent, StreamSequenceToken, ValueTask> onNextAsync,
+        Action<string, Exception>? onError)
+        : IAsyncObserver<TEvent>
+    {
+        public Task OnNextAsync(TEvent item, StreamSequenceToken? token = null) =>
+            manager.OnNextAsync(streamNamespace, streamId, item, token, onNextAsync, onError);
+
+        public Task OnCompletedAsync() => Task.CompletedTask;
+
+        public Task OnErrorAsync(Exception ex) => manager.OnErrorAsync(streamNamespace, ex, onError);
     }
 }
