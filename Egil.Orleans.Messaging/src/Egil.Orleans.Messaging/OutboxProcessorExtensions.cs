@@ -1,3 +1,6 @@
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+
 namespace Egil.Orleans.Messaging;
 
 /// <summary>
@@ -27,11 +30,11 @@ public static class OutboxProcessorExtensions
     ///     {
     ///         PendingItems = () => stateManager.State.Outbox
     ///             .Select(e => e.Message).ToImmutableArray(),
-    ///         OnPostedAsync = async (items, ct) =>
+    ///         AcknowledgePostedAsync = async (items, ct) =>
     ///         {
     ///             // remove delivered items and persist
     ///         },
-    ///         OnPostFailedAsync = async (failures, ct) =>
+    ///         ReconcileFailedAsync = async (failures, ct) =>
     ///         {
     ///             // log, dead-letter, or leave for retry
     ///         },
@@ -61,6 +64,17 @@ public static class OutboxProcessorExtensions
         where TGrain : IGrainBase, IOutboxGrain
         where TOutbox : notnull
     {
-        throw new NotImplementedException();
+        ArgumentNullException.ThrowIfNull(grain);
+        ArgumentNullException.ThrowIfNull(options);
+
+        var services = grain.GrainContext.ActivationServices;
+        var processor = new OutboxProcessor<TOutbox>(
+            grain,
+            services.GetRequiredService<IGrainFactory>(),
+            options,
+            services.GetRequiredService<ILoggerFactory>().CreateLogger<OutboxProcessor<TOutbox>>());
+
+        processor.AttachToGrain();
+        return processor;
     }
 }

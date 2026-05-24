@@ -23,6 +23,7 @@ public sealed class MessagingTestClusterFixture : IAsyncLifetime, IGrainActivity
         {
             siloBuilder.AddMemoryGrainStorage("Default");
             siloBuilder.AddMemoryGrainStorage("PubSubStore");
+            siloBuilder.UseInMemoryReminderService();
 
             AddStreamProviders(siloBuilder);
 
@@ -67,6 +68,7 @@ public sealed class MessagingTestClusterFixture : IAsyncLifetime, IGrainActivity
         siloBuilder.AddMemoryStreams(StreamManagerTestNamespaces.Task);
         siloBuilder.AddMemoryStreams(StreamManagerTestNamespaces.Failure);
         siloBuilder.AddMemoryStreams(StreamManagerTestNamespaces.Resume);
+        siloBuilder.AddMemoryStreams(OutboxProcessorTestNamespaces.Events);
     }
 
     private static void AddStreamProviders(IClientBuilder clientBuilder)
@@ -75,5 +77,6 @@ public sealed class MessagingTestClusterFixture : IAsyncLifetime, IGrainActivity
         clientBuilder.AddMemoryStreams(StreamManagerTestNamespaces.Task);
         clientBuilder.AddMemoryStreams(StreamManagerTestNamespaces.Failure);
         clientBuilder.AddMemoryStreams(StreamManagerTestNamespaces.Resume);
+        clientBuilder.AddMemoryStreams(OutboxProcessorTestNamespaces.Events);
     }
 }

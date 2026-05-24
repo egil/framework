@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
+using System.Collections.Concurrent;
 
 namespace Egil.Orleans.Messaging;
 
@@ -10,6 +11,15 @@ internal static class MessagingTelemetry
     private static readonly Counter<long> StreamSubscriptions = Meter.CreateCounter<long>("stream.subscriptions");
     private static readonly Counter<long> StreamHandlerErrors = Meter.CreateCounter<long>("stream.handler.errors");
     private static readonly Histogram<double> StreamHandlerDuration = Meter.CreateHistogram<double>("stream.handler.duration", "ms");
+    private static readonly Counter<long> OutboxPostItems = Meter.CreateCounter<long>("outbox.post.items");
+    private static readonly Counter<long> OutboxPostErrors = Meter.CreateCounter<long>("outbox.post.errors");
+    private static readonly Histogram<double> OutboxPostDuration = Meter.CreateHistogram<double>("outbox.post.duration", "ms");
+    private static readonly Histogram<double> OutboxPostItemDuration = Meter.CreateHistogram<double>("outbox.post.item.duration", "ms");
+    private static readonly ConcurrentDictionary<string, long> OutboxDepthValues = [];
+    private static readonly ObservableGauge<long> OutboxDepth = Meter.CreateObservableGauge(
+        "outbox.depth",
+        ObserveOutboxDepth,
+        description: "Pending outbox items by grain type.");
     private static readonly Histogram<double> StreamReceiveLag = Meter.CreateHistogram<double>(
         "stream.message.receive.lag",
         "ms",
@@ -32,6 +42,55 @@ internal static class MessagingTelemetry
 
     public static void RecordStreamHandlerDuration(string streamNamespace, string status, double milliseconds) =>
         StreamHandlerDuration.Record(milliseconds, StreamTags(streamNamespace, status));
+
+    public static void RecordOutboxPostDuration(
+        string grainType,
+        OutboxPostmanExecutionMode executionMode,
+        double milliseconds)
+    {
+        OutboxPostDuration.Record(
+            milliseconds,
+            OutboxTags(grainType, executionMode));
+    }
+
+    public static void RecordOutboxPostItem(
+        string grainType,
+        string eventType,
+        string postmanType,
+        OutboxPostmanExecutionMode executionMode,
+        bool success,
+        double milliseconds)
+    {
+        var tags = OutboxTags(grainType, executionMode);
+        tags.Add("event.type", eventType);
+        tags.Add("postman.type", postmanType);
+        tags.Add("success", success);
+
+        if (success)
+        {
+            OutboxPostItems.Add(1, tags);
+        }
+
+        OutboxPostItemDuration.Record(milliseconds, tags);
+    }
+
+    public static void RecordOutboxPostError(string grainType, string eventType, Exception exception)
+    {
+        OutboxPostErrors.Add(
+            1,
+            new TagList
+            {
+                { "grain.type", grainType },
+                { "event.type", eventType },
+                { "failure.type", exception.GetType().Name }
+            });
+    }
+
+    public static void RecordOutboxDepth(string grainType, int depth)
+    {
+        _ = OutboxDepth;
+        OutboxDepthValues[grainType] = depth;
+    }
 
     public static void RecordOutboxReceiveLag(OutboxSequenceToken token, DateTimeOffset receivedAt)
     {
@@ -87,5 +146,24 @@ internal static class MessagingTelemetry
         };
 
         return tags;
+    }
+
+    private static TagList OutboxTags(string grainType, OutboxPostmanExecutionMode executionMode)
+    {
+        return new TagList
+        {
+            { "grain.type", grainType },
+            { "postman.execution", executionMode is OutboxPostmanExecutionMode.ThreadPool ? "thread_pool" : "grain_scheduler" }
+        };
+    }
+
+    private static IEnumerable<Measurement<long>> ObserveOutboxDepth()
+    {
+        foreach (var depth in OutboxDepthValues)
+        {
+            yield return new Measurement<long>(
+                depth.Value,
+                new KeyValuePair<string, object?>("grain.type", depth.Key));
+        }
     }
 }

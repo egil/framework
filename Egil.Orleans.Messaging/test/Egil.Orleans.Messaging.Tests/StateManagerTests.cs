@@ -91,6 +91,55 @@ public sealed class StateManagerTests
         Assert.Equal(next.Version, manager.State.Version);
     }
 
+    [Fact]
+    public async Task ClearAsync_success_updates_committed_state()
+    {
+        var storage = new FakePersistentState(new TestState("initial"));
+        var manager = new DefaultStateManager<TestState>(storage);
+
+        await manager.ClearAsync();
+
+        Assert.Null(manager.State);
+        Assert.False(storage.RecordExists);
+    }
+
+    [Fact]
+    public async Task ClearAsync_when_clear_fails_but_read_shows_missing_record_swallows_exception()
+    {
+        var storage = new FakePersistentState(new TestState("initial"))
+        {
+            ClearException = new TimeoutException("clear timeout"),
+            OnRead = state =>
+            {
+                state.State = null!;
+                state.RecordExists = false;
+            }
+        };
+        var manager = new DefaultStateManager<TestState>(storage);
+
+        await manager.ClearAsync();
+
+        Assert.Null(manager.State);
+        Assert.False(storage.RecordExists);
+    }
+
+    [Fact]
+    public async Task ClearAsync_when_clear_and_read_fail_reverts_state_and_rethrows_original_exception()
+    {
+        var clearException = new TimeoutException("clear timeout");
+        var storage = new FakePersistentState(new TestState("initial"))
+        {
+            ClearException = clearException,
+            ReadException = new InvalidOperationException("read failed")
+        };
+        var manager = new DefaultStateManager<TestState>(storage);
+
+        var ex = await Assert.ThrowsAsync<TimeoutException>(() => manager.ClearAsync());
+
+        Assert.Same(clearException, ex);
+        Assert.Equal(new TestState("initial"), manager.State);
+    }
+
     private sealed record TestState(string Value);
 
     private sealed record VersionedTestState(string Value) : VersionedState, IEquatable<VersionedTestState>;

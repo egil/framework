@@ -3,35 +3,26 @@ using System.Collections.Immutable;
 namespace Egil.Orleans.Messaging;
 
 /// <summary>
-/// Configuration for <see cref="OutboxProcessor{TOutbox}"/>. Defines how the
-/// processor reads pending items, reports successes/failures, and controls
-/// timing.
+/// Controls where outbox postman callbacks execute.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <b>Callback model:</b> The processor uses callbacks rather than DI services
-/// so the grain controls dispatch logic and can pass its own state to the
-/// handlers. This keeps the processor grain-scoped with no ambient dependencies.
-/// </para>
-/// <para>
-/// <b>Required callbacks:</b>
-/// <list type="bullet">
-/// <item><see cref="GetPending"/> — snapshot of pending items, called once
-/// per post run.</item>
-/// <item><see cref="OnPostCompletedAsync"/> — items successfully posted.
-/// The grain must remove them from its backing collection and persist.</item>
-/// </list>
-/// </para>
-/// <para>
-/// <b>Optional callback:</b>
-/// <list type="bullet">
-/// <item><see cref="OnPostErrorAsync"/> — failed items with exception and
-/// attempt count. If <c>null</c>, failed items retry silently on the next
-/// run. The grain decides: leave the item in state to retry, or remove it
-/// to dead-letter after N attempts.</item>
-/// </list>
-/// </para>
-/// </remarks>
+public enum OutboxPostmanExecutionMode
+{
+    /// <summary>
+    /// Executes postman callbacks on the Orleans activation scheduler.
+    /// </summary>
+    GrainScheduler,
+
+    /// <summary>
+    /// Executes postman callbacks on the .NET thread pool.
+    /// </summary>
+    ThreadPool
+}
+
+/// <summary>
+/// Configuration for <see cref="OutboxProcessor{TOutbox}"/>. Defines how the
+/// processor reads pending items, reconciles successes/failures, and controls
+/// timer/reminder scheduling.
+/// </summary>
 /// <typeparam name="TOutbox">
 /// The base type of outbox items. Must match the type parameter of the
 /// <see cref="OutboxProcessor{TOutbox}"/> this options instance configures.
@@ -40,59 +31,51 @@ public sealed class OutboxProcessorOptions<TOutbox>
     where TOutbox : notnull
 {
     /// <summary>
-    /// Snapshot of pending items. Called once per post run. The processor
-    /// iterates the returned array and dispatches each item to its matching
-    /// postman.
+    /// Snapshot of pending items. Called once before each post run and again
+    /// after reconciliation to decide whether retry work remains.
     /// </summary>
-    /// <remarks>
-    /// Typically implemented as a lambda reading the grain's current outbox:
-    /// <code>
-    /// GetPending = () => stateManager.State.Outbox.Select(e => e.Message).ToImmutableArray()
-    /// </code>
-    /// </remarks>
-    public required Func<ImmutableArray<TOutbox>> GetPending { get; init; }
+    public required Func<ImmutableArray<TOutbox>> PendingItems { get; init; }
 
     /// <summary>
-    /// Called with the items that were successfully dispatched by their postmen.
-    /// The grain must remove these items from its backing collection (e.g.,
-    /// <see cref="Outbox{T}.RemoveRange"/>) and persist the updated state.
+    /// Called with items that were successfully dispatched by their postmen.
+    /// The grain is expected to remove these items from durable outbox state
+    /// and persist the update.
     /// </summary>
-    /// <remarks>
-    /// Exceptions thrown from this callback propagate out of
-    /// <see cref="OutboxProcessor{TOutbox}.PostAsync"/> — the processor does
-    /// not catch callback failures.
-    /// </remarks>
     public required Func<ImmutableArray<TOutbox>, CancellationToken, ValueTask>
-        OnPostCompletedAsync { get; init; }
+        AcknowledgePostedAsync { get; init; }
 
     /// <summary>
     /// Called with items that failed dispatch, along with the exception and
-    /// the in-memory attempt count (resets on grain reactivation). The grain
-    /// decides: leave the item in state to retry on the next run, or remove
-    /// it to dead-letter after N attempts.
+    /// the in-memory attempt count. The grain decides whether to leave them
+    /// pending, remove them, or move them to dead-letter state.
     /// </summary>
-    /// <remarks>
-    /// If <c>null</c>, failed items retry silently on the next post run.
-    /// Exceptions thrown from this callback propagate out of
-    /// <see cref="OutboxProcessor{TOutbox}.PostAsync"/>.
-    /// </remarks>
     public Func<ImmutableArray<(TOutbox Item, Exception Error, int Attempt)>,
-        CancellationToken, ValueTask>? OnPostErrorAsync { get; init; }
+        CancellationToken, ValueTask>? ReconcileFailedAsync { get; init; }
 
     /// <summary>
-    /// Maximum time per post run. Set below the grain's response timeout to
-    /// avoid grain-level timeouts during dispatch. Default: 20 seconds.
+    /// Maximum time per post run. Default: 20 seconds.
     /// </summary>
     public TimeSpan ProcessingTimeout { get; init; } = TimeSpan.FromSeconds(20);
 
     /// <summary>
-    /// Timer and reminder period. Controls how frequently the processor
-    /// retries pending items. Default: 2 minutes.
+    /// Timer/reminder retry period. Reminder period is clamped to at least one
+    /// minute because Orleans reminders do not support sub-minute precision.
     /// </summary>
-    /// <remarks>
-    /// Orleans reminders fire at most once per minute, so values below 1
-    /// minute are effectively timer-only (the reminder still fires at its
-    /// minimum interval for cross-activation recovery).
-    /// </remarks>
     public TimeSpan RetryDelay { get; init; } = TimeSpan.FromMinutes(2);
+
+    /// <summary>
+    /// Whether timer callbacks may interleave with other grain turns.
+    /// </summary>
+    public bool Interleave { get; init; }
+
+    /// <summary>
+    /// Whether an active timer keeps the grain activation alive.
+    /// </summary>
+    public bool KeepAlive { get; init; }
+
+    /// <summary>
+    /// Controls where postman callbacks execute.
+    /// </summary>
+    public OutboxPostmanExecutionMode PostmanExecution { get; init; } =
+        OutboxPostmanExecutionMode.GrainScheduler;
 }

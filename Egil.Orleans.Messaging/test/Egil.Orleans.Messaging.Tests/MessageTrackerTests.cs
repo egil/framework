@@ -90,6 +90,38 @@ public sealed class MessageTrackerTests
     }
 
     [Fact]
+    public void ProcessMessage_accepts_non_null_stream_token_after_null_initial_position()
+    {
+        var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
+        var time = new ManualTimeProvider(now);
+        var streamId = StreamId.Create("orders", "one");
+        var tracker = new MessageTracker();
+        tracker.RegisterTimeProvider(time);
+        tracker.ProcessMessage(new StreamCursor(streamId, null), out tracker);
+
+        var accepted = tracker.ProcessMessage(new StreamCursor(streamId, new EventSequenceToken(1)), out var next);
+
+        Assert.True(accepted);
+        Assert.Equal(new StreamCursor(streamId, new EventSequenceToken(1)), next.LatestStream(streamId));
+    }
+
+    [Fact]
+    public void ProcessMessage_rejects_null_stream_token_after_position_is_tracked()
+    {
+        var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
+        var time = new ManualTimeProvider(now);
+        var streamId = StreamId.Create("orders", "one");
+        var tracker = new MessageTracker();
+        tracker.RegisterTimeProvider(time);
+        tracker.ProcessMessage(new StreamCursor(streamId, new EventSequenceToken(1)), out tracker);
+
+        var accepted = tracker.ProcessMessage(new StreamCursor(streamId, null), out var next);
+
+        Assert.False(accepted);
+        Assert.Same(tracker, next);
+    }
+
+    [Fact]
     public void ProcessMessage_rejects_outbox_token_when_same_epoch_and_not_newer_sequence()
     {
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);

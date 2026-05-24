@@ -49,6 +49,36 @@ public sealed class OutboxJsonConverterFactoryTests
         Assert.True(roundTripped[0].Message.Route.IsExpress);
     }
 
+    [Fact]
+    public void JsonSerializer_throws_json_exception_for_missing_sender()
+    {
+        var json = """
+            {
+              "LatestSequenceNumber": 0,
+              "Epoch": null,
+              "Items": []
+            }
+            """;
+
+        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<Outbox<string>>(json));
+        Assert.Equal("Missing Sender.", exception.Message);
+    }
+
+    [Fact]
+    public void JsonSerializer_throws_json_exception_for_missing_items()
+    {
+        var json = """
+            {
+              "Sender": { "Type": "test/sender", "Key": "one" },
+              "LatestSequenceNumber": 0,
+              "Epoch": null
+            }
+            """;
+
+        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<Outbox<string>>(json));
+        Assert.Equal("Missing Items.", exception.Message);
+    }
+
     private sealed record ComplexMessage(string OrderId, int Quantity, NestedMessage Route);
 
     private sealed record NestedMessage(string Name, bool IsExpress);
