@@ -1,5 +1,8 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Orleans.Providers.Streams.Common;
+using Orleans.Streaming.EventHubs;
+using Orleans.Streams;
 
 namespace Egil.Orleans.Messaging;
 
@@ -11,12 +14,12 @@ namespace Egil.Orleans.Messaging;
 /// <remarks>
 /// <para>
 /// <see cref="StreamCursor"/> wraps a <c>StreamId</c> and an optional
-/// <c>StreamSequenceToken</c>. The token is polymorphic — it may be an
+/// <c>StreamSequenceToken</c>. The token is polymorphic and this converter
+/// supports Orleans built-in sequence token types only:
 /// <see cref="EnrichedEventHubSequenceToken"/>,
 /// <c>EventHubSequenceTokenV2</c>,
-/// or another provider-specific subclass. The converter round-trips the
-/// concrete type via a discriminator so deserialization restores the
-/// original token type.
+/// <c>EventHubSequenceToken</c>, <c>EventSequenceTokenV2</c>, and
+/// <c>EventSequenceToken</c>.
 /// </para>
 /// <para>
 /// Registered on <see cref="StreamCursor"/> via <c>[JsonConverter]</c>.
@@ -26,15 +29,131 @@ namespace Egil.Orleans.Messaging;
 /// </remarks>
 internal sealed class StreamCursorJsonConverter : JsonConverter<StreamCursor>
 {
+    private const string FeatureRequestUrl = "https://github.com/egil/framework/issues";
+
+    private const string SupportedKinds =
+        "EventSequenceToken, EventSequenceTokenV2, EventHubSequenceToken, EventHubSequenceTokenV2, EnrichedEventHubSequenceToken";
+
     /// <inheritdoc/>
     public override StreamCursor? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
-        throw new NotImplementedException();
+        var model = JsonSerializer.Deserialize<StreamCursorJsonModel>(ref reader, options);
+        if (model is null)
+        {
+            return null;
+        }
+
+        return new StreamCursor(
+            StreamId.Parse(System.Text.Encoding.UTF8.GetBytes(model.StreamId)),
+            FromJsonModel(model.Token));
     }
 
     /// <inheritdoc/>
     public override void Write(Utf8JsonWriter writer, StreamCursor value, JsonSerializerOptions options)
     {
-        throw new NotImplementedException();
+        JsonSerializer.Serialize(
+            writer,
+            new StreamCursorJsonModel(
+                value.StreamId.ToString(),
+                ToJsonModel(value.Token)),
+            options);
+    }
+
+    private static StreamSequenceToken? FromJsonModel(StreamSequenceTokenJsonModel? model)
+    {
+        if (model is null)
+        {
+            return null;
+        }
+
+        return model.Kind switch
+        {
+            StreamSequenceTokenKinds.EventSequenceToken => new EventSequenceToken(model.SequenceNumber, model.EventIndex),
+            StreamSequenceTokenKinds.EventSequenceTokenV2 => new EventSequenceTokenV2(model.SequenceNumber, model.EventIndex),
+            StreamSequenceTokenKinds.EventHubSequenceToken => new EventHubSequenceToken(
+                model.EventHubOffset ?? throw new JsonException("Missing EventHubOffset."),
+                model.SequenceNumber,
+                model.EventIndex),
+            StreamSequenceTokenKinds.EventHubSequenceTokenV2 => new EventHubSequenceTokenV2(
+                model.EventHubOffset ?? throw new JsonException("Missing EventHubOffset."),
+                model.SequenceNumber,
+                model.EventIndex),
+            StreamSequenceTokenKinds.EnrichedEventHubSequenceToken => new EnrichedEventHubSequenceToken(
+                model.EventHubOffset ?? throw new JsonException("Missing EventHubOffset."),
+                model.SequenceNumber,
+                model.EventIndex,
+                model.EnqueuedTime ?? throw new JsonException("Missing EnqueuedTime."),
+                model.StreamProviderName ?? throw new JsonException("Missing StreamProviderName."),
+                model.TraceParent),
+            _ => throw CreateUnsupportedTokenException(model.Kind ?? "<null>")
+        };
+    }
+
+    private static StreamSequenceTokenJsonModel? ToJsonModel(StreamSequenceToken? value)
+    {
+        if (value is null)
+        {
+            return null;
+        }
+
+        return value switch
+        {
+            EnrichedEventHubSequenceToken token => new StreamSequenceTokenJsonModel(
+                Kind: StreamSequenceTokenKinds.EnrichedEventHubSequenceToken,
+                SequenceNumber: token.SequenceNumber,
+                EventIndex: token.EventIndex,
+                EventHubOffset: token.EventHubOffset,
+                EnqueuedTime: token.EnqueuedTime.UtcDateTime,
+                StreamProviderName: token.StreamProviderName,
+                TraceParent: token.TraceParent),
+            EventHubSequenceTokenV2 token => new StreamSequenceTokenJsonModel(
+                Kind: StreamSequenceTokenKinds.EventHubSequenceTokenV2,
+                SequenceNumber: token.SequenceNumber,
+                EventIndex: token.EventIndex,
+                EventHubOffset: token.EventHubOffset),
+            EventHubSequenceToken token => new StreamSequenceTokenJsonModel(
+                Kind: StreamSequenceTokenKinds.EventHubSequenceToken,
+                SequenceNumber: token.SequenceNumber,
+                EventIndex: token.EventIndex,
+                EventHubOffset: token.EventHubOffset),
+            EventSequenceTokenV2 token => new StreamSequenceTokenJsonModel(
+                Kind: StreamSequenceTokenKinds.EventSequenceTokenV2,
+                SequenceNumber: token.SequenceNumber,
+                EventIndex: token.EventIndex),
+            EventSequenceToken token => new StreamSequenceTokenJsonModel(
+                Kind: StreamSequenceTokenKinds.EventSequenceToken,
+                SequenceNumber: token.SequenceNumber,
+                EventIndex: token.EventIndex),
+            _ => throw CreateUnsupportedTokenException(value.GetType().FullName ?? value.GetType().Name)
+        };
+    }
+
+    private static NotSupportedException CreateUnsupportedTokenException(string tokenIdentifier) =>
+        new(
+            $"Unsupported stream sequence token '{tokenIdentifier}'. " +
+            $"This converter supports only built-in Orleans token types: {SupportedKinds}. " +
+            "Custom token support is intentionally disabled to keep persisted StreamCursor JSON format stable. " +
+            $"If you need this feature, please request it at {FeatureRequestUrl}.");
+
+    private sealed record StreamCursorJsonModel(
+        string StreamId,
+        StreamSequenceTokenJsonModel? Token);
+
+    private sealed record StreamSequenceTokenJsonModel(
+        string? Kind = null,
+        long SequenceNumber = 0,
+        int EventIndex = 0,
+        string? EventHubOffset = null,
+        DateTime? EnqueuedTime = null,
+        string? StreamProviderName = null,
+        string? TraceParent = null);
+
+    private static class StreamSequenceTokenKinds
+    {
+        public const string EventSequenceToken = "event-sequence";
+        public const string EventSequenceTokenV2 = "event-sequence-v2";
+        public const string EventHubSequenceToken = "event-hub";
+        public const string EventHubSequenceTokenV2 = "event-hub-v2";
+        public const string EnrichedEventHubSequenceToken = "enriched-event-hub";
     }
 }
