@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Egil.Orleans.Messaging;
 
 /// <summary>
@@ -39,7 +41,7 @@ namespace Egil.Orleans.Messaging;
 /// <param name="Message">The user-defined message payload.</param>
 [GenerateSerializer]
 [Alias("egil.orleans.messaging.OutboxMessageEnvelope`1")]
-// [JsonConverter(typeof(OutboxMessageEnvelopeJsonConverterFactory))]
+[JsonConverter(typeof(OutboxMessageEnvelopeJsonConverterFactory))]
 public sealed record OutboxMessageEnvelope<T>(
     [property: Id(0)] OutboxSequenceToken Token,
     [property: Id(1)] T Message);
