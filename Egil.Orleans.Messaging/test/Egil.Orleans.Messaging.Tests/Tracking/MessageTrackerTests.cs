@@ -23,6 +23,48 @@ public sealed class MessageTrackerTests
     }
 
     [Fact]
+    public void ProcessMessage_accepts_stream_sequence_token_and_namespace()
+    {
+        var time = new ManualTimeProvider(new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero));
+        var tracker = new MessageTracker();
+        tracker.RegisterTimeProvider(time);
+
+        var accepted = tracker.ProcessMessage("orders", new EventSequenceToken(7), out var next);
+
+        Assert.True(accepted);
+        Assert.Equal(new EventSequenceToken(7), next.LatestStreamSequenceToken("orders"));
+    }
+
+    [Fact]
+    public void ProcessMessage_accepts_stream_sequence_token_provider_and_namespace()
+    {
+        var time = new ManualTimeProvider(new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero));
+        var tracker = new MessageTracker();
+        tracker.RegisterTimeProvider(time);
+
+        tracker.ProcessMessage("provider-a", "orders", new EventSequenceToken(7), out tracker);
+        tracker.ProcessMessage("provider-b", "orders", new EventSequenceToken(9), out tracker);
+
+        Assert.Equal(new EventSequenceToken(7), tracker.LatestStreamSequenceToken("provider-a", "orders"));
+        Assert.Equal(new EventSequenceToken(9), tracker.LatestStreamSequenceToken("provider-b", "orders"));
+        Assert.Null(tracker.LatestStreamSequenceToken("orders"));
+    }
+
+    [Fact]
+    public void ProcessMessage_with_stream_sequence_token_rejects_duplicate_for_namespace()
+    {
+        var time = new ManualTimeProvider(new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero));
+        var tracker = new MessageTracker();
+        tracker.RegisterTimeProvider(time);
+        tracker.ProcessMessage("orders", new EventSequenceToken(7), out tracker);
+
+        var accepted = tracker.ProcessMessage("orders", new EventSequenceToken(7), out var next);
+
+        Assert.False(accepted);
+        Assert.Same(tracker, next);
+    }
+
+    [Fact]
     public void ProcessMessage_accepts_first_outbox_token_and_tracks_latest_position()
     {
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
@@ -104,6 +146,19 @@ public sealed class MessageTrackerTests
     }
 
     [Fact]
+    public void LatestStreamSequenceToken_returns_token_for_single_providerless_namespace()
+    {
+        var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
+        var tracker = new MessageTracker();
+        tracker.RegisterTimeProvider(new ManualTimeProvider(now));
+        tracker.ProcessMessage(new StreamCursor("orders", new EventSequenceToken(7)), out tracker);
+
+        var latest = tracker.LatestStreamSequenceToken("orders");
+
+        Assert.Equal(new EventSequenceToken(7), latest);
+    }
+
+    [Fact]
     public void LatestStream_with_provider_does_not_fall_back_to_different_provider()
     {
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
@@ -114,6 +169,34 @@ public sealed class MessageTrackerTests
         var latest = tracker.LatestStream("provider-b", "orders");
 
         Assert.Null(latest);
+    }
+
+    [Fact]
+    public void LatestStreamSequenceToken_returns_null_when_namespace_has_multiple_providers()
+    {
+        var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
+        var tracker = new MessageTracker();
+        tracker.RegisterTimeProvider(new ManualTimeProvider(now));
+        tracker.ProcessMessage(new StreamCursor("orders", new EventSequenceToken(7), "provider-a"), out tracker);
+        tracker.ProcessMessage(new StreamCursor("orders", new EventSequenceToken(9), "provider-b"), out tracker);
+
+        var latest = tracker.LatestStreamSequenceToken("orders");
+
+        Assert.Null(latest);
+    }
+
+    [Fact]
+    public void LatestStreamSequenceToken_returns_null_for_tracked_null_token()
+    {
+        var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
+        var tracker = new MessageTracker();
+        tracker.RegisterTimeProvider(new ManualTimeProvider(now));
+        tracker.ProcessMessage("orders", token: null, out tracker);
+
+        var latest = tracker.LatestStreamSequenceToken("orders");
+
+        Assert.Null(latest);
+        Assert.NotNull(tracker.LatestStream("orders"));
     }
 
     [Fact]

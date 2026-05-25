@@ -129,16 +129,21 @@ public sealed class OrderGrain : Grain, IOutboxGrain
 
 ## Receiver Dedup
 
-`MessageTracker` accepts a message only when its stream cursor or outbox token advances the stored high-water mark:
+`MessageTracker` accepts a message only when its stream token, stream cursor, or outbox token advances the stored high-water mark:
 
 ```csharp
-if (!state.State.Tracker.ProcessMessage(token, out var tracker))
+if (!state.State.Tracker.ProcessMessage("prices", token, out var tracker))
 {
     return;
 }
 
 await state.WriteAsync(state.State with { Tracker = tracker });
 ```
+
+Use `LatestStreamSequenceToken("prices")` when all you need is the previous
+resume token. Keep using `LatestStream("prices")` when you need the full
+cursor or must distinguish "no stream tracked" from "tracked stream with a
+null token".
 
 The tracker can also evict old sender or stream entries when your retention policy allows it.
 

@@ -10,7 +10,10 @@ public sealed class StreamManagerTests(MessagingTestClusterFixture fixture) : IC
         var grainKey = Guid.NewGuid();
         var grain = fixture.GrainFactory.GetGrain<IStreamManagerTestGrain>(grainKey);
         await grain.EnsureActiveAsync();
-        var stream = fixture.GetStream<string>(StreamManagerTestNamespaces.ValueTask, grainKey);
+        var stream = fixture.GetStream<string>(
+            StreamManagerTestProviderNames.Explicit,
+            StreamManagerTestNamespaces.ValueTask,
+            grainKey);
 
         await stream.OnNextAsync("value-task");
 
@@ -89,7 +92,10 @@ public sealed class StreamManagerTests(MessagingTestClusterFixture fixture) : IC
 
         grain = fixture.GrainFactory.GetGrain<IStreamManagerTestGrain>(grainKey);
         await grain.EnsureActiveAsync();
-        var stream = fixture.GetStream<string>(StreamManagerTestNamespaces.ValueTask, grainKey);
+        var stream = fixture.GetStream<string>(
+            StreamManagerTestProviderNames.Explicit,
+            StreamManagerTestNamespaces.ValueTask,
+            grainKey);
 
         await stream.OnNextAsync("after-reactivation");
 
@@ -104,7 +110,10 @@ public sealed class StreamManagerTests(MessagingTestClusterFixture fixture) : IC
         var grainKey = Guid.NewGuid();
         var grain = fixture.GrainFactory.GetGrain<IStreamManagerTestGrain>(grainKey);
         await grain.EnsureActiveAsync();
-        var stream = fixture.GetStream<string>(StreamManagerTestNamespaces.Task, grainKey);
+        var stream = fixture.GetStream<string>(
+            StreamManagerTestProviderNames.Explicit,
+            StreamManagerTestNamespaces.Task,
+            grainKey);
 
         await stream.OnNextAsync("task");
 
@@ -119,7 +128,10 @@ public sealed class StreamManagerTests(MessagingTestClusterFixture fixture) : IC
         var grainKey = Guid.NewGuid();
         var grain = fixture.GrainFactory.GetGrain<IStreamManagerTestGrain>(grainKey);
         await grain.EnsureActiveAsync();
-        var stream = fixture.GetStream<string>(StreamManagerTestNamespaces.Failure, grainKey);
+        var stream = fixture.GetStream<string>(
+            StreamManagerTestProviderNames.Explicit,
+            StreamManagerTestNamespaces.Failure,
+            grainKey);
 
         await stream.OnNextAsync("fail");
         await stream.OnNextAsync("after-failure");
@@ -135,7 +147,10 @@ public sealed class StreamManagerTests(MessagingTestClusterFixture fixture) : IC
         var grainKey = Guid.NewGuid();
         var grain = fixture.GrainFactory.GetGrain<IStreamManagerTestGrain>(grainKey);
         await grain.EnsureActiveAsync();
-        var stream = fixture.GetStream<string>(StreamManagerTestNamespaces.ValueTask, grainKey);
+        var stream = fixture.GetStream<string>(
+            StreamManagerTestProviderNames.Explicit,
+            StreamManagerTestNamespaces.ValueTask,
+            grainKey);
 
         var exceptionType = await grain.EnsureExplicitSubscriptionsAgainAsync();
 
@@ -171,6 +186,7 @@ internal static class StreamManagerTestNamespaces
 
 internal static class StreamManagerTestProviderNames
 {
+    public const string Explicit = "stream-manager-explicit-provider";
     public const string Implicit = "stream-manager-provider";
 }
 
@@ -218,10 +234,10 @@ public sealed class StreamManagerTestGrain(
     public override async Task OnActivateAsync(CancellationToken cancellationToken)
     {
         streamManager = this.RegisterStreamManager(state.State.Tracker)
-            .ConfigureExplicitSubscription<string>(StreamManagerTestNamespaces.ValueTask, StreamManagerTestNamespaces.ValueTask, HandleValueTaskAsync)
-            .ConfigureExplicitSubscription<string>(StreamManagerTestNamespaces.Task, StreamManagerTestNamespaces.Task, HandleTaskAsync)
-            .ConfigureExplicitSubscription<string>(StreamManagerTestNamespaces.Failure, StreamManagerTestNamespaces.Failure, HandleFailureAsync)
-            .ConfigureExplicitSubscription<string>(StreamManagerTestNamespaces.Resume, StreamManagerTestNamespaces.Resume, HandleResumeAsync);
+            .ConfigureExplicitSubscription<string>(StreamManagerTestProviderNames.Explicit, StreamManagerTestNamespaces.ValueTask, HandleValueTaskAsync)
+            .ConfigureExplicitSubscription<string>(StreamManagerTestProviderNames.Explicit, StreamManagerTestNamespaces.Task, HandleTaskAsync)
+            .ConfigureExplicitSubscription<string>(StreamManagerTestProviderNames.Explicit, StreamManagerTestNamespaces.Failure, HandleFailureAsync)
+            .ConfigureExplicitSubscription<string>(StreamManagerTestProviderNames.Explicit, StreamManagerTestNamespaces.Resume, HandleResumeAsync);
 
         await streamManager.EnsureExplicitSubscriptionsAsync(cancellationToken);
         await base.OnActivateAsync(cancellationToken);

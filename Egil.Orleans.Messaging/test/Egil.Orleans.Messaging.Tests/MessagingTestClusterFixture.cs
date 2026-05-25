@@ -51,12 +51,6 @@ public sealed class MessagingTestClusterFixture : IAsyncLifetime, IGrainActivity
         where TGrain : IGrain
         => (TGrain)GrainFactory.GetGrain(typeof(TGrain), Guid.NewGuid());
 
-    public IAsyncStream<T> GetStream<T>(string streamNamespace, Guid key)
-    {
-        var provider = Cluster.Client.GetStreamProvider(streamNamespace);
-        return provider.GetStream<T>(StreamId.Create(streamNamespace, key));
-    }
-
     public IAsyncStream<T> GetStream<T>(string providerName, string streamNamespace, Guid key)
     {
         var provider = Cluster.Client.GetStreamProvider(providerName);
@@ -72,20 +66,14 @@ public sealed class MessagingTestClusterFixture : IAsyncLifetime, IGrainActivity
 
     private static void AddStreamProviders(ISiloBuilder siloBuilder)
     {
-        siloBuilder.AddMemoryStreams(StreamManagerTestNamespaces.ValueTask);
-        siloBuilder.AddMemoryStreams(StreamManagerTestNamespaces.Task);
-        siloBuilder.AddMemoryStreams(StreamManagerTestNamespaces.Failure);
-        siloBuilder.AddMemoryStreams(StreamManagerTestNamespaces.Resume);
+        siloBuilder.AddMemoryStreams(StreamManagerTestProviderNames.Explicit);
         siloBuilder.AddMemoryStreams(StreamManagerTestProviderNames.Implicit);
         siloBuilder.AddMemoryStreams(OutboxProcessorTestNamespaces.Events);
     }
 
     private static void AddStreamProviders(IClientBuilder clientBuilder)
     {
-        clientBuilder.AddMemoryStreams(StreamManagerTestNamespaces.ValueTask);
-        clientBuilder.AddMemoryStreams(StreamManagerTestNamespaces.Task);
-        clientBuilder.AddMemoryStreams(StreamManagerTestNamespaces.Failure);
-        clientBuilder.AddMemoryStreams(StreamManagerTestNamespaces.Resume);
+        clientBuilder.AddMemoryStreams(StreamManagerTestProviderNames.Explicit);
         clientBuilder.AddMemoryStreams(StreamManagerTestProviderNames.Implicit);
         clientBuilder.AddMemoryStreams(OutboxProcessorTestNamespaces.Events);
     }
