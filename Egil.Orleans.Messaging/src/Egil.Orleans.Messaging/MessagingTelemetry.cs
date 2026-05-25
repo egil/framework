@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
+using Egil.Orleans.Messaging.Outboxes;
+using Egil.Orleans.Messaging.Streams;
 
 namespace Egil.Orleans.Messaging;
 
