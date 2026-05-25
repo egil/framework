@@ -3,9 +3,7 @@ using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Egil.Orleans.Messaging.Streams;
-using Egil.Orleans.Messaging.Streams.EventHubs;
 using Orleans.Providers.Streams.Common;
-using Orleans.Streaming.EventHubs;
 using Orleans.Streams;
 
 namespace Egil.Orleans.Messaging.Tracking;
@@ -126,21 +124,6 @@ internal sealed class MessageTrackerJsonConverter : JsonConverter<MessageTracker
         {
             StreamSequenceTokenKinds.EventSequenceToken => new EventSequenceToken(model.SequenceNumber, model.EventIndex),
             StreamSequenceTokenKinds.EventSequenceTokenV2 => new EventSequenceTokenV2(model.SequenceNumber, model.EventIndex),
-            StreamSequenceTokenKinds.EventHubSequenceToken => new EventHubSequenceToken(
-                model.EventHubOffset ?? throw new JsonException("Missing EventHubOffset."),
-                model.SequenceNumber,
-                model.EventIndex),
-            StreamSequenceTokenKinds.EventHubSequenceTokenV2 => new EventHubSequenceTokenV2(
-                model.EventHubOffset ?? throw new JsonException("Missing EventHubOffset."),
-                model.SequenceNumber,
-                model.EventIndex),
-            StreamSequenceTokenKinds.EnrichedEventHubSequenceToken => new EnrichedEventHubSequenceToken(
-                model.EventHubOffset ?? throw new JsonException("Missing EventHubOffset."),
-                model.SequenceNumber,
-                model.EventIndex,
-                model.EnqueuedTime ?? throw new JsonException("Missing EnqueuedTime."),
-                model.ProviderName ?? throw new JsonException("Missing ProviderName."),
-                model.TraceParent),
             _ => throw new JsonException($"Unsupported stream sequence token kind '{model.Kind}'.")
         };
     }
@@ -160,30 +143,6 @@ internal sealed class MessageTrackerJsonConverter : JsonConverter<MessageTracker
 
         return value switch
         {
-            EnrichedEventHubSequenceToken token => new StreamSequenceTokenJsonModel(
-                StreamSequenceTokenKinds.EnrichedEventHubSequenceToken,
-                token.SequenceNumber,
-                token.EventIndex,
-                token.EventHubOffset,
-                token.EnqueuedTime,
-                token.ProviderName,
-                token.TraceParent),
-            EventHubSequenceTokenV2 token => new StreamSequenceTokenJsonModel(
-                StreamSequenceTokenKinds.EventHubSequenceTokenV2,
-                token.SequenceNumber,
-                token.EventIndex,
-                token.EventHubOffset,
-                null,
-                null,
-                null),
-            EventHubSequenceToken token => new StreamSequenceTokenJsonModel(
-                StreamSequenceTokenKinds.EventHubSequenceToken,
-                token.SequenceNumber,
-                token.EventIndex,
-                token.EventHubOffset,
-                null,
-                null,
-                null),
             EventSequenceTokenV2 token => new StreamSequenceTokenJsonModel(
                 StreamSequenceTokenKinds.EventSequenceTokenV2,
                 token.SequenceNumber,
@@ -244,8 +203,5 @@ internal sealed class MessageTrackerJsonConverter : JsonConverter<MessageTracker
     {
         public const string EventSequenceToken = "event-sequence";
         public const string EventSequenceTokenV2 = "event-sequence-v2";
-        public const string EventHubSequenceToken = "event-hub";
-        public const string EventHubSequenceTokenV2 = "event-hub-v2";
-        public const string EnrichedEventHubSequenceToken = "enriched-event-hub";
     }
 }

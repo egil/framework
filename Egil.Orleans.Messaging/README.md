@@ -16,13 +16,19 @@ Composable messaging infrastructure for Microsoft Orleans grains.
 dotnet add package Egil.Orleans.Messaging
 ```
 
+Provider-specific integrations are shipped as companion packages:
+
+```shell
+dotnet add package Egil.Orleans.Messaging.Streams.EventHubs
+dotnet add package Egil.Orleans.Messaging.State.AzureStorage
+```
+
 Use the capability namespaces for the tools you need:
 
 ```csharp
 using Egil.Orleans.Messaging.Outboxes;
 using Egil.Orleans.Messaging.State;
 using Egil.Orleans.Messaging.Streams;
-using Egil.Orleans.Messaging.Streams.EventHubs;
 using Egil.Orleans.Messaging.Tracking;
 ```
 
@@ -42,6 +48,19 @@ Register the default state manager factory on the silo:
 ```csharp
 siloBuilder.AddDefaultStateManager("state");
 ```
+
+For Orleans Azure Table or Blob grain storage, install
+`Egil.Orleans.Messaging.State.AzureStorage` and register the Azure-aware
+factory instead:
+
+```csharp
+siloBuilder.AddAzureStorageStateManager("state");
+```
+
+The Azure-aware manager treats Azure Storage optimistic-concurrency failures
+such as HTTP 412 as definite non-persistence, so writes and clears can fail
+fast without an unnecessary recovery read. Ambiguous failures, such as
+transient 5xx responses, still use read-back recovery.
 
 Then wrap the Orleans persistent state facet during activation:
 
@@ -250,6 +269,17 @@ this.RegisterStreamManager()
         "prices",
         async (message, cursor) => await UpdateProjectionAsync(message));
 ```
+
+Install `Egil.Orleans.Messaging.Streams.EventHubs` when using Orleans Event
+Hubs streams and the enriched adapter/token support:
+
+```csharp
+using Egil.Orleans.Messaging.Streams.EventHubs;
+using Orleans.Hosting;
+```
+
+The core package can consume provider-specific token metadata through
+`IStreamSequenceTokenMetadata` without taking a direct Event Hubs dependency.
 
 ## Scope
 

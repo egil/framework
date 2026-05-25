@@ -12,9 +12,9 @@ public sealed class DefaultStateManager<T> : StateManagerBase<T>
     }
 
     /// <inheritdoc/>
-    protected override WriteFailureKind ClassifyWriteFailure(Exception exception)
+    protected override StorageFailureKind ClassifyWriteFailure(Exception exception)
     {
         ArgumentNullException.ThrowIfNull(exception);
-        return WriteFailureKind.UnknownOutcome;
+        return StorageFailureKind.UnknownOutcome;
     }
 }

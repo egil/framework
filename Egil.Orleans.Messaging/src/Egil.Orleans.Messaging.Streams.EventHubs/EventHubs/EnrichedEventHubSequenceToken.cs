@@ -42,15 +42,15 @@ namespace Egil.Orleans.Messaging.Streams.EventHubs;
 /// </para>
 /// <para>
 /// <b>Serialization:</b> Inherits Orleans serialization from
-/// <see cref="EventHubSequenceTokenV2"/>. The library's STJ converter for
-/// <see cref="StreamCursor"/> recognizes this subtype via a <c>$kind</c>
-/// discriminator and round-trips <see cref="EnqueuedTime"/>,
-/// <see cref="ProviderName"/>, and <see cref="TraceParent"/> fields.
+/// <see cref="EventHubSequenceTokenV2"/>. Persist stream positions through
+/// <see cref="MessageTracker"/> or another application-owned checkpoint
+/// model; the provider-neutral core package does not serialize Event
+/// Hubs-specific token subtypes directly.
 /// </para>
 /// </remarks>
 [GenerateSerializer]
 [Alias("egil.orleans.messaging.EnrichedEventHubSequenceToken")]
-public class EnrichedEventHubSequenceToken : EventHubSequenceTokenV2
+public class EnrichedEventHubSequenceToken : EventHubSequenceTokenV2, IStreamSequenceTokenMetadata
 {
     /// <summary>
     /// The wall-clock time the event was enqueued at the Event Hub broker.
@@ -124,5 +124,26 @@ public class EnrichedEventHubSequenceToken : EventHubSequenceTokenV2
     public EnrichedEventHubSequenceToken()
     {
         ProviderName = string.Empty;
+    }
+
+    /// <inheritdoc/>
+    public bool TryGetEnqueuedTime(out DateTimeOffset enqueuedTime)
+    {
+        enqueuedTime = EnqueuedTime;
+        return true;
+    }
+
+    /// <inheritdoc/>
+    public bool TryGetProviderName([NotNullWhen(true)] out string? providerName)
+    {
+        providerName = ProviderName;
+        return !string.IsNullOrWhiteSpace(providerName);
+    }
+
+    /// <inheritdoc/>
+    public bool TryGetTraceParent([NotNullWhen(true)] out string? traceParent)
+    {
+        traceParent = TraceParent;
+        return traceParent is not null;
     }
 }

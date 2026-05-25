@@ -117,7 +117,7 @@ public abstract class StateManagerBase<T> : IStateManager<T>
         catch (Exception ex)
         {
             var failureKind = ClassifyWriteFailure(ex);
-            if (failureKind is WriteFailureKind.DidNotPersist)
+            if (failureKind is StorageFailureKind.DidNotPersist)
             {
                 // Provider-specific classification says the write never reached durable storage.
                 // Revert our local fence immediately and rethrow the original write error.
@@ -178,8 +178,16 @@ public abstract class StateManagerBase<T> : IStateManager<T>
             state = storage.State;
             return;
         }
-        catch
+        catch (Exception ex)
         {
+            var failureKind = ClassifyClearFailure(ex);
+            if (failureKind is StorageFailureKind.DidNotPersist)
+            {
+                state = previousState;
+                storage.State = previousState;
+                throw;
+            }
+
             try
             {
                 await storage.ReadStateAsync();
@@ -211,7 +219,16 @@ public abstract class StateManagerBase<T> : IStateManager<T>
     /// <summary>
     /// Classifies a write failure so the base can decide recovery behavior.
     /// </summary>
-    protected abstract WriteFailureKind ClassifyWriteFailure(Exception exception);
+    protected abstract StorageFailureKind ClassifyWriteFailure(Exception exception);
+
+    /// <summary>
+    /// Classifies a clear failure so the base can decide recovery behavior.
+    /// </summary>
+    protected virtual StorageFailureKind ClassifyClearFailure(Exception exception)
+    {
+        ArgumentNullException.ThrowIfNull(exception);
+        return StorageFailureKind.UnknownOutcome;
+    }
 
     private static bool IsEquivalent(T persisted, T attempted)
     {
