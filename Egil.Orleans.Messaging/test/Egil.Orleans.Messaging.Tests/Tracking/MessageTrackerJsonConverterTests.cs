@@ -31,14 +31,14 @@ public sealed class MessageTrackerJsonConverterTests
         var streamId = StreamId.Create("orders", token.GetType().Name);
         var tracker = new MessageTracker();
         tracker.RegisterTimeProvider(new ManualTimeProvider(now));
-        tracker.ProcessMessage(new StreamCursor(streamId, token), out tracker);
+        tracker.ProcessMessage(new StreamCursor("orders", token), out tracker);
 
         var json = JsonSerializer.Serialize(tracker);
         var roundTripped = JsonSerializer.Deserialize<MessageTracker>(json);
 
         Assert.NotNull(roundTripped);
         Assert.Equal(tracker, roundTripped);
-        Assert.Equal(new StreamCursor(streamId, token), roundTripped.LatestStream(streamId));
+        Assert.Equal(new StreamCursor("orders", token), roundTripped.LatestStream(streamId));
     }
 
     [Theory]
@@ -69,7 +69,7 @@ public sealed class MessageTrackerJsonConverterTests
         var streamId = StreamId.Create("orders", "unsupported");
         var tracker = new MessageTracker();
         tracker.RegisterTimeProvider(new ManualTimeProvider(now));
-        tracker.ProcessMessage(new StreamCursor(streamId, new UnsupportedSequenceToken(1, 0)), out tracker);
+        tracker.ProcessMessage(new StreamCursor("orders", new UnsupportedSequenceToken(1, 0)), out tracker);
 
         Assert.Throws<NotSupportedException>(() => JsonSerializer.Serialize(tracker));
     }
@@ -114,7 +114,7 @@ public sealed class MessageTrackerJsonConverterTests
         var roundTripped = JsonSerializer.Deserialize<MessageTracker>(json);
 
         Assert.NotNull(roundTripped);
-        Assert.Equal(new StreamCursor(streamId, null), roundTripped.LatestStream(streamId));
+        Assert.Equal(new StreamCursor("orders", null), roundTripped.LatestStream(streamId));
     }
 
     [Fact]

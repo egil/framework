@@ -164,6 +164,19 @@ streamManager = this.RegisterStreamManager(state.State.Tracker)
 await streamManager.EnsureExplicitSubscriptionsAsync(cancellationToken);
 ```
 
+Tracked resume tokens are a per-subscription choice. The default is to pass
+the previous token when a tracker snapshot is supplied. Opt out when a
+subscription should attach without a resume token:
+
+```csharp
+streamManager = this.RegisterStreamManager(state.State.Tracker)
+    .ConfigureExplicitSubscription<PriceChanged>(
+        "StreamProvider",
+        "prices",
+        HandlePriceChangedAsync,
+        useTrackedResumeToken: false);
+```
+
 ```csharp
 this.RegisterStreamManager()
     .ConfigureImplicitSubscription<PriceChanged>(

@@ -23,6 +23,39 @@ public sealed class StreamManagerResumeTests
     }
 
     [Fact]
+    public async Task EnsureExplicitSubscriptionsAsync_uses_null_resume_token_when_tracker_is_omitted()
+    {
+        var stream = new FakeStream<string>("provider-a", StreamId.Create("orders", "one"));
+        var manager = CreateManager(null, stream);
+
+        await manager
+            .ConfigureExplicitSubscription<string>("provider-a", "orders", static (_, _) => ValueTask.CompletedTask)
+            .EnsureExplicitSubscriptionsAsync(TestContext.Current.CancellationToken);
+
+        Assert.Null(stream.SubscribeToken);
+        Assert.Equal(1, stream.SubscribeCount);
+    }
+
+    [Fact]
+    public async Task EnsureExplicitSubscriptionsAsync_uses_null_resume_token_when_subscription_opts_out()
+    {
+        var stream = new FakeStream<string>("provider-a", StreamId.Create("orders", "one"));
+        var tracker = CreateTracker("provider-a", "orders", sequenceNumber: 7);
+        var manager = CreateManager(tracker, stream);
+
+        await manager
+            .ConfigureExplicitSubscription<string>(
+                "provider-a",
+                "orders",
+                static (_, _) => ValueTask.CompletedTask,
+                useTrackedResumeToken: false)
+            .EnsureExplicitSubscriptionsAsync(TestContext.Current.CancellationToken);
+
+        Assert.Null(stream.SubscribeToken);
+        Assert.Equal(1, stream.SubscribeCount);
+    }
+
+    [Fact]
     public async Task ResumeExplicitSubscriptionsAsync_uses_tracker_resume_token_when_resuming_existing_handle()
     {
         var handle = new FakeSubscriptionHandle<string>("provider-a", StreamId.Create("orders", "one"));
@@ -36,6 +69,28 @@ public sealed class StreamManagerResumeTests
             .ResumeExplicitSubscriptionsAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(new EventSequenceToken(7), handle.ResumeToken);
+        Assert.Equal(1, handle.ResumeCount);
+        Assert.Equal(0, stream.SubscribeCount);
+    }
+
+    [Fact]
+    public async Task ResumeExplicitSubscriptionsAsync_uses_null_resume_token_when_subscription_opts_out()
+    {
+        var handle = new FakeSubscriptionHandle<string>("provider-a", StreamId.Create("orders", "one"));
+        var stream = new FakeStream<string>("provider-a", StreamId.Create("orders", "one"));
+        stream.Handles.Add(handle);
+        var tracker = CreateTracker("provider-a", "orders", sequenceNumber: 7);
+        var manager = CreateManager(tracker, stream);
+
+        await manager
+            .ConfigureExplicitSubscription<string>(
+                "provider-a",
+                "orders",
+                static (_, _) => ValueTask.CompletedTask,
+                useTrackedResumeToken: false)
+            .ResumeExplicitSubscriptionsAsync(TestContext.Current.CancellationToken);
+
+        Assert.Null(handle.ResumeToken);
         Assert.Equal(1, handle.ResumeCount);
         Assert.Equal(0, stream.SubscribeCount);
     }
@@ -59,8 +114,30 @@ public sealed class StreamManagerResumeTests
         Assert.Equal(1, handleFactory.StringHandle.ResumeCount);
     }
 
+    [Fact]
+    public async Task Implicit_subscription_resume_uses_null_resume_token_when_subscription_opts_out()
+    {
+        var streamId = StreamId.Create("orders", "one");
+        var tracker = CreateTracker("provider-a", "orders", sequenceNumber: 7);
+        var handleFactory = new FakeStreamSubscriptionHandleFactory(
+            "provider-a",
+            streamId,
+            new FakeSubscriptionHandle<string>("provider-a", streamId));
+        var manager = CreateManager(tracker, new FakeStream<string>("provider-a", streamId));
+
+        await ((IStreamManagerComponent)manager
+            .ConfigureImplicitSubscription<string>(
+                "orders",
+                static (_, _) => ValueTask.CompletedTask,
+                useTrackedResumeToken: false))
+            .OnSubscribedAsync(handleFactory);
+
+        Assert.Null(handleFactory.StringHandle.ResumeToken);
+        Assert.Equal(1, handleFactory.StringHandle.ResumeCount);
+    }
+
     private static StreamManager CreateManager<TEvent>(
-        MessageTracker tracker,
+        MessageTracker? tracker,
         FakeStream<TEvent> stream)
     {
         var owner = new FakeGrainBase();
