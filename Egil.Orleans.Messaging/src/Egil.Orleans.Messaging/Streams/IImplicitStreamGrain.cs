@@ -12,8 +12,12 @@ public interface IImplicitStreamGrain : IStreamSubscriptionObserver
     {
         var grainBase = (IGrainBase)this;
         var component = grainBase.GrainContext.GetComponent<IStreamManagerComponent>();
-        return component is null
-            ? Task.CompletedTask
-            : component.OnSubscribedAsync(handleFactory);
+        if (component is null)
+        {
+            throw new InvalidOperationException(
+                $"No {nameof(StreamManager)} is attached to the grain context. Call RegisterStreamManager(...) from OnActivateAsync before implicit stream subscriptions are resumed.");
+        }
+
+        return component.OnSubscribedAsync(handleFactory);
     }
 }
