@@ -90,6 +90,35 @@ public sealed class MessageTrackerTests
     }
 
     [Fact]
+    public void LatestStream_with_provider_returns_matching_provider_cursor()
+    {
+        var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
+        var streamId = StreamId.Create("orders", "one");
+        var tracker = new MessageTracker();
+        tracker.RegisterTimeProvider(new ManualTimeProvider(now));
+        tracker.ProcessMessage(new StreamCursor("orders", new EventSequenceToken(7), "provider-a"), out tracker);
+        tracker.ProcessMessage(new StreamCursor("orders", new EventSequenceToken(9), "provider-b"), out tracker);
+
+        var latest = tracker.LatestStream("provider-a", "orders");
+
+        Assert.Equal(new StreamCursor("orders", new EventSequenceToken(7), "provider-a"), latest);
+    }
+
+    [Fact]
+    public void LatestStream_with_provider_does_not_fall_back_to_different_provider()
+    {
+        var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
+        var streamId = StreamId.Create("orders", "one");
+        var tracker = new MessageTracker();
+        tracker.RegisterTimeProvider(new ManualTimeProvider(now));
+        tracker.ProcessMessage(new StreamCursor("orders", new EventSequenceToken(7), "provider-a"), out tracker);
+
+        var latest = tracker.LatestStream("provider-b", "orders");
+
+        Assert.Null(latest);
+    }
+
+    [Fact]
     public void ProcessMessage_accepts_non_null_stream_token_after_null_initial_position()
     {
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);

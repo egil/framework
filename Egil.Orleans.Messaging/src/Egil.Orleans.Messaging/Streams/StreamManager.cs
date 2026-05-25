@@ -15,6 +15,7 @@ namespace Egil.Orleans.Messaging.Streams;
 public sealed class StreamManager : IStreamManagerComponent
 {
     private readonly IGrainBase owner;
+    private readonly MessageTracker trackerSnapshot;
     private readonly Func<string, IStreamProvider> getStreamProvider;
     private readonly Func<string, StreamId> getStreamId;
     private readonly ILogger logger;
@@ -25,11 +26,13 @@ public sealed class StreamManager : IStreamManagerComponent
 
     private StreamManager(
         IGrainBase owner,
+        MessageTracker trackerSnapshot,
         Func<string, IStreamProvider> getStreamProvider,
         Func<string, StreamId> getStreamId,
         ILogger logger)
     {
         this.owner = owner;
+        this.trackerSnapshot = trackerSnapshot;
         this.getStreamProvider = getStreamProvider;
         this.getStreamId = getStreamId;
         this.logger = logger;
@@ -58,6 +61,7 @@ public sealed class StreamManager : IStreamManagerComponent
 
         var manager = Create(
             owner,
+            trackerSnapshot,
             streamNamespace => services.GetRequiredKeyedService<IStreamProvider>(streamProviderName ?? streamNamespace),
             streamNamespace => CreateStreamId(owner, streamNamespace),
             logger);
@@ -68,16 +72,18 @@ public sealed class StreamManager : IStreamManagerComponent
 
     internal static StreamManager Create(
         IGrainBase owner,
+        MessageTracker trackerSnapshot,
         Func<string, IStreamProvider> getStreamProvider,
         Func<string, StreamId> getStreamId,
         ILogger logger)
     {
         ArgumentNullException.ThrowIfNull(owner);
+        ArgumentNullException.ThrowIfNull(trackerSnapshot);
         ArgumentNullException.ThrowIfNull(getStreamProvider);
         ArgumentNullException.ThrowIfNull(getStreamId);
         ArgumentNullException.ThrowIfNull(logger);
 
-        return new StreamManager(owner, getStreamProvider, getStreamId, logger);
+        return new StreamManager(owner, trackerSnapshot, getStreamProvider, getStreamId, logger);
     }
 
     /// <summary>
@@ -229,7 +235,9 @@ public sealed class StreamManager : IStreamManagerComponent
                 handleFactory.ProviderName,
                 onNextAsync,
                 onError);
-            var handle = await handleFactory.Create<TEvent>().ResumeAsync(observer);
+            var handle = await handleFactory.Create<TEvent>().ResumeAsync(
+                observer,
+                GetResumeToken(handleFactory.ProviderName, streamNamespace));
 
             subscriptionHandles.Add(handle);
             MessagingTelemetry.RecordStreamSubscription(streamNamespace, "established");
@@ -265,7 +273,10 @@ public sealed class StreamManager : IStreamManagerComponent
                     streamProviderName,
                     onNextAsync,
                     onError);
-                var handle = await stream.SubscribeAsync(observer);
+                var handle = await stream.SubscribeAsync(
+                    observer,
+                    GetResumeToken(streamProviderName, streamNamespace),
+                    filterData: null);
 
                 subscriptionHandles.Add(handle);
                 MessagingTelemetry.RecordStreamSubscription(streamNamespace, "established");
@@ -282,7 +293,9 @@ public sealed class StreamManager : IStreamManagerComponent
                     handle.ProviderName,
                     onNextAsync,
                     onError);
-                var resumedHandle = await handle.ResumeAsync(observer);
+                var resumedHandle = await handle.ResumeAsync(
+                    observer,
+                    GetResumeToken(handle.ProviderName, streamNamespace));
 
                 subscriptionHandles.Add(resumedHandle);
                 MessagingTelemetry.RecordStreamSubscription(streamNamespace, "established");
@@ -307,6 +320,15 @@ public sealed class StreamManager : IStreamManagerComponent
         var streamProvider = getStreamProvider(streamProviderName);
         var streamId = getStreamId(streamNamespace);
         return streamProvider.GetStream<TEvent>(streamId);
+    }
+
+    private StreamSequenceToken? GetResumeToken(string? streamProviderName, string streamNamespace)
+    {
+        var cursor = string.IsNullOrWhiteSpace(streamProviderName)
+            ? trackerSnapshot.LatestStream(streamNamespace)
+            : trackerSnapshot.LatestStream(streamProviderName, streamNamespace);
+
+        return cursor?.Token;
     }
 
     private async Task OnNextAsync<TEvent>(
