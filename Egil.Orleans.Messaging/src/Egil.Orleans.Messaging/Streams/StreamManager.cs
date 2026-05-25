@@ -44,12 +44,6 @@ public sealed class StreamManager : IStreamManagerComponent
     internal static StreamManager Create(
         IGrainBase owner,
         MessageTracker trackerSnapshot)
-        => Create(owner, trackerSnapshot, streamProviderName: null);
-
-    internal static StreamManager Create(
-        IGrainBase owner,
-        MessageTracker trackerSnapshot,
-        string? streamProviderName)
     {
         ArgumentNullException.ThrowIfNull(owner);
         ArgumentNullException.ThrowIfNull(trackerSnapshot);
@@ -62,7 +56,7 @@ public sealed class StreamManager : IStreamManagerComponent
         var manager = Create(
             owner,
             trackerSnapshot,
-            streamNamespace => services.GetRequiredKeyedService<IStreamProvider>(streamProviderName ?? streamNamespace),
+            streamProviderName => services.GetRequiredKeyedService<IStreamProvider>(streamProviderName),
             streamNamespace => CreateStreamId(owner, streamNamespace),
             logger);
 

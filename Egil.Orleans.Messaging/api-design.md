@@ -773,17 +773,6 @@ public static class StreamManagerExtensions
         this TGrain grain,
         MessageTracker? trackerSnapshot = null)
         where TGrain : IGrainBase;
-
-    public static StreamManager RegisterStreamManager<TGrain>(
-        this TGrain grain,
-        string streamProviderName)
-        where TGrain : IGrainBase;
-
-    public static StreamManager RegisterStreamManager<TGrain>(
-        this TGrain grain,
-        MessageTracker? trackerSnapshot,
-        string streamProviderName)
-        where TGrain : IGrainBase;
 }
 
 ```
