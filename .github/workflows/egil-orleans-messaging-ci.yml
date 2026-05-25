@@ -49,8 +49,10 @@ jobs:
 
       - name: Build and pack
         run: |
-          dotnet build ./Egil.Orleans.Messaging/src/Egil.Orleans.Messaging/Egil.Orleans.Messaging.csproj -c Release -f net10.0 -p:ContinuousIntegrationBuild=true
-          dotnet pack ./Egil.Orleans.Messaging/src/Egil.Orleans.Messaging/Egil.Orleans.Messaging.csproj -c Release --no-build -p:ContinuousIntegrationBuild=true --output ${{ env.NuGetDirectory }}
+          dotnet build ./Egil.Orleans.Messaging/Egil.Orleans.Messaging.slnx -c Release -p:ContinuousIntegrationBuild=true
+          for project in ./Egil.Orleans.Messaging/src/*/*.csproj; do
+            dotnet pack "$project" -c Release --no-build -p:ContinuousIntegrationBuild=true --output ${{ env.NuGetDirectory }}
+          done
 
       - uses: actions/upload-artifact@v4
         with:

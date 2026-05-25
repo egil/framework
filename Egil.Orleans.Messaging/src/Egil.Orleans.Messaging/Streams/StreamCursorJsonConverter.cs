@@ -1,8 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Egil.Orleans.Messaging.Streams.EventHubs;
 using Orleans.Providers.Streams.Common;
-using Orleans.Streaming.EventHubs;
 using Orleans.Streams;
 
 namespace Egil.Orleans.Messaging.Streams;
@@ -16,11 +14,8 @@ namespace Egil.Orleans.Messaging.Streams;
 /// <para>
 /// <see cref="StreamCursor"/> wraps a stream namespace and an optional
 /// <c>StreamSequenceToken</c>. The token is polymorphic and this converter
-/// supports Orleans built-in sequence token types only:
-/// <see cref="EnrichedEventHubSequenceToken"/>,
-/// <c>EventHubSequenceTokenV2</c>,
-/// <c>EventHubSequenceToken</c>, <c>EventSequenceTokenV2</c>, and
-/// <c>EventSequenceToken</c>.
+/// supports provider-neutral Orleans sequence token types only:
+/// <c>EventSequenceTokenV2</c> and <c>EventSequenceToken</c>.
 /// </para>
 /// <para>
 /// Registered on <see cref="StreamCursor"/> via <c>[JsonConverter]</c>.
@@ -33,7 +28,7 @@ internal sealed class StreamCursorJsonConverter : JsonConverter<StreamCursor>
     private const string FeatureRequestUrl = "https://github.com/egil/framework/issues";
 
     private const string SupportedKinds =
-        "EventSequenceToken, EventSequenceTokenV2, EventHubSequenceToken, EventHubSequenceTokenV2, EnrichedEventHubSequenceToken";
+        "EventSequenceToken, EventSequenceTokenV2";
 
     /// <inheritdoc/>
     public override StreamCursor? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
@@ -70,21 +65,6 @@ internal sealed class StreamCursorJsonConverter : JsonConverter<StreamCursor>
         {
             StreamSequenceTokenKinds.EventSequenceToken => new EventSequenceToken(model.SequenceNumber, model.EventIndex),
             StreamSequenceTokenKinds.EventSequenceTokenV2 => new EventSequenceTokenV2(model.SequenceNumber, model.EventIndex),
-            StreamSequenceTokenKinds.EventHubSequenceToken => new EventHubSequenceToken(
-                model.EventHubOffset ?? throw new JsonException("Missing EventHubOffset."),
-                model.SequenceNumber,
-                model.EventIndex),
-            StreamSequenceTokenKinds.EventHubSequenceTokenV2 => new EventHubSequenceTokenV2(
-                model.EventHubOffset ?? throw new JsonException("Missing EventHubOffset."),
-                model.SequenceNumber,
-                model.EventIndex),
-            StreamSequenceTokenKinds.EnrichedEventHubSequenceToken => new EnrichedEventHubSequenceToken(
-                model.EventHubOffset ?? throw new JsonException("Missing EventHubOffset."),
-                model.SequenceNumber,
-                model.EventIndex,
-                model.EnqueuedTime ?? throw new JsonException("Missing EnqueuedTime."),
-                model.ProviderName ?? throw new JsonException("Missing ProviderName."),
-                model.TraceParent),
             _ => throw CreateUnsupportedTokenException(model.Kind ?? "<null>")
         };
     }
@@ -98,24 +78,6 @@ internal sealed class StreamCursorJsonConverter : JsonConverter<StreamCursor>
 
         return value switch
         {
-            EnrichedEventHubSequenceToken token => new StreamSequenceTokenJsonModel(
-                Kind: StreamSequenceTokenKinds.EnrichedEventHubSequenceToken,
-                SequenceNumber: token.SequenceNumber,
-                EventIndex: token.EventIndex,
-                EventHubOffset: token.EventHubOffset,
-                EnqueuedTime: token.EnqueuedTime.UtcDateTime,
-                ProviderName: token.ProviderName,
-                TraceParent: token.TraceParent),
-            EventHubSequenceTokenV2 token => new StreamSequenceTokenJsonModel(
-                Kind: StreamSequenceTokenKinds.EventHubSequenceTokenV2,
-                SequenceNumber: token.SequenceNumber,
-                EventIndex: token.EventIndex,
-                EventHubOffset: token.EventHubOffset),
-            EventHubSequenceToken token => new StreamSequenceTokenJsonModel(
-                Kind: StreamSequenceTokenKinds.EventHubSequenceToken,
-                SequenceNumber: token.SequenceNumber,
-                EventIndex: token.EventIndex,
-                EventHubOffset: token.EventHubOffset),
             EventSequenceTokenV2 token => new StreamSequenceTokenJsonModel(
                 Kind: StreamSequenceTokenKinds.EventSequenceTokenV2,
                 SequenceNumber: token.SequenceNumber,
@@ -144,17 +106,11 @@ internal sealed class StreamCursorJsonConverter : JsonConverter<StreamCursor>
         string? Kind = null,
         long SequenceNumber = 0,
         int EventIndex = 0,
-        string? EventHubOffset = null,
-        DateTime? EnqueuedTime = null,
-        string? ProviderName = null,
-        string? TraceParent = null);
+        string? EventHubOffset = null);
 
     private static class StreamSequenceTokenKinds
     {
         public const string EventSequenceToken = "event-sequence";
         public const string EventSequenceTokenV2 = "event-sequence-v2";
-        public const string EventHubSequenceToken = "event-hub";
-        public const string EventHubSequenceTokenV2 = "event-hub-v2";
-        public const string EnrichedEventHubSequenceToken = "enriched-event-hub";
     }
 }

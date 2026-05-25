@@ -1,8 +1,12 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Egil.Orleans.Messaging/Egil.Orleans.Messaging.csproj" />
+    <Project Path="src/Egil.Orleans.Messaging.State.AzureStorage/Egil.Orleans.Messaging.State.AzureStorage.csproj" />
+    <Project Path="src/Egil.Orleans.Messaging.Streams.EventHubs/Egil.Orleans.Messaging.Streams.EventHubs.csproj" />
   </Folder>
   <Folder Name="/test/">
+    <Project Path="test/Egil.Orleans.Messaging.State.AzureStorage.Tests/Egil.Orleans.Messaging.State.AzureStorage.Tests.csproj" />
+    <Project Path="test/Egil.Orleans.Messaging.Streams.EventHubs.Tests/Egil.Orleans.Messaging.Streams.EventHubs.Tests.csproj" />
     <Project Path="test/Egil.Orleans.Messaging.Tests/Egil.Orleans.Messaging.Tests.csproj" />
   </Folder>
 </Solution>

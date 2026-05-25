@@ -41,32 +41,38 @@ A set of composable building blocks for Orleans grains that need:
 
 ### Packaging
 
-One NuGet package for now. Internal boundaries (state management vs
-messaging vs streaming) are kept clean so a future split is mechanical.
-Split only when dependency weight becomes a concrete problem.
+Provider-neutral state/outbox/tracking and core stream manager APIs live in
+`Egil.Orleans.Messaging`. Provider-specific integrations live in companion
+packages so consumers do not inherit optional Azure/Event Hubs dependencies
+unless they use those providers.
 
-Provider-specific integrations are the preferred split point when this
-becomes more than one package. Keep provider-neutral state/outbox/tracking
-and core stream manager APIs in `Egil.Orleans.Messaging`; move optional
-provider dependencies to companion packages such as
-`Egil.Orleans.Messaging.Streams.EventHubs`,
-`Egil.Orleans.Messaging.State.AzureTable`, and
-`Egil.Orleans.Messaging.State.AzureBlob`. This follows Orleans' own package
-shape, where optional stream and storage providers live behind provider
-packages instead of the core runtime package.
+Current packages:
+
+| Package | Contents |
+| ------- | -------- |
+| `Egil.Orleans.Messaging` | State manager base/default implementation, outbox, postman, tracking, stream manager, provider-neutral stream cursor/token metadata. |
+| `Egil.Orleans.Messaging.Streams.EventHubs` | Orleans Event Hubs stream adapter and enriched Event Hubs sequence token support. |
+| `Egil.Orleans.Messaging.State.AzureStorage` | Azure Table/Blob storage-aware state manager factory and failure classification. |
+
+Future provider integrations should follow the same shape, for example
+dedicated packages for provider-specific state manager behavior rather than
+adding those dependencies to the core package. This follows Orleans' own
+package shape, where optional stream and storage providers live behind
+provider packages instead of the core runtime package.
 
 ### Capability namespaces and folders
 
 Source and test files are grouped by library tool. Tests mirror production
 folders so behavior is easy to find from the type under test.
 
-| Capability | Production namespace | Test folder |
-| ---------- | -------------------- | ----------- |
-| State management | `Egil.Orleans.Messaging.State` | `State/` |
-| Outbox | `Egil.Orleans.Messaging.Outboxes` | `Outboxes/` |
-| Receiver tracking | `Egil.Orleans.Messaging.Tracking` | `Tracking/` |
-| Streams | `Egil.Orleans.Messaging.Streams` | `Streams/` |
-| Event Hub stream enrichment | `Egil.Orleans.Messaging.Streams.EventHubs` | `Streams/EventHubs/` |
+| Capability | Package | Production namespace | Test folder |
+| ---------- | ------- | -------------------- | ----------- |
+| State management | `Egil.Orleans.Messaging` | `Egil.Orleans.Messaging.State` | `State/` |
+| Outbox | `Egil.Orleans.Messaging` | `Egil.Orleans.Messaging.Outboxes` | `Outboxes/` |
+| Receiver tracking | `Egil.Orleans.Messaging` | `Egil.Orleans.Messaging.Tracking` | `Tracking/` |
+| Streams | `Egil.Orleans.Messaging` | `Egil.Orleans.Messaging.Streams` | `Streams/` |
+| Event Hub stream enrichment | `Egil.Orleans.Messaging.Streams.EventHubs` | `Egil.Orleans.Messaging.Streams.EventHubs` | `EventHubs/` |
+| Azure Storage state manager | `Egil.Orleans.Messaging.State.AzureStorage` | `Egil.Orleans.Messaging.State.AzureStorage` | `AzureStorage/` |
 
 Extension entry points live in the namespace of the type they extend so they
 are discoverable from normal Orleans, hosting, and DI imports:
@@ -264,10 +270,22 @@ Each storage provider we care to optimise for may ship its own
 `IStateManager<T>` that:
 
 - Inspects provider-specific exception types to classify failures as
-  *DefinitelyDidNotPersist* (skip re-read, revert + rethrow) vs
-  *UnknownOutcome* (re-read).
+  `StorageFailureKind.DidNotPersist` (skip re-read, revert + rethrow) vs
+  `StorageFailureKind.UnknownOutcome` (re-read).
 - Optionally exploits provider features (conditional writes, blob
   versions) to avoid the re-read.
+
+`StorageFailureKind` is intentionally named for storage operations rather
+than only writes. The same classification is useful for clear operations:
+an Azure Storage HTTP 412/ETag conflict definitely did not clear the record,
+while transient 5xx errors remain ambiguous and require read-back recovery.
+Read failures do not use the classification because no local committed state
+has been tentatively changed.
+
+The Azure Storage companion package treats Orleans/Azure optimistic
+concurrency failures (`InconsistentStateException` and Azure Storage HTTP
+412) as `DidNotPersist` for writes and clears. Other provider failures stay
+`UnknownOutcome`, preserving the default read-back recovery path.
 
 ### Why a wrapper, not extension methods
 
@@ -1521,8 +1539,12 @@ public async Task ReceiveReminder(string name, TickStatus status)
 
 ### Namespace
 
-Flat: all public types in `Egil.Orleans.Messaging`. One `using`
-statement. ~15-20 public types — not crowded enough to split.
+Public types are grouped by capability namespace:
+`Egil.Orleans.Messaging.State`, `Egil.Orleans.Messaging.Outboxes`,
+`Egil.Orleans.Messaging.Tracking`, and `Egil.Orleans.Messaging.Streams`.
+Provider-specific companion packages add provider namespaces such as
+`Egil.Orleans.Messaging.Streams.EventHubs` and
+`Egil.Orleans.Messaging.State.AzureStorage`.
 
 ### Orleans `[Alias]` on serializable types
 

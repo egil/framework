@@ -9,17 +9,15 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <PackageId>Egil.Orleans.Messaging</PackageId>
-    <Title>Orleans Messaging Toolbox</Title>
+    <PackageId>Egil.Orleans.Messaging.Streams.EventHubs</PackageId>
+    <Title>Orleans Messaging Event Hubs Extensions</Title>
     <Company>Egil Hansen</Company>
     <Authors>Egil Hansen</Authors>
     <Description>
-      A toolbox of composable building blocks for Orleans grains that need
-      atomic state writes, transactional outbox, receiver-side dedup, and
-      stream subscription management. Pick what you need, leave the rest.
+      Event Hubs-specific stream token enrichment for Egil.Orleans.Messaging.
     </Description>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageTags>orleans,messaging,outbox,deduplication,streams,grain,egil</PackageTags>
+    <PackageTags>orleans,messaging,streams,eventhubs,event-hubs,egil</PackageTags>
     <Copyright>Egil Hansen</Copyright>
     <PackageProjectUrl>https://github.com/egil/framework</PackageProjectUrl>
     <RepositoryUrl>https://github.com/egil/framework</RepositoryUrl>
@@ -35,15 +33,11 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.Orleans.Reminders" />
-    <PackageReference Include="Microsoft.Orleans.Runtime" />
-    <PackageReference Include="Microsoft.Orleans.Streaming" />
+    <PackageReference Include="Microsoft.Orleans.Streaming.EventHubs" />
   </ItemGroup>
 
   <ItemGroup>
-    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
-      <_Parameter1>Egil.Orleans.Messaging.Tests</_Parameter1>
-    </AssemblyAttribute>
+    <ProjectReference Include="..\Egil.Orleans.Messaging\Egil.Orleans.Messaging.csproj" />
   </ItemGroup>
 
   <ItemGroup>

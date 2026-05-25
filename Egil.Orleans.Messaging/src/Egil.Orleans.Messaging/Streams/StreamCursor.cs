@@ -1,5 +1,4 @@
 using System.Text.Json.Serialization;
-using Egil.Orleans.Messaging.Streams.EventHubs;
 using Egil.Orleans.Messaging.Tracking;
 using Orleans.Streams;
 
@@ -17,20 +16,15 @@ namespace Egil.Orleans.Messaging.Streams;
 /// subtypes via a <c>$kind</c> discriminator:
 /// <list type="bullet">
 /// <item><c>EventSequenceToken</c> — Orleans SimpleMessageStream</item>
-/// <item><c>EventHubSequenceToken</c> — Orleans Event Hub provider v1</item>
-/// <item><c>EventHubSequenceTokenV2</c> — Orleans Event Hub provider v2</item>
-/// <item><see cref="EnrichedEventHubSequenceToken"/> — library-shipped v2
-/// subclass carrying <see cref="EnrichedEventHubSequenceToken.EnqueuedTime"/></item>
 /// </list>
 /// Unknown subtypes throw at serialization time — silently dropping the cursor
 /// would corrupt dedup state.
 /// </para>
 /// <para>
-/// <b>Enriched time:</b> Use <see cref="TryGetEnqueuedTime"/> to extract the
-/// broker-side enqueue time when the token is an <see cref="EnrichedEventHubSequenceToken"/>.
-/// Returns <c>false</c> for all other token types. This enables end-to-end lag
-/// histograms in the <see cref="StreamManager"/> telemetry without coupling the
-/// cursor type to a specific streaming provider.
+/// <b>Provider-specific metadata:</b> Tokens can implement
+/// <see cref="IStreamSequenceTokenMetadata"/> to expose broker-side enqueue
+/// time, provider name, or trace context without coupling this core package to
+/// a specific streaming provider.
 /// </para>
 /// <para>
 /// <b>Serialization:</b> Decorated with <c>[GenerateSerializer]</c> for Orleans
@@ -61,25 +55,21 @@ public sealed record StreamCursor(
     /// <see cref="Token"/>.
     /// </summary>
     /// <remarks>
-    /// Returns <c>true</c> only when the token is an
-    /// <see cref="EnrichedEventHubSequenceToken"/>. Callers can use this to
-    /// compute end-to-end lag (<c>now - enqueuedTime</c>) without coupling
-    /// to a specific streaming provider.
+    /// Returns <c>true</c> when the token implements
+    /// <see cref="IStreamSequenceTokenMetadata"/> and exposes an enqueue time.
     /// </remarks>
     /// <param name="enqueuedTime">
     /// The time the event was enqueued at the broker, or <c>default</c> if
     /// the token type does not carry this information.
     /// </param>
     /// <returns>
-    /// <c>true</c> if <see cref="Token"/> is an
-    /// <see cref="EnrichedEventHubSequenceToken"/> and the time was extracted;
-    /// <c>false</c> otherwise.
+    /// <c>true</c> if the time was extracted; <c>false</c> otherwise.
     /// </returns>
     public bool TryGetEnqueuedTime(out DateTimeOffset enqueuedTime)
     {
-        if (Token is EnrichedEventHubSequenceToken token)
+        if (Token is IStreamSequenceTokenMetadata metadata
+            && metadata.TryGetEnqueuedTime(out enqueuedTime))
         {
-            enqueuedTime = token.EnqueuedTime;
             return true;
         }
 
@@ -92,24 +82,22 @@ public sealed record StreamCursor(
     /// <see cref="Token"/>.
     /// </summary>
     /// <remarks>
-    /// Returns <c>true</c> only when the token is an
-    /// <see cref="EnrichedEventHubSequenceToken"/>. Enables provider-aware
-    /// dedup and diagnostics without coupling to a specific streaming provider.
+    /// Returns <c>true</c> when the token implements
+    /// <see cref="IStreamSequenceTokenMetadata"/> and exposes a provider name,
+    /// or when <see cref="ProviderName"/> is populated.
     /// </remarks>
     /// <param name="providerName">
     /// The name of the stream provider that delivered this event, or
     /// <c>null</c> if the token type does not carry this information.
     /// </param>
     /// <returns>
-    /// <c>true</c> if <see cref="Token"/> is an
-    /// <see cref="EnrichedEventHubSequenceToken"/> or <see cref="ProviderName"/>
-    /// is populated; <c>false</c> otherwise.
+    /// <c>true</c> if a provider name was extracted; <c>false</c> otherwise.
     /// </returns>
     public bool TryGetProviderName([NotNullWhen(true)] out string? providerName)
     {
-        if (Token is EnrichedEventHubSequenceToken token)
+        if (Token is IStreamSequenceTokenMetadata metadata
+            && metadata.TryGetProviderName(out providerName))
         {
-            providerName = token.ProviderName;
             return true;
         }
 
@@ -128,9 +116,8 @@ public sealed record StreamCursor(
     /// <see cref="Token"/>.
     /// </summary>
     /// <remarks>
-    /// Returns <c>true</c> only when the token is an
-    /// <see cref="EnrichedEventHubSequenceToken"/> whose
-    /// <see cref="EnrichedEventHubSequenceToken.TraceParent"/> is not <c>null</c>.
+    /// Returns <c>true</c> when the token implements
+    /// <see cref="IStreamSequenceTokenMetadata"/> and exposes a traceparent.
     /// <see cref="StreamManager"/> uses this to create
     /// <see cref="System.Diagnostics.ActivityLink"/>s — correlating consumer
     /// spans to producer spans without creating multi-hour parent-child traces.
@@ -142,16 +129,13 @@ public sealed record StreamCursor(
     /// publish time.
     /// </param>
     /// <returns>
-    /// <c>true</c> if <see cref="Token"/> is an
-    /// <see cref="EnrichedEventHubSequenceToken"/> with a non-null
-    /// <see cref="EnrichedEventHubSequenceToken.TraceParent"/>; <c>false</c>
-    /// otherwise.
+    /// <c>true</c> if a traceparent was extracted; <c>false</c> otherwise.
     /// </returns>
     public bool TryGetTraceParent([NotNullWhen(true)] out string? traceParent)
     {
-        if (Token is EnrichedEventHubSequenceToken token && token.TraceParent is not null)
+        if (Token is IStreamSequenceTokenMetadata metadata
+            && metadata.TryGetTraceParent(out traceParent))
         {
-            traceParent = token.TraceParent;
             return true;
         }
 
