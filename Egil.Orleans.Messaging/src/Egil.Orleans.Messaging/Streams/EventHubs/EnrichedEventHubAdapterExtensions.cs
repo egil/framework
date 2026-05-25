@@ -42,30 +42,30 @@ public static class EnrichedEventHubAdapterExtensions
 {
     extension(IEventHubStreamConfigurator configurator)
     {
-    /// <summary>
-    /// Registers the library's <see cref="EnrichedEventHubSequenceToken"/>-producing
-    /// data adapter on the given Event Hub stream configurator.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Replaces the default <c>EventHubDataAdapter</c>. Only one data adapter
-    /// can be active per stream provider — calling this after a prior
-    /// <c>UseDataAdapter</c> replaces the previous registration.
-    /// </para>
-    /// <para>
-    /// The adapter is resolved per-provider: the <c>Serializer</c> is obtained
-    /// from the silo's <see cref="IServiceProvider"/>, and the stream provider
-    /// name is captured from the configurator's factory delegate.
-    /// </para>
-    /// </remarks>
-    public void UseEnrichedDataAdapter()
-    {
-        ArgumentNullException.ThrowIfNull(configurator);
+        /// <summary>
+        /// Registers the library's <see cref="EnrichedEventHubSequenceToken"/>-producing
+        /// data adapter on the given Event Hub stream configurator.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Replaces the default <c>EventHubDataAdapter</c>. Only one data adapter
+        /// can be active per stream provider — calling this after a prior
+        /// <c>UseDataAdapter</c> replaces the previous registration.
+        /// </para>
+        /// <para>
+        /// The adapter is resolved per-provider: the <c>Serializer</c> is obtained
+        /// from the silo's <see cref="IServiceProvider"/>, and the stream provider
+        /// name is captured from the configurator's factory delegate.
+        /// </para>
+        /// </remarks>
+        public void UseEnrichedDataAdapter()
+        {
+            ArgumentNullException.ThrowIfNull(configurator);
 
-        configurator.UseDataAdapter((services, providerName) =>
-            new EnrichedEventHubAdapter(
-                providerName,
-                services.GetRequiredService<Serializer>()));
-    }
+            configurator.UseDataAdapter((services, providerName) =>
+                new EnrichedEventHubAdapter(
+                    providerName,
+                    services.GetRequiredService<Serializer>()));
+        }
     }
 }
