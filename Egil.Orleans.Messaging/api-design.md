@@ -1164,9 +1164,13 @@ public interface IOutboxGrain : IRemindable
     {
         var grainBase = (IGrainBase)this;
         var component = grainBase.GrainContext.GetComponent<IOutboxComponent>();
-        return component is null
-            ? Task.CompletedTask
-            : component.ReceiveReminderAsync(reminderName, status).AsTask();
+        if (component is null)
+        {
+            throw new InvalidOperationException(
+                "No OutboxProcessor is attached to the grain context.");
+        }
+
+        return component.ReceiveReminderAsync(reminderName, status).AsTask();
     }
 }
 

@@ -36,16 +36,21 @@ public interface IOutboxGrain : IRemindable
 {
     /// <summary>
     /// Default implementation that discovers the <see cref="IOutboxComponent"/>
-    /// on the grain context and forwards the reminder callback. Returns
-    /// <see cref="Task.CompletedTask"/> if no processor is attached (safe
-    /// no-op for reminders that fire before activation completes).
+    /// on the grain context and forwards the reminder callback. Throws if no
+    /// processor is attached, since that means the grain implemented
+    /// <see cref="IOutboxGrain"/> but did not call
+    /// <c>RegisterOutboxProcessor</c> during activation.
     /// </summary>
     Task IRemindable.ReceiveReminder(string reminderName, TickStatus status)
     {
         var grainBase = (IGrainBase)this;
         var component = grainBase.GrainContext.GetComponent<IOutboxComponent>();
-        return component is null
-            ? Task.CompletedTask
-            : component.ReceiveReminderAsync(reminderName, status).AsTask();
+        if (component is null)
+        {
+            throw new InvalidOperationException(
+                $"No {nameof(OutboxProcessor<object>)} is attached to the grain context. Call RegisterOutboxProcessor(...) from OnActivateAsync before outbox reminders are received.");
+        }
+
+        return component.ReceiveReminderAsync(reminderName, status).AsTask();
     }
 }
