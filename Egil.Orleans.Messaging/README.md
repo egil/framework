@@ -144,7 +144,7 @@ The tracker can also evict old sender or stream entries when your retention poli
 
 ## Streams
 
-Use `StreamManager` to configure stream subscriptions from `OnActivateAsync` and resume from the tracker snapshot:
+Use `StreamManager` to configure stream subscriptions from `OnActivateAsync`. Pass a tracker snapshot when you want persisted resume tokens, or omit it when the grain does not track stream positions:
 
 ```csharp
 streamManager = this.RegisterStreamManager(state.State.Tracker)
@@ -162,6 +162,13 @@ streamManager = this.RegisterStreamManager(state.State.Tracker)
         });
 
 await streamManager.EnsureExplicitSubscriptionsAsync(cancellationToken);
+```
+
+```csharp
+this.RegisterStreamManager()
+    .ConfigureImplicitSubscription<PriceChanged>(
+        "prices",
+        async (message, cursor) => await UpdateProjectionAsync(message));
 ```
 
 ## Scope
