@@ -15,6 +15,12 @@ public enum OutboxPostmanExecutionMode
     /// <summary>
     /// Executes postman callbacks on the .NET thread pool.
     /// </summary>
+    /// <remarks>
+    /// Use only for blocking or legacy delivery code that must not run on the
+    /// Orleans activation scheduler. Thread-pool postmen must not read or
+    /// mutate activation-local grain state. Prefer static/state-free callbacks,
+    /// injected thread-safe services, or <see cref="IGrainFactory"/> calls.
+    /// </remarks>
     ThreadPool
 }
 
