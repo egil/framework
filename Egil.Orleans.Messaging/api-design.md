@@ -771,7 +771,18 @@ public static class StreamManagerExtensions
 {
     public static StreamManager RegisterStreamManager<TGrain>(
         this TGrain grain,
-        MessageTracker trackerSnapshot)
+        MessageTracker? trackerSnapshot = null)
+        where TGrain : IGrainBase;
+
+    public static StreamManager RegisterStreamManager<TGrain>(
+        this TGrain grain,
+        string streamProviderName)
+        where TGrain : IGrainBase;
+
+    public static StreamManager RegisterStreamManager<TGrain>(
+        this TGrain grain,
+        MessageTracker? trackerSnapshot,
+        string streamProviderName)
         where TGrain : IGrainBase;
 }
 
@@ -783,6 +794,12 @@ parameter. Orleans provides the concrete provider and stream id through
 
 `ConfigureExplicitSubscription` requires a provider name because the library
 must ask Orleans for the stream and durable subscription handles itself.
+
+`RegisterStreamManager()` can be called without a `MessageTracker` when the
+grain does not persist stream high-water marks. In that mode the manager
+attaches handlers without supplying resume tokens. Pass the activation-time
+tracker snapshot only when the grain wants `StreamManager` to resume from
+persisted cursors.
 
 ### Typical implicit wiring
 
@@ -811,6 +828,13 @@ public sealed class PriceProjectionGrain : Grain, IImplicitStreamGrain
 No `SubscribeAsync` call belongs in implicit activation. Orleans activates
 the grain and calls `OnSubscribed(...)` when an event targets the implicit
 subscription.
+
+For grains that do not track stream positions, omit the tracker:
+
+```csharp
+this.RegisterStreamManager()
+    .ConfigureImplicitSubscription("electricity-prices", HandlePriceTickAsync);
+```
 
 ### Typical explicit wiring
 

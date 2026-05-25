@@ -326,7 +326,7 @@ public sealed class ImplicitStreamManagerTestGrain(
 {
     public override async Task OnActivateAsync(CancellationToken cancellationToken)
     {
-        this.RegisterStreamManager(state.State.Tracker)
+        this.RegisterStreamManager()
             .ConfigureImplicitSubscription<string>(StreamManagerTestNamespaces.Implicit, HandleImplicitAsync);
 
         await base.OnActivateAsync(cancellationToken);
