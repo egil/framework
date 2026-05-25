@@ -1,0 +1,53 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: maintenance-inventory
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 5 * * 1'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 1
+  DOTNET_NOLOGO: true
+
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.x
+            9.x
+            10.x
+
+      - name: Generate maintenance inventory
+        shell: pwsh
+        run: ./scripts/maintenance/inventory.ps1 -OutputDirectory ./artifacts/maintenance
+
+      - name: Upload maintenance inventory
+        uses: actions/upload-artifact@v4
+        with:
+          name: maintenance-inventory
+          if-no-files-found: error
+          retention-days: 14
+          path: artifacts/maintenance/
+
+      - name: Create or update maintenance issues
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: ./scripts/maintenance/upsert-issues.ps1 -PayloadDirectory ./artifacts/maintenance/issues -MetadataPath ./artifacts/maintenance/maintenance-report.json -CloseResolved

@@ -1,0 +1,181 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommits"
+  ],
+  "timezone": "Etc/UTC",
+  "schedule": [
+    "before 7am on monday"
+  ],
+  "prHourlyLimit": 2,
+  "prConcurrentLimit": 5,
+  "separateMajorMinor": true,
+  "rangeStrategy": "bump",
+  "labels": [
+    "dependencies"
+  ],
+  "semanticCommitType": "chore",
+  "semanticCommitScope": "build",
+  "packageRules": [
+    {
+      "description": "Keep GitHub workflow actions together.",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "groupName": "github actions",
+      "labels": [
+        "dependencies",
+        "maintenance:ci"
+      ]
+    },
+    {
+      "description": "Keep repo and project dotnet local tools together.",
+      "matchManagers": [
+        "nuget"
+      ],
+      "matchFileNames": [
+        "**/.config/dotnet-tools.json"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "groupName": "dotnet local tools",
+      "labels": [
+        "dependencies",
+        "maintenance:tools"
+      ]
+    },
+    {
+      "description": "Keep shared analyzers and build-time package tooling together.",
+      "matchManagers": [
+        "nuget"
+      ],
+      "matchPackageNames": [
+        "DotNet.ReproducibleBuilds",
+        "Meziantou.Analyzer",
+        "Meziantou.Framework.NuGetPackageValidation.Tool",
+        "Nerdbank.GitVersioning",
+        "SonarAnalyzer.CSharp",
+        "verify.tool",
+        "markdownsnippets.tool",
+        "dotnet-stryker"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "groupName": "shared build tooling",
+      "labels": [
+        "dependencies",
+        "maintenance:dependencies",
+        "maintenance:tools"
+      ]
+    },
+    {
+      "description": "Keep test harness dependencies together.",
+      "matchManagers": [
+        "nuget"
+      ],
+      "matchPackageNames": [
+        "Microsoft.NET.Test.Sdk",
+        "Microsoft.Testing.Extensions.CodeCoverage",
+        "coverlet.msbuild",
+        "xunit.v3",
+        "xunit.v3.mtp-v2",
+        "xunit.runner.visualstudio",
+        "Verify.XunitV3",
+        "Verify.SourceGenerators",
+        "MartinCostello.Logging.XUnit.v3"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "groupName": "test harness",
+      "labels": [
+        "dependencies",
+        "maintenance:dependencies",
+        "maintenance:test-harness"
+      ]
+    },
+    {
+      "description": "Keep Orleans packages together.",
+      "matchManagers": [
+        "nuget"
+      ],
+      "matchPackageNames": [
+        "Microsoft.Orleans.*"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "groupName": "orleans",
+      "labels": [
+        "dependencies",
+        "maintenance:dependencies"
+      ]
+    },
+    {
+      "description": "Keep Azure SDK packages together.",
+      "matchManagers": [
+        "nuget"
+      ],
+      "matchPackageNames": [
+        "Azure.*"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "groupName": "azure sdk",
+      "labels": [
+        "dependencies",
+        "maintenance:dependencies"
+      ]
+    },
+    {
+      "description": "Keep Aspire test-hosting packages together.",
+      "matchManagers": [
+        "nuget"
+      ],
+      "matchPackageNames": [
+        "Aspire.*"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "groupName": "aspire",
+      "labels": [
+        "dependencies",
+        "maintenance:dependencies"
+      ]
+    },
+    {
+      "description": "Keep Roslyn packages together.",
+      "matchManagers": [
+        "nuget"
+      ],
+      "matchPackageNames": [
+        "Microsoft.CodeAnalysis.*"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "groupName": "roslyn",
+      "labels": [
+        "dependencies",
+        "maintenance:dependencies"
+      ]
+    }
+  ]
+}
