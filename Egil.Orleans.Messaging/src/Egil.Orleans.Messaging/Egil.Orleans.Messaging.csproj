@@ -19,7 +19,7 @@
       stream subscription management. Pick what you need, leave the rest.
     </Description>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageTags>orleans,messaging,outbox,dedup,cqrs,grain,egil</PackageTags>
+    <PackageTags>orleans,messaging,outbox,deduplication,streams,grain,egil</PackageTags>
     <Copyright>Egil Hansen</Copyright>
     <PackageProjectUrl>https://github.com/egil/framework</PackageProjectUrl>
     <RepositoryUrl>https://github.com/egil/framework</RepositoryUrl>
@@ -49,6 +49,10 @@
 
   <ItemGroup>
     <None Include="..\..\..\LICENSE">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+    <None Include="..\..\README.md">
       <Pack>True</Pack>
       <PackagePath>\</PackagePath>
     </None>
