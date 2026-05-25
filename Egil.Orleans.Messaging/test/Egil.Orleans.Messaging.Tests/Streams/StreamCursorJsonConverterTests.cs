@@ -21,8 +21,7 @@ public sealed class StreamCursorJsonConverterTests
     [Fact]
     public void JsonSerializer_round_trips_stream_cursor_with_event_sequence_token()
     {
-        var streamId = StreamId.Create("orders", "one");
-        var cursor = new StreamCursor(streamId, new EventSequenceToken(7, 1));
+        var cursor = new StreamCursor("orders", new EventSequenceToken(7, 1));
 
         var json = JsonSerializer.Serialize(cursor);
         var roundTripped = JsonSerializer.Deserialize<StreamCursor>(json);
@@ -34,8 +33,7 @@ public sealed class StreamCursorJsonConverterTests
     [Fact]
     public void JsonSerializer_round_trips_stream_cursor_without_token()
     {
-        var streamId = StreamId.Create("orders", "no-token");
-        var cursor = new StreamCursor(streamId, null);
+        var cursor = new StreamCursor("orders", null);
 
         var json = JsonSerializer.Serialize(cursor);
         var roundTripped = JsonSerializer.Deserialize<StreamCursor>(json);
@@ -48,8 +46,7 @@ public sealed class StreamCursorJsonConverterTests
     [Fact]
     public void JsonSerializer_round_trips_stream_cursor_with_event_sequence_token_v2()
     {
-        var streamId = StreamId.Create("orders", "event-v2");
-        var cursor = new StreamCursor(streamId, new EventSequenceTokenV2(8, 2));
+        var cursor = new StreamCursor("orders", new EventSequenceTokenV2(8, 2));
 
         var json = JsonSerializer.Serialize(cursor);
         var roundTripped = JsonSerializer.Deserialize<StreamCursor>(json);
@@ -61,8 +58,7 @@ public sealed class StreamCursorJsonConverterTests
     [Fact]
     public void JsonSerializer_round_trips_stream_cursor_with_event_hub_token()
     {
-        var streamId = StreamId.Create("orders", "eh");
-        var cursor = new StreamCursor(streamId, new EventHubSequenceToken("41", 9, 2));
+        var cursor = new StreamCursor("orders", new EventHubSequenceToken("41", 9, 2));
 
         var json = JsonSerializer.Serialize(cursor);
         var roundTripped = JsonSerializer.Deserialize<StreamCursor>(json);
@@ -74,8 +70,7 @@ public sealed class StreamCursorJsonConverterTests
     [Fact]
     public void JsonSerializer_round_trips_stream_cursor_with_event_hub_token_v2()
     {
-        var streamId = StreamId.Create("orders", "eh-v2");
-        var cursor = new StreamCursor(streamId, new EventHubSequenceTokenV2("42", 10, 3));
+        var cursor = new StreamCursor("orders", new EventHubSequenceTokenV2("42", 10, 3));
 
         var json = JsonSerializer.Serialize(cursor);
         var roundTripped = JsonSerializer.Deserialize<StreamCursor>(json);
@@ -87,9 +82,8 @@ public sealed class StreamCursorJsonConverterTests
     [Fact]
     public void JsonSerializer_round_trips_stream_cursor_with_enriched_event_hub_token()
     {
-        var streamId = StreamId.Create("orders", "eh-enriched");
         var cursor = new StreamCursor(
-            streamId,
+            "orders",
             new EnrichedEventHubSequenceToken(
                 "43",
                 11,
@@ -128,7 +122,7 @@ public sealed class StreamCursorJsonConverterTests
     public void JsonSerializer_throws_for_custom_token_type()
     {
         var cursor = new StreamCursor(
-            StreamId.Create("orders", "custom"),
+            "orders",
             new UnsupportedCustomSequenceToken(21, 3));
 
         var exception = Assert.Throws<NotSupportedException>(() => JsonSerializer.Serialize(cursor));
