@@ -45,6 +45,16 @@ One NuGet package for now. Internal boundaries (state management vs
 messaging vs streaming) are kept clean so a future split is mechanical.
 Split only when dependency weight becomes a concrete problem.
 
+Provider-specific integrations are the preferred split point when this
+becomes more than one package. Keep provider-neutral state/outbox/tracking
+and core stream manager APIs in `Egil.Orleans.Messaging`; move optional
+provider dependencies to companion packages such as
+`Egil.Orleans.Messaging.Streams.EventHubs`,
+`Egil.Orleans.Messaging.State.AzureTable`, and
+`Egil.Orleans.Messaging.State.AzureBlob`. This follows Orleans' own package
+shape, where optional stream and storage providers live behind provider
+packages instead of the core runtime package.
+
 ### Capability namespaces and folders
 
 Source and test files are grouped by library tool. Tests mirror production
@@ -447,15 +457,15 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
 initialisation and deliberate ops-level sequence-space resets.
 Document and warn.
 
-### Outbox depth telemetry and configurable maximum
+### Outbox depth telemetry and owner policy
 
 The outbox can grow unbounded if postman targets are down. Mitigation:
 
 - **Telemetry:** gauge for outbox depth per grain type, emitted on every
   write. Operators see growth before it becomes a crisis.
-- **Configurable maximum:** users can set a max outbox size when
-  configuring the outbox processor. When exceeded, oldest messages are
-  automatically dropped (FIFO). This is opt-in; default is no cap.
+- **Owner policy:** the owning grain controls the outbox. In
+  `ReconcileFailedAsync`, it can leave failed items pending, remove them,
+  dead-letter them, or trim old entries according to domain policy.
 - **Documentation:** storage providers have entity size limits (e.g.
   Azure Table = 1MB). Document the risk of unbounded growth.
 
@@ -793,6 +803,20 @@ public sealed class StreamManager
         Action<string, Exception>? onError = default,
         bool useTrackedResumeToken = true);
 
+    public StreamManager ConfigureExplicitSubscription<TEvent>(
+        string streamProviderName,
+        StreamId streamId,
+        Func<TEvent, StreamCursor, ValueTask> onNextAsync,
+        Action<string, Exception>? onError = default,
+        bool useTrackedResumeToken = true);
+
+    public StreamManager ConfigureExplicitSubscription<TEvent>(
+        string streamProviderName,
+        StreamId streamId,
+        Func<TEvent, StreamCursor, Task> onNextAsync,
+        Action<string, Exception>? onError = default,
+        bool useTrackedResumeToken = true);
+
     public Task ResumeExplicitSubscriptionsAsync(
         CancellationToken cancellationToken = default);
 
@@ -815,7 +839,10 @@ parameter. Orleans provides the concrete provider and stream id through
 `IStreamSubscriptionHandleFactory` when the implicit subscription fires.
 
 `ConfigureExplicitSubscription` requires a provider name because the library
-must ask Orleans for the stream and durable subscription handles itself.
+must ask Orleans for the stream and durable subscription handles itself. The
+string namespace overload follows the library's grain-keyed convention and
+derives the stream id from the receiving grain identity. Use the `StreamId`
+overload when subscribing to an arbitrary Orleans explicit stream.
 
 `RegisterStreamManager()` can be called without a `MessageTracker` when the
 grain does not persist stream high-water marks. In that mode the manager
@@ -883,6 +910,16 @@ public override async Task OnActivateAsync(CancellationToken ct)
 
 The `TEvent` generic argument is usually inferred from the handler method
 group. Users only specify it for inline lambdas or ambiguous method groups.
+Use the `StreamId` overload when the target explicit stream is not keyed by
+the receiving grain:
+
+```csharp
+streamManager = this.RegisterStreamManager(state.Tracker)
+    .ConfigureExplicitSubscription<PriceChanged>(
+        "StreamProvider",
+        StreamId.Create("tariff-events", customerId),
+        HandleTariffChangedAsync);
+```
 
 ### Implementation changes from the previous design
 
@@ -914,6 +951,9 @@ group. Users only specify it for inline lambdas or ambiguous method groups.
   the activation-time `MessageTracker` snapshot when a cursor exists for the
   same provider and namespace and that subscription has
   `useTrackedResumeToken: true`.
+- If no handler is configured for the implicit stream namespace, the manager
+  throws during `OnSubscribed(...)`. A mismatched attribute/configuration is a
+  delivery-path misconfiguration and should not be a log-only condition.
 - Orleans controls activation and target stream identity. If the grain is not
   active, a matching stream event can activate it.
 - Implicit subscriptions do not show up as explicit handles from
@@ -922,8 +962,10 @@ group. Users only specify it for inline lambdas or ambiguous method groups.
 
 ### Explicit subscription semantics
 
-- `ConfigureExplicitSubscription(...)` records the provider, namespace, event
-  type, handler, and error callback.
+- `ConfigureExplicitSubscription(...)` records the provider, stream identity,
+  event type, handler, and error callback. The namespace overload derives the
+  stream id from the receiving grain identity; the `StreamId` overload uses
+  the caller-provided stream identity directly.
 - `ResumeExplicitSubscriptionsAsync(...)` resumes all existing durable
   handles for each configured explicit stream from the activation-time
   `MessageTracker` cursor when one exists and that subscription has
@@ -1436,11 +1478,14 @@ public async Task ReceiveReminder(string name, TickStatus status)
   by the processor, not a method users call. The name describes the data
   supplied to the processor and avoids implying ad-hoc outbox operations.
 - **First-registered-wins postman matching.** Simple dispatch model.
-  Order most-specific first. Unmatched items → `NoPostmanRegisteredException`
-  via `ReconcileFailedAsync`.
+  The metaphor is a switch statement: the first matching case handles the
+  item. Order most-specific first. Unmatched items →
+  `NoPostmanRegisteredException` via `ReconcileFailedAsync`.
 - **`PostAsync` swallows per-item errors.** Grain observes failures via
   `ReconcileFailedAsync` with attempt count. Processor never drops items
-  silently unless the grain explicitly removes them.
+  silently unless the grain explicitly removes them. Dead-letter and
+  max-depth policies belong in this reconciliation callback because the grain
+  owns the durable outbox state.
 - **Acknowledgement is explicit.** Successfully posted items are not removed
   by the processor directly. The grain removes and persists them in
   `AcknowledgePostedAsync`, preserving the outbox invariant that all durable

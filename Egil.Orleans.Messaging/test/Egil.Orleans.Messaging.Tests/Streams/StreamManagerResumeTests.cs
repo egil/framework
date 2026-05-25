@@ -56,6 +56,24 @@ public sealed class StreamManagerResumeTests
     }
 
     [Fact]
+    public async Task EnsureExplicitSubscriptionsAsync_uses_configured_stream_id()
+    {
+        var streamId = StreamId.Create("orders", "external");
+        var stream = new FakeStream<string>("provider-a", streamId);
+        var manager = CreateManager(null, stream);
+
+        await manager
+            .ConfigureExplicitSubscription<string>(
+                "provider-a",
+                streamId,
+                static (_, _) => ValueTask.CompletedTask)
+            .EnsureExplicitSubscriptionsAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(streamId, stream.ResolvedStreamId);
+        Assert.Equal(1, stream.SubscribeCount);
+    }
+
+    [Fact]
     public async Task ResumeExplicitSubscriptionsAsync_uses_tracker_resume_token_when_resuming_existing_handle()
     {
         var handle = new FakeSubscriptionHandle<string>("provider-a", StreamId.Create("orders", "one"));
@@ -136,6 +154,23 @@ public sealed class StreamManagerResumeTests
         Assert.Equal(1, handleFactory.StringHandle.ResumeCount);
     }
 
+    [Fact]
+    public async Task Implicit_subscription_without_configured_handler_throws()
+    {
+        var streamId = StreamId.Create("orders", "one");
+        var handleFactory = new FakeStreamSubscriptionHandleFactory(
+            "provider-a",
+            streamId,
+            new FakeSubscriptionHandle<string>("provider-a", streamId));
+        var manager = CreateManager(null, new FakeStream<string>("provider-a", streamId));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => ((IStreamManagerComponent)manager).OnSubscribedAsync(handleFactory));
+
+        Assert.Contains("No implicit stream subscription handler is configured", exception.Message);
+        Assert.Contains("provider-a", exception.Message);
+    }
+
     private static StreamManager CreateManager<TEvent>(
         MessageTracker? tracker,
         FakeStream<TEvent> stream)
@@ -175,6 +210,7 @@ public sealed class StreamManagerResumeTests
         {
             if (stream is IAsyncStream<T> typedStream)
             {
+                stream.MarkResolved(streamId);
                 return typedStream;
             }
 
@@ -191,6 +227,8 @@ public sealed class StreamManagerResumeTests
         public int SubscribeCount { get; private set; }
 
         public StreamSequenceToken? SubscribeToken { get; private set; }
+
+        public StreamId? ResolvedStreamId { get; private set; }
 
         public bool IsRewindable => true;
 
@@ -251,6 +289,16 @@ public sealed class StreamManagerResumeTests
             other is not null
             && string.Equals(ProviderName, other.ProviderName, StringComparison.Ordinal)
             && StreamId.Equals(other.StreamId);
+
+        public void MarkResolved(StreamId streamId)
+        {
+            if (!StreamId.Equals(streamId))
+            {
+                throw new InvalidOperationException($"Unexpected stream id '{streamId}'.");
+            }
+
+            ResolvedStreamId = streamId;
+        }
     }
 
     private sealed class FakeSubscriptionHandle<T>(
