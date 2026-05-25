@@ -200,3 +200,44 @@ design.
 - Throwing keyed postman goes through existing retry/reconcile path.
 - Cancellation from processor propagates to postman and leaves item pending.
 - Existing lambda-based `AddPostman(...)` behavior remains unchanged.
+
+## Implementation Steps
+
+1. Add the core public contract:
+   - `IPostman<TMessage>`
+   - `OutboxPostmanAttribute`
+
+2. Add service-registration APIs:
+   - `IServiceCollection.AddOutboxPostman<TPostman>()`
+   - `IServiceCollection.AddOutboxPostman<TPostman>(string postmanName)`
+   - `IServiceCollection.AddOutboxPostman<TMessage, TPostman>(string postmanName)`
+   - Validate missing attributes, missing postman contracts, empty names, and open generic postman types.
+
+3. Add keyed processor registration:
+   - `OutboxProcessor<TOutbox>.AddPostman<TMessage>(string postmanName)`
+   - Resolve from the grain activation service provider using keyed DI.
+   - Reuse the existing `AddPostmanCore` dispatch pipeline so retry, timeout, acknowledgement, reconciliation, and telemetry stay unchanged.
+
+4. Add focused registration tests:
+   - Attribute-based registration discovers all implemented contracts.
+   - Multiple contracts resolve to the same scoped concrete postman instance.
+   - Explicit-name registration works without an attribute.
+   - Missing attribute and missing postman contracts throw.
+
+5. Add Orleans processor behavior tests:
+   - Keyed postman success acknowledges and removes pending items.
+   - Keyed postman exceptions flow through existing failure reconciliation.
+   - Existing lambda postman tests remain green.
+
+6. Add cancellation/timeout tests:
+   - Processor cancellation propagates to keyed postman.
+   - Timeout leaves the pending item unacknowledged.
+
+7. Update user documentation:
+   - README examples for service postmen.
+   - API design section for the postman service contract.
+
+## Implementation Status
+
+- Steps 1-5 are implemented in the first pass.
+- Steps 6-7 remain.

@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Diagnostics;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace Egil.Orleans.Messaging.Outboxes;
@@ -93,6 +94,21 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     {
         ArgumentNullException.ThrowIfNull(postman);
         return AddPostmanCore<TSub>((item, cancellationToken) => postman(item, grainFactory, cancellationToken));
+    }
+
+    /// <summary>
+    /// Registers a keyed <see cref="IPostman{TMessage}"/> service that handles
+    /// items of type <typeparamref name="TSub"/>.
+    /// </summary>
+    public OutboxProcessor<TOutbox> AddPostman<TSub>(string postmanName)
+        where TSub : TOutbox
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(postmanName);
+
+        var postman = owner.GrainContext.ActivationServices
+            .GetRequiredKeyedService<IPostman<TSub>>(postmanName);
+
+        return AddPostmanCore<TSub>(postman.PostAsync);
     }
 
     /// <summary>

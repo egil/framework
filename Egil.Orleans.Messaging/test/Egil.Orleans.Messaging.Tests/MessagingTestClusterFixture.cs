@@ -28,6 +28,12 @@ public sealed class MessagingTestClusterFixture : IAsyncLifetime, IGrainActivity
             siloBuilder.UseInMemoryReminderService();
 
             AddStreamProviders(siloBuilder);
+            siloBuilder.ConfigureServices(services =>
+            {
+                services
+                    .AddOutboxPostman<KeyedOutboxProcessorSuccessPostman>(OutboxProcessorTestPostmanNames.Success)
+                    .AddOutboxPostman<KeyedOutboxProcessorFailingPostman>(OutboxProcessorTestPostmanNames.Failure);
+            });
 
             siloBuilder.AddGrainActivityCollector(Collector)
                 .CollectStorageActivityFrom("Default");
