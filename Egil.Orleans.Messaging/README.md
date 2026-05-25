@@ -16,12 +16,31 @@ Composable messaging infrastructure for Microsoft Orleans grains.
 dotnet add package Egil.Orleans.Messaging
 ```
 
+Use the capability namespaces for the tools you need:
+
+```csharp
+using Egil.Orleans.Messaging.Outboxes;
+using Egil.Orleans.Messaging.State;
+using Egil.Orleans.Messaging.Streams;
+using Egil.Orleans.Messaging.Streams.EventHubs;
+using Egil.Orleans.Messaging.Tracking;
+```
+
+Registration extension members live with the Orleans, hosting, and DI types
+they extend:
+
+```csharp
+using Microsoft.Extensions.DependencyInjection;
+using Orleans;
+using Orleans.Hosting;
+```
+
 ## State Manager
 
 Register the default state manager factory on the silo:
 
 ```csharp
-siloBuilder.Services.AddDefaultStateManager("state");
+siloBuilder.AddDefaultStateManager("state");
 ```
 
 Then wrap the Orleans persistent state facet during activation:
@@ -129,9 +148,10 @@ Use `StreamManager` to configure stream subscriptions from `OnActivateAsync` and
 
 ```csharp
 streamManager = this.RegisterStreamManager(state.State.Tracker)
-    .AddSubscription<PriceChanged>(
+    .ConfigureExplicitSubscription<PriceChanged>(
+        "StreamProvider",
         "prices",
-        async (message, cursor, ct) =>
+        async (message, cursor) =>
         {
             if (!state.State.Tracker.ProcessMessage(cursor, out var tracker))
             {
@@ -141,7 +161,7 @@ streamManager = this.RegisterStreamManager(state.State.Tracker)
             await state.WriteAsync(state.State with { Tracker = tracker });
         });
 
-await streamManager.SubscribeAsync(cancellationToken);
+await streamManager.EnsureExplicitSubscriptionsAsync(cancellationToken);
 ```
 
 ## Scope

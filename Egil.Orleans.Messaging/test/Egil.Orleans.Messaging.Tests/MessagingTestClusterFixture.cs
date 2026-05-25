@@ -1,5 +1,7 @@
 using System.Runtime.CompilerServices;
 using Egil.Orleans.Testing;
+using Egil.Orleans.Messaging.Tests.Outboxes;
+using Egil.Orleans.Messaging.Tests.Streams;
 using Orleans.Streams;
 using Orleans.TestingHost;
 
@@ -55,6 +57,12 @@ public sealed class MessagingTestClusterFixture : IAsyncLifetime, IGrainActivity
         return provider.GetStream<T>(StreamId.Create(streamNamespace, key));
     }
 
+    public IAsyncStream<T> GetStream<T>(string providerName, string streamNamespace, Guid key)
+    {
+        var provider = Cluster.Client.GetStreamProvider(providerName);
+        return provider.GetStream<T>(StreamId.Create(streamNamespace, key));
+    }
+
     Task<TResult> IGrainActivityWaiter.WaitForAssertionAsync<TResult>(
         Func<ValueTask<TResult>> assertion,
         Predicate<GrainActivity>? filter,
@@ -68,6 +76,7 @@ public sealed class MessagingTestClusterFixture : IAsyncLifetime, IGrainActivity
         siloBuilder.AddMemoryStreams(StreamManagerTestNamespaces.Task);
         siloBuilder.AddMemoryStreams(StreamManagerTestNamespaces.Failure);
         siloBuilder.AddMemoryStreams(StreamManagerTestNamespaces.Resume);
+        siloBuilder.AddMemoryStreams(StreamManagerTestProviderNames.Implicit);
         siloBuilder.AddMemoryStreams(OutboxProcessorTestNamespaces.Events);
     }
 
@@ -77,6 +86,7 @@ public sealed class MessagingTestClusterFixture : IAsyncLifetime, IGrainActivity
         clientBuilder.AddMemoryStreams(StreamManagerTestNamespaces.Task);
         clientBuilder.AddMemoryStreams(StreamManagerTestNamespaces.Failure);
         clientBuilder.AddMemoryStreams(StreamManagerTestNamespaces.Resume);
+        clientBuilder.AddMemoryStreams(StreamManagerTestProviderNames.Implicit);
         clientBuilder.AddMemoryStreams(OutboxProcessorTestNamespaces.Events);
     }
 }
