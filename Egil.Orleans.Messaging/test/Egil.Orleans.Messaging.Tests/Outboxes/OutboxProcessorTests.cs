@@ -73,11 +73,56 @@ public sealed class OutboxProcessorTests(MessagingTestClusterFixture fixture) : 
             },
             ct: TestContext.Current.CancellationToken);
     }
+
+    [Fact]
+    public async Task PostInBackgroundAsync_resolves_keyed_postman_and_acknowledges()
+    {
+        var source = fixture.GrainFactory.GetGrain<IOutboxProcessorKeyedPostmanGrain>(Guid.NewGuid());
+
+        await source.PublishInBackgroundAsync("keyed");
+
+        await fixture.WaitForAssertionAsync(
+            source,
+            async () =>
+            {
+                var state = await source.GetStateAsync();
+                Assert.Equal(1, state.AcknowledgedCount);
+                Assert.Equal(0, state.FailedCount);
+                Assert.Equal(0, state.Outbox?.Count ?? 0);
+            },
+            ct: TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task PostInBackgroundAsync_reports_keyed_postman_failure_and_reconciles_pending_item()
+    {
+        var source = fixture.GrainFactory.GetGrain<IOutboxProcessorKeyedFailingPostmanGrain>(Guid.NewGuid());
+
+        await source.PublishInBackgroundAsync("keyed-failure");
+
+        await fixture.WaitForAssertionAsync(
+            source,
+            async () =>
+            {
+                var state = await source.GetStateAsync();
+                Assert.Equal(nameof(InvalidOperationException), state.LastFailureType);
+                Assert.Equal(1, state.FailedCount);
+                Assert.Equal(0, state.AcknowledgedCount);
+                Assert.Equal(0, state.Outbox?.Count ?? 0);
+            },
+            ct: TestContext.Current.CancellationToken);
+    }
 }
 
 internal static class OutboxProcessorTestNamespaces
 {
     public const string Events = "outbox-processor-events";
+}
+
+internal static class OutboxProcessorTestPostmanNames
+{
+    public const string Success = "outbox-processor-success";
+    public const string Failure = "outbox-processor-failure";
 }
 
 public interface IOutboxProcessorSourceGrain : IGrainWithGuidKey
@@ -95,6 +140,20 @@ public interface IOutboxProcessorNoPostmanGrain : IGrainWithGuidKey
 }
 
 public interface IOutboxProcessorFailingPostmanGrain : IGrainWithGuidKey
+{
+    Task PublishInBackgroundAsync(string value);
+
+    Task<OutboxProcessorSourceState> GetStateAsync();
+}
+
+public interface IOutboxProcessorKeyedPostmanGrain : IGrainWithGuidKey
+{
+    Task PublishInBackgroundAsync(string value);
+
+    Task<OutboxProcessorSourceState> GetStateAsync();
+}
+
+public interface IOutboxProcessorKeyedFailingPostmanGrain : IGrainWithGuidKey
 {
     Task PublishInBackgroundAsync(string value);
 
@@ -337,6 +396,154 @@ public sealed class OutboxProcessorFailingPostmanGrain(
     private Outbox<OutboxProcessorTestEvent> EnsureOutbox()
     {
         return state.State.Outbox ??= Outbox<OutboxProcessorTestEvent>.Create(GrainContext.GrainId);
+    }
+}
+
+public sealed class OutboxProcessorKeyedPostmanGrain(
+    [PersistentState("state", "Default")] IPersistentState<OutboxProcessorSourceState> state)
+    : Grain, IOutboxProcessorKeyedPostmanGrain, IOutboxGrain
+{
+    private OutboxProcessor<OutboxMessageEnvelope<OutboxProcessorTestEvent>>? processor;
+
+    public override async Task OnActivateAsync(CancellationToken cancellationToken)
+    {
+        EnsureOutbox();
+
+        processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxMessageEnvelope<OutboxProcessorTestEvent>>
+        {
+            PendingItems = () => state.State.Outbox?.ToImmutableArray() ?? [],
+            AcknowledgePostedAsync = AcknowledgePostedAsync,
+            ReconcileFailedAsync = ReconcileFailedAsync,
+            RetryDelay = TimeSpan.FromMilliseconds(100)
+        })
+        .AddPostman<OutboxMessageEnvelope<OutboxProcessorTestEvent>>(OutboxProcessorTestPostmanNames.Success);
+
+        await base.OnActivateAsync(cancellationToken);
+    }
+
+    public async Task PublishInBackgroundAsync(string value)
+    {
+        var outbox = EnsureOutbox();
+        state.State.Outbox = outbox.Add(new OutboxProcessorTestEvent(value));
+        await state.WriteStateAsync();
+        await processor!.PostInBackgroundAsync();
+    }
+
+    public Task<OutboxProcessorSourceState> GetStateAsync() => Task.FromResult(state.State);
+
+    private async ValueTask AcknowledgePostedAsync(
+        ImmutableArray<OutboxMessageEnvelope<OutboxProcessorTestEvent>> items,
+        CancellationToken cancellationToken)
+    {
+        var outbox = EnsureOutbox();
+        foreach (var item in items)
+        {
+            outbox = outbox.Remove(item.Token);
+        }
+
+        state.State.Outbox = outbox;
+        state.State.AcknowledgedCount += items.Length;
+        await state.WriteStateAsync(cancellationToken);
+    }
+
+    private async ValueTask ReconcileFailedAsync(
+        ImmutableArray<(OutboxMessageEnvelope<OutboxProcessorTestEvent> Item, Exception Error, int Attempt)> failures,
+        CancellationToken cancellationToken)
+    {
+        var outbox = EnsureOutbox();
+        foreach (var failure in failures)
+        {
+            outbox = outbox.Remove(failure.Item.Token);
+            state.State.LastFailureType = failure.Error.GetType().Name;
+        }
+
+        state.State.Outbox = outbox;
+        state.State.FailedCount += failures.Length;
+        await state.WriteStateAsync(cancellationToken);
+    }
+
+    private Outbox<OutboxProcessorTestEvent> EnsureOutbox()
+    {
+        return state.State.Outbox ??= Outbox<OutboxProcessorTestEvent>.Create(GrainContext.GrainId);
+    }
+}
+
+public sealed class OutboxProcessorKeyedFailingPostmanGrain(
+    [PersistentState("state", "Default")] IPersistentState<OutboxProcessorSourceState> state)
+    : Grain, IOutboxProcessorKeyedFailingPostmanGrain, IOutboxGrain
+{
+    private OutboxProcessor<OutboxMessageEnvelope<OutboxProcessorTestEvent>>? processor;
+
+    public override async Task OnActivateAsync(CancellationToken cancellationToken)
+    {
+        EnsureOutbox();
+
+        processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxMessageEnvelope<OutboxProcessorTestEvent>>
+        {
+            PendingItems = () => state.State.Outbox?.ToImmutableArray() ?? [],
+            AcknowledgePostedAsync = AcknowledgePostedAsync,
+            ReconcileFailedAsync = ReconcileFailedAsync,
+            RetryDelay = TimeSpan.FromMilliseconds(100)
+        })
+        .AddPostman<OutboxMessageEnvelope<OutboxProcessorTestEvent>>(OutboxProcessorTestPostmanNames.Failure);
+
+        await base.OnActivateAsync(cancellationToken);
+    }
+
+    public async Task PublishInBackgroundAsync(string value)
+    {
+        var outbox = EnsureOutbox();
+        state.State.Outbox = outbox.Add(new OutboxProcessorTestEvent(value));
+        await state.WriteStateAsync();
+        await processor!.PostInBackgroundAsync();
+    }
+
+    public Task<OutboxProcessorSourceState> GetStateAsync() => Task.FromResult(state.State);
+
+    private ValueTask AcknowledgePostedAsync(
+        ImmutableArray<OutboxMessageEnvelope<OutboxProcessorTestEvent>> items,
+        CancellationToken cancellationToken) =>
+        ValueTask.CompletedTask;
+
+    private async ValueTask ReconcileFailedAsync(
+        ImmutableArray<(OutboxMessageEnvelope<OutboxProcessorTestEvent> Item, Exception Error, int Attempt)> failures,
+        CancellationToken cancellationToken)
+    {
+        var outbox = EnsureOutbox();
+        foreach (var failure in failures)
+        {
+            outbox = outbox.Remove(failure.Item.Token);
+            state.State.LastFailureType = failure.Error.GetType().Name;
+        }
+
+        state.State.Outbox = outbox;
+        state.State.FailedCount += failures.Length;
+        await state.WriteStateAsync(cancellationToken);
+    }
+
+    private Outbox<OutboxProcessorTestEvent> EnsureOutbox()
+    {
+        return state.State.Outbox ??= Outbox<OutboxProcessorTestEvent>.Create(GrainContext.GrainId);
+    }
+}
+
+public sealed class KeyedOutboxProcessorSuccessPostman :
+    IPostman<OutboxMessageEnvelope<OutboxProcessorTestEvent>>
+{
+    public ValueTask PostAsync(
+        OutboxMessageEnvelope<OutboxProcessorTestEvent> message,
+        CancellationToken cancellationToken) =>
+        ValueTask.CompletedTask;
+}
+
+public sealed class KeyedOutboxProcessorFailingPostman :
+    IPostman<OutboxMessageEnvelope<OutboxProcessorTestEvent>>
+{
+    public ValueTask PostAsync(
+        OutboxMessageEnvelope<OutboxProcessorTestEvent> message,
+        CancellationToken cancellationToken)
+    {
+        throw new InvalidOperationException($"Cannot post {message.Message.Value}.");
     }
 }
 
