@@ -29,8 +29,8 @@ A set of composable building blocks for Orleans grains that need:
    with retry, telemetry, and failure callbacks.
 4. **Receiver-side dedup** — `MessageTracker` that tracks high-water
    positions from both outbox senders and Orleans streams.
-5. **Stream subscription management** — fluent subscribe/resume/error
-   facade over Orleans implicit subscriptions.
+5. **Stream subscription management** — fluent configure/resume/error
+   facade over Orleans implicit and explicit stream subscriptions.
 
 ### What this library is NOT
 
@@ -44,6 +44,31 @@ A set of composable building blocks for Orleans grains that need:
 One NuGet package for now. Internal boundaries (state management vs
 messaging vs streaming) are kept clean so a future split is mechanical.
 Split only when dependency weight becomes a concrete problem.
+
+### Capability namespaces and folders
+
+Source and test files are grouped by library tool. Tests mirror production
+folders so behavior is easy to find from the type under test.
+
+| Capability | Production namespace | Test folder |
+| ---------- | -------------------- | ----------- |
+| State management | `Egil.Orleans.Messaging.State` | `State/` |
+| Outbox | `Egil.Orleans.Messaging.Outboxes` | `Outboxes/` |
+| Receiver tracking | `Egil.Orleans.Messaging.Tracking` | `Tracking/` |
+| Streams | `Egil.Orleans.Messaging.Streams` | `Streams/` |
+| Event Hub stream enrichment | `Egil.Orleans.Messaging.Streams.EventHubs` | `Streams/EventHubs/` |
+
+Extension entry points live in the namespace of the type they extend so they
+are discoverable from normal Orleans, hosting, and DI imports:
+
+- Grain registration methods: `namespace Orleans`.
+- `IServiceCollection` registration methods:
+  `namespace Microsoft.Extensions.DependencyInjection`.
+- `ISiloBuilder` and `IEventHubStreamConfigurator` registration methods:
+  `namespace Orleans.Hosting`.
+
+C# 14 extension blocks are the preferred shape for new extension entry
+points.
 
 ### Name
 
@@ -640,41 +665,106 @@ fake-clock tests.
 
 ---
 
-## 5. `StreamManager` — fluent subscribe/resume/error facade
+## 5. `StreamManager` — stream subscription handler facade
 
 **Status:** Settled.
 
-Grain-level facade around Orleans implicit subscriptions. Four
-responsibilities:
+Grain-level facade around Orleans stream subscription handler attachment.
+The API must preserve Orleans' distinction between implicit and explicit
+subscriptions:
+
+- **Implicit subscriptions** are declared by Orleans attributes such as
+  `[ImplicitStreamSubscription("namespace")]`. Orleans owns activation and
+  subscription creation. The library only attaches handler logic when Orleans
+  calls `IStreamSubscriptionObserver.OnSubscribed(...)`.
+- **Explicit subscriptions** are created by the grain via Orleans'
+  `SubscribeAsync(...)`. Orleans persists the subscription handle, and the
+  grain must resume existing handles after reactivation using
+  `GetAllSubscriptionHandles()` + `ResumeAsync(...)`.
+
+Four responsibilities:
 
 1. **Configure** stream namespaces during `OnActivateAsync`.
-2. **Resume** from last accepted `StreamCursor` per namespace.
-3. **Dispatch** with projected `StreamCursor`.
-4. **Per-subscription error handling** via the optional `onError` callback.
+2. **Attach** handlers to implicit subscription handles provided by Orleans.
+3. **Resume or ensure** durable explicit subscription handles.
+4. **Dispatch** with projected `StreamCursor` and per-subscription error
+   handling via the optional `onError` callback.
 
 ### Why a facade, not a base class
 
 Extension/composition over inheritance. Grain inherits from `Grain`,
-uses `StreamManager` as a field.
+registers a `StreamManager`, and optionally implements marker interfaces for
+runtime callbacks.
+
+For implicit streams, the grain implements `IImplicitStreamGrain`; it does
+not expose a `StreamManager` property. `StreamManager` follows the same
+component pattern as `OutboxProcessor.AttachToGrain()`:
+
+1. `RegisterStreamManager(...)` creates the manager.
+2. The manager attaches itself to `grain.GrainContext` as an internal
+   stream component.
+3. The `IImplicitStreamGrain` default interface method receives Orleans'
+   `OnSubscribed(...)` callback.
+4. The default method resolves the attached component and forwards the
+   callback to `StreamManager`.
+
+```mermaid
+sequenceDiagram
+    participant Producer
+    participant Orleans
+    participant Grain as "Grain : IImplicitStreamGrain"
+    participant Component as "IStreamManagerComponent"
+    participant Manager as "StreamManager"
+
+    Grain->>Manager: RegisterStreamManager(...).ConfigureImplicitSubscription(...)
+    Manager->>Component: AttachToGrain()
+    Producer->>Orleans: OnNext(stream namespace, grain key)
+    Orleans->>Grain: activate grain when needed
+    Orleans->>Grain: IStreamSubscriptionObserver.OnSubscribed(factory)
+    Grain->>Component: forward OnSubscribed(factory)
+    Component->>Manager: resolve configured namespace handler
+    Manager->>Orleans: factory.Create<TEvent>().ResumeAsync(observer)
+    Orleans->>Manager: observer.OnNext(event, token)
+```
 
 ### Shape
 
 ```csharp
+public interface IImplicitStreamGrain : IStreamSubscriptionObserver
+{
+    Task IStreamSubscriptionObserver.OnSubscribed(
+        IStreamSubscriptionHandleFactory handleFactory);
+}
+
 public sealed class StreamManager
 {
-    public StreamManager AddSubscription<TEvent>(
+    public StreamManager ConfigureImplicitSubscription<TEvent>(
         string streamNamespace,
-        Func<TEvent, StreamSequenceToken?, ValueTask> onNextAsync,
-        Action<string, Exception>? onError = default,
-        bool passLatestSequenceTokenOnResume = true);
+        Func<TEvent, StreamCursor, ValueTask> onNextAsync,
+        Action<string, Exception>? onError = default);
 
-    public StreamManager AddSubscription<TEvent>(
+    public StreamManager ConfigureImplicitSubscription<TEvent>(
         string streamNamespace,
-        Func<TEvent, StreamSequenceToken?, Task> onNextAsync,
-        Action<string, Exception>? onError = default,
-        bool passLatestSequenceTokenOnResume = true);
+        Func<TEvent, StreamCursor, Task> onNextAsync,
+        Action<string, Exception>? onError = default);
 
-    public Task SubscribeAsync(CancellationToken cancellationToken = default);
+    public StreamManager ConfigureExplicitSubscription<TEvent>(
+        string streamProviderName,
+        string streamNamespace,
+        Func<TEvent, StreamCursor, ValueTask> onNextAsync,
+        Action<string, Exception>? onError = default);
+
+    public StreamManager ConfigureExplicitSubscription<TEvent>(
+        string streamProviderName,
+        string streamNamespace,
+        Func<TEvent, StreamCursor, Task> onNextAsync,
+        Action<string, Exception>? onError = default);
+
+    public Task ResumeExplicitSubscriptionsAsync(
+        CancellationToken cancellationToken = default);
+
+    public Task EnsureExplicitSubscriptionsAsync(
+        CancellationToken cancellationToken = default);
 }
 
 public static class StreamManagerExtensions
@@ -687,7 +777,42 @@ public static class StreamManagerExtensions
 
 ```
 
-### Typical wiring
+`ConfigureImplicitSubscription` intentionally has no provider-name
+parameter. Orleans provides the concrete provider and stream id through
+`IStreamSubscriptionHandleFactory` when the implicit subscription fires.
+
+`ConfigureExplicitSubscription` requires a provider name because the library
+must ask Orleans for the stream and durable subscription handles itself.
+
+### Typical implicit wiring
+
+```csharp
+public override async Task OnActivateAsync(CancellationToken ct)
+{
+    var state = await stateManager.ReadAsync();
+    state.Tracker.RegisterTimeProvider(timeProvider);
+
+    this.RegisterStreamManager(state.Tracker)
+        .ConfigureImplicitSubscription("electricity-prices", HandlePriceTickAsync, LogStreamError)
+        .ConfigureImplicitSubscription("tariff-events", HandleTariffChangedAsync);
+}
+```
+
+The grain must also be attributed and implement `IImplicitStreamGrain`:
+
+```csharp
+[ImplicitStreamSubscription("electricity-prices")]
+public sealed class PriceProjectionGrain : Grain, IImplicitStreamGrain
+{
+    // OnSubscribed is supplied by IImplicitStreamGrain's default method.
+}
+```
+
+No `SubscribeAsync` call belongs in implicit activation. Orleans activates
+the grain and calls `OnSubscribed(...)` when an event targets the implicit
+subscription.
+
+### Typical explicit wiring
 
 ```csharp
 public override async Task OnActivateAsync(CancellationToken ct)
@@ -696,26 +821,78 @@ public override async Task OnActivateAsync(CancellationToken ct)
     state.Tracker.RegisterTimeProvider(timeProvider);
 
     streamManager = this.RegisterStreamManager(state.Tracker)
-        .AddSubscription("electricity-prices", HandlePriceTickAsync, LogStreamError)
-        .AddSubscription("tariff-events", HandleTariffChangedAsync);
+        .ConfigureExplicitSubscription("StreamProvider", "tariff-events", HandleTariffChangedAsync);
 
-    await streamManager.SubscribeAsync(ct);
+    await streamManager.EnsureExplicitSubscriptionsAsync(ct);
 }
 ```
 
 The `TEvent` generic argument is usually inferred from the handler method
 group. Users only specify it for inline lambdas or ambiguous method groups.
 
-### Resume semantics
+### Implementation changes from the previous design
 
-- Each subscription reads `trackerSnapshot.LatestStream(streamId)` once
-  when `SubscribeAsync(...)` establishes configured subscriptions.
-- If cursor exists → hydrate `StreamSequenceToken`, pass to
-  `SubscribeAsync`.
-- If null → subscribe without token (provider default, typically:
-  start from current).
-- Tracker read once at subscription time, never again. Handler is the
-  only path that mutates the tracker.
+- Rename `AddSubscription(...)` to the more explicit
+  `ConfigureImplicitSubscription(...)` and
+  `ConfigureExplicitSubscription(...)`.
+- Replace `SubscribeAsync(...)` with explicit-only
+  `ResumeExplicitSubscriptionsAsync(...)` and
+  `EnsureExplicitSubscriptionsAsync(...)`.
+- Add `IImplicitStreamGrain` as a public convenience interface with a default
+  `IStreamSubscriptionObserver.OnSubscribed(...)` implementation.
+- Add an internal `IStreamManagerComponent`, attach `StreamManager` to
+  `IGrainContext`, and let `IImplicitStreamGrain` forward through that
+  component.
+- Change stream handlers to receive `StreamCursor` instead of raw
+  `StreamSequenceToken?`.
+- Keep explicit subscription unsubscribe orchestration out of the initial API.
+  The first version only resumes or ensures explicit subscriptions.
+
+### Implicit subscription semantics
+
+- `ConfigureImplicitSubscription(...)` records the handler shape only.
+- It does not call `SubscribeAsync(...)`, inspect existing explicit handles,
+  or read a resume token from `MessageTracker`.
+- When Orleans calls `OnSubscribed(factory)`, `StreamManager` matches
+  `factory.StreamId.GetNamespace()` to a configured implicit subscription,
+  creates the typed handle with `factory.Create<TEvent>()`, and calls
+  `ResumeAsync(observer)` to attach the handler.
+- Orleans controls activation and target stream identity. If the grain is not
+  active, a matching stream event can activate it.
+- Implicit subscriptions do not show up as explicit handles from
+  `GetAllSubscriptionHandles()` and cannot be removed by `UnsubscribeAsync()`
+  on an explicit handle.
+
+### Explicit subscription semantics
+
+- `ConfigureExplicitSubscription(...)` records the provider, namespace, event
+  type, handler, and error callback.
+- `ResumeExplicitSubscriptionsAsync(...)` resumes all existing durable
+  handles for each configured explicit stream. It never creates a new
+  subscription.
+- `EnsureExplicitSubscriptionsAsync(...)` resumes existing handles when
+  present. If none exist for a configured explicit stream, it creates exactly
+  one explicit subscription with `SubscribeAsync(observer)`.
+- Repeated calls to `EnsureExplicitSubscriptionsAsync(...)` are idempotent:
+  once a durable explicit handle exists, later calls resume it instead of
+  creating duplicates.
+- Explicit handles persist across grain deactivation until Orleans removes
+  them via `UnsubscribeAsync()`. The initial version does not expose
+  unsubscribe orchestration; consumers can use Orleans handles directly if
+  they need to intentionally detach.
+
+### Cursor semantics
+
+- Stream handlers receive a `StreamCursor`, not a raw
+  `StreamSequenceToken?`.
+- The cursor includes the stream namespace, provider name when known, and the
+  delivered Orleans sequence token.
+- `MessageTracker` is not used to drive implicit subscription start position.
+  For implicit streams, Orleans owns subscription creation and the manager
+  only resumes handler logic for the current delivery path.
+- For explicit streams, the durable Orleans subscription handle is the primary
+  resume mechanism. `MessageTracker` remains the application-level dedup and
+  high-water marker; handlers update it after accepting events.
 
 ### Per-subscription `OnError`
 
@@ -724,8 +901,9 @@ namespace. Default when omitted: log + emit counter, do NOT rethrow.
 
 ### One-provider-per-namespace
 
-Accepted as a code-review convention. Orleans's own constraint — the
-library doesn't make it worse.
+Accepted as a code-review convention for implicit subscriptions. Explicit
+subscriptions carry a provider name in configuration, so provider/namespace
+ambiguity is visible in code.
 
 ### `StreamCursor` projection constraint
 
