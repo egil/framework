@@ -208,6 +208,33 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
     }
 
     /// <summary>
+    /// Returns the last accepted <see cref="StreamCursor"/> for the given
+    /// <paramref name="streamProviderName"/> and
+    /// <paramref name="streamNamespace"/>, or <c>null</c> if no matching
+    /// stream position has been tracked.
+    /// </summary>
+    /// <remarks>
+    /// Cursors without a provider name are treated as convention-compatible
+    /// with the requested provider. This preserves positions produced before
+    /// provider-aware stream tracking was available, while avoiding accidental
+    /// fallback to a different provider's cursor.
+    /// </remarks>
+    public StreamCursor? LatestStream(string streamProviderName, string streamNamespace)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(streamProviderName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(streamNamespace);
+
+        if (streams.TryGetValue(new StreamSource(streamNamespace, streamProviderName), out var providerEntry))
+        {
+            return providerEntry.LastPosition;
+        }
+
+        return streams.TryGetValue(new StreamSource(streamNamespace, null), out var conventionEntry)
+            ? conventionEntry.LastPosition
+            : null;
+    }
+
+    /// <summary>
     /// Returns the last accepted <see cref="StreamCursor"/> for the namespace
     /// in the given <paramref name="stream"/>.
     /// </summary>

@@ -852,11 +852,13 @@ group. Users only specify it for inline lambdas or ambiguous method groups.
 
 - `ConfigureImplicitSubscription(...)` records the handler shape only.
 - It does not call `SubscribeAsync(...)`, inspect existing explicit handles,
-  or read a resume token from `MessageTracker`.
+  or create Orleans subscription state.
 - When Orleans calls `OnSubscribed(factory)`, `StreamManager` matches
   `factory.StreamId.GetNamespace()` to a configured implicit subscription,
   creates the typed handle with `factory.Create<TEvent>()`, and calls
-  `ResumeAsync(observer)` to attach the handler.
+  `ResumeAsync(observer, token)` to attach the handler. The token comes from
+  the activation-time `MessageTracker` snapshot when a cursor exists for the
+  same provider and namespace.
 - Orleans controls activation and target stream identity. If the grain is not
   active, a matching stream event can activate it.
 - Implicit subscriptions do not show up as explicit handles from
@@ -868,11 +870,13 @@ group. Users only specify it for inline lambdas or ambiguous method groups.
 - `ConfigureExplicitSubscription(...)` records the provider, namespace, event
   type, handler, and error callback.
 - `ResumeExplicitSubscriptionsAsync(...)` resumes all existing durable
-  handles for each configured explicit stream. It never creates a new
+  handles for each configured explicit stream from the activation-time
+  `MessageTracker` cursor when one exists. It never creates a new
   subscription.
 - `EnsureExplicitSubscriptionsAsync(...)` resumes existing handles when
   present. If none exist for a configured explicit stream, it creates exactly
-  one explicit subscription with `SubscribeAsync(observer)`.
+  one explicit subscription with `SubscribeAsync(observer, token)`, using the
+  tracked cursor token when available.
 - Repeated calls to `EnsureExplicitSubscriptionsAsync(...)` are idempotent:
   once a durable explicit handle exists, later calls resume it instead of
   creating duplicates.
@@ -887,12 +891,12 @@ group. Users only specify it for inline lambdas or ambiguous method groups.
   `StreamSequenceToken?`.
 - The cursor includes the stream namespace, provider name when known, and the
   delivered Orleans sequence token.
-- `MessageTracker` is not used to drive implicit subscription start position.
-  For implicit streams, Orleans owns subscription creation and the manager
-  only resumes handler logic for the current delivery path.
-- For explicit streams, the durable Orleans subscription handle is the primary
-  resume mechanism. `MessageTracker` remains the application-level dedup and
-  high-water marker; handlers update it after accepting events.
+- `MessageTracker` provides provider-aware resume tokens for both implicit
+  handle resume and explicit subscribe/resume.
+- For explicit streams, the durable Orleans subscription handle is still the
+  primary subscription identity. `MessageTracker` remains the
+  application-level dedup and high-water marker; handlers update it after
+  accepting events.
 
 ### Per-subscription `OnError`
 
