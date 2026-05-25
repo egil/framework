@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json.schemastore.org/json",
+  "sharedBaselinePackages": [
+    "BenchmarkDotNet",
+    "coverlet.msbuild",
+    "DotNet.ReproducibleBuilds",
+    "MartinCostello.Logging.XUnit.v3",
+    "Meziantou.Analyzer",
+    "Microsoft.NET.Test.Sdk",
+    "Microsoft.Testing.Extensions.CodeCoverage",
+    "Nerdbank.GitVersioning",
+    "SonarAnalyzer.CSharp",
+    "Verify.SourceGenerators",
+    "Verify.XunitV3",
+    "xunit.runner.visualstudio",
+    "xunit.v3",
+    "xunit.v3.mtp-v2"
+  ],
+  "runtimePackageFamilies": [
+    "Aspire.*",
+    "Azure.*",
+    "Microsoft.CodeAnalysis.*",
+    "Microsoft.Extensions.*",
+    "Microsoft.Orleans.*",
+    "OpenTelemetry.*"
+  ],
+  "dotnetToolBaseline": [
+    "dotnet-stryker",
+    "markdownsnippets.tool",
+    "meziantou.framework.nugetpackagevalidation.tool",
+    "nbgv",
+    "verify.tool"
+  ],
+  "targetFrameworkPolicy": {
+    "preferredActiveTarget": "net10.0",
+    "watchTargets": [
+      "net9.0",
+      "net8.0"
+    ],
+    "compatibilityTargets": [
+      "netstandard2.0"
+    ],
+    "supportWindowEnds": "2026-11"
+  },
+  "scopeMap": {
+    "Egil.SystemTextJson.Migration": "stjm",
+    "Egil.Orleans.EventSourcing": "oes",
+    "Egil.Orleans.Storage": "os",
+    "Egil.Orleans.Testing": "ot",
+    "Egil.StronglyTypedPrimitives": "stp"
+  }
+}
