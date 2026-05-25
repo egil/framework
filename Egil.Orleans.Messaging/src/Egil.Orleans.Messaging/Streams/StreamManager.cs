@@ -15,7 +15,7 @@ namespace Egil.Orleans.Messaging.Streams;
 public sealed class StreamManager : IStreamManagerComponent
 {
     private readonly IGrainBase owner;
-    private readonly MessageTracker trackerSnapshot;
+    private readonly MessageTracker? trackerSnapshot;
     private readonly Func<string, IStreamProvider> getStreamProvider;
     private readonly Func<string, StreamId> getStreamId;
     private readonly ILogger logger;
@@ -26,7 +26,7 @@ public sealed class StreamManager : IStreamManagerComponent
 
     private StreamManager(
         IGrainBase owner,
-        MessageTracker trackerSnapshot,
+        MessageTracker? trackerSnapshot,
         Func<string, IStreamProvider> getStreamProvider,
         Func<string, StreamId> getStreamId,
         ILogger logger)
@@ -43,10 +43,9 @@ public sealed class StreamManager : IStreamManagerComponent
     /// </summary>
     internal static StreamManager Create(
         IGrainBase owner,
-        MessageTracker trackerSnapshot)
+        MessageTracker? trackerSnapshot)
     {
         ArgumentNullException.ThrowIfNull(owner);
-        ArgumentNullException.ThrowIfNull(trackerSnapshot);
 
         var services = owner.GrainContext.ActivationServices;
         var loggerFactory = services.GetService<ILoggerFactory>();
@@ -56,7 +55,7 @@ public sealed class StreamManager : IStreamManagerComponent
         var manager = Create(
             owner,
             trackerSnapshot,
-            streamProviderName => services.GetRequiredKeyedService<IStreamProvider>(streamProviderName),
+            services.GetRequiredKeyedService<IStreamProvider>,
             streamNamespace => CreateStreamId(owner, streamNamespace),
             logger);
 
@@ -66,13 +65,12 @@ public sealed class StreamManager : IStreamManagerComponent
 
     internal static StreamManager Create(
         IGrainBase owner,
-        MessageTracker trackerSnapshot,
+        MessageTracker? trackerSnapshot,
         Func<string, IStreamProvider> getStreamProvider,
         Func<string, StreamId> getStreamId,
         ILogger logger)
     {
         ArgumentNullException.ThrowIfNull(owner);
-        ArgumentNullException.ThrowIfNull(trackerSnapshot);
         ArgumentNullException.ThrowIfNull(getStreamProvider);
         ArgumentNullException.ThrowIfNull(getStreamId);
         ArgumentNullException.ThrowIfNull(logger);
@@ -86,7 +84,8 @@ public sealed class StreamManager : IStreamManagerComponent
     public StreamManager ConfigureImplicitSubscription<TEvent>(
         string streamNamespace,
         Func<TEvent, StreamCursor, ValueTask> onNextAsync,
-        Action<string, Exception>? onError = default)
+        Action<string, Exception>? onError = default,
+        bool useTrackedResumeToken = true)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(streamNamespace);
         ArgumentNullException.ThrowIfNull(onNextAsync);
@@ -94,7 +93,7 @@ public sealed class StreamManager : IStreamManagerComponent
 
         if (!implicitSubscriptions.TryAdd(
             streamNamespace,
-            new ImplicitSubscription<TEvent>(streamNamespace, onNextAsync, onError)))
+            new ImplicitSubscription<TEvent>(streamNamespace, onNextAsync, onError, useTrackedResumeToken)))
         {
             throw new InvalidOperationException(
                 $"An implicit stream subscription for namespace '{streamNamespace}' has already been configured.");
@@ -103,18 +102,20 @@ public sealed class StreamManager : IStreamManagerComponent
         return this;
     }
 
-    /// <inheritdoc cref="ConfigureImplicitSubscription{TEvent}(string, Func{TEvent, StreamCursor, ValueTask}, Action{string, Exception}?)"/>
+    /// <inheritdoc cref="ConfigureImplicitSubscription{TEvent}(string, Func{TEvent, StreamCursor, ValueTask}, Action{string, Exception}?, bool)"/>
     public StreamManager ConfigureImplicitSubscription<TEvent>(
         string streamNamespace,
         Func<TEvent, StreamCursor, Task> onNextAsync,
-        Action<string, Exception>? onError = default)
+        Action<string, Exception>? onError = default,
+        bool useTrackedResumeToken = true)
     {
         ArgumentNullException.ThrowIfNull(onNextAsync);
 
         return ConfigureImplicitSubscription<TEvent>(
             streamNamespace,
             (item, cursor) => new ValueTask(onNextAsync(item, cursor)),
-            onError);
+            onError,
+            useTrackedResumeToken);
     }
 
     /// <summary>
@@ -124,7 +125,8 @@ public sealed class StreamManager : IStreamManagerComponent
         string streamProviderName,
         string streamNamespace,
         Func<TEvent, StreamCursor, ValueTask> onNextAsync,
-        Action<string, Exception>? onError = default)
+        Action<string, Exception>? onError = default,
+        bool useTrackedResumeToken = true)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(streamProviderName);
         ArgumentException.ThrowIfNullOrWhiteSpace(streamNamespace);
@@ -143,17 +145,19 @@ public sealed class StreamManager : IStreamManagerComponent
             streamProviderName,
             streamNamespace,
             onNextAsync,
-            onError));
+            onError,
+            useTrackedResumeToken));
 
         return this;
     }
 
-    /// <inheritdoc cref="ConfigureExplicitSubscription{TEvent}(string, string, Func{TEvent, StreamCursor, ValueTask}, Action{string, Exception}?)"/>
+    /// <inheritdoc cref="ConfigureExplicitSubscription{TEvent}(string, string, Func{TEvent, StreamCursor, ValueTask}, Action{string, Exception}?, bool)"/>
     public StreamManager ConfigureExplicitSubscription<TEvent>(
         string streamProviderName,
         string streamNamespace,
         Func<TEvent, StreamCursor, Task> onNextAsync,
-        Action<string, Exception>? onError = default)
+        Action<string, Exception>? onError = default,
+        bool useTrackedResumeToken = true)
     {
         ArgumentNullException.ThrowIfNull(onNextAsync);
 
@@ -161,7 +165,8 @@ public sealed class StreamManager : IStreamManagerComponent
             streamProviderName,
             streamNamespace,
             (item, cursor) => new ValueTask(onNextAsync(item, cursor)),
-            onError);
+            onError,
+            useTrackedResumeToken);
     }
 
     /// <summary>
@@ -219,6 +224,7 @@ public sealed class StreamManager : IStreamManagerComponent
         string streamNamespace,
         Func<TEvent, StreamCursor, ValueTask> onNextAsync,
         Action<string, Exception>? onError,
+        bool useTrackedResumeToken,
         IStreamSubscriptionHandleFactory handleFactory)
     {
         try
@@ -231,7 +237,7 @@ public sealed class StreamManager : IStreamManagerComponent
                 onError);
             var handle = await handleFactory.Create<TEvent>().ResumeAsync(
                 observer,
-                GetResumeToken(handleFactory.ProviderName, streamNamespace));
+                GetResumeToken(handleFactory.ProviderName, streamNamespace, useTrackedResumeToken));
 
             subscriptionHandles.Add(handle);
             MessagingTelemetry.RecordStreamSubscription(streamNamespace, "established");
@@ -250,6 +256,7 @@ public sealed class StreamManager : IStreamManagerComponent
         string streamNamespace,
         Func<TEvent, StreamCursor, ValueTask> onNextAsync,
         Action<string, Exception>? onError,
+        bool useTrackedResumeToken,
         bool createIfMissing,
         CancellationToken cancellationToken)
     {
@@ -269,7 +276,7 @@ public sealed class StreamManager : IStreamManagerComponent
                     onError);
                 var handle = await stream.SubscribeAsync(
                     observer,
-                    GetResumeToken(streamProviderName, streamNamespace),
+                    GetResumeToken(streamProviderName, streamNamespace, useTrackedResumeToken),
                     filterData: null);
 
                 subscriptionHandles.Add(handle);
@@ -289,7 +296,7 @@ public sealed class StreamManager : IStreamManagerComponent
                     onError);
                 var resumedHandle = await handle.ResumeAsync(
                     observer,
-                    GetResumeToken(handle.ProviderName, streamNamespace));
+                    GetResumeToken(handle.ProviderName, streamNamespace, useTrackedResumeToken));
 
                 subscriptionHandles.Add(resumedHandle);
                 MessagingTelemetry.RecordStreamSubscription(streamNamespace, "established");
@@ -316,11 +323,19 @@ public sealed class StreamManager : IStreamManagerComponent
         return streamProvider.GetStream<TEvent>(streamId);
     }
 
-    private StreamSequenceToken? GetResumeToken(string? streamProviderName, string streamNamespace)
+    private StreamSequenceToken? GetResumeToken(
+        string? streamProviderName,
+        string streamNamespace,
+        bool useTrackedResumeToken)
     {
+        if (!useTrackedResumeToken)
+        {
+            return null;
+        }
+
         var cursor = string.IsNullOrWhiteSpace(streamProviderName)
-            ? trackerSnapshot.LatestStream(streamNamespace)
-            : trackerSnapshot.LatestStream(streamProviderName, streamNamespace);
+            ? trackerSnapshot?.LatestStream(streamNamespace)
+            : trackerSnapshot?.LatestStream(streamProviderName, streamNamespace);
 
         return cursor?.Token;
     }
@@ -456,18 +471,20 @@ public sealed class StreamManager : IStreamManagerComponent
     private sealed class ImplicitSubscription<TEvent>(
         string streamNamespace,
         Func<TEvent, StreamCursor, ValueTask> onNextAsync,
-        Action<string, Exception>? onError)
+        Action<string, Exception>? onError,
+        bool useTrackedResumeToken)
         : IImplicitSubscription
     {
         public Task ResumeAsync(StreamManager manager, IStreamSubscriptionHandleFactory handleFactory) =>
-            manager.ResumeImplicitAsync(streamNamespace, onNextAsync, onError, handleFactory);
+            manager.ResumeImplicitAsync(streamNamespace, onNextAsync, onError, useTrackedResumeToken, handleFactory);
     }
 
     private sealed class ExplicitSubscription<TEvent>(
         string streamProviderName,
         string streamNamespace,
         Func<TEvent, StreamCursor, ValueTask> onNextAsync,
-        Action<string, Exception>? onError)
+        Action<string, Exception>? onError,
+        bool useTrackedResumeToken)
         : IExplicitSubscription
     {
         public string StreamProviderName => streamProviderName;
@@ -480,6 +497,7 @@ public sealed class StreamManager : IStreamManagerComponent
                 streamNamespace,
                 onNextAsync,
                 onError,
+                useTrackedResumeToken,
                 createIfMissing: false,
                 cancellationToken);
 
@@ -489,6 +507,7 @@ public sealed class StreamManager : IStreamManagerComponent
                 streamNamespace,
                 onNextAsync,
                 onError,
+                useTrackedResumeToken,
                 createIfMissing: true,
                 cancellationToken);
     }

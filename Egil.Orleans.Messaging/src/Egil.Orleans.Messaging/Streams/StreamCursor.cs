@@ -57,16 +57,6 @@ public sealed record StreamCursor(
     [property: Id(2)] string? ProviderName = null)
 {
     /// <summary>
-    /// Creates a cursor from an Orleans stream identity by using only its
-    /// namespace. Message tracking is scoped to one grain, so the stream key
-    /// portion of <see cref="StreamId"/> is redundant for dedup.
-    /// </summary>
-    public StreamCursor(StreamId streamId, StreamSequenceToken? token)
-        : this(streamId.GetNamespace() ?? throw new ArgumentException("StreamId must have a namespace.", nameof(streamId)), token)
-    {
-    }
-
-    /// <summary>
     /// Attempts to extract the broker-side enqueue time from the underlying
     /// <see cref="Token"/>.
     /// </summary>

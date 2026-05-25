@@ -573,7 +573,7 @@ Receiver-side, persisted dedup state. Tracks high-water position from
 each upstream source. Two source kinds:
 
 - **Orleans streams** — keyed by `StreamId`; position is a
-  `StreamCursor` wrapping `(StreamId, StreamSequenceToken)`.
+  `StreamCursor` wrapping `(stream namespace, StreamSequenceToken)`.
 - **Outbox messages** — keyed by sender `GrainId`; position is an
   `OutboxSequenceToken`.
 
@@ -741,24 +741,28 @@ public sealed class StreamManager
     public StreamManager ConfigureImplicitSubscription<TEvent>(
         string streamNamespace,
         Func<TEvent, StreamCursor, ValueTask> onNextAsync,
-        Action<string, Exception>? onError = default);
+        Action<string, Exception>? onError = default,
+        bool useTrackedResumeToken = true);
 
     public StreamManager ConfigureImplicitSubscription<TEvent>(
         string streamNamespace,
         Func<TEvent, StreamCursor, Task> onNextAsync,
-        Action<string, Exception>? onError = default);
+        Action<string, Exception>? onError = default,
+        bool useTrackedResumeToken = true);
 
     public StreamManager ConfigureExplicitSubscription<TEvent>(
         string streamProviderName,
         string streamNamespace,
         Func<TEvent, StreamCursor, ValueTask> onNextAsync,
-        Action<string, Exception>? onError = default);
+        Action<string, Exception>? onError = default,
+        bool useTrackedResumeToken = true);
 
     public StreamManager ConfigureExplicitSubscription<TEvent>(
         string streamProviderName,
         string streamNamespace,
         Func<TEvent, StreamCursor, Task> onNextAsync,
-        Action<string, Exception>? onError = default);
+        Action<string, Exception>? onError = default,
+        bool useTrackedResumeToken = true);
 
     public Task ResumeExplicitSubscriptionsAsync(
         CancellationToken cancellationToken = default);
@@ -790,6 +794,14 @@ attaches handlers without supplying resume tokens. Pass the activation-time
 tracker snapshot only when the grain wants `StreamManager` to resume from
 persisted cursors.
 
+Each configured subscription independently decides whether `StreamManager`
+passes the tracked cursor token into Orleans resume/subscribe APIs. The
+default is `useTrackedResumeToken: true` for compatibility: if a tracker
+snapshot has a cursor for the stream, the previous token is supplied. Set
+`useTrackedResumeToken: false` when the grain wants Orleans to attach the
+handler without a resume token for that subscription, even if a tracker
+snapshot is available.
+
 ### Typical implicit wiring
 
 ```csharp
@@ -800,7 +812,7 @@ public override async Task OnActivateAsync(CancellationToken ct)
 
     this.RegisterStreamManager(state.Tracker)
         .ConfigureImplicitSubscription("electricity-prices", HandlePriceTickAsync, LogStreamError)
-        .ConfigureImplicitSubscription("tariff-events", HandleTariffChangedAsync);
+        .ConfigureImplicitSubscription("tariff-events", HandleTariffChangedAsync, useTrackedResumeToken: false);
 }
 ```
 
@@ -871,7 +883,8 @@ group. Users only specify it for inline lambdas or ambiguous method groups.
   creates the typed handle with `factory.Create<TEvent>()`, and calls
   `ResumeAsync(observer, token)` to attach the handler. The token comes from
   the activation-time `MessageTracker` snapshot when a cursor exists for the
-  same provider and namespace.
+  same provider and namespace and that subscription has
+  `useTrackedResumeToken: true`.
 - Orleans controls activation and target stream identity. If the grain is not
   active, a matching stream event can activate it.
 - Implicit subscriptions do not show up as explicit handles from
@@ -884,12 +897,12 @@ group. Users only specify it for inline lambdas or ambiguous method groups.
   type, handler, and error callback.
 - `ResumeExplicitSubscriptionsAsync(...)` resumes all existing durable
   handles for each configured explicit stream from the activation-time
-  `MessageTracker` cursor when one exists. It never creates a new
-  subscription.
+  `MessageTracker` cursor when one exists and that subscription has
+  `useTrackedResumeToken: true`. It never creates a new subscription.
 - `EnsureExplicitSubscriptionsAsync(...)` resumes existing handles when
   present. If none exist for a configured explicit stream, it creates exactly
   one explicit subscription with `SubscribeAsync(observer, token)`, using the
-  tracked cursor token when available.
+  tracked cursor token when available and enabled for that subscription.
 - Repeated calls to `EnsureExplicitSubscriptionsAsync(...)` are idempotent:
   once a durable explicit handle exists, later calls resume it instead of
   creating duplicates.
@@ -905,7 +918,8 @@ group. Users only specify it for inline lambdas or ambiguous method groups.
 - The cursor includes the stream namespace, provider name when known, and the
   delivered Orleans sequence token.
 - `MessageTracker` provides provider-aware resume tokens for both implicit
-  handle resume and explicit subscribe/resume.
+  handle resume and explicit subscribe/resume when a subscription opts into
+  tracked resume tokens.
 - For explicit streams, the durable Orleans subscription handle is still the
   primary subscription identity. `MessageTracker` remains the
   application-level dedup and high-water marker; handlers update it after

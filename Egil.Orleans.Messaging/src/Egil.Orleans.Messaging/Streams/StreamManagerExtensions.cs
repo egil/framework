@@ -45,7 +45,7 @@ public static class StreamManagerExtensions
         /// </returns>
         public StreamManager RegisterStreamManager(MessageTracker? trackerSnapshot = null)
         {
-            return StreamManager.Create(grain, trackerSnapshot ?? new MessageTracker());
+            return StreamManager.Create(grain, trackerSnapshot);
         }
     }
 }

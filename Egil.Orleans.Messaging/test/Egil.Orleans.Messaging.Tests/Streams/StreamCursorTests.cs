@@ -9,7 +9,7 @@ public sealed class StreamCursorTests
     {
         var enqueuedTime = new DateTimeOffset(2026, 5, 24, 12, 30, 0, TimeSpan.Zero);
         var cursor = new StreamCursor(
-            StreamId.Create("orders", "one"),
+            "orders",
             new EnrichedEventHubSequenceToken("42", 10, 0, enqueuedTime, "provider-a"));
 
         var found = cursor.TryGetEnqueuedTime(out var actual);
@@ -22,7 +22,7 @@ public sealed class StreamCursorTests
     public void TryGetEnqueuedTime_returns_false_for_non_enriched_token()
     {
         var cursor = new StreamCursor(
-            StreamId.Create("orders", "one"),
+            "orders",
             new EventSequenceToken(10));
 
         var found = cursor.TryGetEnqueuedTime(out var actual);
@@ -35,7 +35,7 @@ public sealed class StreamCursorTests
     public void TryGetProviderName_returns_true_and_value_for_enriched_event_hub_token()
     {
         var cursor = new StreamCursor(
-            StreamId.Create("orders", "one"),
+            "orders",
             new EnrichedEventHubSequenceToken(
                 "42",
                 10,
@@ -53,7 +53,7 @@ public sealed class StreamCursorTests
     public void TryGetProviderName_returns_false_for_non_enriched_token()
     {
         var cursor = new StreamCursor(
-            StreamId.Create("orders", "one"),
+            "orders",
             new EventSequenceToken(10));
 
         var found = cursor.TryGetProviderName(out var providerName);
@@ -66,7 +66,7 @@ public sealed class StreamCursorTests
     public void TryGetTraceParent_returns_true_and_value_when_present_on_enriched_event_hub_token()
     {
         var cursor = new StreamCursor(
-            StreamId.Create("orders", "one"),
+            "orders",
             new EnrichedEventHubSequenceToken(
                 "42",
                 10,
@@ -85,7 +85,7 @@ public sealed class StreamCursorTests
     public void TryGetTraceParent_returns_false_when_missing_on_enriched_event_hub_token()
     {
         var cursor = new StreamCursor(
-            StreamId.Create("orders", "one"),
+            "orders",
             new EnrichedEventHubSequenceToken(
                 "42",
                 10,
