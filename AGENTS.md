@@ -59,18 +59,12 @@ Examples of when **not** to use `[skip notes]`:
 
 Trailers (such as `Co-authored-by:`) are stripped from the body before inclusion in release notes, so they are safe to add freely.
 
-### Sign-off Trailer
-Always append the following trailer to commit messages:
-
-```
-Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
-```
-
 ## Development Process
 - Work one project at a time. Don't bundle unrelated changes across projects in one commit.
 - Commit logical units of work; keep commits small and focused.
 - `Release` builds fail on warnings. Make sure each commit is warning-free.
 - Follow the repo test skill at `.agents/skills/test/SKILL.md` for TDD, test-after, refactoring, fake/builder usage, and production/test change discipline.
+- Coding agents must always follow the code comment guidelines in `.agents/skills/code-comments/SKILL.md` when adding, editing, or reviewing code comments.
 
 ## Build, Test, and Tooling
 Each project has its own solution file (`<project>/<project>.slnx`). Run `dotnet restore`, `dotnet build`, `dotnet test`, and `dotnet pack` against the relevant project's solution. Per-project `AGENTS.md` files document the exact commands and any project-specific tooling (BenchmarkDotNet, mdsnippets, etc.).

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Code Comments"
+  short_description: "Write useful why-focused code comments."
+  default_prompt: "Use this skill when adding or reviewing code comments so comments explain constraints, tradeoffs, raw parsed formats, standards, and workarounds without narrating obvious code."
