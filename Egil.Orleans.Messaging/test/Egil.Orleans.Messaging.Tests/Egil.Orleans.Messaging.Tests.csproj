@@ -27,6 +27,7 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
+    <PackageReference Include="Egil.Orleans.Testing" />
     <PackageReference Include="Microsoft.Orleans.Sdk" />
     <PackageReference Include="Microsoft.Orleans.Server" />
     <PackageReference Include="Microsoft.Orleans.TestingHost" />
@@ -37,7 +38,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\Egil.Orleans.Testing\src\Egil.Orleans.Testing\Egil.Orleans.Testing.csproj" />
     <ProjectReference Include="..\..\src\Egil.Orleans.Messaging\Egil.Orleans.Messaging.csproj" />
   </ItemGroup>
 
