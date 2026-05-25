@@ -239,5 +239,4 @@ design.
 
 ## Implementation Status
 
-- Steps 1-5 are implemented in the first pass.
-- Steps 6-7 remain.
+- Steps 1-7 are implemented.
