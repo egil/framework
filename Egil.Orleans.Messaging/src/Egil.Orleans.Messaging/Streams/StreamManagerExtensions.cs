@@ -47,44 +47,5 @@ public static class StreamManagerExtensions
     {
         return StreamManager.Create(grain, trackerSnapshot ?? new MessageTracker());
     }
-
-    /// <summary>
-    /// Registers a <see cref="StreamManager"/> for a grain whose configured
-    /// subscriptions all use the same Orleans stream provider.
-    /// </summary>
-    /// <remarks>
-    /// Prefer this overload when provider name and stream namespace are
-    /// different. This is the usual shape for grains using
-    /// <see cref="ImplicitStreamSubscriptionAttribute"/>, because the attribute
-    /// describes namespaces while the provider name is runtime configuration.
-    /// </remarks>
-    /// <param name="trackerSnapshot">
-    /// Optional snapshot of the grain's tracker at activation time. Omit it
-    /// when the grain does not persist stream tracking state.
-    /// </param>
-    /// <param name="streamProviderName">The Orleans stream provider name.</param>
-    /// <returns>The registered <see cref="StreamManager"/>.</returns>
-    public StreamManager RegisterStreamManager(
-        MessageTracker? trackerSnapshot,
-        string streamProviderName)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(streamProviderName);
-
-        return StreamManager.Create(grain, trackerSnapshot ?? new MessageTracker(), streamProviderName);
-    }
-
-    /// <summary>
-    /// Registers a <see cref="StreamManager"/> for a grain whose configured
-    /// subscriptions all use the same Orleans stream provider and which does
-    /// not provide persisted stream tracking state.
-    /// </summary>
-    /// <param name="streamProviderName">The Orleans stream provider name.</param>
-    /// <returns>The registered <see cref="StreamManager"/>.</returns>
-    public StreamManager RegisterStreamManager(string streamProviderName)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(streamProviderName);
-
-        return StreamManager.Create(grain, new MessageTracker(), streamProviderName);
-    }
     }
 }
