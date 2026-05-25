@@ -119,8 +119,14 @@ public sealed class StreamManager : IStreamManagerComponent
     }
 
     /// <summary>
-    /// Configures a durable Orleans explicit stream subscription.
+    /// Configures a durable Orleans explicit stream subscription using the
+    /// library's grain-keyed stream id convention.
     /// </summary>
+    /// <remarks>
+    /// The stream id is derived from the receiving grain identity and
+    /// <paramref name="streamNamespace"/>. Use the <see cref="StreamId"/>
+    /// overload when the explicit stream is keyed by another application id.
+    /// </remarks>
     public StreamManager ConfigureExplicitSubscription<TEvent>(
         string streamProviderName,
         string streamNamespace,
@@ -143,7 +149,7 @@ public sealed class StreamManager : IStreamManagerComponent
 
         explicitSubscriptions.Add(new ExplicitSubscription<TEvent>(
             streamProviderName,
-            streamNamespace,
+            getStreamId(streamNamespace),
             onNextAsync,
             onError,
             useTrackedResumeToken));
@@ -164,6 +170,62 @@ public sealed class StreamManager : IStreamManagerComponent
         return ConfigureExplicitSubscription<TEvent>(
             streamProviderName,
             streamNamespace,
+            (item, cursor) => new ValueTask(onNextAsync(item, cursor)),
+            onError,
+            useTrackedResumeToken);
+    }
+
+    /// <summary>
+    /// Configures a durable Orleans explicit stream subscription for the
+    /// specified stream identity.
+    /// </summary>
+    public StreamManager ConfigureExplicitSubscription<TEvent>(
+        string streamProviderName,
+        StreamId streamId,
+        Func<TEvent, StreamCursor, ValueTask> onNextAsync,
+        Action<string, Exception>? onError = default,
+        bool useTrackedResumeToken = true)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(streamProviderName);
+        ArgumentNullException.ThrowIfNull(onNextAsync);
+        EnsureCanConfigure();
+
+        if (streamId.GetNamespace() is null)
+        {
+            throw new ArgumentException("StreamId must have a namespace.", nameof(streamId));
+        }
+
+        if (explicitSubscriptions.Any(subscription =>
+            subscription.StreamProviderName == streamProviderName
+            && subscription.StreamId.Equals(streamId)))
+        {
+            throw new InvalidOperationException(
+                $"An explicit stream subscription for provider '{streamProviderName}' and stream id '{streamId}' has already been configured.");
+        }
+
+        explicitSubscriptions.Add(new ExplicitSubscription<TEvent>(
+            streamProviderName,
+            streamId,
+            onNextAsync,
+            onError,
+            useTrackedResumeToken));
+
+        return this;
+    }
+
+    /// <inheritdoc cref="ConfigureExplicitSubscription{TEvent}(string, StreamId, Func{TEvent, StreamCursor, ValueTask}, Action{string, Exception}?, bool)"/>
+    public StreamManager ConfigureExplicitSubscription<TEvent>(
+        string streamProviderName,
+        StreamId streamId,
+        Func<TEvent, StreamCursor, Task> onNextAsync,
+        Action<string, Exception>? onError = default,
+        bool useTrackedResumeToken = true)
+    {
+        ArgumentNullException.ThrowIfNull(onNextAsync);
+
+        return ConfigureExplicitSubscription<TEvent>(
+            streamProviderName,
+            streamId,
             (item, cursor) => new ValueTask(onNextAsync(item, cursor)),
             onError,
             useTrackedResumeToken);
@@ -211,10 +273,9 @@ public sealed class StreamManager : IStreamManagerComponent
         if (streamNamespace is null
             || !implicitSubscriptions.TryGetValue(streamNamespace, out var subscription))
         {
-            logger.LogWarning(
-                "No implicit stream subscription handler is configured for namespace {StreamNamespace}.",
-                streamNamespace);
-            return;
+            throw new InvalidOperationException(
+                $"No implicit stream subscription handler is configured for provider '{handleFactory.ProviderName}' and stream id '{handleFactory.StreamId}'. " +
+                $"Call ConfigureImplicitSubscription(...) for namespace '{streamNamespace ?? "<null>"}' during activation.");
         }
 
         await subscription.ResumeAsync(this, handleFactory);
@@ -253,18 +314,19 @@ public sealed class StreamManager : IStreamManagerComponent
 
     private async Task ResumeExplicitAsync<TEvent>(
         string streamProviderName,
-        string streamNamespace,
+        StreamId streamId,
         Func<TEvent, StreamCursor, ValueTask> onNextAsync,
         Action<string, Exception>? onError,
         bool useTrackedResumeToken,
         bool createIfMissing,
         CancellationToken cancellationToken)
     {
+        var streamNamespace = streamId.GetNamespace()!;
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var stream = GetExplicitStream<TEvent>(streamProviderName, streamNamespace);
+            var stream = GetExplicitStream<TEvent>(streamProviderName, streamId);
             var handles = await stream.GetAllSubscriptionHandles();
             if (handles.Count == 0 && createIfMissing)
             {
@@ -316,10 +378,9 @@ public sealed class StreamManager : IStreamManagerComponent
 
     private IAsyncStream<TEvent> GetExplicitStream<TEvent>(
         string streamProviderName,
-        string streamNamespace)
+        StreamId streamId)
     {
         var streamProvider = getStreamProvider(streamProviderName);
-        var streamId = getStreamId(streamNamespace);
         return streamProvider.GetStream<TEvent>(streamId);
     }
 
@@ -461,6 +522,8 @@ public sealed class StreamManager : IStreamManagerComponent
     {
         string StreamProviderName { get; }
 
+        StreamId StreamId { get; }
+
         string StreamNamespace { get; }
 
         Task ResumeExistingAsync(StreamManager manager, CancellationToken cancellationToken);
@@ -481,7 +544,7 @@ public sealed class StreamManager : IStreamManagerComponent
 
     private sealed class ExplicitSubscription<TEvent>(
         string streamProviderName,
-        string streamNamespace,
+        StreamId streamId,
         Func<TEvent, StreamCursor, ValueTask> onNextAsync,
         Action<string, Exception>? onError,
         bool useTrackedResumeToken)
@@ -489,12 +552,14 @@ public sealed class StreamManager : IStreamManagerComponent
     {
         public string StreamProviderName => streamProviderName;
 
-        public string StreamNamespace => streamNamespace;
+        public StreamId StreamId => streamId;
+
+        public string StreamNamespace => streamId.GetNamespace()!;
 
         public Task ResumeExistingAsync(StreamManager manager, CancellationToken cancellationToken) =>
             manager.ResumeExplicitAsync(
                 streamProviderName,
-                streamNamespace,
+                streamId,
                 onNextAsync,
                 onError,
                 useTrackedResumeToken,
@@ -504,7 +569,7 @@ public sealed class StreamManager : IStreamManagerComponent
         public Task EnsureAsync(StreamManager manager, CancellationToken cancellationToken) =>
             manager.ResumeExplicitAsync(
                 streamProviderName,
-                streamNamespace,
+                streamId,
                 onNextAsync,
                 onError,
                 useTrackedResumeToken,

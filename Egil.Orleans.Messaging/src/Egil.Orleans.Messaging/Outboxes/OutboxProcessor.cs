@@ -66,6 +66,11 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     /// <summary>
     /// Registers a postman that handles items of type <typeparamref name="TSub"/>.
     /// </summary>
+    /// <remarks>
+    /// Postman matching is first-match-wins, like a switch statement. Register
+    /// more specific message types before base interfaces or catch-all types.
+    /// Each outbox item is dispatched to at most one postman.
+    /// </remarks>
     public OutboxProcessor<TOutbox> AddPostman<TSub>(
         Func<TSub, ValueTask> postman) where TSub : TOutbox
     {

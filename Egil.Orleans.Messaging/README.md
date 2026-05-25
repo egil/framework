@@ -126,6 +126,17 @@ public sealed class OrderGrain : Grain, IOutboxGrain
 ```
 
 `IOutboxGrain` forwards reminder ticks to the attached processor. The grain remains responsible for its own message contracts, posting target, and dead-letter policy.
+Postman matching is first-match-wins: register specific message types before
+base interfaces or catch-all handlers.
+
+Failed dispatches are reported through `ReconcileFailedAsync`. That callback
+is where the owning grain applies retry, dead-letter, max-depth, or trimming
+policy, because the grain owns the durable outbox state.
+
+Postmen normally run on the Orleans activation scheduler. Use
+`OutboxPostmanExecutionMode.ThreadPool` only for blocking or legacy delivery
+code, and do not read or mutate activation-local grain state from those
+callbacks.
 
 For reusable delivery code, implement and register keyed postman services:
 
@@ -206,6 +217,18 @@ streamManager = this.RegisterStreamManager(state.State.Tracker)
         });
 
 await streamManager.EnsureExplicitSubscriptionsAsync(cancellationToken);
+```
+
+The string namespace overload derives a stream id from the receiving grain
+identity. Use the `StreamId` overload for an explicit stream keyed by another
+application id:
+
+```csharp
+streamManager = this.RegisterStreamManager(state.State.Tracker)
+    .ConfigureExplicitSubscription<PriceChanged>(
+        "StreamProvider",
+        StreamId.Create("prices", customerId),
+        HandlePriceChangedAsync);
 ```
 
 Tracked resume tokens are a per-subscription choice. The default is to pass

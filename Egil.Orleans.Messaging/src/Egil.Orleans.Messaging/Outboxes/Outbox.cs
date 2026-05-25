@@ -46,10 +46,11 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// </para>
 /// <para>
 /// <b>Unbounded growth risk:</b> If postman targets are down, the outbox grows
-/// without limit. Mitigations: telemetry (gauge for depth per grain type),
-/// configurable max via <see cref="OutboxProcessorOptions{TOutbox}"/> (oldest
-/// messages auto-dropped FIFO), and documentation of storage-provider entity
-/// size limits (e.g., Azure Table = 1 MB).
+/// without limit unless the owning grain applies a policy. The processor
+/// reports depth telemetry and passes failures to
+/// <see cref="OutboxProcessorOptions{TOutbox}.ReconcileFailedAsync"/>, where
+/// the grain can leave items pending, dead-letter them, or drop old entries
+/// before storage-provider entity limits are reached.
 /// </para>
 /// <para>
 /// <b>Serialization:</b> Decorated with <c>[GenerateSerializer]</c> for Orleans.
