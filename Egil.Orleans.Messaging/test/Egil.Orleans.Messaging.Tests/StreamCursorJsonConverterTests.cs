@@ -110,7 +110,7 @@ public sealed class StreamCursorJsonConverterTests
     {
         var json = """
             {
-              "StreamId": "orders/one",
+              "StreamNamespace": "orders",
               "Token": {
                 "Kind": "unknown-kind",
                 "SequenceNumber": 1,
@@ -144,13 +144,13 @@ public sealed class StreamCursorJsonConverterTests
     {
         var json = $$"""
             {
-              "StreamId": "orders/one",
+              "StreamNamespace": "orders",
               "Token": {
                 "Kind": "{{kind}}",
                 "SequenceNumber": 1,
                 "EventIndex": 0,
                 "EnqueuedTime": "2026-05-23T12:30:00Z",
-                "StreamProviderName": "provider-a"
+                "ProviderName": "provider-a"
               }
             }
             """;
@@ -164,13 +164,13 @@ public sealed class StreamCursorJsonConverterTests
     {
         var json = """
             {
-              "StreamId": "orders/one",
+              "StreamNamespace": "orders",
               "Token": {
                 "Kind": "enriched-event-hub",
                 "SequenceNumber": 1,
                 "EventIndex": 0,
                 "EventHubOffset": "42",
-                "StreamProviderName": "provider-a"
+                "ProviderName": "provider-a"
               }
             }
             """;
@@ -184,7 +184,7 @@ public sealed class StreamCursorJsonConverterTests
     {
         var json = """
             {
-              "StreamId": "orders/one",
+              "StreamNamespace": "orders",
               "Token": {
                 "Kind": "enriched-event-hub",
                 "SequenceNumber": 1,
@@ -196,7 +196,7 @@ public sealed class StreamCursorJsonConverterTests
             """;
 
         var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<StreamCursor>(json));
-        Assert.Equal("Missing StreamProviderName.", exception.Message);
+        Assert.Equal("Missing ProviderName.", exception.Message);
     }
 
     private sealed class UnsupportedCustomSequenceToken(long sequenceNumber, int eventIndex) : StreamSequenceToken
@@ -225,3 +225,4 @@ public sealed class StreamCursorJsonConverterTests
         }
     }
 }
+

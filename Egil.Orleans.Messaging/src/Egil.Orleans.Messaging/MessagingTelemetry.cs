@@ -1,6 +1,6 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
-using System.Collections.Concurrent;
 
 namespace Egil.Orleans.Messaging;
 
@@ -55,14 +55,12 @@ internal static class MessagingTelemetry
 
     public static void RecordOutboxPostItem(
         string grainType,
-        string eventType,
         string postmanType,
         OutboxPostmanExecutionMode executionMode,
         bool success,
         double milliseconds)
     {
         var tags = OutboxTags(grainType, executionMode);
-        tags.Add("event.type", eventType);
         tags.Add("postman.type", postmanType);
         tags.Add("success", success);
 
@@ -120,13 +118,13 @@ internal static class MessagingTelemetry
             { "messaging.system", "orleans" },
             { "messaging.operation", "receive" },
             { "messaging.source.kind", "stream" },
-            { "stream.namespace", cursor.StreamId.GetNamespace() },
+            { "stream.namespace", cursor.StreamNamespace },
             { "status", "accepted" }
         };
 
-        if (cursor.TryGetStreamProviderName(out var streamProviderName))
+        if (cursor.TryGetProviderName(out var providerName))
         {
-            tags.Add("stream.provider", streamProviderName);
+            tags.Add("stream.provider", providerName);
         }
 
         StreamReceiveLag.Record(lag.TotalMilliseconds, tags);

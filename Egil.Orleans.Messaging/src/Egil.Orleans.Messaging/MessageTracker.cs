@@ -12,8 +12,9 @@ namespace Egil.Orleans.Messaging;
 /// <para>
 /// <b>Two source kinds:</b>
 /// <list type="bullet">
-/// <item><b>Orleans streams</b> — keyed by <see cref="StreamId"/>; position
-/// is a <see cref="StreamCursor"/> wrapping <c>(StreamId, StreamSequenceToken)</c>.</item>
+/// <item><b>Orleans streams</b> — keyed by stream namespace within the grain,
+/// plus stream provider name when the received token exposes one; position is
+/// a <see cref="StreamCursor"/> wrapping <c>(streamNamespace, StreamSequenceToken)</c>.</item>
 /// <item><b>Outbox messages</b> — keyed by sender <see cref="GrainId"/>;
 /// position is an <see cref="OutboxSequenceToken"/>.</item>
 /// </list>
@@ -64,7 +65,7 @@ namespace Egil.Orleans.Messaging;
 [JsonConverter(typeof(MessageTrackerJsonConverter))]
 public sealed class MessageTracker : IEquatable<MessageTracker>
 {
-    [Id(0)] private readonly ImmutableDictionary<StreamId, StreamEntry> streams;
+    [Id(0)] private readonly ImmutableDictionary<StreamSource, StreamEntry> streams;
     [Id(1)] private readonly ImmutableDictionary<GrainId, OutboxEntry> outbox;
 
     /// <summary>
@@ -80,12 +81,12 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
     /// </summary>
     public MessageTracker()
     {
-        streams = ImmutableDictionary<StreamId, StreamEntry>.Empty;
+        streams = ImmutableDictionary<StreamSource, StreamEntry>.Empty;
         outbox = ImmutableDictionary<GrainId, OutboxEntry>.Empty;
     }
 
     internal MessageTracker(
-        ImmutableDictionary<StreamId, StreamEntry> streams,
+        ImmutableDictionary<StreamSource, StreamEntry> streams,
         ImmutableDictionary<GrainId, OutboxEntry> outbox)
     {
         this.streams = streams;
@@ -112,10 +113,11 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
     {
         var now = time.GetUtcNow();
 
-        if (!streams.TryGetValue(cursor.StreamId, out var entry))
+        var source = StreamSource.From(cursor);
+        if (!streams.TryGetValue(source, out var entry))
         {
             MessagingTelemetry.RecordStreamReceiveLag(cursor, now);
-            next = CreateTracker(streams.Add(cursor.StreamId, new StreamEntry(cursor, now)), outbox);
+            next = CreateTracker(streams.Add(source, new StreamEntry(cursor, now)), outbox);
             return true;
         }
 
@@ -126,7 +128,7 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
         }
 
         MessagingTelemetry.RecordStreamReceiveLag(cursor, now);
-        next = CreateTracker(streams.SetItem(cursor.StreamId, new StreamEntry(cursor, now)), outbox);
+        next = CreateTracker(streams.SetItem(source, new StreamEntry(cursor, now)), outbox);
         return true;
     }
 
@@ -172,13 +174,43 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
 
     /// <summary>
     /// Returns the last accepted <see cref="StreamCursor"/> for the given
-    /// <paramref name="stream"/>, or <c>null</c> if no messages from that
-    /// stream have been tracked.
+    /// <paramref name="streamNamespace"/>, or <c>null</c> if no messages from
+    /// that namespace have been tracked by this grain.
     /// </summary>
-    public StreamCursor? LatestStream(StreamId stream)
+    public StreamCursor? LatestStream(string streamNamespace)
     {
-        return streams.TryGetValue(stream, out var entry) ? entry.LastPosition : null;
+        ArgumentException.ThrowIfNullOrWhiteSpace(streamNamespace);
+        var conventionSource = new StreamSource(streamNamespace, null);
+        if (streams.TryGetValue(conventionSource, out var entry))
+        {
+            return entry.LastPosition;
+        }
+
+        StreamCursor? result = null;
+        foreach (var item in streams)
+        {
+            if (!string.Equals(item.Key.StreamNamespace, streamNamespace, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (result is not null)
+            {
+                return null;
+            }
+
+            result = item.Value.LastPosition;
+        }
+
+        return result;
     }
+
+    /// <summary>
+    /// Returns the last accepted <see cref="StreamCursor"/> for the namespace
+    /// in the given <paramref name="stream"/>.
+    /// </summary>
+    public StreamCursor? LatestStream(StreamId stream) =>
+        LatestStream(stream.GetNamespace() ?? throw new ArgumentException("StreamId must have a namespace.", nameof(stream)));
 
     /// <summary>
     /// Returns the last accepted <see cref="OutboxSequenceToken"/> for the
@@ -229,19 +261,39 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
     }
 
     /// <summary>
-    /// Removes the entry for the given <paramref name="stream"/> if
+    /// Removes the entry for the given <paramref name="streamNamespace"/> if
     /// <c>entry.Received &lt;= <paramref name="olderThan"/></c>.
     /// Use <c>DateTimeOffset.MaxValue</c> to unconditionally remove.
     /// </summary>
-    public MessageTracker Evict(StreamId stream, DateTimeOffset olderThan)
+    public MessageTracker Evict(string streamNamespace, DateTimeOffset olderThan)
     {
-        if (!streams.TryGetValue(stream, out var entry) || entry.Received > olderThan)
+        ArgumentException.ThrowIfNullOrWhiteSpace(streamNamespace);
+        var builder = streams.ToBuilder();
+        var changed = false;
+        foreach (var item in streams)
+        {
+            if (string.Equals(item.Key.StreamNamespace, streamNamespace, StringComparison.Ordinal)
+                && item.Value.Received <= olderThan)
+            {
+                builder.Remove(item.Key);
+                changed = true;
+            }
+        }
+
+        if (!changed)
         {
             return this;
         }
 
-        return CreateTracker(streams.Remove(stream), outbox);
+        return CreateTracker(builder.ToImmutable(), outbox);
     }
+
+    /// <summary>
+    /// Removes the entry for the namespace in the given <paramref name="stream"/>
+    /// if <c>entry.Received &lt;= <paramref name="olderThan"/></c>.
+    /// </summary>
+    public MessageTracker Evict(StreamId stream, DateTimeOffset olderThan) =>
+        Evict(stream.GetNamespace() ?? throw new ArgumentException("StreamId must have a namespace.", nameof(stream)), olderThan);
 
     /// <summary>
     /// Removes the entry for the given outbox <paramref name="sender"/> if
@@ -304,7 +356,7 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
     }
 
     private MessageTracker CreateTracker(
-        ImmutableDictionary<StreamId, StreamEntry> streams,
+        ImmutableDictionary<StreamSource, StreamEntry> streams,
         ImmutableDictionary<GrainId, OutboxEntry> outbox)
     {
         var next = new MessageTracker(streams, outbox)
@@ -365,6 +417,21 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
         }
 
         return hash;
+    }
+
+    /// <summary>
+    /// Internal entry tracking a stream source's last known position and
+    /// the wall-clock time it was received.
+    /// </summary>
+    [GenerateSerializer]
+    internal readonly record struct StreamSource(
+        [property: Id(0)] string StreamNamespace,
+        [property: Id(1)] string? ProviderName)
+    {
+        public static StreamSource From(StreamCursor cursor) =>
+            new(
+                cursor.StreamNamespace,
+                cursor.TryGetProviderName(out var providerName) ? providerName : null);
     }
 
     /// <summary>

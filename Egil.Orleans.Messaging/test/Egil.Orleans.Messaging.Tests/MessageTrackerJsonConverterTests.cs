@@ -19,7 +19,7 @@ public sealed class MessageTrackerJsonConverterTests
             sequenceNumber: 12,
             eventIndex: 5,
             enqueuedTime: new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero),
-            streamProviderName: "provider-a",
+            providerName: "provider-a",
             traceParent: "00-abc-xyz-01")
     };
 
@@ -99,9 +99,9 @@ public sealed class MessageTrackerJsonConverterTests
             {
               "Streams": [
                 {
-                  "StreamId": "orders/no-token",
+                  "StreamNamespace": "orders",
                   "LastPosition": {
-                    "StreamId": "orders/no-token",
+                    "StreamNamespace": "orders",
                     "Token": null
                   },
                   "Received": "2026-05-23T12:30:00+00:00"
@@ -124,9 +124,9 @@ public sealed class MessageTrackerJsonConverterTests
             {
               "Streams": [
                 {
-                  "StreamId": "orders/one",
+                  "StreamNamespace": "orders",
                   "LastPosition": {
-                    "StreamId": "orders/one",
+                    "StreamNamespace": "orders",
                     "Token": {
                       "Kind": "unknown-kind",
                       "SequenceNumber": 1,
@@ -153,15 +153,15 @@ public sealed class MessageTrackerJsonConverterTests
             {
               "Streams": [
                 {
-                  "StreamId": "orders/one",
+                  "StreamNamespace": "orders",
                   "LastPosition": {
-                    "StreamId": "orders/one",
+                    "StreamNamespace": "orders",
                     "Token": {
                       "Kind": "{{kind}}",
                       "SequenceNumber": 1,
                       "EventIndex": 0,
                       "EnqueuedTime": "2026-05-23T12:30:00+00:00",
-                      "StreamProviderName": "provider-a"
+                      "ProviderName": "provider-a"
                     }
                   },
                   "Received": "2026-05-23T12:30:00+00:00"
@@ -182,15 +182,15 @@ public sealed class MessageTrackerJsonConverterTests
             {
               "Streams": [
                 {
-                  "StreamId": "orders/one",
+                  "StreamNamespace": "orders",
                   "LastPosition": {
-                    "StreamId": "orders/one",
+                    "StreamNamespace": "orders",
                     "Token": {
                       "Kind": "enriched-event-hub",
                       "SequenceNumber": 1,
                       "EventIndex": 0,
                       "EventHubOffset": "42",
-                      "StreamProviderName": "provider-a"
+                      "ProviderName": "provider-a"
                     }
                   },
                   "Received": "2026-05-23T12:30:00+00:00"
@@ -211,9 +211,9 @@ public sealed class MessageTrackerJsonConverterTests
             {
               "Streams": [
                 {
-                  "StreamId": "orders/one",
+                  "StreamNamespace": "orders",
                   "LastPosition": {
-                    "StreamId": "orders/one",
+                    "StreamNamespace": "orders",
                     "Token": {
                       "Kind": "enriched-event-hub",
                       "SequenceNumber": 1,
@@ -230,7 +230,7 @@ public sealed class MessageTrackerJsonConverterTests
             """;
 
         var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<MessageTracker>(json));
-        Assert.Equal("Missing StreamProviderName.", exception.Message);
+        Assert.Equal("Missing ProviderName.", exception.Message);
     }
 
     private sealed class UnsupportedSequenceToken(long sequenceNumber, int eventIndex) : StreamSequenceToken
@@ -259,3 +259,4 @@ public sealed class MessageTrackerJsonConverterTests
         }
     }
 }
+

@@ -268,7 +268,7 @@ public sealed class MessageTrackerTests
             stream: new StreamCursor(StreamId.Create("orders", "one"), new EventSequenceToken(7)),
             received: now);
         var right = CreateTracker(
-            stream: new StreamCursor(StreamId.Create("orders", "two"), new EventSequenceToken(7)),
+            stream: new StreamCursor(StreamId.Create("invoices", "one"), new EventSequenceToken(7)),
             received: now);
 
         Assert.NotEqual(left, right);

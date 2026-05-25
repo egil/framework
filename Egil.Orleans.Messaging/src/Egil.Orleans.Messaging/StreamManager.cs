@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Orleans.Streams;
 
 namespace Egil.Orleans.Messaging;
@@ -28,7 +29,7 @@ namespace Egil.Orleans.Messaging;
 /// </para>
 /// <para>
 /// <b>Resume semantics:</b> each subscription reads
-/// <c>trackerSnapshot.LatestStream(streamId)</c> once per subscription.
+/// <c>trackerSnapshot.LatestStream(streamNamespace)</c> once per subscription.
 /// If a cursor exists, the <see cref="StreamSequenceToken"/> is passed to
 /// <c>SubscribeAsync</c>. If <c>null</c>, subscribes without a token
 /// (provider default, typically: start from current). The tracker is read
@@ -96,7 +97,7 @@ public sealed class StreamManager
         var services = owner.GrainContext.ActivationServices;
         var loggerFactory = services.GetService<ILoggerFactory>();
         var logger = loggerFactory?.CreateLogger<StreamManager>()
-            ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<StreamManager>.Instance;
+            ?? NullLogger<StreamManager>.Instance;
 
         return Create(
             owner,
@@ -174,12 +175,12 @@ public sealed class StreamManager
         var streamProvider = getStreamProvider(streamNamespace);
         var streamId = getStreamId(streamNamespace);
         var stream = streamProvider.GetStream<TEvent>(streamId);
-        var observer = new StreamObserver<TEvent>(this, streamNamespace, streamId, onNextAsync, onError);
+        var observer = new StreamObserver<TEvent>(this, streamNamespace, onNextAsync, onError);
         var latestCursor = passLatestSequenceTokenOnResume
-            ? trackerSnapshot.LatestStream(streamId)
+            ? trackerSnapshot.LatestStream(streamNamespace)
             : null;
 
-        subscriptions.Add(ct => SubscribeCoreAsync(streamNamespace, stream, observer, latestCursor?.Token, ct));
+        subscriptions.Add(async ct => await SubscribeCoreAsync(streamNamespace, stream, observer, latestCursor?.Token, ct));
         return this;
     }
 
@@ -252,16 +253,16 @@ public sealed class StreamManager
 
         cancellationToken.ThrowIfCancellationRequested();
         subscribed = true;
-        var subscriptionTasks = subscriptions.Select(subscription => subscription(cancellationToken)).ToArray();
+        var subscriptionTasks = subscriptions.Select(subscription => subscription(cancellationToken));
 
-        var handles = await Task.WhenAll(subscriptionTasks).ConfigureAwait(false);
+        var handles = await Task.WhenAll(subscriptionTasks);
         subscriptionHandles.AddRange(handles);
     }
 
-    private async Task<object> SubscribeCoreAsync<TEvent>(
+    private async Task<StreamSubscriptionHandle<TEvent>> SubscribeCoreAsync<TEvent>(
         string streamNamespace,
         IAsyncStream<TEvent> stream,
-        IAsyncObserver<TEvent> observer,
+        StreamObserver<TEvent> observer,
         StreamSequenceToken? token,
         CancellationToken cancellationToken)
     {
@@ -271,13 +272,15 @@ public sealed class StreamManager
 
             if (token is null)
             {
-                var handle = await stream.SubscribeAsync(observer).ConfigureAwait(false);
+                var handle = await stream.SubscribeAsync(observer);
+                observer.SetProviderName(handle.ProviderName);
                 MessagingTelemetry.RecordStreamSubscription(streamNamespace, "established");
                 return handle;
             }
             else
             {
-                var handle = await stream.SubscribeAsync(observer, token, null!).ConfigureAwait(false);
+                var handle = await stream.SubscribeAsync(observer, token, null!);
+                observer.SetProviderName(handle.ProviderName);
                 MessagingTelemetry.RecordStreamSubscription(streamNamespace, "established");
                 return handle;
             }
@@ -292,19 +295,19 @@ public sealed class StreamManager
 
     private async Task OnNextAsync<TEvent>(
         string streamNamespace,
-        StreamId streamId,
+        string? providerName,
         TEvent item,
         StreamSequenceToken? token,
         Func<TEvent, StreamSequenceToken?, ValueTask> onNextAsync,
         Action<string, Exception>? onError)
     {
-        var cursor = new StreamCursor(streamId, token);
+        var cursor = new StreamCursor(streamNamespace, token, providerName);
         var started = Stopwatch.GetTimestamp();
 
         using var activity = StartConsumerActivity(streamNamespace, cursor);
         try
         {
-            await onNextAsync(item, token).ConfigureAwait(false);
+            await onNextAsync(item, token);
 
             MessagingTelemetry.RecordStreamMessage(streamNamespace, "accepted");
             MessagingTelemetry.RecordStreamHandlerDuration(streamNamespace, "accepted", Stopwatch.GetElapsedTime(started).TotalMilliseconds);
@@ -397,13 +400,19 @@ public sealed class StreamManager
     private sealed class StreamObserver<TEvent>(
         StreamManager manager,
         string streamNamespace,
-        StreamId streamId,
         Func<TEvent, StreamSequenceToken?, ValueTask> onNextAsync,
         Action<string, Exception>? onError)
         : IAsyncObserver<TEvent>
     {
+        private string? providerName;
+
+        public void SetProviderName(string providerName)
+        {
+            this.providerName = providerName;
+        }
+
         public Task OnNextAsync(TEvent item, StreamSequenceToken? token = null) =>
-            manager.OnNextAsync(streamNamespace, streamId, item, token, onNextAsync, onError);
+            manager.OnNextAsync(streamNamespace, providerName, item, token, onNextAsync, onError);
 
         public Task OnCompletedAsync() => Task.CompletedTask;
 

@@ -55,7 +55,7 @@ public sealed class EnrichedEventHubAdapterTests
         var enriched = Assert.IsType<EnrichedEventHubSequenceToken>(token);
         Assert.Equal(10, enriched.SequenceNumber);
         Assert.Equal(2, enriched.EventIndex);
-        Assert.Equal("provider-a", enriched.StreamProviderName);
+        Assert.Equal("provider-a", enriched.ProviderName);
         Assert.Null(enriched.TraceParent);
     }
 
@@ -120,7 +120,7 @@ public sealed class EnrichedEventHubAdapterTests
 
         var enriched = Assert.IsType<EnrichedEventHubSequenceToken>(position.SequenceToken);
         Assert.Equal(traceParent, enriched.TraceParent);
-        Assert.Equal("provider-a", enriched.StreamProviderName);
+        Assert.Equal("provider-a", enriched.ProviderName);
     }
 
     private static EnrichedEventHubAdapter CreateAdapter()
