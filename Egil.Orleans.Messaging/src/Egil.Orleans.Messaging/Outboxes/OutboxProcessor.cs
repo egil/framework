@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Orleans.Streams;
 
 namespace Egil.Orleans.Messaging.Outboxes;
 
@@ -109,6 +110,58 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
             .GetRequiredKeyedService<IPostman<TSub>>(postmanName);
 
         return AddPostmanCore<TSub>(postman.PostAsync);
+    }
+
+    /// <summary>
+    /// Registers a postman that publishes each item to an Orleans stream.
+    /// </summary>
+    public OutboxProcessor<TOutbox> AddStreamPostman<TSub>(
+        string streamProviderName,
+        Func<TSub, StreamId> streamId)
+        where TSub : TOutbox =>
+        AddStreamPostman<TSub, TSub>(
+            streamProviderName,
+            streamId,
+            static message => message);
+
+    /// <summary>
+    /// Registers a postman that projects each item and publishes the projected
+    /// event to an Orleans stream.
+    /// </summary>
+    public OutboxProcessor<TOutbox> AddStreamPostman<TSub, TEvent>(
+        string streamProviderName,
+        Func<TSub, StreamId> streamId,
+        Func<TSub, TEvent> project)
+        where TSub : TOutbox
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(streamProviderName);
+        ArgumentNullException.ThrowIfNull(streamId);
+        ArgumentNullException.ThrowIfNull(project);
+
+        var streamProvider = owner.GrainContext.ActivationServices
+            .GetRequiredKeyedService<IStreamProvider>(streamProviderName);
+
+        return AddPostmanCore<TSub>((message, _) =>
+        {
+            var stream = streamProvider.GetStream<TEvent>(streamId(message));
+            return new ValueTask(stream.OnNextAsync(project(message)));
+        });
+    }
+
+    /// <summary>
+    /// Registers a postman that resolves a grain for each item and invokes it.
+    /// </summary>
+    public OutboxProcessor<TOutbox> AddGrainPostman<TSub, TGrain>(
+        Func<TSub, IGrainFactory, TGrain> resolveGrain,
+        Func<TGrain, TSub, Task> call)
+        where TSub : TOutbox
+        where TGrain : IGrain
+    {
+        ArgumentNullException.ThrowIfNull(resolveGrain);
+        ArgumentNullException.ThrowIfNull(call);
+
+        return AddPostmanCore<TSub>((message, _) =>
+            new ValueTask(call(resolveGrain(message, grainFactory), message)));
     }
 
     /// <summary>

@@ -149,6 +149,23 @@ outboxProcessor = this.RegisterOutboxProcessor(options)
     .AddPostman<OrderSubmitted>("orders");
 ```
 
+For common Orleans targets, use the built-in helpers instead of writing the
+callback by hand:
+
+```csharp
+outboxProcessor = this.RegisterOutboxProcessor(options)
+    .AddStreamPostman<OrderSubmitted>(
+        "order-streams",
+        message => StreamId.Create("submitted-orders", message.OrderId));
+```
+
+```csharp
+outboxProcessor = this.RegisterOutboxProcessor(options)
+    .AddGrainPostman<OrderSubmitted, IOrderProjectionGrain>(
+        (message, grainFactory) => grainFactory.GetGrain<IOrderProjectionGrain>(message.OrderId),
+        (grain, message) => grain.ApplyAsync(message));
+```
+
 ## Receiver Dedup
 
 `MessageTracker` accepts a message only when its stream token, stream cursor, or outbox token advances the stored high-water mark:

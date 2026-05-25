@@ -1166,6 +1166,12 @@ public sealed class OutboxPostmanAttribute(string name) : Attribute
 }
 ```
 
+Use inline callbacks when delivery logic is grain-local and small. Use keyed
+`IPostman<TMessage>` services when the delivery code has dependencies, should
+be tested outside Orleans, or is shared across grains. Registered postman
+services are scoped to the grain activation service provider and the processor
+does not create child scopes.
+
 ```csharp
 namespace Microsoft.Extensions.DependencyInjection;
 
@@ -1363,6 +1369,20 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         where TSub : TOutbox;
     public OutboxProcessor<TOutbox> AddPostman<TSub>(
         string postmanName) where TSub : TOutbox;
+    public OutboxProcessor<TOutbox> AddStreamPostman<TSub>(
+        string streamProviderName,
+        Func<TSub, StreamId> streamId)
+        where TSub : TOutbox;
+    public OutboxProcessor<TOutbox> AddStreamPostman<TSub, TEvent>(
+        string streamProviderName,
+        Func<TSub, StreamId> streamId,
+        Func<TSub, TEvent> project)
+        where TSub : TOutbox;
+    public OutboxProcessor<TOutbox> AddGrainPostman<TSub, TGrain>(
+        Func<TSub, IGrainFactory, TGrain> resolveGrain,
+        Func<TGrain, TSub, Task> call)
+        where TSub : TOutbox
+        where TGrain : IGrain;
 
     /// Posts pending items. Safe to call from grain's task scheduler.
     /// Arms timer/reminder if items remain, unregisters if empty.
