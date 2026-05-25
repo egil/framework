@@ -4,7 +4,7 @@ namespace Egil.Orleans.Messaging;
 
 /// <summary>
 /// An <see cref="EventHubSequenceTokenV2"/> subclass that carries the
-/// broker-side <see cref="EnqueuedTime"/> and the <see cref="StreamProviderName"/>,
+/// broker-side <see cref="EnqueuedTime"/> and the <see cref="ProviderName"/>,
 /// enabling end-to-end lag measurement and provider-aware dedup in
 /// <see cref="StreamManager"/> and <see cref="MessageTracker"/>.
 /// </summary>
@@ -21,11 +21,11 @@ namespace Egil.Orleans.Messaging;
 /// <b>Transparent to StreamManager:</b> The <see cref="StreamManager"/> is
 /// unaware of the adapter. The enrichment surfaces through
 /// <see cref="StreamCursor.TryGetEnqueuedTime"/> and
-/// <see cref="StreamCursor.TryGetStreamProviderName"/> in the user's
+/// <see cref="StreamCursor.TryGetProviderName"/> in the user's
 /// <c>OnNext</c> handler.
 /// </para>
 /// <para>
-/// <b>Dedup and edge cases:</b> The <see cref="StreamProviderName"/> embedded
+/// <b>Dedup and edge cases:</b> The <see cref="ProviderName"/> embedded
 /// in the token enables <see cref="MessageTracker"/> to distinguish messages
 /// arriving from different stream providers on the same stream namespace,
 /// supporting multi-provider topologies and provider-specific eviction.
@@ -44,7 +44,7 @@ namespace Egil.Orleans.Messaging;
 /// <see cref="EventHubSequenceTokenV2"/>. The library's STJ converter for
 /// <see cref="StreamCursor"/> recognizes this subtype via a <c>$kind</c>
 /// discriminator and round-trips <see cref="EnqueuedTime"/>,
-/// <see cref="StreamProviderName"/>, and <see cref="TraceParent"/> fields.
+/// <see cref="ProviderName"/>, and <see cref="TraceParent"/> fields.
 /// </para>
 /// </remarks>
 [GenerateSerializer]
@@ -64,7 +64,7 @@ public class EnrichedEventHubSequenceToken : EventHubSequenceTokenV2
     /// Enables provider-aware dedup and diagnostics in <see cref="MessageTracker"/>.
     /// </summary>
     [Id(1)]
-    public string StreamProviderName { get; }
+    public string ProviderName { get; }
 
     /// <summary>
     /// The W3C <c>traceparent</c> header value from the producer-side
@@ -95,7 +95,7 @@ public class EnrichedEventHubSequenceToken : EventHubSequenceTokenV2
     /// The <see cref="DateTimeOffset"/> when the event was enqueued at the
     /// Event Hub broker.
     /// </param>
-    /// <param name="streamProviderName">
+    /// <param name="providerName">
     /// The name of the Orleans stream provider. Passed through from the
     /// <c>EnrichedEventHubAdapter</c> at construction time.
     /// </param>
@@ -108,12 +108,12 @@ public class EnrichedEventHubSequenceToken : EventHubSequenceTokenV2
         long sequenceNumber,
         int eventIndex,
         DateTimeOffset enqueuedTime,
-        string streamProviderName,
+        string providerName,
         string? traceParent = null)
         : base(offset, sequenceNumber, eventIndex)
     {
         EnqueuedTime = enqueuedTime;
-        StreamProviderName = streamProviderName;
+        ProviderName = providerName;
         TraceParent = traceParent;
     }
 
@@ -122,6 +122,6 @@ public class EnrichedEventHubSequenceToken : EventHubSequenceTokenV2
     /// </summary>
     public EnrichedEventHubSequenceToken()
     {
-        StreamProviderName = string.Empty;
+        ProviderName = string.Empty;
     }
 }

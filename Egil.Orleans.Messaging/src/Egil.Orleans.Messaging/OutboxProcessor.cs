@@ -113,7 +113,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
             do
             {
                 drainRequested = false;
-                await DrainOnceAsync(cancellationToken).ConfigureAwait(false);
+                await DrainOnceAsync(cancellationToken);
             }
             while (drainRequested);
         }
@@ -131,12 +131,12 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         cancellationToken.ThrowIfCancellationRequested();
         if (options.PendingItems().IsDefaultOrEmpty)
         {
-            await DisableRetryAsync().ConfigureAwait(false);
+            await DisableRetryAsync();
             return;
         }
 
         EnsureTimer(TimeSpan.Zero);
-        await EnsureReminderAsync().ConfigureAwait(false);
+        await EnsureReminderAsync();
     }
 
     /// <summary>
@@ -163,8 +163,9 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         Func<TSub, CancellationToken, ValueTask> postman) where TSub : TOutbox
     {
         postmen.Add(new PostmanRegistration(
-            typeof(TSub),
-            (item, cancellationToken) => postman((TSub)item, cancellationToken)));
+            item => item is TSub,
+            (item, cancellationToken) => postman((TSub)item, cancellationToken),
+            typeof(TSub)));
 
         return this;
     }
@@ -177,7 +178,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
 
         if (pending.IsDefaultOrEmpty)
         {
-            await DisableRetryAsync().ConfigureAwait(false);
+            await DisableRetryAsync();
             return;
         }
 
@@ -192,12 +193,12 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
             foreach (var item in pending)
             {
                 linked.Token.ThrowIfCancellationRequested();
-                await DispatchItemAsync(item, posted, failed, linked.Token).ConfigureAwait(false);
+                await DispatchItemAsync(item, posted, failed, linked.Token);
             }
 
             if (posted.Count > 0)
             {
-                await options.AcknowledgePostedAsync(posted.ToImmutable(), linked.Token).ConfigureAwait(false);
+                await options.AcknowledgePostedAsync(posted.ToImmutable(), linked.Token);
                 foreach (var item in posted)
                 {
                     attempts.Remove(item);
@@ -206,7 +207,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
 
             if (failed.Count > 0 && options.ReconcileFailedAsync is { } reconcileFailed)
             {
-                await reconcileFailed(failed.ToImmutable(), linked.Token).ConfigureAwait(false);
+                await reconcileFailed(failed.ToImmutable(), linked.Token);
             }
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && timeout.IsCancellationRequested)
@@ -221,7 +222,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
                 Stopwatch.GetElapsedTime(started).TotalMilliseconds);
         }
 
-        await ReconcileRetryStateAsync().ConfigureAwait(false);
+        await ReconcileRetryStateAsync();
     }
 
     private async Task DispatchItemAsync(
@@ -231,10 +232,10 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         CancellationToken cancellationToken)
     {
         var started = Stopwatch.GetTimestamp();
-        var itemType = item.GetType();
-        var postman = FindPostman(itemType);
+        var postman = FindPostman(item);
         if (postman is null)
         {
+            var itemType = item.GetType();
             var error = new NoPostmanRegisteredException(itemType);
             logger.LogWarning(
                 error,
@@ -248,11 +249,10 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
 
         try
         {
-            await InvokePostmanAsync(postman, item, cancellationToken).ConfigureAwait(false);
+            await InvokePostmanAsync(postman, item, cancellationToken);
             posted.Add(item);
             MessagingTelemetry.RecordOutboxPostItem(
                 grainType,
-                itemType.Name,
                 postman.ItemType.Name,
                 options.PostmanExecution,
                 success: true,
@@ -260,6 +260,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            var itemType = item.GetType();
             logger.LogError(
                 ex,
                 "Outbox postman failed for item type {OutboxItemType} on grain {GrainType}.",
@@ -269,7 +270,6 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
             MessagingTelemetry.RecordOutboxPostError(grainType, itemType.Name, ex);
             MessagingTelemetry.RecordOutboxPostItem(
                 grainType,
-                itemType.Name,
                 postman.ItemType.Name,
                 options.PostmanExecution,
                 success: false,
@@ -288,15 +288,15 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         }
 
         return new ValueTask(Task.Run(
-            async () => await postman.Invoke(item, cancellationToken).ConfigureAwait(false),
+            async () => await postman.Invoke(item, cancellationToken),
             cancellationToken));
     }
 
-    private PostmanRegistration? FindPostman(Type itemType)
+    private PostmanRegistration? FindPostman(TOutbox item)
     {
         foreach (var postman in postmen)
         {
-            if (postman.ItemType.IsAssignableFrom(itemType))
+            if (postman.ItemFilter(item))
             {
                 return postman;
             }
@@ -320,12 +320,12 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
 
         if (pending.IsDefaultOrEmpty)
         {
-            await DisableRetryAsync().ConfigureAwait(false);
+            await DisableRetryAsync();
             return;
         }
 
         EnsureTimer(options.RetryDelay);
-        await EnsureReminderAsync().ConfigureAwait(false);
+        await EnsureReminderAsync();
     }
 
     private void EnsureTimer(TimeSpan dueTime)
@@ -351,7 +351,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     private async Task EnsureReminderAsync()
     {
         var period = Max(options.RetryDelay, TimeSpan.FromMinutes(1));
-        reminder = await owner.RegisterOrUpdateReminder(reminderName, period, period).ConfigureAwait(false);
+        reminder = await owner.RegisterOrUpdateReminder(reminderName, period, period);
     }
 
     private async Task DisableRetryAsync()
@@ -359,10 +359,10 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         timer?.Dispose();
         timer = null;
 
-        var activeReminder = reminder ?? await owner.GetReminder(reminderName).ConfigureAwait(false);
+        var activeReminder = reminder ?? await owner.GetReminder(reminderName);
         if (activeReminder is not null)
         {
-            await owner.UnregisterReminder(activeReminder).ConfigureAwait(false);
+            await owner.UnregisterReminder(activeReminder);
             reminder = null;
         }
     }
@@ -370,8 +370,9 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     private static TimeSpan Max(TimeSpan left, TimeSpan right) => left >= right ? left : right;
 
     private sealed record PostmanRegistration(
-        Type ItemType,
-        Func<TOutbox, CancellationToken, ValueTask> Postman)
+        Func<TOutbox, bool> ItemFilter,
+        Func<TOutbox, CancellationToken, ValueTask> Postman,
+        Type ItemType)
     {
         public ValueTask Invoke(TOutbox item, CancellationToken cancellationToken) =>
             Postman(item, cancellationToken);

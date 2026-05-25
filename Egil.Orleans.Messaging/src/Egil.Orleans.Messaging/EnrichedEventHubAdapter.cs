@@ -66,8 +66,8 @@ namespace Egil.Orleans.Messaging;
 /// <code>
 /// public class MyAdapter : EnrichedEventHubAdapter
 /// {
-///     public MyAdapter(string streamProviderName, Serializer serializer)
-///         : base(streamProviderName, serializer) { }
+///     public MyAdapter(string providerName, Serializer serializer)
+///         : base(providerName, serializer) { }
 ///
 ///     public override string GetPartitionKey(StreamId streamId)
 ///         => streamId.GetNamespace();
@@ -89,13 +89,13 @@ public class EnrichedEventHubAdapter : EventHubDataAdapter
     /// The name of the Orleans stream provider. Accessible to subclasses for
     /// custom token construction or diagnostics.
     /// </summary>
-    protected string StreamProviderName { get; }
+    protected string ProviderName { get; }
 
     /// <summary>
     /// Creates a new adapter that enriches tokens with the given
-    /// <paramref name="streamProviderName"/>.
+    /// <paramref name="providerName"/>.
     /// </summary>
-    /// <param name="streamProviderName">
+    /// <param name="providerName">
     /// The name of the Orleans stream provider, passed through from the
     /// <c>UseDataAdapter</c> factory delegate. Stored in every
     /// <see cref="EnrichedEventHubSequenceToken"/> produced by this adapter.
@@ -105,10 +105,10 @@ public class EnrichedEventHubAdapter : EventHubDataAdapter
     /// <see cref="EventHubDataAdapter"/> for batch container
     /// serialization/deserialization.
     /// </param>
-    public EnrichedEventHubAdapter(string streamProviderName, Serializer serializer)
+    public EnrichedEventHubAdapter(string providerName, Serializer serializer)
         : base(serializer)
     {
-        StreamProviderName = streamProviderName;
+        ProviderName = providerName;
     }
 
     /// <summary>
@@ -197,7 +197,7 @@ public class EnrichedEventHubAdapter : EventHubDataAdapter
             cachedMessage.SequenceNumber,
             cachedMessage.EventIndex,
             new DateTimeOffset(enqueueTimeUtc),
-            StreamProviderName);
+            ProviderName);
     }
 
     /// <summary>
@@ -209,7 +209,7 @@ public class EnrichedEventHubAdapter : EventHubDataAdapter
     /// <para>
     /// Called once per incoming <c>EventData</c> before it enters the cache.
     /// The <c>EventData.EnqueuedTime</c> property carries the broker-stamped
-    /// UTC time; the <see cref="StreamProviderName"/> is captured at adapter
+    /// UTC time; the <see cref="ProviderName"/> is captured at adapter
     /// construction time.
     /// </para>
     /// <para>
@@ -247,7 +247,7 @@ public class EnrichedEventHubAdapter : EventHubDataAdapter
             sequenceNumber,
             eventIndex,
             queueMessage.EnqueuedTime,
-            StreamProviderName,
+            ProviderName,
             traceParent);
 
         return new StreamPosition(streamPosition.StreamId, enrichedToken);

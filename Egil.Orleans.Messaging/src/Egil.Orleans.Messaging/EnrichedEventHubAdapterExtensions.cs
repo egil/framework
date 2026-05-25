@@ -32,7 +32,7 @@ namespace Egil.Orleans.Messaging;
 /// <para>
 /// <b>Downstream access:</b> Once registered, the enrichment is transparently
 /// available on every stream token. Use <see cref="StreamCursor.TryGetEnqueuedTime"/>
-/// for lag measurement and <see cref="StreamCursor.TryGetStreamProviderName"/>
+/// for lag measurement and <see cref="StreamCursor.TryGetProviderName"/>
 /// for provider-aware dedup and diagnostics.
 /// </para>
 /// </remarks>
@@ -63,9 +63,9 @@ public static class EnrichedEventHubAdapterExtensions
     {
         ArgumentNullException.ThrowIfNull(configurator);
 
-        configurator.UseDataAdapter((services, streamProviderName) =>
+        configurator.UseDataAdapter((services, providerName) =>
             new EnrichedEventHubAdapter(
-                streamProviderName,
+                providerName,
                 services.GetRequiredService<Serializer>()));
     }
 }
