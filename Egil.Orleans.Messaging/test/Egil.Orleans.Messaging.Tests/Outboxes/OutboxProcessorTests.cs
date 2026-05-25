@@ -147,6 +147,11 @@ internal static class OutboxProcessorTestNamespaces
     public const string Events = "outbox-processor-events";
 }
 
+internal static class OutboxProcessorTestProviderNames
+{
+    public const string Events = "outbox-processor-stream-provider";
+}
+
 internal static class OutboxProcessorTestPostmanNames
 {
     public const string Success = "outbox-processor-success";
@@ -275,7 +280,7 @@ public sealed class OutboxProcessorSourceGrain(
         OutboxMessageEnvelope<OutboxProcessorTestEvent> envelope,
         CancellationToken cancellationToken)
     {
-        var stream = this.GetStreamProvider(OutboxProcessorTestNamespaces.Events)
+        var stream = this.GetStreamProvider(OutboxProcessorTestProviderNames.Events)
             .GetStream<OutboxMessageEnvelope<OutboxProcessorTestEvent>>(
                 StreamId.Create(OutboxProcessorTestNamespaces.Events, this.GetPrimaryKey()));
 
@@ -728,7 +733,7 @@ public sealed class OutboxProcessorSinkGrain(
     {
         streamManager = this.RegisterStreamManager(state.State.Tracker)
             .ConfigureExplicitSubscription<OutboxMessageEnvelope<OutboxProcessorTestEvent>>(
-                OutboxProcessorTestNamespaces.Events,
+                OutboxProcessorTestProviderNames.Events,
                 OutboxProcessorTestNamespaces.Events,
                 HandleEnvelopeAsync);
 

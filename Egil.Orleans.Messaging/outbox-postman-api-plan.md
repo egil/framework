@@ -156,7 +156,7 @@ Processor behavior:
 
 ## Built-In Postman Helpers
 
-Add later as convenience APIs, implemented on top of `AddPostmanCore`.
+Convenience APIs implemented on top of `AddPostmanCore`.
 
 Stream postman:
 
@@ -183,8 +183,9 @@ public OutboxProcessor<TOutbox> AddGrainPostman<TMessage, TGrain>(
     where TGrain : IGrain;
 ```
 
-These helpers are optional and should not block the initial `IPostman<T>`
-design.
+These helpers are part of the completed postman API surface. They keep
+common Orleans stream and grain fan-out cases on the same processor-owned
+dispatch, retry, timeout, acknowledgement, reconciliation, and telemetry path.
 
 ## Tests
 
@@ -193,12 +194,20 @@ design.
 - Multiple `IPostman<TMessage>` contracts on one concrete postman resolve to
   one scoped concrete instance.
 - Missing `[OutboxPostman]` without explicit name throws.
+- Empty explicit names, empty attribute names, and open generic postman types
+  throw.
 - Concrete type with no `IPostman<TMessage>` contracts throws.
 - `OutboxProcessor.AddPostman<TMessage>("name")` resolves keyed postman from
   grain activation services.
 - Successful keyed postman call acknowledges item.
 - Throwing keyed postman goes through existing retry/reconcile path.
 - Cancellation from processor propagates to postman and leaves item pending.
+- Stream postman helpers publish to the selected Orleans stream and
+  acknowledge on success.
+- Projected stream postman helpers publish projected events and acknowledge on
+  success.
+- Grain postman helpers resolve a grain through `IGrainFactory`, invoke it, and
+  acknowledge on success.
 - Existing lambda-based `AddPostman(...)` behavior remains unchanged.
 
 ## Implementation Steps
@@ -237,6 +246,16 @@ design.
    - README examples for service postmen.
    - API design section for the postman service contract.
 
+8. Add built-in helper APIs:
+   - `OutboxProcessor<TOutbox>.AddStreamPostman<TMessage>(...)`
+   - `OutboxProcessor<TOutbox>.AddStreamPostman<TMessage, TEvent>(...)`
+   - `OutboxProcessor<TOutbox>.AddGrainPostman<TMessage, TGrain>(...)`
+
+9. Add helper behavior tests:
+   - Stream helper publishes the outbox item and acknowledges.
+   - Projected stream helper publishes the projected event and acknowledges.
+   - Grain helper resolves the target grain, invokes it, and acknowledges.
+
 ## Implementation Status
 
-- Steps 1-7 are implemented.
+- Steps 1-9 are implemented.

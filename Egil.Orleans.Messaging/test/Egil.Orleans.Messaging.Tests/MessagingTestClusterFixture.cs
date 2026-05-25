@@ -75,13 +75,13 @@ public sealed class MessagingTestClusterFixture : IAsyncLifetime, IGrainActivity
     {
         siloBuilder.AddMemoryStreams(StreamManagerTestProviderNames.Explicit);
         siloBuilder.AddMemoryStreams(StreamManagerTestProviderNames.Implicit);
-        siloBuilder.AddMemoryStreams(OutboxProcessorTestNamespaces.Events);
+        siloBuilder.AddMemoryStreams(OutboxProcessorTestProviderNames.Events);
     }
 
     private static void AddStreamProviders(IClientBuilder clientBuilder)
     {
         clientBuilder.AddMemoryStreams(StreamManagerTestProviderNames.Explicit);
         clientBuilder.AddMemoryStreams(StreamManagerTestProviderNames.Implicit);
-        clientBuilder.AddMemoryStreams(OutboxProcessorTestNamespaces.Events);
+        clientBuilder.AddMemoryStreams(OutboxProcessorTestProviderNames.Events);
     }
 }
