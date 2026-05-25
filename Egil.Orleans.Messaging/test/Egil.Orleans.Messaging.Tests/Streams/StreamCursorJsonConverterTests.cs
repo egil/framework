@@ -1,7 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Orleans.Providers.Streams.Common;
-using Orleans.Streaming.EventHubs;
 using Orleans.Streams;
 
 namespace Egil.Orleans.Messaging.Tests.Streams;
@@ -56,50 +55,6 @@ public sealed class StreamCursorJsonConverterTests
     }
 
     [Fact]
-    public void JsonSerializer_round_trips_stream_cursor_with_event_hub_token()
-    {
-        var cursor = new StreamCursor("orders", new EventHubSequenceToken("41", 9, 2));
-
-        var json = JsonSerializer.Serialize(cursor);
-        var roundTripped = JsonSerializer.Deserialize<StreamCursor>(json);
-
-        Assert.NotNull(roundTripped);
-        Assert.Equal(cursor, roundTripped);
-    }
-
-    [Fact]
-    public void JsonSerializer_round_trips_stream_cursor_with_event_hub_token_v2()
-    {
-        var cursor = new StreamCursor("orders", new EventHubSequenceTokenV2("42", 10, 3));
-
-        var json = JsonSerializer.Serialize(cursor);
-        var roundTripped = JsonSerializer.Deserialize<StreamCursor>(json);
-
-        Assert.NotNull(roundTripped);
-        Assert.Equal(cursor, roundTripped);
-    }
-
-    [Fact]
-    public void JsonSerializer_round_trips_stream_cursor_with_enriched_event_hub_token()
-    {
-        var cursor = new StreamCursor(
-            "orders",
-            new EnrichedEventHubSequenceToken(
-                "43",
-                11,
-                4,
-                new DateTimeOffset(2026, 5, 24, 18, 30, 0, TimeSpan.Zero),
-                "provider-a",
-                "00-abc-xyz-01"));
-
-        var json = JsonSerializer.Serialize(cursor);
-        var roundTripped = JsonSerializer.Deserialize<StreamCursor>(json);
-
-        Assert.NotNull(roundTripped);
-        Assert.Equal(cursor, roundTripped);
-    }
-
-    [Fact]
     public void JsonSerializer_throws_for_stream_cursor_payload_with_unknown_token_kind()
     {
         var json = """
@@ -128,69 +83,6 @@ public sealed class StreamCursorJsonConverterTests
         var exception = Assert.Throws<NotSupportedException>(() => JsonSerializer.Serialize(cursor));
         Assert.Contains("https://github.com/egil/framework/issues", exception.Message);
         Assert.Contains("supports only built-in Orleans token types", exception.Message);
-    }
-
-    [Theory]
-    [InlineData("event-hub")]
-    [InlineData("event-hub-v2")]
-    [InlineData("enriched-event-hub")]
-    public void JsonSerializer_throws_for_event_hub_payload_without_offset(string kind)
-    {
-        var json = $$"""
-            {
-              "StreamNamespace": "orders",
-              "Token": {
-                "Kind": "{{kind}}",
-                "SequenceNumber": 1,
-                "EventIndex": 0,
-                "EnqueuedTime": "2026-05-23T12:30:00Z",
-                "ProviderName": "provider-a"
-              }
-            }
-            """;
-
-        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<StreamCursor>(json));
-        Assert.Equal("Missing EventHubOffset.", exception.Message);
-    }
-
-    [Fact]
-    public void JsonSerializer_throws_for_enriched_event_hub_payload_without_enqueued_time()
-    {
-        var json = """
-            {
-              "StreamNamespace": "orders",
-              "Token": {
-                "Kind": "enriched-event-hub",
-                "SequenceNumber": 1,
-                "EventIndex": 0,
-                "EventHubOffset": "42",
-                "ProviderName": "provider-a"
-              }
-            }
-            """;
-
-        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<StreamCursor>(json));
-        Assert.Equal("Missing EnqueuedTime.", exception.Message);
-    }
-
-    [Fact]
-    public void JsonSerializer_throws_for_enriched_event_hub_payload_without_stream_provider_name()
-    {
-        var json = """
-            {
-              "StreamNamespace": "orders",
-              "Token": {
-                "Kind": "enriched-event-hub",
-                "SequenceNumber": 1,
-                "EventIndex": 0,
-                "EventHubOffset": "42",
-                "EnqueuedTime": "2026-05-23T12:30:00Z"
-              }
-            }
-            """;
-
-        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<StreamCursor>(json));
-        Assert.Equal("Missing ProviderName.", exception.Message);
     }
 
     private sealed class UnsupportedCustomSequenceToken(long sequenceNumber, int eventIndex) : StreamSequenceToken
