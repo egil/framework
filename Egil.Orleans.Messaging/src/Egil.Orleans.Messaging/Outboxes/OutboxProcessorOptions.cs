@@ -42,7 +42,8 @@ public sealed class OutboxProcessorOptions<TOutbox>
     /// and persist the update.
     /// </summary>
     public required Func<ImmutableArray<TOutbox>, CancellationToken, ValueTask>
-        AcknowledgePostedAsync { get; init; }
+        AcknowledgePostedAsync
+    { get; init; }
 
     /// <summary>
     /// Called with items that failed dispatch, along with the exception and
@@ -50,7 +51,8 @@ public sealed class OutboxProcessorOptions<TOutbox>
     /// pending, remove them, or move them to dead-letter state.
     /// </summary>
     public Func<ImmutableArray<(TOutbox Item, Exception Error, int Attempt)>,
-        CancellationToken, ValueTask>? ReconcileFailedAsync { get; init; }
+        CancellationToken, ValueTask>? ReconcileFailedAsync
+    { get; init; }
 
     /// <summary>
     /// Maximum time per post run. Default: 20 seconds.

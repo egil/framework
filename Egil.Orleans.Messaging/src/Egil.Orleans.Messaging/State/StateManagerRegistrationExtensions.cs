@@ -10,51 +10,51 @@ public static class StateManagerRegistrationExtensions
 {
     extension(IServiceCollection services)
     {
-    /// <summary>
-    /// Registers the default keyed <see cref="IStateManagerFactory{T}"/> for the
-    /// given <paramref name="storageName"/>.
-    /// </summary>
-    public IServiceCollection AddDefaultStateManager(string storageName)
-    {
-        ArgumentNullException.ThrowIfNull(services);
-        ValidateStorageName(storageName);
+        /// <summary>
+        /// Registers the default keyed <see cref="IStateManagerFactory{T}"/> for the
+        /// given <paramref name="storageName"/>.
+        /// </summary>
+        public IServiceCollection AddDefaultStateManager(string storageName)
+        {
+            ArgumentNullException.ThrowIfNull(services);
+            ValidateStorageName(storageName);
 
-        return services.AddKeyedSingleton(
-            typeof(IStateManagerFactory<>),
-            storageName,
-            typeof(DefaultStateManagerFactory<>));
-    }
+            return services.AddKeyedSingleton(
+                typeof(IStateManagerFactory<>),
+                storageName,
+                typeof(DefaultStateManagerFactory<>));
+        }
 
-    /// <summary>
-    /// Registers a custom keyed open-generic <see cref="IStateManagerFactory{T}"/>
-    /// implementation for the given <paramref name="storageName"/>.
-    /// </summary>
-    public IServiceCollection AddStateManagerFactory(
-        string storageName,
-        Type openGenericFactoryType)
-    {
-        ArgumentNullException.ThrowIfNull(services);
-        ValidateStorageName(storageName);
-        ValidateOpenGenericFactoryType(openGenericFactoryType);
+        /// <summary>
+        /// Registers a custom keyed open-generic <see cref="IStateManagerFactory{T}"/>
+        /// implementation for the given <paramref name="storageName"/>.
+        /// </summary>
+        public IServiceCollection AddStateManagerFactory(
+            string storageName,
+            Type openGenericFactoryType)
+        {
+            ArgumentNullException.ThrowIfNull(services);
+            ValidateStorageName(storageName);
+            ValidateOpenGenericFactoryType(openGenericFactoryType);
 
-        return services.AddKeyedSingleton(
-            typeof(IStateManagerFactory<>),
-            storageName,
-            openGenericFactoryType);
-    }
+            return services.AddKeyedSingleton(
+                typeof(IStateManagerFactory<>),
+                storageName,
+                openGenericFactoryType);
+        }
 
-    /// <summary>
-    /// Registers a custom keyed factory for a specific state type.
-    /// </summary>
-    public IServiceCollection AddStateManagerFactory<TState, TFactory>(string storageName)
-        where TState : class, IEquatable<TState>
-        where TFactory : class, IStateManagerFactory<TState>
-    {
-        ArgumentNullException.ThrowIfNull(services);
-        ValidateStorageName(storageName);
+        /// <summary>
+        /// Registers a custom keyed factory for a specific state type.
+        /// </summary>
+        public IServiceCollection AddStateManagerFactory<TState, TFactory>(string storageName)
+            where TState : class, IEquatable<TState>
+            where TFactory : class, IStateManagerFactory<TState>
+        {
+            ArgumentNullException.ThrowIfNull(services);
+            ValidateStorageName(storageName);
 
-        return services.AddKeyedSingleton<IStateManagerFactory<TState>, TFactory>(storageName);
-    }
+            return services.AddKeyedSingleton<IStateManagerFactory<TState>, TFactory>(storageName);
+        }
     }
 
     internal static void ValidateStorageName(string storageName)
