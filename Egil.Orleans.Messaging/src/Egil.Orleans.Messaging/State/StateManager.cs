@@ -3,22 +3,6 @@ using Orleans.Storage;
 namespace Egil.Orleans.Messaging.State;
 
 /// <summary>
-/// Classifies a storage write failure for recovery decisions.
-/// </summary>
-public enum WriteFailureKind
-{
-    /// <summary>
-    /// Unknown outcome. The write may have persisted. Run read-back recovery.
-    /// </summary>
-    UnknownOutcome,
-
-    /// <summary>
-    /// The write definitely did not persist. Skip read-back and rethrow.
-    /// </summary>
-    DidNotPersist
-}
-
-/// <summary>
 /// Base implementation of <see cref="IStateManager{T}"/>. Wraps an
 /// <see cref="IPersistentState{T}"/> and provides committed-state fencing,
 /// version stamping for <see cref="VersionedState"/>-derived types, and
@@ -238,24 +222,5 @@ public abstract class StateManagerBase<T> : IStateManager<T>
         }
 
         return persisted.Equals(attempted);
-    }
-}
-
-/// <summary>
-/// Default <see cref="IStateManager{T}"/> implementation for general storage providers.
-/// </summary>
-public sealed class DefaultStateManager<T> : StateManagerBase<T>
-    where T : class, IEquatable<T>
-{
-    public DefaultStateManager(IPersistentState<T> storage)
-        : base(storage)
-    {
-    }
-
-    /// <inheritdoc/>
-    protected override WriteFailureKind ClassifyWriteFailure(Exception exception)
-    {
-        ArgumentNullException.ThrowIfNull(exception);
-        return WriteFailureKind.UnknownOutcome;
     }
 }
