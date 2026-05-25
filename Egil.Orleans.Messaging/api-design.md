@@ -750,7 +750,7 @@ The library ships `EnrichedEventHubAdapter`, a public unsealed
 `EnrichedEventHubSequenceToken`, which carries:
 
 - `EnqueuedTime` — broker-side enqueue time for lag measurement.
-- `StreamProviderName` — provider identity for dedup and multi-provider
+- `ProviderName` — provider identity for dedup and multi-provider
   edge cases.
 - `TraceParent` — W3C traceparent captured from the producer-side
   `Activity.Current?.Id`.
@@ -774,7 +774,7 @@ usually need extra services/options.
 
 `StreamManager` is unaware of Event Hubs specifically — enrichment
 surfaces through `StreamCursor.TryGetEnqueuedTime(...)`,
-`StreamCursor.TryGetStreamProviderName(...)`, and
+`StreamCursor.TryGetProviderName(...)`, and
 `StreamCursor.TryGetTraceParent(...)`.
 
 ### OpenTelemetry trace correlation

@@ -8,12 +8,12 @@ namespace Egil.Orleans.Messaging;
 
 /// <summary>
 /// STJ converter for <see cref="StreamCursor"/>. Serializes and
-/// deserializes the cursor's <see cref="StreamCursor.StreamId"/> and
+/// deserializes the cursor's <see cref="StreamCursor.StreamNamespace"/> and
 /// sequence token.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <see cref="StreamCursor"/> wraps a <c>StreamId</c> and an optional
+/// <see cref="StreamCursor"/> wraps a stream namespace and an optional
 /// <c>StreamSequenceToken</c>. The token is polymorphic and this converter
 /// supports Orleans built-in sequence token types only:
 /// <see cref="EnrichedEventHubSequenceToken"/>,
@@ -43,9 +43,7 @@ internal sealed class StreamCursorJsonConverter : JsonConverter<StreamCursor>
             return null;
         }
 
-        return new StreamCursor(
-            StreamId.Parse(System.Text.Encoding.UTF8.GetBytes(model.StreamId)),
-            FromJsonModel(model.Token));
+        return new StreamCursor(model.StreamNamespace, FromJsonModel(model.Token), model.ProviderName);
     }
 
     /// <inheritdoc/>
@@ -54,8 +52,9 @@ internal sealed class StreamCursorJsonConverter : JsonConverter<StreamCursor>
         JsonSerializer.Serialize(
             writer,
             new StreamCursorJsonModel(
-                value.StreamId.ToString(),
-                ToJsonModel(value.Token)),
+                value.StreamNamespace,
+                ToJsonModel(value.Token),
+                value.ProviderName),
             options);
     }
 
@@ -83,7 +82,7 @@ internal sealed class StreamCursorJsonConverter : JsonConverter<StreamCursor>
                 model.SequenceNumber,
                 model.EventIndex,
                 model.EnqueuedTime ?? throw new JsonException("Missing EnqueuedTime."),
-                model.StreamProviderName ?? throw new JsonException("Missing StreamProviderName."),
+                model.ProviderName ?? throw new JsonException("Missing ProviderName."),
                 model.TraceParent),
             _ => throw CreateUnsupportedTokenException(model.Kind ?? "<null>")
         };
@@ -104,7 +103,7 @@ internal sealed class StreamCursorJsonConverter : JsonConverter<StreamCursor>
                 EventIndex: token.EventIndex,
                 EventHubOffset: token.EventHubOffset,
                 EnqueuedTime: token.EnqueuedTime.UtcDateTime,
-                StreamProviderName: token.StreamProviderName,
+                ProviderName: token.ProviderName,
                 TraceParent: token.TraceParent),
             EventHubSequenceTokenV2 token => new StreamSequenceTokenJsonModel(
                 Kind: StreamSequenceTokenKinds.EventHubSequenceTokenV2,
@@ -136,8 +135,9 @@ internal sealed class StreamCursorJsonConverter : JsonConverter<StreamCursor>
             $"If you need this feature, please request it at {FeatureRequestUrl}.");
 
     private sealed record StreamCursorJsonModel(
-        string StreamId,
-        StreamSequenceTokenJsonModel? Token);
+        string StreamNamespace,
+        StreamSequenceTokenJsonModel? Token,
+        string? ProviderName = null);
 
     private sealed record StreamSequenceTokenJsonModel(
         string? Kind = null,
@@ -145,7 +145,7 @@ internal sealed class StreamCursorJsonConverter : JsonConverter<StreamCursor>
         int EventIndex = 0,
         string? EventHubOffset = null,
         DateTime? EnqueuedTime = null,
-        string? StreamProviderName = null,
+        string? ProviderName = null,
         string? TraceParent = null);
 
     private static class StreamSequenceTokenKinds

@@ -32,7 +32,7 @@ public sealed class StreamCursorTests
     }
 
     [Fact]
-    public void TryGetStreamProviderName_returns_true_and_value_for_enriched_event_hub_token()
+    public void TryGetProviderName_returns_true_and_value_for_enriched_event_hub_token()
     {
         var cursor = new StreamCursor(
             StreamId.Create("orders", "one"),
@@ -43,23 +43,23 @@ public sealed class StreamCursorTests
                 new DateTimeOffset(2026, 5, 24, 12, 30, 0, TimeSpan.Zero),
                 "provider-a"));
 
-        var found = cursor.TryGetStreamProviderName(out var streamProviderName);
+        var found = cursor.TryGetProviderName(out var providerName);
 
         Assert.True(found);
-        Assert.Equal("provider-a", streamProviderName);
+        Assert.Equal("provider-a", providerName);
     }
 
     [Fact]
-    public void TryGetStreamProviderName_returns_false_for_non_enriched_token()
+    public void TryGetProviderName_returns_false_for_non_enriched_token()
     {
         var cursor = new StreamCursor(
             StreamId.Create("orders", "one"),
             new EventSequenceToken(10));
 
-        var found = cursor.TryGetStreamProviderName(out var streamProviderName);
+        var found = cursor.TryGetProviderName(out var providerName);
 
         Assert.False(found);
-        Assert.Null(streamProviderName);
+        Assert.Null(providerName);
     }
 
     [Fact]

@@ -4,7 +4,7 @@ using Orleans.Streams;
 namespace Egil.Orleans.Messaging;
 
 /// <summary>
-/// Wraps a <see cref="StreamId"/> and its associated <see cref="StreamSequenceToken"/>
+/// Wraps a stream namespace and associated <see cref="StreamSequenceToken"/>
 /// into a single value that <see cref="MessageTracker"/> uses for dedup and
 /// <see cref="StreamManager"/> uses for resume.
 /// </summary>
@@ -36,18 +36,34 @@ namespace Egil.Orleans.Messaging;
 /// the polymorphic <see cref="StreamSequenceToken"/> via the discriminator.
 /// </para>
 /// </remarks>
-/// <param name="StreamId">The Orleans stream identity.</param>
+/// <param name="StreamNamespace">The Orleans stream namespace within the grain.</param>
 /// <param name="Token">
 /// The opaque sequence token for resumption. May be <c>null</c> when no prior
 /// position exists (subscribe from provider default).
+/// </param>
+/// <param name="ProviderName">
+/// Optional provider name observed at runtime. <see cref="StreamManager"/>
+/// populates this from <see cref="StreamSubscriptionHandle{T}.ProviderName"/>
+/// when available.
 /// </param>
 [GenerateSerializer]
 [Alias("egil.orleans.messaging.StreamCursor")]
 [JsonConverter(typeof(StreamCursorJsonConverter))]
 public sealed record StreamCursor(
-    [property: Id(0)] StreamId StreamId,
-    [property: Id(1)] StreamSequenceToken? Token)
+    [property: Id(0)] string StreamNamespace,
+    [property: Id(1)] StreamSequenceToken? Token,
+    [property: Id(2)] string? ProviderName = null)
 {
+    /// <summary>
+    /// Creates a cursor from an Orleans stream identity by using only its
+    /// namespace. Message tracking is scoped to one grain, so the stream key
+    /// portion of <see cref="StreamId"/> is redundant for dedup.
+    /// </summary>
+    public StreamCursor(StreamId streamId, StreamSequenceToken? token)
+        : this(streamId.GetNamespace() ?? throw new ArgumentException("StreamId must have a namespace.", nameof(streamId)), token)
+    {
+    }
+
     /// <summary>
     /// Attempts to extract the broker-side enqueue time from the underlying
     /// <see cref="Token"/>.
@@ -88,24 +104,30 @@ public sealed record StreamCursor(
     /// <see cref="EnrichedEventHubSequenceToken"/>. Enables provider-aware
     /// dedup and diagnostics without coupling to a specific streaming provider.
     /// </remarks>
-    /// <param name="streamProviderName">
+    /// <param name="providerName">
     /// The name of the stream provider that delivered this event, or
     /// <c>null</c> if the token type does not carry this information.
     /// </param>
     /// <returns>
     /// <c>true</c> if <see cref="Token"/> is an
-    /// <see cref="EnrichedEventHubSequenceToken"/> and the name was extracted;
-    /// <c>false</c> otherwise.
+    /// <see cref="EnrichedEventHubSequenceToken"/> or <see cref="ProviderName"/>
+    /// is populated; <c>false</c> otherwise.
     /// </returns>
-    public bool TryGetStreamProviderName([NotNullWhen(true)] out string? streamProviderName)
+    public bool TryGetProviderName([NotNullWhen(true)] out string? providerName)
     {
         if (Token is EnrichedEventHubSequenceToken token)
         {
-            streamProviderName = token.StreamProviderName;
+            providerName = token.ProviderName;
             return true;
         }
 
-        streamProviderName = null;
+        if (!string.IsNullOrWhiteSpace(ProviderName))
+        {
+            providerName = ProviderName;
+            return true;
+        }
+
+        providerName = null;
         return false;
     }
 

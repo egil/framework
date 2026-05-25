@@ -1,6 +1,5 @@
 using System.Collections.Immutable;
 using System.Reflection;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Orleans.Providers.Streams.Common;
@@ -47,14 +46,13 @@ internal sealed class MessageTrackerJsonConverter : JsonConverter<MessageTracker
             return null;
         }
 
-        var streams = ImmutableDictionary.CreateBuilder<StreamId, MessageTracker.StreamEntry>();
+        var streams = ImmutableDictionary.CreateBuilder<MessageTracker.StreamSource, MessageTracker.StreamEntry>();
         foreach (var item in model.Streams ?? Array.Empty<StreamEntryJsonModel>())
         {
+            var lastPosition = FromJsonModel(item.LastPosition);
             streams.Add(
-                ParseStreamId(item.StreamId),
-                new MessageTracker.StreamEntry(
-                    FromJsonModel(item.LastPosition),
-                    item.Received));
+                MessageTracker.StreamSource.From(lastPosition),
+                new MessageTracker.StreamEntry(lastPosition, item.Received));
         }
 
         var outbox = ImmutableDictionary.CreateBuilder<GrainId, MessageTracker.OutboxEntry>();
@@ -82,7 +80,6 @@ internal sealed class MessageTrackerJsonConverter : JsonConverter<MessageTracker
         foreach (var item in streams)
         {
             streamModels[streamIndex++] = new StreamEntryJsonModel(
-                item.Key.ToString(),
                 ToJsonModel(item.Value.LastPosition),
                 item.Value.Received);
         }
@@ -104,20 +101,17 @@ internal sealed class MessageTrackerJsonConverter : JsonConverter<MessageTracker
             options);
     }
 
-    private static ImmutableDictionary<StreamId, MessageTracker.StreamEntry> GetStreams(MessageTracker value) =>
-        (ImmutableDictionary<StreamId, MessageTracker.StreamEntry>)StreamsField.GetValue(value)!;
+    private static ImmutableDictionary<MessageTracker.StreamSource, MessageTracker.StreamEntry> GetStreams(MessageTracker value) =>
+        (ImmutableDictionary<MessageTracker.StreamSource, MessageTracker.StreamEntry>)StreamsField.GetValue(value)!;
 
     private static ImmutableDictionary<GrainId, MessageTracker.OutboxEntry> GetOutbox(MessageTracker value) =>
         (ImmutableDictionary<GrainId, MessageTracker.OutboxEntry>)OutboxField.GetValue(value)!;
-
-    private static StreamId ParseStreamId(string value) =>
-        StreamId.Parse(Encoding.UTF8.GetBytes(value));
 
     private static GrainId ParseGrainId(GrainIdJsonModel value) =>
         GrainId.Create(value.Type, value.Key);
 
     private static StreamCursor FromJsonModel(StreamCursorJsonModel model) =>
-        new(ParseStreamId(model.StreamId), FromJsonModel(model.Token));
+        new(model.StreamNamespace, FromJsonModel(model.Token), model.ProviderName);
 
     private static StreamSequenceToken? FromJsonModel(StreamSequenceTokenJsonModel? model)
     {
@@ -143,7 +137,7 @@ internal sealed class MessageTrackerJsonConverter : JsonConverter<MessageTracker
                 model.SequenceNumber,
                 model.EventIndex,
                 model.EnqueuedTime ?? throw new JsonException("Missing EnqueuedTime."),
-                model.StreamProviderName ?? throw new JsonException("Missing StreamProviderName."),
+                model.ProviderName ?? throw new JsonException("Missing ProviderName."),
                 model.TraceParent),
             _ => throw new JsonException($"Unsupported stream sequence token kind '{model.Kind}'.")
         };
@@ -151,8 +145,9 @@ internal sealed class MessageTrackerJsonConverter : JsonConverter<MessageTracker
 
     private static StreamCursorJsonModel ToJsonModel(StreamCursor value) =>
         new(
-            value.StreamId.ToString(),
-            ToJsonModel(value.Token));
+            value.StreamNamespace,
+            ToJsonModel(value.Token),
+            value.ProviderName);
 
     private static StreamSequenceTokenJsonModel? ToJsonModel(StreamSequenceToken? value)
     {
@@ -169,7 +164,7 @@ internal sealed class MessageTrackerJsonConverter : JsonConverter<MessageTracker
                 token.EventIndex,
                 token.EventHubOffset,
                 token.EnqueuedTime,
-                token.StreamProviderName,
+                token.ProviderName,
                 token.TraceParent),
             EventHubSequenceTokenV2 token => new StreamSequenceTokenJsonModel(
                 StreamSequenceTokenKinds.EventHubSequenceTokenV2,
@@ -216,7 +211,6 @@ internal sealed class MessageTrackerJsonConverter : JsonConverter<MessageTracker
         OutboxEntryJsonModel[]? Outboxes);
 
     private sealed record StreamEntryJsonModel(
-        string StreamId,
         StreamCursorJsonModel LastPosition,
         DateTimeOffset Received);
 
@@ -227,8 +221,9 @@ internal sealed class MessageTrackerJsonConverter : JsonConverter<MessageTracker
         DateTimeOffset Received);
 
     private sealed record StreamCursorJsonModel(
-        string StreamId,
-        StreamSequenceTokenJsonModel? Token);
+        string StreamNamespace,
+        StreamSequenceTokenJsonModel? Token,
+        string? ProviderName);
 
     private sealed record StreamSequenceTokenJsonModel(
         string Kind,
@@ -236,7 +231,7 @@ internal sealed class MessageTrackerJsonConverter : JsonConverter<MessageTracker
         int EventIndex,
         string? EventHubOffset,
         DateTimeOffset? EnqueuedTime,
-        string? StreamProviderName,
+        string? ProviderName,
         string? TraceParent);
 
     private sealed record GrainIdJsonModel(
