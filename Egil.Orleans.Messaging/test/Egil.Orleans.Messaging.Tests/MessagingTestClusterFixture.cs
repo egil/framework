@@ -32,7 +32,8 @@ public sealed class MessagingTestClusterFixture : IAsyncLifetime, IGrainActivity
             {
                 services
                     .AddOutboxPostman<KeyedOutboxProcessorSuccessPostman>(OutboxProcessorTestPostmanNames.Success)
-                    .AddOutboxPostman<KeyedOutboxProcessorFailingPostman>(OutboxProcessorTestPostmanNames.Failure);
+                    .AddOutboxPostman<KeyedOutboxProcessorFailingPostman>(OutboxProcessorTestPostmanNames.Failure)
+                    .AddOutboxPostman<KeyedOutboxProcessorDelayingPostman>(OutboxProcessorTestPostmanNames.Delay);
             });
 
             siloBuilder.AddGrainActivityCollector(Collector)
