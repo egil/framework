@@ -127,6 +127,28 @@ public sealed class OrderGrain : Grain, IOutboxGrain
 
 `IOutboxGrain` forwards reminder ticks to the attached processor. The grain remains responsible for its own message contracts, posting target, and dead-letter policy.
 
+For reusable delivery code, implement and register keyed postman services:
+
+```csharp
+[OutboxPostman("orders")]
+public sealed class OrderEventPostman : IPostman<OrderSubmitted>
+{
+    public async ValueTask PostAsync(OrderSubmitted message, CancellationToken ct)
+    {
+        await publisher.PublishAsync(message, ct);
+    }
+}
+
+services.AddOutboxPostman<OrderEventPostman>();
+```
+
+Then resolve the postman by name from the grain activation service provider:
+
+```csharp
+outboxProcessor = this.RegisterOutboxProcessor(options)
+    .AddPostman<OrderSubmitted>("orders");
+```
+
 ## Receiver Dedup
 
 `MessageTracker` accepts a message only when its stream token, stream cursor, or outbox token advances the stored high-water mark:

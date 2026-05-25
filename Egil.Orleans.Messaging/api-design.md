@@ -1144,10 +1144,47 @@ in the `Clever.PricingEngine` codebase.
 
 ### Postman dispatch
 
-**Callback-based.** The grain registers one or more postmen via
-`AddPostman<TSub>(...)`, each handling a subtype of `TOutbox`. Matching
-is first-registered-wins against the item's runtime type — order from
-most specific to least specific (like a `switch`).
+The grain registers one or more postmen via `AddPostman<TSub>(...)`, each
+handling a subtype of `TOutbox`. Matching is first-registered-wins against
+the item's runtime type — order from most specific to least specific (like a
+`switch`).
+
+Postmen can be inline callbacks for local/simple cases, or keyed
+`IPostman<TMessage>` services for reusable delivery code:
+
+```csharp
+public interface IPostman<in TMessage>
+    where TMessage : notnull
+{
+    ValueTask PostAsync(TMessage message, CancellationToken cancellationToken);
+}
+
+[AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]
+public sealed class OutboxPostmanAttribute(string name) : Attribute
+{
+    public string Name { get; } = name;
+}
+```
+
+```csharp
+namespace Microsoft.Extensions.DependencyInjection;
+
+public static class OutboxPostmanServiceCollectionExtensions
+{
+    extension(IServiceCollection services)
+    {
+        public IServiceCollection AddOutboxPostman<TPostman>()
+            where TPostman : class;
+
+        public IServiceCollection AddOutboxPostman<TPostman>(string postmanName)
+            where TPostman : class;
+
+        public IServiceCollection AddOutboxPostman<TMessage, TPostman>(string postmanName)
+            where TMessage : notnull
+            where TPostman : class, IPostman<TMessage>;
+    }
+}
+```
 
 - Per-item exceptions are caught and surfaced through `ReconcileFailedAsync`
   with attempt count (in-memory, resets on reactivation) — the grain
@@ -1324,6 +1361,8 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     public OutboxProcessor<TOutbox> AddPostman<TSub>(
         Func<TSub, IGrainFactory, CancellationToken, ValueTask> postman)
         where TSub : TOutbox;
+    public OutboxProcessor<TOutbox> AddPostman<TSub>(
+        string postmanName) where TSub : TOutbox;
 
     /// Posts pending items. Safe to call from grain's task scheduler.
     /// Arms timer/reminder if items remain, unregisters if empty.
