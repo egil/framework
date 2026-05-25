@@ -588,7 +588,7 @@ each upstream source. Two source kinds:
 [JsonConverter(typeof(MessageTrackerJsonConverter))]
 public sealed class MessageTracker
 {
-    [Id(0)] private ImmutableDictionary<StreamId, StreamEntry> streams;
+    [Id(0)] private ImmutableDictionary<StreamSource, StreamEntry> streams;
     [Id(1)] private ImmutableDictionary<GrainId, OutboxEntry> outbox;
 
     // Non-persisted; no [Id]. Mutable.
@@ -599,9 +599,22 @@ public sealed class MessageTracker
     public void RegisterTimeProvider(TimeProvider time) => this.time = time;
 
     public bool ProcessMessage(StreamCursor cursor, out MessageTracker next);
+    public bool ProcessMessage(
+        string streamNamespace,
+        StreamSequenceToken? token,
+        out MessageTracker next);
+    public bool ProcessMessage(
+        string streamProviderName,
+        string streamNamespace,
+        StreamSequenceToken? token,
+        out MessageTracker next);
     public bool ProcessMessage(OutboxSequenceToken token, out MessageTracker next);
 
+    public StreamCursor? LatestStream(string streamNamespace);
+    public StreamCursor? LatestStream(string streamProviderName, string streamNamespace);
     public StreamCursor? LatestStream(StreamId stream);
+    public StreamSequenceToken? LatestStreamSequenceToken(string streamNamespace);
+    public StreamSequenceToken? LatestStreamSequenceToken(string streamProviderName, string streamNamespace);
     public OutboxSequenceToken? LatestOutbox(GrainId sender);
 
     public MessageTracker Evict(DateTimeOffset olderThan);
@@ -609,6 +622,11 @@ public sealed class MessageTracker
     public MessageTracker EvictOutboxes(DateTimeOffset olderThan);
     public MessageTracker Evict(StreamId stream, DateTimeOffset olderThan);
     public MessageTracker Evict(GrainId sender, DateTimeOffset olderThan);
+
+    [GenerateSerializer]
+    private readonly record struct StreamSource(
+        [property: Id(0)] string StreamNamespace,
+        [property: Id(1)] string? ProviderName);
 
     [GenerateSerializer]
     private readonly record struct StreamEntry(
@@ -627,18 +645,29 @@ public sealed class MessageTracker
 
 - Outbox identity: `OutboxSequenceToken.Sender` in the envelope.
   Payloads stay clean.
-- Stream identity: `StreamId` from runtime. Sufficient under the
-  one-provider-per-namespace convention (code-review enforced, not
-  runtime enforced). This is Orleans's own constraint — the library
-  doesn't make it worse.
+- Stream identity: stream namespace, plus provider name when available.
+  Stream keys are intentionally not part of `MessageTracker` state because
+  the tracker is scoped to one grain activation's durable state.
 
-### `ProcessMessage(StreamCursor)` semantics
+### `ProcessMessage(StreamCursor)` and stream token semantics
+
+Users can pass either a `StreamCursor` or the raw Orleans
+`StreamSequenceToken` plus stream namespace. Provider-qualified overloads are
+available when a grain consumes the same namespace from multiple providers.
+The stream namespace stays required even for grains that currently subscribe
+to one stream; making it optional would encode a fragile "single stream"
+assumption into persisted high-water marks.
 
 | Prior entry                      | Decision | Effect                                         |
 | -------------------------------- | -------- | ---------------------------------------------- |
 | None                             | Accept   | Insert `(LastPosition = cursor, Received = now)` |
 | `cursor > stored.LastPosition`   | Accept   | Update position + received                     |
 | `cursor <= stored.LastPosition`  | Reject   | No change                                      |
+
+`LatestStreamSequenceToken(...)` is a convenience for resume-token lookup.
+It returns `null` both when no stream is tracked and when the tracked cursor
+has a null token; callers that need to distinguish those cases should use
+`LatestStream(...)`.
 
 ### `ProcessMessage(OutboxSequenceToken)` semantics
 

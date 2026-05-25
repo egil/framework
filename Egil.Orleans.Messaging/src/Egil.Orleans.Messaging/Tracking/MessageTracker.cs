@@ -135,6 +135,53 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
     }
 
     /// <summary>
+    /// Evaluates a stream message for acceptance. Returns <c>true</c> if the
+    /// <paramref name="token"/> advances past the stored high-water mark for
+    /// <paramref name="streamNamespace"/>.
+    /// </summary>
+    /// <param name="streamNamespace">The Orleans stream namespace within the grain.</param>
+    /// <param name="token">The stream sequence token to evaluate.</param>
+    /// <param name="next">
+    /// When accepted, a new <see cref="MessageTracker"/> with the updated
+    /// position. When rejected, equals <c>this</c>.
+    /// </param>
+    /// <returns><c>true</c> if accepted (new message); <c>false</c> if duplicate.</returns>
+    public bool ProcessMessage(
+        string streamNamespace,
+        StreamSequenceToken? token,
+        out MessageTracker next)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(streamNamespace);
+
+        return ProcessMessage(new StreamCursor(streamNamespace, token), out next);
+    }
+
+    /// <summary>
+    /// Evaluates a provider-qualified stream message for acceptance. Returns
+    /// <c>true</c> if the <paramref name="token"/> advances past the stored
+    /// high-water mark for the provider and namespace.
+    /// </summary>
+    /// <param name="streamProviderName">The Orleans stream provider name.</param>
+    /// <param name="streamNamespace">The Orleans stream namespace within the grain.</param>
+    /// <param name="token">The stream sequence token to evaluate.</param>
+    /// <param name="next">
+    /// When accepted, a new <see cref="MessageTracker"/> with the updated
+    /// position. When rejected, equals <c>this</c>.
+    /// </param>
+    /// <returns><c>true</c> if accepted (new message); <c>false</c> if duplicate.</returns>
+    public bool ProcessMessage(
+        string streamProviderName,
+        string streamNamespace,
+        StreamSequenceToken? token,
+        out MessageTracker next)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(streamProviderName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(streamNamespace);
+
+        return ProcessMessage(new StreamCursor(streamNamespace, token, streamProviderName), out next);
+    }
+
+    /// <summary>
     /// Evaluates an outbox message for acceptance. Returns <c>true</c> if the
     /// <paramref name="token"/> advances past the stored position or carries
     /// a newer epoch.
@@ -208,6 +255,20 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
     }
 
     /// <summary>
+    /// Returns the last accepted <see cref="StreamSequenceToken"/> for the
+    /// given <paramref name="streamNamespace"/>, or <c>null</c> if no token is
+    /// tracked for that namespace.
+    /// </summary>
+    /// <remarks>
+    /// A <c>null</c> result can mean either no stream has been tracked or the
+    /// latest tracked cursor has a <c>null</c> token. Use
+    /// <see cref="LatestStream(string)"/> when callers need to distinguish
+    /// those cases.
+    /// </remarks>
+    public StreamSequenceToken? LatestStreamSequenceToken(string streamNamespace) =>
+        LatestStream(streamNamespace)?.Token;
+
+    /// <summary>
     /// Returns the last accepted <see cref="StreamCursor"/> for the given
     /// <paramref name="streamProviderName"/> and
     /// <paramref name="streamNamespace"/>, or <c>null</c> if no matching
@@ -233,6 +294,20 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
             ? conventionEntry.LastPosition
             : null;
     }
+
+    /// <summary>
+    /// Returns the last accepted <see cref="StreamSequenceToken"/> for the
+    /// given provider and stream namespace, or <c>null</c> if no token is
+    /// tracked for that provider/namespace pair.
+    /// </summary>
+    /// <remarks>
+    /// A <c>null</c> result can mean either no stream has been tracked or the
+    /// latest tracked cursor has a <c>null</c> token. Use
+    /// <see cref="LatestStream(string, string)"/> when callers need to
+    /// distinguish those cases.
+    /// </remarks>
+    public StreamSequenceToken? LatestStreamSequenceToken(string streamProviderName, string streamNamespace) =>
+        LatestStream(streamProviderName, streamNamespace)?.Token;
 
     /// <summary>
     /// Returns the last accepted <see cref="StreamCursor"/> for the namespace
