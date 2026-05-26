@@ -162,11 +162,20 @@ function Get-ObjectPropertyValue {
     }
 
     $property = $Object.PSObject.Properties[$Name]
-    if ($null -eq $property -or $null -eq $property.Value) {
+    if ($null -eq $property) {
         return $Default
     }
 
-    return [string]$property.Value
+    $value = $property.Value
+    if ($null -eq $value) {
+        return $Default
+    }
+
+    if ($value -is [string] -and [string]::IsNullOrWhiteSpace($value)) {
+        return $Default
+    }
+
+    return [string]$value
 }
 
 function Get-JsonFromCommandOutput {
