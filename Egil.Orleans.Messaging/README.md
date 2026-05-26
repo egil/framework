@@ -57,10 +57,14 @@ factory instead:
 siloBuilder.AddAzureStorageStateManager("state");
 ```
 
-The Azure-aware manager treats Azure Storage optimistic-concurrency failures
-such as HTTP 412 as definite non-persistence, so writes and clears can fail
-fast without an unnecessary recovery read. Ambiguous failures, such as
-transient 5xx responses, still use read-back recovery.
+The Azure-aware manager uses Azure SDK `RequestFailedException.Status` and
+`ErrorCode` values to decide recovery. Optimistic-concurrency and rejected
+request failures such as HTTP 412, 409, 404, authentication/authorization
+failures, and payload/validation failures are treated as definite
+non-persistence, so writes and clears fail fast without an unnecessary
+recovery read. Ambiguous or transient outcomes, including HTTP 503
+`ServerBusy`, HTTP 500 `OperationTimedOut`, HTTP 429 throttling, no-response
+failures, and timeout exceptions, still use read-back recovery.
 
 Then wrap the Orleans persistent state facet during activation:
 
@@ -152,10 +156,19 @@ Failed dispatches are reported through `ReconcileFailedAsync`. That callback
 is where the owning grain applies retry, dead-letter, max-depth, or trimming
 policy, because the grain owns the durable outbox state.
 
-Postmen normally run on the Orleans activation scheduler. Use
-`OutboxPostmanExecutionMode.ThreadPool` only for blocking or legacy delivery
-code, and do not read or mutate activation-local grain state from those
-callbacks.
+Background outbox postage allows unrelated grain calls to continue while
+postmen await I/O by default. `IPostman<T>` services should be state-free with
+respect to the owning grain. Inline lambda postmen may read activation-local
+state, but should not write it; durable changes belong in
+`AcknowledgePostedAsync` or `ReconcileFailedAsync`.
+Postmen run on Orleans' activation scheduler, not on the .NET thread pool.
+Acknowledgement and failure callbacks are non-interleaving by default, so they
+do not interleave with normal grain calls unless
+`InterleaveReconciliationCallbacks` is enabled. Reentrant grains can still
+interleave according to Orleans' normal scheduling rules.
+Pending items in a post run are dispatched concurrently. Successful items are
+still acknowledged as one ordered batch after all dispatches complete, and
+failed items are reconciled as one batch.
 
 For reusable delivery code, implement and register keyed postman services:
 
@@ -278,8 +291,23 @@ using Egil.Orleans.Messaging.Streams.EventHubs;
 using Orleans.Hosting;
 ```
 
+Registering the enriched adapter also registers Event Hubs sequence-token JSON
+converters, so `MessageTracker` and `StreamCursor` can persist and restore
+`EnrichedEventHubSequenceToken` without downcasting it to the Orleans base
+event token:
+
+```csharp
+siloBuilder.AddEventHubStreams("event-hubs", configurator =>
+{
+    configurator.UseEnrichedDataAdapter();
+});
+```
+
 The core package can consume provider-specific token metadata through
 `IStreamSequenceTokenMetadata` without taking a direct Event Hubs dependency.
+Custom stream providers that expose custom `StreamSequenceToken` types should
+register a `JsonConverter<TToken>` with `StreamSequenceTokenJsonConverters`
+during startup.
 
 ## Scope
 
