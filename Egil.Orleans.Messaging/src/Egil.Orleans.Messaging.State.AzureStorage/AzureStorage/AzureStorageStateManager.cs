@@ -1,4 +1,7 @@
 using Azure;
+using Azure.Data.Tables.Models;
+using Azure.Storage.Blobs.Models;
+using System.Net;
 using Orleans.Storage;
 
 namespace Egil.Orleans.Messaging.State.AzureStorage;
@@ -51,20 +54,96 @@ internal static class AzureStorageFailureClassifier
 {
     public static StorageFailureKind Classify(Exception exception)
     {
-        for (var current = exception; current is not null; current = current.InnerException)
-        {
-            if (current is InconsistentStateException)
-            {
-                return StorageFailureKind.DidNotPersist;
-            }
+        return TryClassify(exception) ?? StorageFailureKind.UnknownOutcome;
+    }
 
-            if (current is RequestFailedException requestFailed
-                && requestFailed.Status is 412)
-            {
-                return StorageFailureKind.DidNotPersist;
-            }
+    private static StorageFailureKind? TryClassify(Exception exception)
+    {
+        if (exception is InconsistentStateException)
+        {
+            return StorageFailureKind.DidNotPersist;
         }
 
-        return StorageFailureKind.UnknownOutcome;
+        if (exception is RequestFailedException requestFailed)
+        {
+            return ClassifyRequestFailed(requestFailed);
+        }
+
+        if (exception is AggregateException aggregateException)
+        {
+            var hasDidNotPersist = false;
+            foreach (var inner in aggregateException.Flatten().InnerExceptions)
+            {
+                var innerKind = TryClassify(inner);
+                if (innerKind is StorageFailureKind.UnknownOutcome)
+                {
+                    return StorageFailureKind.UnknownOutcome;
+                }
+
+                hasDidNotPersist |= innerKind is StorageFailureKind.DidNotPersist;
+            }
+
+            return hasDidNotPersist ? StorageFailureKind.DidNotPersist : null;
+        }
+
+        return exception.InnerException is null ? null : TryClassify(exception.InnerException);
+    }
+
+    private static StorageFailureKind ClassifyRequestFailed(RequestFailedException exception)
+    {
+        if (IsAmbiguousOrTransient(exception))
+        {
+            return StorageFailureKind.UnknownOutcome;
+        }
+
+        return IsRejectedBeforePersistence(exception)
+            ? StorageFailureKind.DidNotPersist
+            : StorageFailureKind.UnknownOutcome;
+    }
+
+    private static bool IsAmbiguousOrTransient(RequestFailedException exception)
+    {
+        return exception.Status is 0
+            or (int)HttpStatusCode.RequestTimeout
+            or 429
+            or >= 500
+            || IsErrorCode(
+                exception,
+                BlobErrorCode.OperationTimedOut.ToString(),
+                BlobErrorCode.ServerBusy.ToString(),
+                BlobErrorCode.InternalError.ToString(),
+                TableErrorCode.OperationTimedOut.ToString(),
+                "ServerBusy",
+                "InternalError",
+                "AccountIOPSLimitExceeded");
+    }
+
+    private static bool IsRejectedBeforePersistence(RequestFailedException exception)
+    {
+        return exception.Status is >= 400 and < 500
+            || IsErrorCode(
+                exception,
+                BlobErrorCode.ConditionNotMet.ToString(),
+                BlobErrorCode.AppendPositionConditionNotMet.ToString(),
+                BlobErrorCode.MaxBlobSizeConditionNotMet.ToString(),
+                BlobErrorCode.SequenceNumberConditionNotMet.ToString(),
+                BlobErrorCode.SourceConditionNotMet.ToString(),
+                BlobErrorCode.TargetConditionNotMet.ToString(),
+                BlobErrorCode.BlobAlreadyExists.ToString(),
+                BlobErrorCode.BlobNotFound.ToString(),
+                BlobErrorCode.ContainerNotFound.ToString(),
+                BlobErrorCode.ResourceAlreadyExists.ToString(),
+                BlobErrorCode.ResourceNotFound.ToString(),
+                TableErrorCode.UpdateConditionNotSatisfied.ToString(),
+                TableErrorCode.EntityAlreadyExists.ToString(),
+                TableErrorCode.EntityNotFound.ToString(),
+                TableErrorCode.ResourceNotFound.ToString(),
+                TableErrorCode.TableNotFound.ToString());
+    }
+
+    private static bool IsErrorCode(RequestFailedException exception, params string[] errorCodes)
+    {
+        return !string.IsNullOrWhiteSpace(exception.ErrorCode)
+            && errorCodes.Contains(exception.ErrorCode, StringComparer.Ordinal);
     }
 }
