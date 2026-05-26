@@ -14,7 +14,7 @@ public static class StateManagerExtensions
     {
         /// <summary>
         /// Creates an <see cref="IStateManager{T}"/> for the given grain using
-        /// a keyed <see cref="IStateManagerFactory{T}"/> registration.
+        /// a keyed <see cref="IStateManagerFactory"/> registration.
         /// </summary>
         /// <remarks>
         /// <para>
@@ -32,7 +32,7 @@ public static class StateManagerExtensions
         /// </para>
         /// <para>
         /// <b>Registration:</b> A keyed
-        /// <see cref="IStateManagerFactory{T}"/> must be registered for
+        /// <see cref="IStateManagerFactory"/> must be registered for
         /// <paramref name="storageName"/> via the provided registration helpers.
         /// Missing registrations fail fast with a descriptive
         /// <see cref="InvalidOperationException"/>.
@@ -79,15 +79,15 @@ public static class StateManagerExtensions
         ArgumentNullException.ThrowIfNull(storage);
         ArgumentNullException.ThrowIfNull(grainType);
 
-        var factory = activationServices.GetKeyedService<IStateManagerFactory<TState>>(storageName);
+        var factory = activationServices.GetKeyedService<IStateManagerFactory>(storageName);
         if (factory is null)
         {
             throw new InvalidOperationException(
-                $"No keyed IStateManagerFactory<{typeof(TState).Name}> registration was found for storage name '{storageName}', " +
+                $"No keyed IStateManagerFactory registration was found for storage name '{storageName}', " +
                 $"state type '{typeof(TState).FullName}', grain type '{grainType.FullName}'. " +
                 "Register one via AddDefaultStateManager(...) or AddStateManagerFactory(...).");
         }
 
-        return factory.Create(storage);
+        return factory.Create<TState>(storage);
     }
 }

@@ -1,6 +1,4 @@
 using Azure;
-using Azure.Data.Tables.Models;
-using Azure.Storage.Blobs.Models;
 using System.Net;
 using Orleans.Storage;
 
@@ -39,11 +37,11 @@ public sealed class AzureStorageStateManager<T> : StateManagerBase<T>
 /// <summary>
 /// Factory that creates <see cref="AzureStorageStateManager{T}"/> instances.
 /// </summary>
-public sealed class AzureStorageStateManagerFactory<T> : IStateManagerFactory<T>
-    where T : class, IEquatable<T>
+public sealed class AzureStorageStateManagerFactory : IStateManagerFactory
 {
     /// <inheritdoc/>
-    public IStateManager<T> Create(IPersistentState<T> storage)
+    public IStateManager<T> Create<T>(IPersistentState<T> storage)
+        where T : class, IEquatable<T>
     {
         ArgumentNullException.ThrowIfNull(storage);
         return new AzureStorageStateManager<T>(storage);
@@ -107,43 +105,47 @@ internal static class AzureStorageFailureClassifier
             or (int)HttpStatusCode.RequestTimeout
             or 429
             or >= 500
-            || IsErrorCode(
-                exception,
-                BlobErrorCode.OperationTimedOut.ToString(),
-                BlobErrorCode.ServerBusy.ToString(),
-                BlobErrorCode.InternalError.ToString(),
-                TableErrorCode.OperationTimedOut.ToString(),
-                "ServerBusy",
-                "InternalError",
-                "AccountIOPSLimitExceeded");
+            || IsAmbiguousErrorCode(exception.ErrorCode);
     }
 
     private static bool IsRejectedBeforePersistence(RequestFailedException exception)
     {
         return exception.Status is >= 400 and < 500
-            || IsErrorCode(
-                exception,
-                BlobErrorCode.ConditionNotMet.ToString(),
-                BlobErrorCode.AppendPositionConditionNotMet.ToString(),
-                BlobErrorCode.MaxBlobSizeConditionNotMet.ToString(),
-                BlobErrorCode.SequenceNumberConditionNotMet.ToString(),
-                BlobErrorCode.SourceConditionNotMet.ToString(),
-                BlobErrorCode.TargetConditionNotMet.ToString(),
-                BlobErrorCode.BlobAlreadyExists.ToString(),
-                BlobErrorCode.BlobNotFound.ToString(),
-                BlobErrorCode.ContainerNotFound.ToString(),
-                BlobErrorCode.ResourceAlreadyExists.ToString(),
-                BlobErrorCode.ResourceNotFound.ToString(),
-                TableErrorCode.UpdateConditionNotSatisfied.ToString(),
-                TableErrorCode.EntityAlreadyExists.ToString(),
-                TableErrorCode.EntityNotFound.ToString(),
-                TableErrorCode.ResourceNotFound.ToString(),
-                TableErrorCode.TableNotFound.ToString());
+            || IsRejectedErrorCode(exception.ErrorCode);
     }
 
-    private static bool IsErrorCode(RequestFailedException exception, params string[] errorCodes)
+    private static bool IsAmbiguousErrorCode(string? errorCode)
     {
-        return !string.IsNullOrWhiteSpace(exception.ErrorCode)
-            && errorCodes.Contains(exception.ErrorCode, StringComparer.Ordinal);
+        return errorCode switch
+        {
+            "OperationTimedOut" => true,
+            "ServerBusy" => true,
+            "InternalError" => true,
+            "AccountIOPSLimitExceeded" => true,
+            _ => false
+        };
+    }
+
+    private static bool IsRejectedErrorCode(string? errorCode)
+    {
+        return errorCode switch
+        {
+            "ConditionNotMet" => true,
+            "AppendPositionConditionNotMet" => true,
+            "MaxBlobSizeConditionNotMet" => true,
+            "SequenceNumberConditionNotMet" => true,
+            "SourceConditionNotMet" => true,
+            "TargetConditionNotMet" => true,
+            "BlobAlreadyExists" => true,
+            "BlobNotFound" => true,
+            "ContainerNotFound" => true,
+            "ResourceAlreadyExists" => true,
+            "ResourceNotFound" => true,
+            "UpdateConditionNotSatisfied" => true,
+            "EntityAlreadyExists" => true,
+            "EntityNotFound" => true,
+            "TableNotFound" => true,
+            _ => false
+        };
     }
 }

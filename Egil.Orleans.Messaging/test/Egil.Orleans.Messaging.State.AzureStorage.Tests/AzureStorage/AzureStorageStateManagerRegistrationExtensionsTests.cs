@@ -10,9 +10,9 @@ public sealed class AzureStorageStateManagerRegistrationExtensionsTests
         services.AddAzureStorageStateManager("state");
 
         using var provider = services.BuildServiceProvider();
-        var factory = provider.GetRequiredKeyedService<IStateManagerFactory<TestState>>("state");
+        var factory = provider.GetRequiredKeyedService<IStateManagerFactory>("state");
 
-        Assert.IsType<AzureStorageStateManagerFactory<TestState>>(factory);
+        Assert.IsType<AzureStorageStateManagerFactory>(factory);
     }
 
     [Fact]
