@@ -47,22 +47,20 @@ internal static class MessagingTelemetry
 
     public static void RecordOutboxPostDuration(
         string grainType,
-        OutboxPostmanExecutionMode executionMode,
         double milliseconds)
     {
         OutboxPostDuration.Record(
             milliseconds,
-            OutboxTags(grainType, executionMode));
+            OutboxTags(grainType));
     }
 
     public static void RecordOutboxPostItem(
         string grainType,
         string postmanType,
-        OutboxPostmanExecutionMode executionMode,
         bool success,
         double milliseconds)
     {
-        var tags = OutboxTags(grainType, executionMode);
+        var tags = OutboxTags(grainType);
         tags.Add("postman.type", postmanType);
         tags.Add("success", success);
 
@@ -148,12 +146,11 @@ internal static class MessagingTelemetry
         return tags;
     }
 
-    private static TagList OutboxTags(string grainType, OutboxPostmanExecutionMode executionMode)
+    private static TagList OutboxTags(string grainType)
     {
         return new TagList
         {
-            { "grain.type", grainType },
-            { "postman.execution", executionMode is OutboxPostmanExecutionMode.ThreadPool ? "thread_pool" : "grain_scheduler" }
+            { "grain.type", grainType }
         };
     }
 

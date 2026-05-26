@@ -140,6 +140,39 @@ public sealed class OutboxProcessorTests(MessagingTestClusterFixture fixture) : 
         Assert.Equal(0, state.FailedCount);
         Assert.Equal(1, state.Outbox?.Count);
     }
+
+    [Fact]
+    public async Task PostAsync_dispatches_pending_items_concurrently()
+    {
+        var source = fixture.GrainFactory.GetGrain<IOutboxProcessorConcurrentPostmanGrain>(Guid.NewGuid());
+
+        await source.PublishTwoAsync("first", "second");
+        var state = await source.GetStateAsync();
+
+        Assert.Equal(2, state.AcknowledgedCount);
+        Assert.Equal(0, state.FailedCount);
+        Assert.Equal(0, state.Outbox?.Count);
+        Assert.Equal(2, state.MaxConcurrentPostmen);
+    }
+
+    [Fact]
+    public async Task PostInBackgroundAsync_allows_other_calls_while_postman_is_awaiting()
+    {
+        var source = fixture.GrainFactory.GetGrain<IOutboxProcessorConcurrentPostmanGrain>(Guid.NewGuid());
+
+        await source.PublishInBackgroundAsync("background");
+
+        await fixture.WaitForAssertionAsync(
+            source,
+            async () =>
+            {
+                var state = await source.GetStateAsync();
+                Assert.Equal(1, state.MaxConcurrentPostmen);
+                Assert.Equal(0, state.AcknowledgedCount);
+                Assert.Equal(1, state.Outbox?.Count);
+            },
+            ct: TestContext.Current.CancellationToken);
+    }
 }
 
 internal static class OutboxProcessorTestNamespaces
@@ -208,6 +241,15 @@ public interface IOutboxProcessorKeyedTimeoutPostmanGrain : IGrainWithGuidKey
     Task<OutboxProcessorSourceState> GetStateAsync();
 }
 
+public interface IOutboxProcessorConcurrentPostmanGrain : IGrainWithGuidKey
+{
+    Task PublishInBackgroundAsync(string value);
+
+    Task PublishTwoAsync(string first, string second);
+
+    Task<OutboxProcessorSourceState> GetStateAsync();
+}
+
 public interface IOutboxProcessorSinkGrain : IGrainWithGuidKey
 {
     Task EnsureActiveAsync();
@@ -229,6 +271,9 @@ public sealed class OutboxProcessorSourceState
 
     [Id(3)]
     public string? LastFailureType { get; set; }
+
+    [Id(4)]
+    public int MaxConcurrentPostmen { get; set; }
 }
 
 [GenerateSerializer]
@@ -685,6 +730,104 @@ public sealed class OutboxProcessorKeyedTimeoutPostmanGrain(
         ImmutableArray<(OutboxMessageEnvelope<OutboxProcessorTestEvent> Item, Exception Error, int Attempt)> failures,
         CancellationToken cancellationToken) =>
         ValueTask.CompletedTask;
+
+    private Outbox<OutboxProcessorTestEvent> EnsureOutbox()
+    {
+        return state.State.Outbox ??= Outbox<OutboxProcessorTestEvent>.Create(GrainContext.GrainId);
+    }
+}
+
+public sealed class OutboxProcessorConcurrentPostmanGrain(
+    [PersistentState("state", "Default")] IPersistentState<OutboxProcessorSourceState> state)
+    : Grain, IOutboxProcessorConcurrentPostmanGrain, IOutboxGrain
+{
+    private OutboxProcessor<OutboxMessageEnvelope<OutboxProcessorTestEvent>>? processor;
+    private int activePostmen;
+
+    public override async Task OnActivateAsync(CancellationToken cancellationToken)
+    {
+        EnsureOutbox();
+
+        processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxMessageEnvelope<OutboxProcessorTestEvent>>
+        {
+            PendingItems = () => state.State.Outbox?.ToImmutableArray() ?? [],
+            AcknowledgePostedAsync = AcknowledgePostedAsync,
+            ReconcileFailedAsync = ReconcileFailedAsync,
+            RetryDelay = TimeSpan.FromMilliseconds(100)
+        })
+        .AddPostman<OutboxMessageEnvelope<OutboxProcessorTestEvent>>(DelayAndTrackConcurrencyAsync);
+
+        await base.OnActivateAsync(cancellationToken);
+    }
+
+    public async Task PublishTwoAsync(string first, string second)
+    {
+        var outbox = EnsureOutbox()
+            .Add(new OutboxProcessorTestEvent(first))
+            .Add(new OutboxProcessorTestEvent(second));
+
+        state.State.Outbox = outbox;
+        await state.WriteStateAsync();
+        await processor!.PostAsync();
+    }
+
+    public async Task PublishInBackgroundAsync(string value)
+    {
+        var outbox = EnsureOutbox();
+        state.State.Outbox = outbox.Add(new OutboxProcessorTestEvent(value));
+        await state.WriteStateAsync();
+        await processor!.PostInBackgroundAsync();
+    }
+
+    public Task<OutboxProcessorSourceState> GetStateAsync() => Task.FromResult(state.State);
+
+    private async Task DelayAndTrackConcurrencyAsync(
+        OutboxMessageEnvelope<OutboxProcessorTestEvent> envelope,
+        CancellationToken cancellationToken)
+    {
+        activePostmen++;
+        state.State.MaxConcurrentPostmen = Math.Max(state.State.MaxConcurrentPostmen, activePostmen);
+
+        try
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(500), cancellationToken);
+        }
+        finally
+        {
+            activePostmen--;
+        }
+    }
+
+    private async ValueTask AcknowledgePostedAsync(
+        ImmutableArray<OutboxMessageEnvelope<OutboxProcessorTestEvent>> items,
+        CancellationToken cancellationToken)
+    {
+        var outbox = EnsureOutbox();
+        foreach (var item in items)
+        {
+            outbox = outbox.Remove(item.Token);
+        }
+
+        state.State.Outbox = outbox;
+        state.State.AcknowledgedCount += items.Length;
+        await state.WriteStateAsync(cancellationToken);
+    }
+
+    private async ValueTask ReconcileFailedAsync(
+        ImmutableArray<(OutboxMessageEnvelope<OutboxProcessorTestEvent> Item, Exception Error, int Attempt)> failures,
+        CancellationToken cancellationToken)
+    {
+        var outbox = EnsureOutbox();
+        foreach (var failure in failures)
+        {
+            outbox = outbox.Remove(failure.Item.Token);
+            state.State.LastFailureType = failure.Error.GetType().Name;
+        }
+
+        state.State.Outbox = outbox;
+        state.State.FailedCount += failures.Length;
+        await state.WriteStateAsync(cancellationToken);
+    }
 
     private Outbox<OutboxProcessorTestEvent> EnsureOutbox()
     {
