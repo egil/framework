@@ -29,6 +29,7 @@ namespace Egil.Orleans.Messaging.Tracking;
 /// <para>
 /// <b>ProcessMessage semantics (streams):</b>
 /// <list type="bullet">
+/// <item><c>cursor.Token is null</c> → Accept, no tracking update.</item>
 /// <item>No prior entry → Accept, insert <c>(LastPosition = cursor, Received = now)</c>.</item>
 /// <item><c>cursor &gt; stored.LastPosition</c> → Accept, update position + received.</item>
 /// <item><c>cursor &lt;= stored.LastPosition</c> → Reject (duplicate), no change.</item>
@@ -114,6 +115,12 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
     public bool ProcessMessage(StreamCursor cursor, out MessageTracker next)
     {
         var now = time.GetUtcNow();
+        if (cursor.Token is null)
+        {
+            MessagingTelemetry.RecordStreamReceiveLag(cursor, now);
+            next = this;
+            return true;
+        }
 
         var source = StreamSource.From(cursor);
         if (!streams.TryGetValue(source, out var entry))
