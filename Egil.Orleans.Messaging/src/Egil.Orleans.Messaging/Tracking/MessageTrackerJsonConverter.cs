@@ -3,8 +3,6 @@ using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Egil.Orleans.Messaging.Streams;
-using Orleans.Providers.Streams.Common;
-using Orleans.Streams;
 
 namespace Egil.Orleans.Messaging.Tracking;
 
@@ -49,7 +47,7 @@ internal sealed class MessageTrackerJsonConverter : JsonConverter<MessageTracker
         var streams = ImmutableDictionary.CreateBuilder<MessageTracker.StreamSource, MessageTracker.StreamEntry>();
         foreach (var item in model.Streams ?? Array.Empty<StreamEntryJsonModel>())
         {
-            var lastPosition = FromJsonModel(item.LastPosition);
+            var lastPosition = item.LastPosition;
             streams.Add(
                 MessageTracker.StreamSource.From(lastPosition),
                 new MessageTracker.StreamEntry(lastPosition, item.Received));
@@ -80,7 +78,7 @@ internal sealed class MessageTrackerJsonConverter : JsonConverter<MessageTracker
         foreach (var item in streams)
         {
             streamModels[streamIndex++] = new StreamEntryJsonModel(
-                ToJsonModel(item.Value.LastPosition),
+                item.Value.LastPosition,
                 item.Value.Received);
         }
 
@@ -110,60 +108,6 @@ internal sealed class MessageTrackerJsonConverter : JsonConverter<MessageTracker
     private static GrainId ParseGrainId(GrainIdJsonModel value) =>
         GrainId.Create(value.Type, value.Key);
 
-    private static StreamCursor FromJsonModel(StreamCursorJsonModel model) =>
-        new(model.StreamNamespace, FromJsonModel(model.Token), model.ProviderName);
-
-    private static StreamSequenceToken? FromJsonModel(StreamSequenceTokenJsonModel? model)
-    {
-        if (model is null)
-        {
-            return null;
-        }
-
-        return model.Kind switch
-        {
-            StreamSequenceTokenKinds.EventSequenceToken => new EventSequenceToken(model.SequenceNumber, model.EventIndex),
-            StreamSequenceTokenKinds.EventSequenceTokenV2 => new EventSequenceTokenV2(model.SequenceNumber, model.EventIndex),
-            _ => throw new JsonException($"Unsupported stream sequence token kind '{model.Kind}'.")
-        };
-    }
-
-    private static StreamCursorJsonModel ToJsonModel(StreamCursor value) =>
-        new(
-            value.StreamNamespace,
-            ToJsonModel(value.Token),
-            value.ProviderName);
-
-    private static StreamSequenceTokenJsonModel? ToJsonModel(StreamSequenceToken? value)
-    {
-        if (value is null)
-        {
-            return null;
-        }
-
-        return value switch
-        {
-            EventSequenceTokenV2 token => new StreamSequenceTokenJsonModel(
-                StreamSequenceTokenKinds.EventSequenceTokenV2,
-                token.SequenceNumber,
-                token.EventIndex,
-                null,
-                null,
-                null,
-                null),
-            EventSequenceToken token => new StreamSequenceTokenJsonModel(
-                StreamSequenceTokenKinds.EventSequenceToken,
-                token.SequenceNumber,
-                token.EventIndex,
-                null,
-                null,
-                null,
-                null),
-            _ => throw new NotSupportedException(
-                $"Unsupported stream sequence token type '{value.GetType().FullName}'.")
-        };
-    }
-
     private static GrainIdJsonModel ToJsonModel(GrainId grainId) =>
         new(grainId.Type.ToString()!, grainId.Key.ToString()!);
 
@@ -172,7 +116,7 @@ internal sealed class MessageTrackerJsonConverter : JsonConverter<MessageTracker
         OutboxEntryJsonModel[]? Outboxes);
 
     private sealed record StreamEntryJsonModel(
-        StreamCursorJsonModel LastPosition,
+        StreamCursor LastPosition,
         DateTimeOffset Received);
 
     private sealed record OutboxEntryJsonModel(
@@ -181,27 +125,7 @@ internal sealed class MessageTrackerJsonConverter : JsonConverter<MessageTracker
         long LastSequenceNumber,
         DateTimeOffset Received);
 
-    private sealed record StreamCursorJsonModel(
-        string StreamNamespace,
-        StreamSequenceTokenJsonModel? Token,
-        string? ProviderName);
-
-    private sealed record StreamSequenceTokenJsonModel(
-        string Kind,
-        long SequenceNumber,
-        int EventIndex,
-        string? EventHubOffset,
-        DateTimeOffset? EnqueuedTime,
-        string? ProviderName,
-        string? TraceParent);
-
     private sealed record GrainIdJsonModel(
         string Type,
         string Key);
-
-    private static class StreamSequenceTokenKinds
-    {
-        public const string EventSequenceToken = "event-sequence";
-        public const string EventSequenceTokenV2 = "event-sequence-v2";
-    }
 }
