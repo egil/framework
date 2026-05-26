@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Egil.Orleans.Messaging.Streams;
 using Egil.Orleans.Messaging.Streams.EventHubs;
+using Egil.Orleans.Messaging.Tracking;
 using Orleans.Serialization;
 
 namespace Orleans.Hosting;
@@ -29,7 +30,9 @@ namespace Orleans.Hosting;
 /// overrides <c>GetStreamPosition</c> and <c>GetSequenceToken</c> to return
 /// <see cref="EnrichedEventHubSequenceToken"/> instances carrying the
 /// broker-side enqueue time and the stream provider name. No user-written
-/// adapter code is needed.
+/// adapter code is needed. It also registers Event Hubs sequence-token JSON
+/// converters so <see cref="MessageTracker"/> and <see cref="StreamCursor"/>
+/// can round-trip enriched checkpoints through System.Text.Json.
 /// </para>
 /// <para>
 /// <b>Downstream access:</b> Once registered, the enrichment is transparently
@@ -61,6 +64,8 @@ public static class EnrichedEventHubAdapterExtensions
         public void UseEnrichedDataAdapter()
         {
             ArgumentNullException.ThrowIfNull(configurator);
+
+            EventHubStreamSequenceTokenJsonConverters.Register();
 
             configurator.UseDataAdapter((services, providerName) =>
                 new EnrichedEventHubAdapter(

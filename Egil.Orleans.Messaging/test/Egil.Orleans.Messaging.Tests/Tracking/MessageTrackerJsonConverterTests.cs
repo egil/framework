@@ -119,8 +119,10 @@ public sealed class MessageTrackerJsonConverterTests
                     "StreamNamespace": "orders",
                     "Token": {
                       "Kind": "unknown-kind",
-                      "SequenceNumber": 1,
-                      "EventIndex": 0
+                      "Payload": {
+                        "SequenceNumber": 1,
+                        "EventIndex": 0
+                      }
                     }
                   },
                   "Received": "2026-05-23T12:30:00+00:00"

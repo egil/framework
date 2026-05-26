@@ -42,16 +42,23 @@ namespace Egil.Orleans.Messaging.Streams.EventHubs;
 /// </para>
 /// <para>
 /// <b>Serialization:</b> Inherits Orleans serialization from
-/// <see cref="EventHubSequenceTokenV2"/>. Persist stream positions through
-/// <see cref="MessageTracker"/> or another application-owned checkpoint
-/// model; the provider-neutral core package does not serialize Event
-/// Hubs-specific token subtypes directly.
+/// <see cref="EventHubSequenceTokenV2"/>. The Event Hubs package also
+/// registers <see cref="EnrichedEventHubSequenceTokenJsonConverter"/> from
+/// <see cref="EnrichedEventHubAdapterExtensions.UseEnrichedDataAdapter"/>, so
+/// <see cref="MessageTracker"/> and <see cref="StreamCursor"/> can round-trip
+/// this token through System.Text.Json without the core package referencing
+/// Event Hubs.
 /// </para>
 /// </remarks>
 [GenerateSerializer]
-[Alias("egil.orleans.messaging.EnrichedEventHubSequenceToken")]
+[Alias(EnrichedEventHubSequenceToken.TypeAlias)]
 public class EnrichedEventHubSequenceToken : EventHubSequenceTokenV2, IStreamSequenceTokenMetadata
 {
+    /// <summary>
+    /// Stable Orleans/STJ token discriminator for this token type.
+    /// </summary>
+    public const string TypeAlias = "egil.orleans.messaging.EnrichedEventHubSequenceToken";
+
     /// <summary>
     /// The wall-clock time the event was enqueued at the Event Hub broker.
     /// Used by <see cref="StreamCursor.TryGetEnqueuedTime"/> to compute
