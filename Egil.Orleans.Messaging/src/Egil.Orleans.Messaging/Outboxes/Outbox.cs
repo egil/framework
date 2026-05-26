@@ -240,9 +240,9 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
     /// Batch-removes messages identified by <paramref name="tokens"/>.
     /// </summary>
     /// <remarks>
-    /// Removes the longest FIFO prefix whose tokens appear in
-    /// <paramref name="tokens"/>. Tokens not found at the head of the outbox
-    /// are silently ignored.
+    /// Removes all pending messages whose tokens appear in
+    /// <paramref name="tokens"/> and preserves the original order of messages
+    /// that remain pending. Tokens not found in the outbox are silently ignored.
     /// </remarks>
     /// <param name="tokens">The tokens of the messages to remove.</param>
     /// <returns>A new outbox without the specified messages.</returns>
@@ -254,18 +254,21 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
             return this;
         }
 
-        var removeCount = 0;
-        while (removeCount < items.Length && tokenSet.Contains(items[removeCount].Token))
+        var remainingBuilder = ImmutableArray.CreateBuilder<OutboxMessageEnvelope<T>>(items.Length);
+        foreach (var item in items)
         {
-            removeCount++;
+            if (!tokenSet.Contains(item.Token))
+            {
+                remainingBuilder.Add(item);
+            }
         }
 
-        var remaining = items.RemoveRange(0, removeCount);
-        if (remaining.Length == items.Length)
+        if (remainingBuilder.Count == items.Length)
         {
             return this;
         }
 
+        var remaining = remainingBuilder.ToImmutable();
         var next = new Outbox<T>(
             sender,
             latestSequenceNumber,
