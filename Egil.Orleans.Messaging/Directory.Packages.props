@@ -12,6 +12,11 @@
     <PackageVersion Include="DotNet.ReproducibleBuilds" Version="2.0.2" />
     <PackageVersion Include="Nerdbank.GitVersioning" Version="3.9.50" />
   </ItemGroup>
+  <ItemGroup Label="Azure">
+    <PackageVersion Include="Azure.Core" Version="1.51.1" />
+    <PackageVersion Include="Azure.Data.Tables" Version="12.11.0" />
+    <PackageVersion Include="Azure.Storage.Blobs" Version="12.27.0" />
+  </ItemGroup>
   <ItemGroup Label="Orleans">
     <PackageVersion Include="Microsoft.Orleans.Reminders" Version="10.1.0" />
     <PackageVersion Include="Microsoft.Orleans.Persistence.AzureStorage" Version="10.1.0" />
