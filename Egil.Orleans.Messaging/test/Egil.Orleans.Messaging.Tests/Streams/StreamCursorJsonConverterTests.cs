@@ -62,15 +62,16 @@ public sealed class StreamCursorJsonConverterTests
               "StreamNamespace": "orders",
               "Token": {
                 "Kind": "unknown-kind",
-                "SequenceNumber": 1,
-                "EventIndex": 0
+                "Payload": {
+                  "SequenceNumber": 1,
+                  "EventIndex": 0
+                }
               }
             }
             """;
 
-        var exception = Assert.Throws<NotSupportedException>(() => JsonSerializer.Deserialize<StreamCursor>(json));
-        Assert.Contains("https://github.com/egil/framework/issues", exception.Message);
-        Assert.Contains("supports only built-in Orleans token types", exception.Message);
+        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<StreamCursor>(json));
+        Assert.Contains("Register a JsonConverter", exception.Message);
     }
 
     [Fact]
@@ -81,8 +82,7 @@ public sealed class StreamCursorJsonConverterTests
             new UnsupportedCustomSequenceToken(21, 3));
 
         var exception = Assert.Throws<NotSupportedException>(() => JsonSerializer.Serialize(cursor));
-        Assert.Contains("https://github.com/egil/framework/issues", exception.Message);
-        Assert.Contains("supports only built-in Orleans token types", exception.Message);
+        Assert.Contains("Register a JsonConverter", exception.Message);
     }
 
     private sealed class UnsupportedCustomSequenceToken(long sequenceNumber, int eventIndex) : StreamSequenceToken

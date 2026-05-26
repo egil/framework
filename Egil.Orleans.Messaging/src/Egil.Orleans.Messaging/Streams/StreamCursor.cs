@@ -12,13 +12,16 @@ namespace Egil.Orleans.Messaging.Streams;
 /// <remarks>
 /// <para>
 /// <b>Projection constraint:</b> <see cref="StreamSequenceToken"/> is an abstract
-/// type. The library ships an STJ converter that handles a closed set of known
-/// subtypes via a <c>$kind</c> discriminator:
+/// type. The library ships an STJ converter that handles explicitly
+/// registered token converters via a <c>Kind</c> discriminator:
 /// <list type="bullet">
 /// <item><c>EventSequenceToken</c> — Orleans SimpleMessageStream</item>
+/// <item><c>EventSequenceTokenV2</c> — Orleans SimpleMessageStream v2</item>
 /// </list>
-/// Unknown subtypes throw at serialization time — silently dropping the cursor
-/// would corrupt dedup state.
+/// Provider packages can register additional concrete token converters through
+/// <see cref="StreamSequenceTokenJsonConverters"/>. Unknown subtypes throw at
+/// serialization time — silently dropping the cursor would corrupt dedup
+/// state.
 /// </para>
 /// <para>
 /// <b>Provider-specific metadata:</b> Tokens can implement

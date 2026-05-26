@@ -1,7 +1,5 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Orleans.Providers.Streams.Common;
-using Orleans.Streams;
 
 namespace Egil.Orleans.Messaging.Streams;
 
@@ -14,8 +12,7 @@ namespace Egil.Orleans.Messaging.Streams;
 /// <para>
 /// <see cref="StreamCursor"/> wraps a stream namespace and an optional
 /// <c>StreamSequenceToken</c>. The token is polymorphic and this converter
-/// supports provider-neutral Orleans sequence token types only:
-/// <c>EventSequenceTokenV2</c> and <c>EventSequenceToken</c>.
+/// delegates concrete token payloads to <see cref="StreamSequenceTokenJsonConverters"/>.
 /// </para>
 /// <para>
 /// Registered on <see cref="StreamCursor"/> via <c>[JsonConverter]</c>.
@@ -25,92 +22,117 @@ namespace Egil.Orleans.Messaging.Streams;
 /// </remarks>
 internal sealed class StreamCursorJsonConverter : JsonConverter<StreamCursor>
 {
-    private const string FeatureRequestUrl = "https://github.com/egil/framework/issues";
-
-    private const string SupportedKinds =
-        "EventSequenceToken, EventSequenceTokenV2";
-
     /// <inheritdoc/>
     public override StreamCursor? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
-        var model = JsonSerializer.Deserialize<StreamCursorJsonModel>(ref reader, options);
-        if (model is null)
+        if (reader.TokenType is JsonTokenType.None && !reader.Read())
+        {
+            throw new JsonException("Unexpected end of StreamCursor JSON.");
+        }
+
+        if (reader.TokenType is JsonTokenType.Null)
         {
             return null;
         }
 
-        return new StreamCursor(model.StreamNamespace, FromJsonModel(model.Token), model.ProviderName);
+        if (reader.TokenType is not JsonTokenType.StartObject)
+        {
+            throw new JsonException($"Expected StreamCursor object, got '{reader.TokenType}'.");
+        }
+
+        var streamNamespace = ReadRequiredStringProperty(ref reader, nameof(StreamCursor.StreamNamespace));
+
+        ReadRequiredPropertyName(ref reader, nameof(StreamCursor.Token));
+        if (!reader.Read())
+        {
+            throw new JsonException("Unexpected end of StreamCursor token JSON.");
+        }
+
+        var token = reader.TokenType is JsonTokenType.Null
+            ? null
+            : StreamSequenceTokenJsonConverters.Read(ref reader, options);
+
+        string? providerName = null;
+        if (!reader.Read())
+        {
+            throw new JsonException("Unexpected end of StreamCursor JSON.");
+        }
+
+        if (reader.TokenType is JsonTokenType.PropertyName)
+        {
+            if (!reader.ValueTextEquals(nameof(StreamCursor.ProviderName)))
+            {
+                throw new JsonException($"Expected StreamCursor property '{nameof(StreamCursor.ProviderName)}', got '{reader.GetString()}'.");
+            }
+
+            if (!reader.Read())
+            {
+                throw new JsonException("Unexpected end of StreamCursor provider name JSON.");
+            }
+
+            providerName = reader.TokenType is JsonTokenType.Null
+                ? null
+                : reader.GetString();
+
+            if (!reader.Read())
+            {
+                throw new JsonException("Unexpected end of StreamCursor JSON.");
+            }
+        }
+
+        if (reader.TokenType is not JsonTokenType.EndObject)
+        {
+            throw new JsonException("Expected end of StreamCursor object.");
+        }
+
+        return new StreamCursor(streamNamespace, token, providerName);
     }
 
     /// <inheritdoc/>
     public override void Write(Utf8JsonWriter writer, StreamCursor value, JsonSerializerOptions options)
     {
-        JsonSerializer.Serialize(
-            writer,
-            new StreamCursorJsonModel(
-                value.StreamNamespace,
-                ToJsonModel(value.Token),
-                value.ProviderName),
-            options);
-    }
-
-    private static StreamSequenceToken? FromJsonModel(StreamSequenceTokenJsonModel? model)
-    {
-        if (model is null)
+        writer.WriteStartObject();
+        writer.WriteString(nameof(StreamCursor.StreamNamespace), value.StreamNamespace);
+        writer.WritePropertyName(nameof(StreamCursor.Token));
+        if (value.Token is null)
         {
-            return null;
+            writer.WriteNullValue();
+        }
+        else
+        {
+            StreamSequenceTokenJsonConverters.Write(writer, value.Token, options);
         }
 
-        return model.Kind switch
+        if (value.ProviderName is not null)
         {
-            StreamSequenceTokenKinds.EventSequenceToken => new EventSequenceToken(model.SequenceNumber, model.EventIndex),
-            StreamSequenceTokenKinds.EventSequenceTokenV2 => new EventSequenceTokenV2(model.SequenceNumber, model.EventIndex),
-            _ => throw CreateUnsupportedTokenException(model.Kind ?? "<null>")
-        };
-    }
-
-    private static StreamSequenceTokenJsonModel? ToJsonModel(StreamSequenceToken? value)
-    {
-        if (value is null)
-        {
-            return null;
+            writer.WriteString(nameof(StreamCursor.ProviderName), value.ProviderName);
         }
 
-        return value switch
-        {
-            EventSequenceTokenV2 token => new StreamSequenceTokenJsonModel(
-                Kind: StreamSequenceTokenKinds.EventSequenceTokenV2,
-                SequenceNumber: token.SequenceNumber,
-                EventIndex: token.EventIndex),
-            EventSequenceToken token => new StreamSequenceTokenJsonModel(
-                Kind: StreamSequenceTokenKinds.EventSequenceToken,
-                SequenceNumber: token.SequenceNumber,
-                EventIndex: token.EventIndex),
-            _ => throw CreateUnsupportedTokenException(value.GetType().FullName ?? value.GetType().Name)
-        };
+        writer.WriteEndObject();
     }
 
-    private static NotSupportedException CreateUnsupportedTokenException(string tokenIdentifier) =>
-        new(
-            $"Unsupported stream sequence token '{tokenIdentifier}'. " +
-            $"This converter supports only built-in Orleans token types: {SupportedKinds}. " +
-            "Custom token support is intentionally disabled to keep persisted StreamCursor JSON format stable. " +
-            $"If you need this feature, please request it at {FeatureRequestUrl}.");
-
-    private sealed record StreamCursorJsonModel(
-        string StreamNamespace,
-        StreamSequenceTokenJsonModel? Token,
-        string? ProviderName = null);
-
-    private sealed record StreamSequenceTokenJsonModel(
-        string? Kind = null,
-        long SequenceNumber = 0,
-        int EventIndex = 0,
-        string? EventHubOffset = null);
-
-    private static class StreamSequenceTokenKinds
+    private static string ReadRequiredStringProperty(ref Utf8JsonReader reader, string propertyName)
     {
-        public const string EventSequenceToken = "event-sequence";
-        public const string EventSequenceTokenV2 = "event-sequence-v2";
+        ReadRequiredPropertyName(ref reader, propertyName);
+        if (!reader.Read() || reader.TokenType is not JsonTokenType.String)
+        {
+            throw new JsonException($"StreamCursor property '{propertyName}' must be a string.");
+        }
+
+        return reader.GetString()
+            ?? throw new JsonException($"StreamCursor property '{propertyName}' must not be null.");
+    }
+
+    private static void ReadRequiredPropertyName(ref Utf8JsonReader reader, string propertyName)
+    {
+        if (!reader.Read() || reader.TokenType is not JsonTokenType.PropertyName)
+        {
+            throw new JsonException($"Expected StreamCursor property '{propertyName}'.");
+        }
+
+        if (!reader.ValueTextEquals(propertyName))
+        {
+            throw new JsonException($"Expected StreamCursor property '{propertyName}', got '{reader.GetString()}'.");
+        }
     }
 }
