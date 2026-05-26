@@ -3,31 +3,9 @@ using System.Collections.Immutable;
 namespace Egil.Orleans.Messaging.Outboxes;
 
 /// <summary>
-/// Controls where outbox postman callbacks execute.
-/// </summary>
-public enum OutboxPostmanExecutionMode
-{
-    /// <summary>
-    /// Executes postman callbacks on the Orleans activation scheduler.
-    /// </summary>
-    GrainScheduler,
-
-    /// <summary>
-    /// Executes postman callbacks on the .NET thread pool.
-    /// </summary>
-    /// <remarks>
-    /// Use only for blocking or legacy delivery code that must not run on the
-    /// Orleans activation scheduler. Thread-pool postmen must not read or
-    /// mutate activation-local grain state. Prefer static/state-free callbacks,
-    /// injected thread-safe services, or <see cref="IGrainFactory"/> calls.
-    /// </remarks>
-    ThreadPool
-}
-
-/// <summary>
 /// Configuration for <see cref="OutboxProcessor{TOutbox}"/>. Defines how the
-/// processor reads pending items, reconciles successes/failures, and controls
-/// timer/reminder scheduling.
+/// processor reads pending items, reconciles successes/failures, and schedules
+/// retry work.
 /// </summary>
 /// <typeparam name="TOutbox">
 /// The base type of outbox items. Must match the type parameter of the
@@ -66,24 +44,38 @@ public sealed class OutboxProcessorOptions<TOutbox>
     public TimeSpan ProcessingTimeout { get; init; } = TimeSpan.FromSeconds(20);
 
     /// <summary>
-    /// Timer/reminder retry period. Reminder period is clamped to at least one
-    /// minute because Orleans reminders do not support sub-minute precision.
+    /// Delay before retrying remaining pending items. Cross-activation retry
+    /// is clamped to at least one minute because Orleans reminders do not
+    /// support sub-minute precision.
     /// </summary>
     public TimeSpan RetryDelay { get; init; } = TimeSpan.FromMinutes(2);
 
     /// <summary>
-    /// Whether timer callbacks may interleave with other grain turns.
+    /// Whether background posting may allow other grain calls to run while
+    /// postmen are awaiting asynchronous work.
     /// </summary>
-    public bool Interleave { get; init; }
+    /// <remarks>
+    /// Defaults to <see langword="true"/> so slow delivery does not block
+    /// unrelated calls to the grain. This controls the delivery phase only;
+    /// acknowledgement and failure callbacks use
+    /// <see cref="InterleaveReconciliationCallbacks"/>.
+    /// </remarks>
+    public bool Interleave { get; init; } = true;
 
     /// <summary>
-    /// Whether an active timer keeps the grain activation alive.
+    /// Whether acknowledgement and failure reconciliation callbacks may
+    /// interleave with other grain calls when posting runs in the background.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to <see langword="false"/> because these callbacks usually
+    /// update durable outbox state. Orleans reentrancy rules still apply:
+    /// reentrant grains may interleave these callbacks regardless.
+    /// </remarks>
+    public bool InterleaveReconciliationCallbacks { get; init; }
+
+    /// <summary>
+    /// Whether background retry work should keep the grain activation alive
+    /// while pending outbox items remain.
     /// </summary>
     public bool KeepAlive { get; init; }
-
-    /// <summary>
-    /// Controls where postman callbacks execute.
-    /// </summary>
-    public OutboxPostmanExecutionMode PostmanExecution { get; init; } =
-        OutboxPostmanExecutionMode.GrainScheduler;
 }
