@@ -25,18 +25,14 @@ public sealed class OutboxProcessorOptions<TOutbox>
     /// The grain is expected to remove these items from durable outbox state
     /// and persist the update.
     /// </summary>
-    public required Func<ImmutableArray<TOutbox>, CancellationToken, ValueTask>
-        AcknowledgePostedAsync
-    { get; init; }
+    public required Func<ImmutableArray<TOutbox>, CancellationToken, ValueTask> AcknowledgePostedAsync { get; init; }
 
     /// <summary>
     /// Called with items that failed dispatch, along with the exception and
     /// the in-memory attempt count. The grain decides whether to leave them
     /// pending, remove them, or move them to dead-letter state.
     /// </summary>
-    public Func<ImmutableArray<(TOutbox Item, Exception Error, int Attempt)>,
-        CancellationToken, ValueTask>? ReconcileFailedAsync
-    { get; init; }
+    public Func<ImmutableArray<(TOutbox Item, Exception Error, int Attempt)>, CancellationToken, ValueTask>? ReconcileFailedAsync { get; init; }
 
     /// <summary>
     /// Maximum time per post run. Default: 20 seconds.
@@ -57,8 +53,11 @@ public sealed class OutboxProcessorOptions<TOutbox>
     /// <remarks>
     /// Defaults to <see langword="true"/> so slow delivery does not block
     /// unrelated calls to the grain. This controls the delivery phase only;
-    /// acknowledgement and failure callbacks use
-    /// <see cref="InterleaveReconciliationCallbacks"/>.
+    /// <see cref="AcknowledgePostedAsync"/> and
+    /// <see cref="ReconcileFailedAsync"/> use
+    /// <see cref="InterleaveReconciliationCallbacks"/>. Snapshot reads from
+    /// <see cref="PendingItems"/> can also happen after a background delivery
+    /// pass to decide whether retry work remains.
     /// </remarks>
     public bool Interleave { get; init; } = true;
 

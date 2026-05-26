@@ -33,30 +33,64 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// correctly through any Orleans storage provider using either serializer.
 /// </para>
 /// </remarks>
-/// <param name="SequenceNumber">
-/// Monotonically increasing sequence number within a single <see cref="Epoch"/>.
-/// Assigned by <see cref="Outbox{T}.Add"/> — callers cannot fabricate or choose
-/// sequence numbers. Starts at 1 for each new epoch.
-/// </param>
-/// <param name="Sender">
-/// The <see cref="GrainId"/> of the grain that owns the outbox. Receivers use
-/// this to partition dedup tracking per sender.
-/// </param>
-/// <param name="Timestamp">
-/// Wall-clock time when the message was added to the outbox. Informational —
-/// not used for ordering or dedup. Stamped by the sender's
-/// <see cref="TimeProvider"/>.
-/// </param>
-/// <param name="Epoch">
-/// Opaque marker that changes only on <see cref="Outbox{T}.Create"/> (full
-/// sequence-space reset). Receivers compare epochs to detect resets. A token
-/// with a newer epoch supersedes all prior sequence numbers from the same sender.
-/// </param>
 [GenerateSerializer]
 [Alias("egil.orleans.messaging.OutboxSequenceToken")]
 [JsonConverter(typeof(OutboxSequenceTokenJsonConverter))]
-public sealed record OutboxSequenceToken(
-    [property: Id(0)] long SequenceNumber,
-    [property: Id(1)] GrainId Sender,
-    [property: Id(2)] DateTimeOffset Timestamp,
-    [property: Id(3)] DateTimeOffset Epoch);
+public sealed record OutboxSequenceToken
+{
+    /// <summary>
+    /// Creates an empty token for serializer use.
+    /// </summary>
+    [SetsRequiredMembers]
+    public OutboxSequenceToken()
+    {
+    }
+
+    /// <summary>
+    /// Creates a token for the specified sender, sequence number, timestamp,
+    /// and epoch.
+    /// </summary>
+    [SetsRequiredMembers]
+    public OutboxSequenceToken(
+        long sequenceNumber,
+        GrainId sender,
+        DateTimeOffset timestamp,
+        DateTimeOffset epoch)
+    {
+        SequenceNumber = sequenceNumber;
+        Sender = sender;
+        Timestamp = timestamp;
+        Epoch = epoch;
+    }
+
+    /// <summary>
+    /// Monotonically increasing sequence number within a single <see cref="Epoch"/>.
+    /// Assigned by <see cref="Outbox{T}.Add"/> — callers cannot fabricate or choose
+    /// sequence numbers. Starts at 1 for each new epoch.
+    /// </summary>
+    [Id(0)]
+    public required long SequenceNumber { get; init; }
+
+    /// <summary>
+    /// The <see cref="GrainId"/> of the grain that owns the outbox. Receivers use
+    /// this to partition dedup tracking per sender.
+    /// </summary>
+    [Id(1)]
+    public required GrainId Sender { get; init; }
+
+    /// <summary>
+    /// Wall-clock time when the message was added to the outbox. Informational —
+    /// not used for ordering or dedup. Stamped by the sender's
+    /// <see cref="TimeProvider"/>.
+    /// </summary>
+    [Id(2)]
+    public required DateTimeOffset Timestamp { get; init; }
+
+    /// <summary>
+    /// Opaque marker that changes only on <see cref="Outbox{T}.Create"/> (full
+    /// sequence-space reset). Receivers compare epochs to detect resets. A token
+    /// with a newer epoch supersedes all prior sequence numbers from the same sender.
+    /// </summary>
+    [Id(3)]
+    public required DateTimeOffset Epoch { get; init; }
+}
