@@ -3,7 +3,7 @@ using Egil.Orleans.Messaging.State;
 namespace Microsoft.Extensions.DependencyInjection;
 
 /// <summary>
-/// Registration helpers for keyed <see cref="IStateManagerFactory{T}"/>
+/// Registration helpers for keyed <see cref="IStateManagerFactory"/>
 /// services on <see cref="IServiceCollection"/>.
 /// </summary>
 public static class StateManagerRegistrationExtensions
@@ -11,7 +11,7 @@ public static class StateManagerRegistrationExtensions
     extension(IServiceCollection services)
     {
         /// <summary>
-        /// Registers the default keyed <see cref="IStateManagerFactory{T}"/> for the
+        /// Registers the default keyed <see cref="IStateManagerFactory"/> for the
         /// given <paramref name="storageName"/>.
         /// </summary>
         public IServiceCollection AddDefaultStateManager(string storageName)
@@ -20,40 +20,39 @@ public static class StateManagerRegistrationExtensions
             ValidateStorageName(storageName);
 
             return services.AddKeyedSingleton(
-                typeof(IStateManagerFactory<>),
+                typeof(IStateManagerFactory),
                 storageName,
-                typeof(DefaultStateManagerFactory<>));
+                typeof(DefaultStateManagerFactory));
         }
 
         /// <summary>
-        /// Registers a custom keyed open-generic <see cref="IStateManagerFactory{T}"/>
+        /// Registers a custom keyed state manager factory
         /// implementation for the given <paramref name="storageName"/>.
         /// </summary>
         public IServiceCollection AddStateManagerFactory(
             string storageName,
-            Type openGenericFactoryType)
+            Type factoryType)
         {
             ArgumentNullException.ThrowIfNull(services);
             ValidateStorageName(storageName);
-            ValidateOpenGenericFactoryType(openGenericFactoryType);
+            ValidateFactoryType(factoryType);
 
             return services.AddKeyedSingleton(
-                typeof(IStateManagerFactory<>),
+                typeof(IStateManagerFactory),
                 storageName,
-                openGenericFactoryType);
+                factoryType);
         }
 
         /// <summary>
-        /// Registers a custom keyed factory for a specific state type.
+        /// Registers a custom keyed state manager factory.
         /// </summary>
-        public IServiceCollection AddStateManagerFactory<TState, TFactory>(string storageName)
-            where TState : class, IEquatable<TState>
-            where TFactory : class, IStateManagerFactory<TState>
+        public IServiceCollection AddStateManagerFactory<TFactory>(string storageName)
+            where TFactory : class, IStateManagerFactory
         {
             ArgumentNullException.ThrowIfNull(services);
             ValidateStorageName(storageName);
 
-            return services.AddKeyedSingleton<IStateManagerFactory<TState>, TFactory>(storageName);
+            return services.AddKeyedSingleton<IStateManagerFactory, TFactory>(storageName);
         }
     }
 
@@ -62,33 +61,22 @@ public static class StateManagerRegistrationExtensions
         ArgumentException.ThrowIfNullOrWhiteSpace(storageName);
     }
 
-    internal static void ValidateOpenGenericFactoryType(Type openGenericFactoryType)
+    internal static void ValidateFactoryType(Type factoryType)
     {
-        ArgumentNullException.ThrowIfNull(openGenericFactoryType);
+        ArgumentNullException.ThrowIfNull(factoryType);
 
-        if (!openGenericFactoryType.IsClass || openGenericFactoryType.IsAbstract)
+        if (!factoryType.IsClass || factoryType.IsAbstract)
         {
             throw new ArgumentException(
-                $"Type '{openGenericFactoryType.FullName}' must be a non-abstract class.",
-                nameof(openGenericFactoryType));
+                $"Type '{factoryType.FullName}' must be a non-abstract class.",
+                nameof(factoryType));
         }
 
-        if (!openGenericFactoryType.IsGenericTypeDefinition)
+        if (!typeof(IStateManagerFactory).IsAssignableFrom(factoryType))
         {
             throw new ArgumentException(
-                $"Type '{openGenericFactoryType.FullName}' must be an open generic type definition.",
-                nameof(openGenericFactoryType));
-        }
-
-        var implementsFactory = openGenericFactoryType.GetInterfaces().Any(
-            iface => iface.IsGenericType
-                && iface.GetGenericTypeDefinition() == typeof(IStateManagerFactory<>));
-
-        if (!implementsFactory)
-        {
-            throw new ArgumentException(
-                $"Type '{openGenericFactoryType.FullName}' must implement IStateManagerFactory<>.",
-                nameof(openGenericFactoryType));
+                $"Type '{factoryType.FullName}' must implement IStateManagerFactory.",
+                nameof(factoryType));
         }
     }
 }

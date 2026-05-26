@@ -183,6 +183,9 @@ public abstract class StateManagerBase<T> : IStateManager<T>
             var failureKind = ClassifyClearFailure(ex);
             if (failureKind is StorageFailureKind.DidNotPersist)
             {
+                // The provider proved the clear was rejected before it could
+                // persist, so the in-memory view must stay at the pre-clear
+                // state and the original error should be surfaced.
                 state = previousState;
                 storage.State = previousState;
                 throw;
@@ -190,6 +193,9 @@ public abstract class StateManagerBase<T> : IStateManager<T>
 
             try
             {
+                // Ambiguous failures may have persisted even though the caller
+                // observed an exception. Read back before deciding whether the
+                // local state should represent "cleared" or the previous value.
                 await storage.ReadStateAsync();
                 recoveryReadSucceeded = true;
 
@@ -203,11 +209,17 @@ public abstract class StateManagerBase<T> : IStateManager<T>
             }
             catch
             {
-                // no-op; rethrow original clear error below
+                // Preserve the original clear exception. A recovery-read
+                // failure tells us nothing useful about whether the clear
+                // landed, so surfacing the original write-path error is the
+                // least surprising failure for the caller.
             }
 
             if (!recoveryReadSucceeded)
             {
+                // Without read-back confirmation, keep the local activation
+                // conservative. The next successful read/write can reconcile
+                // against storage.
                 state = previousState;
                 storage.State = previousState;
             }

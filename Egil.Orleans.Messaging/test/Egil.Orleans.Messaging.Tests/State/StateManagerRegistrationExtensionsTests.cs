@@ -10,38 +10,38 @@ public sealed class StateManagerRegistrationExtensionsTests
         services.AddDefaultStateManager("state");
 
         var descriptor = services.Single(service =>
-            service.ServiceType == typeof(IStateManagerFactory<>)
+            service.ServiceType == typeof(IStateManagerFactory)
             && Equals(service.ServiceKey, "state"));
         Assert.Equal(ServiceLifetime.Singleton, descriptor.Lifetime);
 
         var provider = services.BuildServiceProvider();
-        var first = provider.GetKeyedService<IStateManagerFactory<TestState>>("state");
-        var second = provider.GetKeyedService<IStateManagerFactory<TestState>>("state");
+        var first = provider.GetKeyedService<IStateManagerFactory>("state");
+        var second = provider.GetKeyedService<IStateManagerFactory>("state");
 
         Assert.NotNull(first);
         Assert.Same(first, second);
-        Assert.IsType<DefaultStateManagerFactory<TestState>>(first);
+        Assert.IsType<DefaultStateManagerFactory>(first);
     }
 
     [Fact]
-    public void AddStateManagerFactory_registers_custom_open_generic_factory_as_singleton()
+    public void AddStateManagerFactory_registers_custom_factory_as_singleton()
     {
         var services = new ServiceCollection();
 
-        services.AddStateManagerFactory("state", typeof(CustomStateManagerFactory<>));
+        services.AddStateManagerFactory("state", typeof(CustomStateManagerFactory));
 
         var descriptor = services.Single(service =>
-            service.ServiceType == typeof(IStateManagerFactory<>)
+            service.ServiceType == typeof(IStateManagerFactory)
             && Equals(service.ServiceKey, "state"));
         Assert.Equal(ServiceLifetime.Singleton, descriptor.Lifetime);
 
         var provider = services.BuildServiceProvider();
-        var first = provider.GetKeyedService<IStateManagerFactory<TestState>>("state");
-        var second = provider.GetKeyedService<IStateManagerFactory<TestState>>("state");
+        var first = provider.GetKeyedService<IStateManagerFactory>("state");
+        var second = provider.GetKeyedService<IStateManagerFactory>("state");
 
         Assert.NotNull(first);
         Assert.Same(first, second);
-        Assert.IsType<CustomStateManagerFactory<TestState>>(first);
+        Assert.IsType<CustomStateManagerFactory>(first);
     }
 
     [Fact]
@@ -49,16 +49,16 @@ public sealed class StateManagerRegistrationExtensionsTests
     {
         var services = new ServiceCollection();
 
-        services.AddStateManagerFactory<TestState, TestStateManagerFactory>("state");
+        services.AddStateManagerFactory<TestStateManagerFactory>("state");
 
         var descriptor = services.Single(service =>
-            service.ServiceType == typeof(IStateManagerFactory<TestState>)
+            service.ServiceType == typeof(IStateManagerFactory)
             && Equals(service.ServiceKey, "state"));
         Assert.Equal(ServiceLifetime.Singleton, descriptor.Lifetime);
 
         var provider = services.BuildServiceProvider();
-        var first = provider.GetKeyedService<IStateManagerFactory<TestState>>("state");
-        var second = provider.GetKeyedService<IStateManagerFactory<TestState>>("state");
+        var first = provider.GetKeyedService<IStateManagerFactory>("state");
+        var second = provider.GetKeyedService<IStateManagerFactory>("state");
 
         Assert.NotNull(first);
         Assert.Same(first, second);
@@ -66,14 +66,14 @@ public sealed class StateManagerRegistrationExtensionsTests
     }
 
     [Fact]
-    public void AddStateManagerFactory_throws_for_invalid_open_generic_type()
+    public void AddStateManagerFactory_throws_for_invalid_factory_type()
     {
         var services = new ServiceCollection();
 
         var ex = Assert.Throws<ArgumentException>(() =>
             services.AddStateManagerFactory("state", typeof(string)));
 
-        Assert.Equal("openGenericFactoryType", ex.ParamName);
+        Assert.Equal("factoryType", ex.ParamName);
     }
 
     [Fact]
@@ -94,31 +94,32 @@ public sealed class StateManagerRegistrationExtensionsTests
 
         builder
             .AddDefaultStateManager("default-state")
-            .AddStateManagerFactory("custom-state", typeof(CustomStateManagerFactory<>))
-            .AddStateManagerFactory<TestState, TestStateManagerFactory>("typed-state");
+            .AddStateManagerFactory("custom-state", typeof(CustomStateManagerFactory))
+            .AddStateManagerFactory<TestStateManagerFactory>("typed-state");
 
         var provider = builder.Services.BuildServiceProvider();
-        Assert.IsType<DefaultStateManagerFactory<TestState>>(
-            provider.GetKeyedService<IStateManagerFactory<TestState>>("default-state"));
-        Assert.IsType<CustomStateManagerFactory<TestState>>(
-            provider.GetKeyedService<IStateManagerFactory<TestState>>("custom-state"));
+        Assert.IsType<DefaultStateManagerFactory>(
+            provider.GetKeyedService<IStateManagerFactory>("default-state"));
+        Assert.IsType<CustomStateManagerFactory>(
+            provider.GetKeyedService<IStateManagerFactory>("custom-state"));
         Assert.IsType<TestStateManagerFactory>(
-            provider.GetKeyedService<IStateManagerFactory<TestState>>("typed-state"));
+            provider.GetKeyedService<IStateManagerFactory>("typed-state"));
     }
 
     private sealed record TestState(string Value) : IEquatable<TestState>;
 
-    private sealed class CustomStateManagerFactory<TState> : IStateManagerFactory<TState>
-        where TState : class, IEquatable<TState>
+    private sealed class CustomStateManagerFactory : IStateManagerFactory
     {
-        public IStateManager<TState> Create(IPersistentState<TState> storage) =>
+        public IStateManager<TState> Create<TState>(IPersistentState<TState> storage)
+            where TState : class, IEquatable<TState> =>
             new DefaultStateManager<TState>(storage);
     }
 
-    private sealed class TestStateManagerFactory : IStateManagerFactory<TestState>
+    private sealed class TestStateManagerFactory : IStateManagerFactory
     {
-        public IStateManager<TestState> Create(IPersistentState<TestState> storage) =>
-            new DefaultStateManager<TestState>(storage);
+        public IStateManager<TState> Create<TState>(IPersistentState<TState> storage)
+            where TState : class, IEquatable<TState> =>
+            new DefaultStateManager<TState>(storage);
     }
 
     private sealed class FakeSiloBuilder : ISiloBuilder

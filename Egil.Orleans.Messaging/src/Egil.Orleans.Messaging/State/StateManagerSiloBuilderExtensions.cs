@@ -4,7 +4,7 @@ using Egil.Orleans.Messaging.State;
 namespace Orleans.Hosting;
 
 /// <summary>
-/// Registration helpers for keyed <see cref="IStateManagerFactory{T}"/>
+/// Registration helpers for keyed <see cref="IStateManagerFactory"/>
 /// services on <see cref="ISiloBuilder"/>.
 /// </summary>
 public static class StateManagerSiloBuilderExtensions
@@ -24,33 +24,32 @@ public static class StateManagerSiloBuilderExtensions
         }
 
         /// <summary>
-        /// Registers a custom keyed open-generic state manager factory on the silo builder.
+        /// Registers a custom keyed state manager factory on the silo builder.
         /// </summary>
         public ISiloBuilder AddStateManagerFactory(
             string storageName,
-            Type openGenericFactoryType)
+            Type factoryType)
         {
             ArgumentNullException.ThrowIfNull(builder);
             StateManagerRegistrationExtensions.ValidateStorageName(storageName);
-            StateManagerRegistrationExtensions.ValidateOpenGenericFactoryType(openGenericFactoryType);
+            StateManagerRegistrationExtensions.ValidateFactoryType(factoryType);
 
             builder.ConfigureServices(services =>
-                services.AddStateManagerFactory(storageName, openGenericFactoryType));
+                services.AddStateManagerFactory(storageName, factoryType));
             return builder;
         }
 
         /// <summary>
-        /// Registers a custom keyed state manager factory for a specific state type on the silo builder.
+        /// Registers a custom keyed state manager factory on the silo builder.
         /// </summary>
-        public ISiloBuilder AddStateManagerFactory<TState, TFactory>(string storageName)
-            where TState : class, IEquatable<TState>
-            where TFactory : class, IStateManagerFactory<TState>
+        public ISiloBuilder AddStateManagerFactory<TFactory>(string storageName)
+            where TFactory : class, IStateManagerFactory
         {
             ArgumentNullException.ThrowIfNull(builder);
             StateManagerRegistrationExtensions.ValidateStorageName(storageName);
 
             builder.ConfigureServices(services =>
-                services.AddStateManagerFactory<TState, TFactory>(storageName));
+                services.AddStateManagerFactory<TFactory>(storageName));
             return builder;
         }
     }
