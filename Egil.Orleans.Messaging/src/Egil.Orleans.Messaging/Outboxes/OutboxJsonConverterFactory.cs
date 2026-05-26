@@ -34,65 +34,93 @@ internal sealed class OutboxJsonConverterFactory : JsonConverterFactory
     {
         var messageType = typeToConvert.GetGenericArguments()[0];
         var converterType = typeof(OutboxJsonConverter<>).MakeGenericType(messageType);
+        var envelopeType = typeof(OutboxMessageEnvelope<>).MakeGenericType(messageType);
+        var envelopeConverter = options.GetConverter(envelopeType);
 
-        return (JsonConverter?)Activator.CreateInstance(converterType);
+        return (JsonConverter?)Activator.CreateInstance(converterType, envelopeConverter);
     }
 
-    private sealed class OutboxJsonConverter<T> : JsonConverter<Outbox<T>>
+    private sealed class OutboxJsonConverter<T>(
+        JsonConverter<OutboxMessageEnvelope<T>> envelopeConverter) : JsonConverter<Outbox<T>>
     {
         public override Outbox<T>? Read(
             ref Utf8JsonReader reader,
             Type typeToConvert,
             JsonSerializerOptions options)
         {
-            var model = JsonSerializer.Deserialize<OutboxJsonModel<T>>(ref reader, options);
-            if (model is null)
+            if (reader.TokenType is JsonTokenType.None && !reader.Read())
+            {
+                throw new JsonException("Unexpected end of outbox JSON.");
+            }
+
+            if (reader.TokenType is JsonTokenType.Null)
             {
                 return null;
             }
 
-            if (model.Sender is null)
+            if (reader.TokenType is not JsonTokenType.StartObject)
             {
-                throw new JsonException("Missing Sender.");
+                throw new JsonException($"Expected outbox object, got '{reader.TokenType}'.");
             }
 
-            if (model.Items.IsDefault)
+            GrainId? sender = null;
+            long latestSequenceNumber = 0;
+            var hasLatestSequenceNumber = false;
+            DateTimeOffset? epoch = null;
+            ImmutableArray<OutboxMessageEnvelope<T>> items = default;
+            var hasItems = false;
+
+            while (reader.Read())
             {
-                throw new JsonException("Missing Items.");
+                if (reader.TokenType is JsonTokenType.EndObject)
+                {
+                    return new Outbox<T>(
+                        sender ?? throw new JsonException("Missing Sender."),
+                        hasLatestSequenceNumber
+                            ? latestSequenceNumber
+                            : throw new JsonException("Missing LatestSequenceNumber."),
+                        hasItems ? items : throw new JsonException("Missing Items."),
+                        epoch);
+                }
+
+                if (reader.TokenType is not JsonTokenType.PropertyName)
+                {
+                    throw new JsonException($"Expected outbox property, got '{reader.TokenType}'.");
+                }
+
+                var propertyName = reader.GetString();
+                if (!reader.Read())
+                {
+                    throw new JsonException("Unexpected end of outbox JSON.");
+                }
+
+                switch (propertyName)
+                {
+                    case nameof(Outbox<T>.Sender):
+                        sender = reader.TokenType is JsonTokenType.Null
+                            ? null
+                            : GrainIdJsonConverter.Instance.Read(ref reader, typeof(GrainId), options);
+                        break;
+                    case nameof(Outbox<T>.LatestSequenceNumber):
+                        latestSequenceNumber = reader.GetInt64();
+                        hasLatestSequenceNumber = true;
+                        break;
+                    case nameof(Outbox<T>.Epoch):
+                        epoch = reader.TokenType is JsonTokenType.Null
+                            ? null
+                            : reader.GetDateTimeOffset();
+                        break;
+                    case "Items":
+                        items = ReadItems(ref reader, options);
+                        hasItems = true;
+                        break;
+                    default:
+                        reader.Skip();
+                        break;
+                }
             }
 
-            var items = ImmutableArray.CreateBuilder<OutboxMessageEnvelope<T>>(model.Items.Length);
-            foreach (var item in model.Items)
-            {
-                if (item is null)
-                {
-                    throw new JsonException("Missing Item.");
-                }
-
-                if (item.Token is null)
-                {
-                    throw new JsonException("Missing Token.");
-                }
-
-                if (item.Token.Sender is null)
-                {
-                    throw new JsonException("Missing Token.Sender.");
-                }
-
-                items.Add(new OutboxMessageEnvelope<T>(
-                    new OutboxSequenceToken(
-                        item.Token.SequenceNumber,
-                        GrainId.Create(item.Token.Sender.Type, item.Token.Sender.Key),
-                        item.Token.Timestamp,
-                        item.Token.Epoch),
-                    item.Message));
-            }
-
-            return new Outbox<T>(
-                GrainId.Create(model.Sender.Type, model.Sender.Key),
-                model.LatestSequenceNumber,
-                items.ToImmutable(),
-                model.Epoch);
+            throw new JsonException("Unexpected end of outbox JSON.");
         }
 
         public override void Write(
@@ -100,40 +128,63 @@ internal sealed class OutboxJsonConverterFactory : JsonConverterFactory
             Outbox<T> value,
             JsonSerializerOptions options)
         {
-            var model = new OutboxJsonModel<T>(
-                ToJsonModel(value.Sender),
-                value.LatestSequenceNumber,
-                value.Epoch,
-                [.. value.Select(static item => new OutboxMessageEnvelopeJsonModel<T>(
-                    new OutboxSequenceTokenJsonModel(
-                        item.Token.SequenceNumber,
-                        ToJsonModel(item.Token.Sender),
-                        item.Token.Timestamp,
-                        item.Token.Epoch),
-                    item.Message))]);
+            writer.WriteStartObject();
+            writer.WritePropertyName(nameof(Outbox<T>.Sender));
+            GrainIdJsonConverter.Instance.Write(writer, value.Sender, options);
+            writer.WriteNumber(nameof(Outbox<T>.LatestSequenceNumber), value.LatestSequenceNumber);
+            writer.WritePropertyName(nameof(Outbox<T>.Epoch));
+            if (value.Epoch is { } epoch)
+            {
+                writer.WriteStringValue(epoch);
+            }
+            else
+            {
+                writer.WriteNullValue();
+            }
 
-            JsonSerializer.Serialize(writer, model, options);
+            writer.WritePropertyName("Items");
+            writer.WriteStartArray();
+            foreach (var item in value)
+            {
+                envelopeConverter.Write(writer, item, options);
+            }
+
+            writer.WriteEndArray();
+            writer.WriteEndObject();
+        }
+
+        private ImmutableArray<OutboxMessageEnvelope<T>> ReadItems(
+            ref Utf8JsonReader reader,
+            JsonSerializerOptions options)
+        {
+            if (reader.TokenType is JsonTokenType.Null)
+            {
+                throw new JsonException("Missing Items.");
+            }
+
+            if (reader.TokenType is not JsonTokenType.StartArray)
+            {
+                throw new JsonException($"Expected outbox items array, got '{reader.TokenType}'.");
+            }
+
+            var items = ImmutableArray.CreateBuilder<OutboxMessageEnvelope<T>>();
+            while (reader.Read())
+            {
+                if (reader.TokenType is JsonTokenType.EndArray)
+                {
+                    return items.ToImmutable();
+                }
+
+                if (reader.TokenType is JsonTokenType.Null)
+                {
+                    throw new JsonException("Missing Item.");
+                }
+
+                var item = envelopeConverter.Read(ref reader, typeof(OutboxMessageEnvelope<T>), options);
+                items.Add(item ?? throw new JsonException("Missing Item."));
+            }
+
+            throw new JsonException("Unexpected end of outbox items JSON.");
         }
     }
-
-    private sealed record OutboxJsonModel<T>(
-        GrainIdJsonModel? Sender,
-        long LatestSequenceNumber,
-        DateTimeOffset? Epoch,
-        ImmutableArray<OutboxMessageEnvelopeJsonModel<T>?> Items);
-
-    private sealed record OutboxMessageEnvelopeJsonModel<T>(
-        OutboxSequenceTokenJsonModel? Token,
-        T Message);
-
-    private sealed record OutboxSequenceTokenJsonModel(
-        long SequenceNumber,
-        GrainIdJsonModel? Sender,
-        DateTimeOffset Timestamp,
-        DateTimeOffset Epoch);
-
-    private sealed record GrainIdJsonModel(string Type, string Key);
-
-    private static GrainIdJsonModel ToJsonModel(GrainId grainId) =>
-        new(grainId.Type.ToString()!, grainId.Key.ToString()!);
 }

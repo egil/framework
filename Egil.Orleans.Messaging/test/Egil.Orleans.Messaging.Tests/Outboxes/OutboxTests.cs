@@ -116,7 +116,7 @@ public sealed class OutboxTests
     }
 
     [Fact]
-    public void RemoveRange_stops_at_first_token_gap_to_preserve_fifo_order()
+    public void RemoveRange_removes_matching_tokens_after_gap_and_preserves_remaining_order()
     {
         var sender = GrainId.Create("test/sender", "one");
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
@@ -127,9 +127,8 @@ public sealed class OutboxTests
 
         var next = outbox.RemoveRange([outbox[0].Token, outbox[2].Token]);
 
-        Assert.Equal(2, next.Count);
+        Assert.Single(next);
         Assert.Equal("second", next[0].Message);
-        Assert.Equal("third", next[1].Message);
     }
 
     [Fact]

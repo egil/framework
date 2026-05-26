@@ -34,14 +34,43 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// (<c>[GenerateSerializer]</c>) and System.Text.Json if the storage provider
 /// uses STJ.
 /// </typeparam>
-/// <param name="Token">
-/// The sequence token identifying this message. Assigned by
-/// <see cref="Outbox{T}.Add"/> — never user-constructed.
-/// </param>
-/// <param name="Message">The user-defined message payload.</param>
 [GenerateSerializer]
 [Alias("egil.orleans.messaging.OutboxMessageEnvelope`1")]
 [JsonConverter(typeof(OutboxMessageEnvelopeJsonConverterFactory))]
-public sealed record OutboxMessageEnvelope<T>(
-    [property: Id(0)] OutboxSequenceToken Token,
-    [property: Id(1)] T Message);
+public sealed record OutboxMessageEnvelope<T>
+{
+    /// <summary>
+    /// Creates an empty envelope for serializer use.
+    /// </summary>
+    [SetsRequiredMembers]
+    public OutboxMessageEnvelope()
+    {
+        Token = new OutboxSequenceToken();
+        Message = default!;
+    }
+
+    /// <summary>
+    /// Creates an envelope for the given token and message payload.
+    /// </summary>
+    [SetsRequiredMembers]
+    public OutboxMessageEnvelope(OutboxSequenceToken token, T message)
+    {
+        ArgumentNullException.ThrowIfNull(token);
+
+        Token = token;
+        Message = message;
+    }
+
+    /// <summary>
+    /// The sequence token identifying this message. Assigned by
+    /// <see cref="Outbox{T}.Add"/> — never user-constructed.
+    /// </summary>
+    [Id(0)]
+    public required OutboxSequenceToken Token { get; init; }
+
+    /// <summary>
+    /// The user-defined message payload.
+    /// </summary>
+    [Id(1)]
+    public required T Message { get; init; }
+}
