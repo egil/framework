@@ -186,17 +186,18 @@ public sealed class MessageTrackerTests
     }
 
     [Fact]
-    public void LatestStreamSequenceToken_returns_null_for_tracked_null_token()
+    public void ProcessMessage_accepts_null_stream_token_without_tracking_position()
     {
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
         var tracker = new MessageTracker();
         tracker.RegisterTimeProvider(new ManualTimeProvider(now));
-        tracker.ProcessMessage("orders", token: null, out tracker);
 
-        var latest = tracker.LatestStreamSequenceToken("orders");
+        var accepted = tracker.ProcessMessage("orders", token: null, out var next);
 
-        Assert.Null(latest);
-        Assert.NotNull(tracker.LatestStream("orders"));
+        Assert.True(accepted);
+        Assert.Same(tracker, next);
+        Assert.Null(next.LatestStreamSequenceToken("orders"));
+        Assert.Null(next.LatestStream("orders"));
     }
 
     [Fact]
@@ -216,7 +217,7 @@ public sealed class MessageTrackerTests
     }
 
     [Fact]
-    public void ProcessMessage_rejects_null_stream_token_after_position_is_tracked()
+    public void ProcessMessage_accepts_null_stream_token_without_changing_tracked_position()
     {
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
         var time = new ManualTimeProvider(now);
@@ -227,8 +228,9 @@ public sealed class MessageTrackerTests
 
         var accepted = tracker.ProcessMessage(new StreamCursor("orders", null), out var next);
 
-        Assert.False(accepted);
+        Assert.True(accepted);
         Assert.Same(tracker, next);
+        Assert.Equal(new StreamCursor("orders", new EventSequenceToken(1)), next.LatestStream(streamId));
     }
 
     [Fact]
