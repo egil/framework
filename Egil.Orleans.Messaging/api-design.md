@@ -282,10 +282,31 @@ while transient 5xx errors remain ambiguous and require read-back recovery.
 Read failures do not use the classification because no local committed state
 has been tentatively changed.
 
-The Azure Storage companion package treats Orleans/Azure optimistic
-concurrency failures (`InconsistentStateException` and Azure Storage HTTP
-412) as `DidNotPersist` for writes and clears. Other provider failures stay
-`UnknownOutcome`, preserving the default read-back recovery path.
+The Azure Storage companion package follows Orleans' Azure provider semantics:
+the Orleans provider wraps Azure Table/Blob optimistic-update failures
+(precondition failed, conflict, and not found during conditional write/clear)
+as `InconsistentStateException`, so those are classified as
+`DidNotPersist`.
+
+It also understands Azure SDK `RequestFailedException` directly:
+
+- `DidNotPersist`: rejected/client-side service responses where Azure has
+  definitively not applied the mutation, including HTTP 400/401/403/404/409,
+  HTTP 412, payload-too-large responses, and Azure Table/Blob error codes such
+  as `UpdateConditionNotSatisfied`, `ConditionNotMet`, `BlobAlreadyExists`,
+  `BlobNotFound`, `ContainerNotFound`, and table entity not-found/already-exists
+  errors.
+- `UnknownOutcome`: ambiguous or transient outcomes where a write/clear may
+  have landed before the caller observed failure, including no HTTP response,
+  HTTP 408, HTTP 429, all 5xx responses, `ServerBusy`, `OperationTimedOut`,
+  `InternalError`, account IOPS throttling, `TimeoutException`, and
+  cancellation-like failures.
+
+For aggregate Azure SDK failures, any ambiguous inner failure makes the whole
+operation `UnknownOutcome`; otherwise, all deterministic storage failures can
+be treated as `DidNotPersist`. This preserves correctness over optimization:
+read-back is skipped only when the provider response proves the mutation did
+not persist.
 
 ### Why a wrapper, not extension methods
 
@@ -1027,19 +1048,25 @@ ambiguity is visible in code.
 
 ### `StreamCursor` projection constraint
 
-`StreamCursor` carries an opaque `StreamSequenceToken`. Library ships an
-STJ converter for a closed set of known subtypes discriminated on
-`$kind`:
+`StreamCursor` carries an opaque `StreamSequenceToken`. The core package ships
+an STJ converter which writes a small discriminator envelope and delegates the
+token payload directly to explicitly registered `JsonConverter<TToken>`
+instances. The discriminator is the token JSON `Kind` property.
 
 | Subtype                         | Source                          |
 | ------------------------------- | ------------------------------- |
 | `EventSequenceToken`            | Orleans SimpleMessageStream     |
-| `EventHubSequenceToken`         | Orleans EH provider v1          |
-| `EventHubSequenceTokenV2`       | Orleans EH provider v2          |
-| `EnrichedEventHubSequenceToken` | Library-shipped v2 subclass     |
+| `EventSequenceTokenV2`          | Orleans SimpleMessageStream v2  |
+| `EventHubSequenceToken`         | Event Hubs companion package    |
+| `EventHubSequenceTokenV2`       | Event Hubs companion package    |
+| `EnrichedEventHubSequenceToken` | Event Hubs companion package    |
 
 Unknown subtype throws at serialization time — silently dropping the
-cursor would corrupt dedup.
+cursor would corrupt dedup. Unknown discriminator throws at deserialization
+time. Provider packages register converters during their normal setup; custom
+stream providers can register their own converter with
+`AddStreamSequenceTokenJsonConverter<TToken, TConverter>(...)` or
+`StreamSequenceTokenJsonConverters.Register(...)`.
 
 ### Event Hub adapter for enriched tokens
 
@@ -1063,6 +1090,12 @@ siloBuilder.AddEventHubStreams("orders", b =>
     // ... other Event Hub config
 });
 ```
+
+`UseEnrichedDataAdapter()` also registers Event Hubs sequence-token JSON
+converters. That lets `MessageTracker` and `StreamCursor` round-trip
+`EnrichedEventHubSequenceToken` without the core package referencing Event
+Hubs and without losing `EventHubOffset`, `EnqueuedTime`, `ProviderName`, or
+`TraceParent`.
 
 Users who need custom adapter behavior can subclass
 `EnrichedEventHubAdapter` and register their subclass via Orleans'
@@ -1186,21 +1219,21 @@ in the `Clever.PricingEngine` codebase.
 
 - **Grain-scoped, not silo-scoped.** Each grain with an outbox gets its
   own `OutboxProcessor`. No external scan, no registry, no second store.
-- **GrainTimer** for in-process fast retry while activated.
+- **In-process retry** for fast retry while activated.
 - **Durable Reminder** for cross-activation recovery. Reactivates the
-  grain if it deactivates with pending items. Timer arms on activation.
+  grain if it deactivates with pending items. Retry scheduling is updated on
+  activation.
 - **Single active drain.** At most one send attempt may run per activation.
-  `PostAsync`, `PostInBackgroundAsync`, timer callbacks, and reminder
-  callbacks all coalesce through the same drain gate. If a post run is
-  already active, additional requests mark another run as desired rather
-  than starting concurrently.
-- **Callback interleaving is explicit.** `Interleave` mirrors Orleans'
-  `GrainTimerCreationOptions.Interleave` and controls whether processor
-  callbacks run interleaved with other grain turns. It does not by itself
-  permit overlapping post runs.
-- **Keep-alive is explicit.** `KeepAlive` mirrors Orleans'
-  `GrainTimerCreationOptions.KeepAlive` and controls whether an active
-  processor timer keeps the grain activation alive.
+  `PostAsync`, `PostInBackgroundAsync`, retry callbacks, and reminder
+  callbacks all coalesce through the same drain gate. If a post run is already
+  active, additional requests mark another run as desired rather than starting
+  concurrently.
+- **Background postage interleaves by default.** `Interleave` defaults to
+  `true`, allowing unrelated grain calls to continue while postmen await I/O.
+  It does not by itself permit overlapping post runs.
+- **Keep-alive is explicit.** `KeepAlive` controls whether background retry
+  work should keep the grain activation alive while pending outbox items
+  remain.
 
 ### Postman dispatch
 
@@ -1226,11 +1259,15 @@ public sealed class OutboxPostmanAttribute(string name) : Attribute
 }
 ```
 
-Use inline callbacks when delivery logic is grain-local and small. Use keyed
-`IPostman<TMessage>` services when the delivery code has dependencies, should
-be tested outside Orleans, or is shared across grains. Registered postman
-services are scoped to the grain activation service provider and the processor
-does not create child scopes.
+Use inline callbacks when delivery logic is grain-local and small. Inline
+callbacks are the only postman shape which can naturally close over
+activation-local grain state, so they need the most care when background
+postage interleaves with other grain turns. Use keyed `IPostman<TMessage>`
+services when the delivery code has dependencies, should be tested outside
+Orleans, or is shared across grains. Registered postman services are scoped to
+the grain activation service provider and the processor does not create child
+scopes. They should be state-free with respect to the owning grain: use the
+message payload, injected services, and `IGrainFactory`, not grain fields.
 
 ```csharp
 namespace Microsoft.Extensions.DependencyInjection;
@@ -1256,62 +1293,102 @@ public static class OutboxPostmanServiceCollectionExtensions
   with attempt count (in-memory, resets on reactivation) — the grain
   decides: leave item in state to retry, or remove to dead-letter after
   N attempts.
+- Pending items dispatch concurrently within a single drain. The processor
+  starts all matching postman calls, waits for all of them, then invokes
+  `AcknowledgePostedAsync` with successful items in original pending order
+  and `ReconcileFailedAsync` with failed items. This avoids head-of-line
+  blocking between independent postmen while keeping durable reconciliation
+  batched and ordered.
 - Each item dispatches to exactly **one** postman (first-registered-wins).
   Items whose runtime type matches no postman → reported as failed with
   `NoPostmanRegisteredException`.
 - `PostAsync` only throws `TimeoutException` (per-run timeout),
   `OperationCanceledException` (caller token), or callback exceptions.
 
-Postman callbacks can run in one of two execution modes:
+Postman callbacks run on Orleans' activation scheduler. Keyed
+`IPostman<TMessage>` services should not depend on activation-local grain
+state. Inline postmen may close over and read activation-local state, but they
+should not mutate it; durable changes belong in `AcknowledgePostedAsync` and
+`ReconcileFailedAsync`.
 
-```csharp
-public enum OutboxPostmanExecutionMode
-{
-    /// <summary>
-    /// Executes postman callbacks on the Orleans activation scheduler.
-    /// </summary>
-    /// <remarks>
-    /// This is the default and recommended mode.
-    ///
-    /// The Orleans activation scheduler is the per-activation scheduler that
-    /// provides Orleans' turn-based execution model. Work scheduled on it
-    /// runs as grain work: it is single-threaded per activation and obeys
-    /// Orleans request scheduling, reentrancy, and timer interleaving rules.
-    ///
-    /// Use this mode for normal async postmen. Well-behaved async libraries
-    /// should be awaited directly and do not need to be moved to the .NET
-    /// thread pool.
-    /// </remarks>
-    GrainScheduler,
+Background postage uses Orleans activation scheduling and `Interleave` defaults
+to `true`, so other grain calls can run while postmen await I/O. Orleans still
+executes only one turn at a time on the activation. Reconciliation uses
+`InterleaveReconciliationCallbacks` and defaults to non-interleaving, so
+`AcknowledgePostedAsync` and `ReconcileFailedAsync` do not interleave with
+ordinary grain calls unless the user opts in or the grain is reentrant.
 
-    /// <summary>
-    /// Executes postman callbacks on the .NET thread pool, outside the
-    /// Orleans activation scheduler.
-    /// </summary>
-    /// <remarks>
-    /// This is an escape hatch for blocking or legacy postmen which would
-    /// otherwise block the grain scheduler. It should not be used merely
-    /// because a postman performs asynchronous I/O.
-    ///
-    /// Postmen in this mode must not read or mutate activation-local grain
-    /// state. They may call other grains through IGrainFactory or use
-    /// external services which are safe to use from thread-pool code.
-    /// PendingItems, AcknowledgePostedAsync, and ReconcileFailedAsync still
-    /// execute on the Orleans activation scheduler.
-    /// </remarks>
-    ThreadPool
-}
+The scheduling goal is to keep external postage fast without letting durable
+outbox reconciliation interleave with ordinary grain writes:
+
+```mermaid
+sequenceDiagram
+    participant Grain
+    participant Dispatch as "Interleaving dispatch turn"
+    participant Postmen
+    participant Reconcile as "Non-interleaving reconciliation turn"
+
+    Grain->>Dispatch: "PostInBackgroundAsync schedules dispatch"
+    Dispatch->>Grain: "PendingItems() snapshot"
+    Dispatch->>Postmen: "Dispatch all pending items concurrently"
+    Note over Dispatch,Grain: "Other grain calls may run while postmen await"
+    Postmen-->>Dispatch: "Success/failure results"
+    Dispatch->>Reconcile: "Enqueue reconciliation"
+    Reconcile->>Grain: "AcknowledgePostedAsync / ReconcileFailedAsync"
+    Note over Reconcile,Grain: "Must not interleave with normal writes"
+    Reconcile->>Grain: "PendingItems() and retry/reminder update"
 ```
 
-`GrainScheduler` is the safe default. Postmen may close over activation
-state because they execute under Orleans activation scheduling.
+Orleans has two relevant scheduling layers:
 
-`ThreadPool` is for blocking or legacy postmen. In this mode postmen must
-not read or mutate activation-local grain state. They should be static or
-otherwise state-free and use services such as `IGrainFactory` to deliver the
-message. Only the fast grain callbacks (`PendingItems`,
-`AcknowledgePostedAsync`, `ReconcileFailedAsync`) run on the Orleans
-activation scheduler and respect `Interleave`.
+- **Task scheduling** through `IGrainContext.Scheduler` /
+  `IWorkItemScheduler` queues work on the activation scheduler, but it does
+  not create a grain request with interleaving metadata. It is not enough to
+  make an async reconciliation callback non-interleaving until its returned
+  task completes.
+- **Request scheduling** applies to grain calls, reminder calls, and timer
+  callbacks. This is the layer that understands `Interleave`, `[ReadOnly]`,
+  `[AlwaysInterleave]`, reentrancy, and ordinary non-interleaving grain turns.
+
+This follows directly from Orleans 10.1.0 source: `GrainTimer` schedules timer
+ticks by creating a local Orleans message and setting
+`msg.IsAlwaysInterleave = _interleave`, while `WorkItemGroup` /
+`IWorkItemScheduler` only enqueue and execute `Task` instances on the
+activation scheduler.
+
+The two technically valid ways to get the diagram above are:
+
+1. Enqueue reconciliation through a second due-now `GrainTimer` with
+   `Interleave = false`. This works but is conceptually heavy: the timer is
+   used as a request-scheduling primitive, not because reconciliation is
+   time-based.
+2. Move pending/acknowledge/reconcile callbacks onto an outbox grain interface
+   and have the processor call the owning grain through its self-reference.
+   Those methods are then ordinary Orleans grain calls. `PendingItems` should
+   not be `[ReadOnly]` if it must wait behind writes; `[ReadOnly]` only
+   interleaves with other read-only calls, not arbitrary writes.
+
+Decision: use the second timer internally for the callback/reconciliation
+phase while preserving the callback-based public API.
+
+- The dispatch timer uses `Interleave = true`.
+- The reconciliation timer uses `Interleave = false`.
+- The reconciliation timer is not a time-based feature; it is a supported
+  Orleans request-scheduling primitive which lets the processor enqueue a
+  local non-interleaving activation turn without using Orleans internals.
+- This guarantee is bounded by Orleans' normal scheduling rules. If the grain
+  class is `[Reentrant]`, Orleans allows timer callbacks to interleave
+  regardless of `GrainTimerCreationOptions.Interleave = false`. The processor
+  should not try to skip the reconciliation timer for reentrant grains; instead
+  documentation should state that reentrant grains opt out of the
+  non-interleaving reconciliation guarantee.
+- `InterleaveReconciliationCallbacks` defaults to `false`. Most users should
+  keep reconciliation non-interleaving because those callbacks usually update
+  durable outbox state.
+- `PostAsync()` remains a direct awaitable drain. It does not use the dispatch
+  or reconciliation timer, because the caller explicitly chose to wait for
+  postage. On ordinary non-reentrant grains, that means the caller's grain
+  turn remains occupied until dispatch and reconciliation complete.
 
 ### Grain integration pattern
 
@@ -1377,18 +1454,17 @@ public sealed class OutboxProcessorOptions<TOutbox> where TOutbox : notnull
     /// Timer + reminder period. Orleans reminders fire at most once/minute.
     public TimeSpan RetryDelay { get; init; } = TimeSpan.FromMinutes(2);
 
-    /// Whether processor timer callbacks may interleave with other grain turns.
-    /// Mirrors GrainTimerCreationOptions.Interleave.
-    public bool Interleave { get; init; } = false;
+    /// Whether background posting may allow other grain calls to run while
+    /// postmen are awaiting asynchronous work.
+    public bool Interleave { get; init; } = true;
 
-    /// Whether an active processor timer keeps the activation alive.
-    /// Mirrors GrainTimerCreationOptions.KeepAlive.
+    /// Whether acknowledgement/failure reconciliation callbacks may interleave
+    /// when posting runs in the background.
+    public bool InterleaveReconciliationCallbacks { get; init; } = false;
+
+    /// Whether background retry work should keep the grain activation alive
+    /// while pending outbox items remain.
     public bool KeepAlive { get; init; } = false;
-
-    /// Controls whether postmen run on the Orleans activation scheduler or on
-    /// the .NET thread pool.
-    public OutboxPostmanExecutionMode PostmanExecution { get; init; } =
-        OutboxPostmanExecutionMode.GrainScheduler;
 }
 ```
 
@@ -1445,12 +1521,12 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         where TGrain : IGrain;
 
     /// Posts pending items. Safe to call from grain's task scheduler.
-    /// Arms timer/reminder if items remain, unregisters if empty.
+    /// Schedules retry if items remain; unregisters retry work if empty.
     public ValueTask PostAsync(CancellationToken cancellationToken = default);
 
-    /// Schedules posting through the same timer-backed drain path used for
-    /// retry. Returns after the run has been scheduled, not after posting
-    /// completes. Multiple calls coalesce into a single active drain.
+    /// Schedules posting through the same background drain path used for retry.
+    /// Returns after the run has been scheduled, not after posting completes.
+    /// Multiple calls coalesce into a single active drain.
     public ValueTask PostInBackgroundAsync(
         CancellationToken cancellationToken = default);
 
@@ -1471,8 +1547,8 @@ Two obligations (both compiler-enforced):
 1. Implement `IOutboxGrain`.
 2. Call `RegisterOutboxProcessor(...)` in `OnActivateAsync`.
 
-No `ReceiveReminder` override needed (DIM handles it). No manual
-timer/reminder lifecycle. No telemetry wiring.
+No `ReceiveReminder` override needed (DIM handles it). No manual retry
+lifecycle. No telemetry wiring.
 
 Escape hatch for grains with their own reminders:
 
@@ -1488,7 +1564,7 @@ public async Task ReceiveReminder(string name, TickStatus status)
 
 - **Grain-scoped, not silo-scoped.** Grain already knows its own outbox
   state. No external scan needed. Reminder ensures cross-activation
-  recovery. Timer handles fast retry. Pattern Orleans itself uses.
+  recovery. Activation-local scheduling handles fast retry.
 - **Callback-based, not DI service.** Grain controls dispatch logic,
   can pass its own state to the postman. DI service adds indirection
   without clear benefit.
@@ -1509,20 +1585,18 @@ public async Task ReceiveReminder(string name, TickStatus status)
   `AcknowledgePostedAsync`, preserving the outbox invariant that all durable
   state changes go through the owning grain's state manager.
 - **`PostInBackgroundAsync` uses the same path as retry.** It schedules a
-  timer-backed drain and returns quickly so a grain command can commit an
-  outbox item and return to its caller without waiting for external
-  delivery.
+  background drain and returns quickly so a grain command can commit an outbox
+  item and return to its caller without waiting for external delivery. Reminder
+  ticks schedule this background path too, so recovery postage follows the same
+  interleaving policy.
 - **No overlapping drains, regardless of `Interleave`.** `Interleave`
   controls Orleans callback scheduling only. Internal drain gating still
   ensures one send attempt at a time.
-- **`ThreadPool` is opt-in.** Blocking or legacy delivery can run outside
-  the Orleans activation scheduler, but postmen in that mode must not
-  touch activation-local grain state. Use `IGrainFactory` or injected
-  services instead.
-- **Do not offload normal async libraries.** Orleans guidance is to await
-  well-behaved async libraries directly. `ThreadPool` exists for code
-  that blocks synchronously or otherwise must escape the Orleans
-  scheduler.
+- **No thread-pool execution mode.** With interleavable background postage,
+  normal async postmen should be awaited on the Orleans activation scheduler.
+  Blocking or legacy synchronous delivery should be moved out to an injected
+  service or another grain instead of making the outbox processor schedule it
+  directly.
 - **One postman per item.** First-registered-wins, not broadcast.
   Simpler error semantics, no partial-success ambiguity.
 - **DIM on `IOutboxGrain`.** Zero ceremony. Grain author never writes
@@ -1604,6 +1678,14 @@ Documented as a known limitation.
 | `OutboxSequenceToken` | `[JsonConverter(typeof(OutboxSequenceTokenJsonConverter))]` |
 | `StreamCursor` | `[JsonConverter(typeof(StreamCursorJsonConverter))]` |
 | `VersionedState` | No custom converter — `[JsonInclude]` on `Version` property makes `internal set` visible to STJ |
+
+`StreamCursorJsonConverter` and `MessageTrackerJsonConverter` share the
+process-wide `StreamSequenceTokenJsonConverters` registry for polymorphic
+`StreamSequenceToken` payloads. The registry ships with provider-neutral
+Orleans token converters and provider packages register their own
+`JsonConverter<TToken>` instances during setup. This is intentionally explicit:
+unknown token types fail loudly instead of being silently downcast to an
+ancestor token shape.
 
 **Why custom converters (not `[JsonInclude]` on private fields):**
 
