@@ -73,4 +73,11 @@ public sealed record OutboxMessageEnvelope<T>
     /// </summary>
     [Id(1)]
     public required T Message { get; init; }
+
+    [Id(2)]
+    public int SendAttempts { get; internal set; }
+
+    [JsonIgnore]
+    [field: NonSerialized]
+    public Exception? LastSendError { get; internal set; }
 }
