@@ -142,7 +142,7 @@ public sealed class OutboxProcessorTests(MessagingTestClusterFixture fixture) : 
     }
 
     [Fact]
-    public async Task PostAsync_dispatches_pending_items_concurrently()
+    public async Task PostAsync_dispatches_items_for_same_postman_sequentially()
     {
         var source = fixture.GrainFactory.GetGrain<IOutboxProcessorConcurrentPostmanGrain>(Guid.NewGuid());
 
@@ -152,7 +152,33 @@ public sealed class OutboxProcessorTests(MessagingTestClusterFixture fixture) : 
         Assert.Equal(2, state.AcknowledgedCount);
         Assert.Equal(0, state.FailedCount);
         Assert.Equal(0, state.Outbox?.Count);
+        Assert.Equal(1, state.MaxConcurrentPostmen);
+    }
+
+    [Fact]
+    public async Task PostAsync_dispatches_different_postmen_concurrently()
+    {
+        var source = fixture.GrainFactory.GetGrain<IOutboxProcessorOrderedPostmanGrain>(Guid.NewGuid());
+
+        var state = await source.PublishTwoPostmenAsync("primary", "secondary");
+
+        Assert.Equal(["primary", "secondary"], state.PostedValues.Sort());
+        Assert.Empty(state.FailedValues);
+        Assert.Empty(state.PendingValues);
         Assert.Equal(2, state.MaxConcurrentPostmen);
+    }
+
+    [Fact]
+    public async Task PostAsync_blocks_later_items_for_same_postman_after_failure()
+    {
+        var source = fixture.GrainFactory.GetGrain<IOutboxProcessorOrderedPostmanGrain>(Guid.NewGuid());
+
+        var state = await source.PublishBlockedPostmanBatchAsync("fail-first", "secondary", "blocked-later");
+
+        Assert.Equal(["secondary"], state.PostedValues);
+        Assert.Equal(["fail-first"], state.FailedValues);
+        Assert.Equal(["fail-first", "blocked-later"], state.PendingValues);
+        Assert.DoesNotContain("blocked-later", state.AttemptedValues);
     }
 
     [Fact]
@@ -250,6 +276,16 @@ public interface IOutboxProcessorConcurrentPostmanGrain : IGrainWithGuidKey
     Task<OutboxProcessorSourceState> GetStateAsync();
 }
 
+public interface IOutboxProcessorOrderedPostmanGrain : IGrainWithGuidKey
+{
+    Task<OutboxProcessorOrderedPostmanState> PublishTwoPostmenAsync(string primary, string secondary);
+
+    Task<OutboxProcessorOrderedPostmanState> PublishBlockedPostmanBatchAsync(
+        string failingPrimary,
+        string secondary,
+        string blockedPrimary);
+}
+
 public interface IOutboxProcessorSinkGrain : IGrainWithGuidKey
 {
     Task EnsureActiveAsync();
@@ -287,7 +323,21 @@ public sealed class OutboxProcessorSinkState
 }
 
 [GenerateSerializer]
+public sealed record OutboxProcessorOrderedPostmanState(
+    [property: Id(0)] ImmutableArray<string> PostedValues,
+    [property: Id(1)] ImmutableArray<string> FailedValues,
+    [property: Id(2)] ImmutableArray<string> PendingValues,
+    [property: Id(3)] ImmutableArray<string> AttemptedValues,
+    [property: Id(4)] int MaxConcurrentPostmen);
+
+[GenerateSerializer]
 public sealed record OutboxProcessorTestEvent([property: Id(0)] string Value);
+
+public abstract record OutboxProcessorOrderedMessage(string Value);
+
+public sealed record OutboxProcessorPrimaryMessage(string Value) : OutboxProcessorOrderedMessage(Value);
+
+public sealed record OutboxProcessorSecondaryMessage(string Value) : OutboxProcessorOrderedMessage(Value);
 
 public sealed class OutboxProcessorSourceGrain(
     [PersistentState("state", "Default")] IPersistentState<OutboxProcessorSourceState> state)
@@ -833,6 +883,129 @@ public sealed class OutboxProcessorConcurrentPostmanGrain(
     {
         return state.State.Outbox ??= Outbox<OutboxProcessorTestEvent>.Create(GrainContext.GrainId);
     }
+}
+
+public sealed class OutboxProcessorOrderedPostmanGrain
+    : Grain, IOutboxProcessorOrderedPostmanGrain, IOutboxGrain
+{
+    private OutboxProcessor<OutboxProcessorOrderedMessage>? processor;
+    private ImmutableArray<OutboxProcessorOrderedMessage> pending = [];
+    private ImmutableArray<string> postedValues = [];
+    private ImmutableArray<string> failedValues = [];
+    private ImmutableArray<string> attemptedValues = [];
+    private int activePostmen;
+    private int maxConcurrentPostmen;
+
+    public override async Task OnActivateAsync(CancellationToken cancellationToken)
+    {
+        processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorOrderedMessage>
+        {
+            PendingItems = () => pending,
+            AcknowledgePostedAsync = AcknowledgePostedAsync,
+            ReconcileFailedAsync = ReconcileFailedAsync,
+            RetryDelay = TimeSpan.FromMinutes(10)
+        })
+        .AddPostman<OutboxProcessorPrimaryMessage>(PostPrimaryAsync)
+        .AddPostman<OutboxProcessorSecondaryMessage>(PostSecondaryAsync);
+
+        await base.OnActivateAsync(cancellationToken);
+    }
+
+    public async Task<OutboxProcessorOrderedPostmanState> PublishTwoPostmenAsync(
+        string primary,
+        string secondary)
+    {
+        pending =
+        [
+            new OutboxProcessorPrimaryMessage(primary),
+            new OutboxProcessorSecondaryMessage(secondary)
+        ];
+
+        await processor!.PostAsync();
+        return CreateState();
+    }
+
+    public async Task<OutboxProcessorOrderedPostmanState> PublishBlockedPostmanBatchAsync(
+        string failingPrimary,
+        string secondary,
+        string blockedPrimary)
+    {
+        pending =
+        [
+            new OutboxProcessorPrimaryMessage(failingPrimary),
+            new OutboxProcessorSecondaryMessage(secondary),
+            new OutboxProcessorPrimaryMessage(blockedPrimary)
+        ];
+
+        await processor!.PostAsync();
+        return CreateState();
+    }
+
+    private Task PostPrimaryAsync(
+        OutboxProcessorPrimaryMessage message,
+        CancellationToken cancellationToken) =>
+        PostTrackedAsync(message, cancellationToken);
+
+    private Task PostSecondaryAsync(
+        OutboxProcessorSecondaryMessage message,
+        CancellationToken cancellationToken) =>
+        PostTrackedAsync(message, cancellationToken);
+
+    private async Task PostTrackedAsync(
+        OutboxProcessorOrderedMessage message,
+        CancellationToken cancellationToken)
+    {
+        attemptedValues = attemptedValues.Add(message.Value);
+        activePostmen++;
+        maxConcurrentPostmen = Math.Max(maxConcurrentPostmen, activePostmen);
+
+        try
+        {
+            if (message.Value.StartsWith("fail-", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException($"Cannot post {message.Value}.");
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(200), cancellationToken);
+        }
+        finally
+        {
+            activePostmen--;
+        }
+    }
+
+    private ValueTask AcknowledgePostedAsync(
+        ImmutableArray<OutboxProcessorOrderedMessage> items,
+        CancellationToken cancellationToken)
+    {
+        foreach (var item in items)
+        {
+            pending = pending.Remove(item);
+            postedValues = postedValues.Add(item.Value);
+        }
+
+        return ValueTask.CompletedTask;
+    }
+
+    private ValueTask ReconcileFailedAsync(
+        ImmutableArray<(OutboxProcessorOrderedMessage Item, Exception Error, int Attempt)> failures,
+        CancellationToken cancellationToken)
+    {
+        foreach (var failure in failures)
+        {
+            failedValues = failedValues.Add(failure.Item.Value);
+        }
+
+        return ValueTask.CompletedTask;
+    }
+
+    private OutboxProcessorOrderedPostmanState CreateState() =>
+        new(
+            postedValues,
+            failedValues,
+            pending.Select(static item => item.Value).ToImmutableArray(),
+            attemptedValues,
+            maxConcurrentPostmen);
 }
 
 public sealed class KeyedOutboxProcessorSuccessPostman :
