@@ -1,5 +1,3 @@
-using System.Collections.Immutable;
-using System.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Orleans.Streams;
@@ -14,24 +12,35 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// The base type of items in the outbox. Postmen can handle subtypes via
 /// <see cref="AddPostman{TSub}(Func{TSub, ValueTask})"/>.
 /// </typeparam>
+/// <remarks>
+/// Matching remains first-match-wins across registered postmen. During a post
+/// run, each postman receives its matching items sequentially in the order
+/// returned by <see cref="OutboxProcessorOptions{TOutbox}.PendingItems"/>. A
+/// failure stops that postman's sequence so later matching items remain
+/// pending until the owning grain removes or reconciles the failed item.
+/// Different postmen are dispatched concurrently.
+/// </remarks>
 public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     where TOutbox : notnull
 {
     private const string ReminderPrefix = "egil.orleans.messaging.outbox.";
+    private static readonly AsyncLocal<OutboxProcessor<TOutbox>?> ActiveDrain = new();
 
     private readonly IGrainBase owner;
     private readonly IGrainFactory grainFactory;
     private readonly OutboxProcessorOptions<TOutbox> options;
-    private readonly ILogger logger;
-    private readonly List<PostmanRegistration> postmen = [];
-    private readonly Dictionary<TOutbox, int> attempts = [];
+    private readonly object drainGate = new();
+    private readonly OutboxPostmanRegistry<TOutbox> postmen = new();
+    private readonly OutboxDispatcher<TOutbox> dispatcher;
+    private readonly OutboxReconciler<TOutbox> reconciler;
     private readonly string grainType;
     private readonly string reminderName;
-    private IGrainTimer? timer;
+    private IGrainTimer? dispatchTimer;
     private IGrainTimer? reconciliationTimer;
     private IGrainReminder? reminder;
-    private ReconciliationBatch? pendingReconciliation;
-    private bool drainActive;
+    private OutboxReconciliationBatch<TOutbox>? pendingReconciliation;
+    private TaskCompletionSource? activeDrain;
+    private bool backgroundDrainOwnsActiveDrain;
     private bool drainRequested;
 
     internal OutboxProcessor(
@@ -58,9 +67,12 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         this.owner = owner;
         this.grainFactory = grainFactory;
         this.options = options;
-        this.logger = logger;
         grainType = owner.GetType().Name;
         reminderName = ReminderPrefix + typeof(TOutbox).FullName;
+        dispatcher = new OutboxDispatcher<TOutbox>(postmen, logger, grainType);
+        reconciler = new OutboxReconciler<TOutbox>(
+            options.AcknowledgePostedAsync,
+            options.ReconcileFailedAsync);
     }
 
     internal string ReminderName => reminderName;
@@ -77,7 +89,8 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         Func<TSub, ValueTask> postman) where TSub : TOutbox
     {
         ArgumentNullException.ThrowIfNull(postman);
-        return AddPostmanCore<TSub>((item, _) => postman(item));
+        postmen.Add<TSub>((item, _) => postman(item));
+        return this;
     }
 
     /// <inheritdoc cref="AddPostman{TSub}(Func{TSub, ValueTask})"/>
@@ -85,7 +98,8 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         Func<TSub, Task> postman) where TSub : TOutbox
     {
         ArgumentNullException.ThrowIfNull(postman);
-        return AddPostmanCore<TSub>((item, _) => new ValueTask(postman(item)));
+        postmen.Add<TSub>((item, _) => new ValueTask(postman(item)));
+        return this;
     }
 
     /// <inheritdoc cref="AddPostman{TSub}(Func{TSub, ValueTask})"/>
@@ -93,7 +107,8 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         Func<TSub, CancellationToken, Task> postman) where TSub : TOutbox
     {
         ArgumentNullException.ThrowIfNull(postman);
-        return AddPostmanCore<TSub>((item, cancellationToken) => new ValueTask(postman(item, cancellationToken)));
+        postmen.Add<TSub>((item, cancellationToken) => new ValueTask(postman(item, cancellationToken)));
+        return this;
     }
 
     /// <inheritdoc cref="AddPostman{TSub}(Func{TSub, ValueTask})"/>
@@ -101,7 +116,8 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         Func<TSub, IGrainFactory, CancellationToken, ValueTask> postman) where TSub : TOutbox
     {
         ArgumentNullException.ThrowIfNull(postman);
-        return AddPostmanCore<TSub>((item, cancellationToken) => postman(item, grainFactory, cancellationToken));
+        postmen.Add<TSub>((item, cancellationToken) => postman(item, grainFactory, cancellationToken));
+        return this;
     }
 
     /// <summary>
@@ -116,7 +132,8 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         var postman = owner.GrainContext.ActivationServices
             .GetRequiredKeyedService<IPostman<TSub>>(postmanName);
 
-        return AddPostmanCore<TSub>(postman.PostAsync);
+        postmen.Add<TSub>(postman.PostAsync);
+        return this;
     }
 
     /// <summary>
@@ -148,11 +165,12 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         var streamProvider = owner.GrainContext.ActivationServices
             .GetRequiredKeyedService<IStreamProvider>(streamProviderName);
 
-        return AddPostmanCore<TSub>((message, _) =>
+        postmen.Add<TSub>((message, _) =>
         {
             var stream = streamProvider.GetStream<TEvent>(streamId(message));
             return new ValueTask(stream.OnNextAsync(project(message)));
         });
+        return this;
     }
 
     /// <summary>
@@ -167,37 +185,34 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         ArgumentNullException.ThrowIfNull(resolveGrain);
         ArgumentNullException.ThrowIfNull(call);
 
-        return AddPostmanCore<TSub>((message, _) =>
-            new ValueTask(call(resolveGrain(message, grainFactory), message)));
+        postmen.Add<TSub>((message, _) => new ValueTask(call(resolveGrain(message, grainFactory), message)));
+        return this;
     }
 
     /// <summary>
-    /// Posts all pending items by dispatching each to its matching postman.
-    /// Arms timer/reminder if items remain; unregisters retry work if empty.
+    /// Posts one pending snapshot by dispatching each item to its matching
+    /// postman. Arms timer/reminder if items remain; unregisters retry work if
+    /// empty.
     /// </summary>
     public async ValueTask PostAsync(CancellationToken cancellationToken = default)
     {
-        if (drainActive)
+        if (ReferenceEquals(ActiveDrain.Value, this))
         {
             drainRequested = true;
             return;
         }
 
-        drainActive = true;
+        await WaitForTurnAsync(cancellationToken);
         try
         {
-            do
-            {
-                drainRequested = false;
-                var reconciliation = await DispatchOnceAsync(cancellationToken);
-                await ReconcileAsync(reconciliation, cancellationToken);
-            }
-            while (drainRequested);
+            await DrainOnceAsync(cancellationToken);
         }
         finally
         {
-            drainActive = false;
+            CompleteDrain();
         }
+
+        await ScheduleRequestedDrainAsync();
     }
 
     /// <summary>
@@ -212,7 +227,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
             return;
         }
 
-        EnsureTimer(TimeSpan.Zero);
+        EnsureDispatchTimer(TimeSpan.Zero);
         await EnsureReminderAsync();
     }
 
@@ -236,42 +251,36 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         owner.GrainContext.SetComponent<IOutboxComponent>(this);
     }
 
-    private OutboxProcessor<TOutbox> AddPostmanCore<TSub>(
-        Func<TSub, CancellationToken, ValueTask> postman) where TSub : TOutbox
-    {
-        postmen.Add(new PostmanRegistration(
-            item => item is TSub,
-            (item, cancellationToken) => postman((TSub)item, cancellationToken),
-            typeof(TSub)));
-
-        return this;
-    }
-
     private async Task DispatchInBackgroundAsync(CancellationToken cancellationToken)
     {
-        if (drainActive)
-        {
-            drainRequested = true;
-            return;
-        }
+        cancellationToken.ThrowIfCancellationRequested();
+        await WaitForTurnAsync(cancellationToken);
 
-        drainActive = true;
+        var drainCompleted = false;
         try
         {
-            drainRequested = false;
-            var reconciliation = await DispatchOnceAsync(cancellationToken);
+            var reconciliation = await RunAsActiveDrainAsync(
+                () => ProcessPendingItemsAsync(cancellationToken));
+
             if (reconciliation.HasWork)
             {
                 pendingReconciliation = reconciliation;
+                backgroundDrainOwnsActiveDrain = true;
                 EnsureReconciliationTimer(TimeSpan.Zero);
                 return;
             }
 
-            drainActive = false;
+            CompleteDrain();
+            drainCompleted = true;
+            await ScheduleRequestedDrainAsync();
         }
         catch
         {
-            drainActive = false;
+            if (!drainCompleted)
+            {
+                CompleteDrain();
+            }
+
             throw;
         }
     }
@@ -283,20 +292,75 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
 
         try
         {
-            await ReconcileAsync(reconciliation.GetValueOrDefault(), cancellationToken);
+            await RunAsActiveDrainAsync(
+                () => ReconcileAsync(reconciliation.GetValueOrDefault(), cancellationToken));
         }
         finally
         {
-            drainActive = false;
+            if (backgroundDrainOwnsActiveDrain)
+            {
+                backgroundDrainOwnsActiveDrain = false;
+                CompleteDrain();
+            }
         }
 
-        if (drainRequested)
+        await ScheduleRequestedDrainAsync();
+    }
+
+    private async Task WaitForTurnAsync(CancellationToken cancellationToken)
+    {
+        while (true)
         {
-            EnsureTimer(TimeSpan.Zero);
+            var currentDrain = TryBeginDrainOrGetCurrent();
+            if (currentDrain is null)
+            {
+                return;
+            }
+
+            await currentDrain.WaitAsync(cancellationToken);
         }
     }
 
-    private async Task<ReconciliationBatch> DispatchOnceAsync(CancellationToken cancellationToken)
+    private async Task DrainOnceAsync(CancellationToken cancellationToken)
+    {
+        await RunAsActiveDrainAsync(async () =>
+        {
+            drainRequested = false;
+            var reconciliation = await ProcessPendingItemsAsync(cancellationToken);
+            await ReconcileAsync(reconciliation, cancellationToken);
+        });
+    }
+
+    private async Task RunAsActiveDrainAsync(Func<Task> action)
+    {
+        var previous = ActiveDrain.Value;
+        ActiveDrain.Value = this;
+        try
+        {
+            await action();
+        }
+        finally
+        {
+            ActiveDrain.Value = previous;
+        }
+    }
+
+    private async Task<T> RunAsActiveDrainAsync<T>(Func<Task<T>> action)
+    {
+        var previous = ActiveDrain.Value;
+        ActiveDrain.Value = this;
+        try
+        {
+            return await action();
+        }
+        finally
+        {
+            ActiveDrain.Value = previous;
+        }
+    }
+
+    private async Task<OutboxReconciliationBatch<TOutbox>> ProcessPendingItemsAsync(
+        CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var pending = options.PendingItems();
@@ -308,146 +372,20 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
             return default;
         }
 
-        using var timeout = new CancellationTokenSource(options.ProcessingTimeout);
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
-        var started = Stopwatch.GetTimestamp();
-        var posted = ImmutableArray.CreateBuilder<TOutbox>();
-        var failed = ImmutableArray.CreateBuilder<(TOutbox Item, Exception Error, int Attempt)>();
+        var results = await dispatcher.DispatchAsync(
+            pending,
+            options.ProcessingTimeout,
+            cancellationToken);
 
-        try
-        {
-            var dispatchTasks = new Task<DispatchResult>[pending.Length];
-            for (var i = 0; i < pending.Length; i++)
-            {
-                linked.Token.ThrowIfCancellationRequested();
-                dispatchTasks[i] = DispatchItemAsync(pending[i], linked.Token);
-            }
-
-            var dispatchResults = await Task.WhenAll(dispatchTasks);
-            foreach (var result in dispatchResults)
-            {
-                if (result.Error is null)
-                {
-                    posted.Add(result.Item);
-                }
-                else
-                {
-                    failed.Add((result.Item, result.Error, IncrementAttempt(result.Item)));
-                }
-            }
-
-            return new ReconciliationBatch(posted.ToImmutable(), failed.ToImmutable());
-        }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && timeout.IsCancellationRequested)
-        {
-            throw new TimeoutException($"Outbox post run exceeded the configured timeout of {options.ProcessingTimeout}.");
-        }
-        finally
-        {
-            MessagingTelemetry.RecordOutboxPostDuration(
-                grainType,
-                Stopwatch.GetElapsedTime(started).TotalMilliseconds);
-        }
+        return reconciler.CreateBatch(results);
     }
 
     private async Task ReconcileAsync(
-        ReconciliationBatch reconciliation,
+        OutboxReconciliationBatch<TOutbox> reconciliation,
         CancellationToken cancellationToken)
     {
-        if (!reconciliation.HasWork)
-        {
-            return;
-        }
-
-        if (!reconciliation.Posted.IsDefaultOrEmpty)
-        {
-            await options.AcknowledgePostedAsync(reconciliation.Posted, cancellationToken);
-            foreach (var item in reconciliation.Posted)
-            {
-                attempts.Remove(item);
-            }
-        }
-
-        if (!reconciliation.Failed.IsDefaultOrEmpty && options.ReconcileFailedAsync is { } reconcileFailed)
-        {
-            await reconcileFailed(reconciliation.Failed, cancellationToken);
-        }
-
+        await reconciler.ReconcileAsync(reconciliation, cancellationToken);
         await ReconcileRetryStateAsync();
-    }
-
-    private async Task<DispatchResult> DispatchItemAsync(
-        TOutbox item,
-        CancellationToken cancellationToken)
-    {
-        var started = Stopwatch.GetTimestamp();
-        var postman = FindPostman(item);
-        if (postman is null)
-        {
-            var itemType = item.GetType();
-            var error = new NoPostmanRegisteredException(itemType);
-            logger.LogWarning(
-                error,
-                "No outbox postman registered for item type {OutboxItemType} on grain {GrainType}.",
-                itemType.FullName,
-                grainType);
-            MessagingTelemetry.RecordOutboxPostError(grainType, itemType.Name, error);
-            return new DispatchResult(item, error);
-        }
-
-        try
-        {
-            await InvokePostmanAsync(postman, item, cancellationToken);
-            MessagingTelemetry.RecordOutboxPostItem(
-                grainType,
-                postman.ItemType.Name,
-                success: true,
-                Stopwatch.GetElapsedTime(started).TotalMilliseconds);
-            return new DispatchResult(item);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            var itemType = item.GetType();
-            logger.LogError(
-                ex,
-                "Outbox postman failed for item type {OutboxItemType} on grain {GrainType}.",
-                itemType.FullName,
-                grainType);
-            MessagingTelemetry.RecordOutboxPostError(grainType, itemType.Name, ex);
-            MessagingTelemetry.RecordOutboxPostItem(
-                grainType,
-                postman.ItemType.Name,
-                success: false,
-                Stopwatch.GetElapsedTime(started).TotalMilliseconds);
-            return new DispatchResult(item, ex);
-        }
-    }
-
-    private ValueTask InvokePostmanAsync(
-        PostmanRegistration postman,
-        TOutbox item,
-        CancellationToken cancellationToken) =>
-        postman.Invoke(item, cancellationToken);
-
-    private PostmanRegistration? FindPostman(TOutbox item)
-    {
-        foreach (var postman in postmen)
-        {
-            if (postman.ItemFilter(item))
-            {
-                return postman;
-            }
-        }
-
-        return null;
-    }
-
-    private int IncrementAttempt(TOutbox item)
-    {
-        attempts.TryGetValue(item, out var current);
-        var next = current + 1;
-        attempts[item] = next;
-        return next;
     }
 
     private async Task ReconcileRetryStateAsync()
@@ -461,36 +399,81 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
             return;
         }
 
-        EnsureTimer(options.RetryDelay);
+        EnsureDispatchTimer(options.RetryDelay);
         await EnsureReminderAsync();
     }
 
-    private void EnsureTimer(TimeSpan dueTime)
+    private async Task ScheduleRequestedDrainAsync()
     {
-        var options = new GrainTimerCreationOptions(dueTime, this.options.RetryDelay)
+        if (!drainRequested)
         {
-            Interleave = this.options.Interleave,
-            KeepAlive = this.options.KeepAlive
-        };
-
-        if (timer is null)
-        {
-            timer = owner.RegisterGrainTimer(
-                static (processor, cancellationToken) => processor.DispatchInBackgroundAsync(cancellationToken),
-                this,
-                options);
             return;
         }
 
-        timer.Change(dueTime, this.options.RetryDelay);
+        drainRequested = false;
+        if (options.PendingItems().IsDefaultOrEmpty)
+        {
+            await DisableRetryAsync();
+            return;
+        }
+
+        EnsureDispatchTimer(TimeSpan.Zero);
+        await EnsureReminderAsync();
+    }
+
+    private Task? TryBeginDrainOrGetCurrent()
+    {
+        lock (drainGate)
+        {
+            if (activeDrain is not null)
+            {
+                return activeDrain.Task;
+            }
+
+            activeDrain = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            return null;
+        }
+    }
+
+    private void CompleteDrain()
+    {
+        TaskCompletionSource? completedDrain;
+        lock (drainGate)
+        {
+            completedDrain = activeDrain;
+            activeDrain = null;
+        }
+
+        completedDrain?.TrySetResult();
+    }
+
+    private void EnsureDispatchTimer(TimeSpan dueTime)
+    {
+        var timerOptions = new GrainTimerCreationOptions(dueTime, options.RetryDelay)
+        {
+            Interleave = options.Interleave,
+            KeepAlive = options.KeepAlive
+        };
+
+        if (dispatchTimer is null)
+        {
+            dispatchTimer = owner.RegisterGrainTimer(
+                static (processor, cancellationToken) => processor.DispatchInBackgroundAsync(cancellationToken),
+                this,
+                timerOptions);
+            return;
+        }
+
+        dispatchTimer.Change(dueTime, options.RetryDelay);
     }
 
     private void EnsureReconciliationTimer(TimeSpan dueTime)
     {
-        var options = new GrainTimerCreationOptions(dueTime, Timeout.InfiniteTimeSpan)
+        var timerOptions = new GrainTimerCreationOptions(dueTime, Timeout.InfiniteTimeSpan)
         {
-            Interleave = this.options.InterleaveReconciliationCallbacks,
-            KeepAlive = this.options.KeepAlive
+            Interleave = options.InterleaveReconciliationCallbacks,
+            KeepAlive = options.KeepAlive
         };
 
         if (reconciliationTimer is null)
@@ -498,7 +481,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
             reconciliationTimer = owner.RegisterGrainTimer(
                 static (processor, cancellationToken) => processor.ReconcileInBackgroundAsync(cancellationToken),
                 this,
-                options);
+                timerOptions);
             return;
         }
 
@@ -507,14 +490,17 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
 
     private async Task EnsureReminderAsync()
     {
-        var period = Max(options.RetryDelay, TimeSpan.FromMinutes(1));
+        var period = options.RetryDelay >= TimeSpan.FromMinutes(1)
+            ? options.RetryDelay
+            : TimeSpan.FromMinutes(1);
+
         reminder = await owner.RegisterOrUpdateReminder(reminderName, period, period);
     }
 
     private async Task DisableRetryAsync()
     {
-        timer?.Dispose();
-        timer = null;
+        dispatchTimer?.Dispose();
+        dispatchTimer = null;
         reconciliationTimer?.Dispose();
         reconciliationTimer = null;
 
@@ -525,26 +511,6 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
             reminder = null;
         }
     }
-
-    private static TimeSpan Max(TimeSpan left, TimeSpan right) => left >= right ? left : right;
-
-    private readonly record struct ReconciliationBatch(
-        ImmutableArray<TOutbox> Posted,
-        ImmutableArray<(TOutbox Item, Exception Error, int Attempt)> Failed)
-    {
-        public bool HasWork => !Posted.IsDefaultOrEmpty || !Failed.IsDefaultOrEmpty;
-    }
-
-    private sealed record PostmanRegistration(
-        Func<TOutbox, bool> ItemFilter,
-        Func<TOutbox, CancellationToken, ValueTask> Postman,
-        Type ItemType)
-    {
-        public ValueTask Invoke(TOutbox item, CancellationToken cancellationToken) =>
-            Postman(item, cancellationToken);
-    }
-
-    private readonly record struct DispatchResult(TOutbox Item, Exception? Error = null);
 }
 
 /// <summary>
