@@ -32,6 +32,15 @@ public sealed class OutboxProcessorOptions<TOutbox>
     /// the in-memory attempt count. The grain decides whether to leave them
     /// pending, remove them, or move them to dead-letter state.
     /// </summary>
+    /// <remarks>
+    /// Attempt counts are tracked in memory only, keyed by item equality:
+    /// they reset to one when the grain activation recycles, and item types
+    /// without stable value equality (for example mutable classes mutated
+    /// after enqueue) make counts restart silently. Counters are pruned when
+    /// the item is no longer pending after reconciliation. Policies that must
+    /// survive activation restarts (max attempts before dead-letter, etc.)
+    /// should persist their own counters on the items or grain state.
+    /// </remarks>
     public Func<ImmutableArray<(TOutbox Item, Exception Error, int Attempt)>, CancellationToken, ValueTask>? ReconcileFailedAsync { get; init; }
 
     /// <summary>
