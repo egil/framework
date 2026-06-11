@@ -142,6 +142,26 @@ public sealed class OutboxProcessorTests(MessagingTestClusterFixture fixture) : 
     }
 
     [Fact]
+    public async Task PostAsync_timeout_arms_retry_and_later_run_delivers_pending_item()
+    {
+        var source = fixture.GrainFactory.GetGrain<IOutboxProcessorTimeoutRetryGrain>(Guid.NewGuid());
+
+        var exceptionType = await source.PublishWithTimeoutAsync("timeout-retry");
+
+        Assert.Equal(nameof(TimeoutException), exceptionType);
+        await fixture.WaitForAssertionAsync(
+            source,
+            async () =>
+            {
+                var state = await source.GetStateAsync();
+                Assert.Equal(1, state.AcknowledgedCount);
+                Assert.Equal(0, state.FailedCount);
+                Assert.Equal(0, state.Outbox?.Count ?? 0);
+            },
+            ct: TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
     public async Task PostAsync_dispatches_items_for_same_postman_sequentially()
     {
         var source = fixture.GrainFactory.GetGrain<IOutboxProcessorConcurrentPostmanGrain>(Guid.NewGuid());
@@ -261,6 +281,13 @@ public interface IOutboxProcessorKeyedCancellationPostmanGrain : IGrainWithGuidK
 }
 
 public interface IOutboxProcessorKeyedTimeoutPostmanGrain : IGrainWithGuidKey
+{
+    Task<string?> PublishWithTimeoutAsync(string value);
+
+    Task<OutboxProcessorSourceState> GetStateAsync();
+}
+
+public interface IOutboxProcessorTimeoutRetryGrain : IGrainWithGuidKey
 {
     Task<string?> PublishWithTimeoutAsync(string value);
 
@@ -780,6 +807,78 @@ public sealed class OutboxProcessorKeyedTimeoutPostmanGrain(
         ImmutableArray<(OutboxMessageEnvelope<OutboxProcessorTestEvent> Item, Exception Error, int Attempt)> failures,
         CancellationToken cancellationToken) =>
         ValueTask.CompletedTask;
+
+    private Outbox<OutboxProcessorTestEvent> EnsureOutbox()
+    {
+        return state.State.Outbox ??= Outbox<OutboxProcessorTestEvent>.Create(GrainContext.GrainId);
+    }
+}
+
+public sealed class OutboxProcessorTimeoutRetryGrain(
+    [PersistentState("state", "Default")] IPersistentState<OutboxProcessorSourceState> state)
+    : Grain, IOutboxProcessorTimeoutRetryGrain, IOutboxGrain
+{
+    private OutboxProcessor<OutboxMessageEnvelope<OutboxProcessorTestEvent>>? processor;
+    private int attempts;
+
+    public override async Task OnActivateAsync(CancellationToken cancellationToken)
+    {
+        EnsureOutbox();
+
+        processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxMessageEnvelope<OutboxProcessorTestEvent>>
+        {
+            PendingItems = () => state.State.Outbox?.ToImmutableArray() ?? [],
+            AcknowledgePostedAsync = AcknowledgePostedAsync,
+            ReconcileFailedAsync = (_, _) => ValueTask.CompletedTask,
+            ProcessingTimeout = TimeSpan.FromMilliseconds(250),
+            RetryDelay = TimeSpan.FromMilliseconds(100)
+        })
+        .AddPostman<OutboxMessageEnvelope<OutboxProcessorTestEvent>>((_, ct) => FirstAttemptBlocksAsync(ct));
+
+        await base.OnActivateAsync(cancellationToken);
+    }
+
+    public async Task<string?> PublishWithTimeoutAsync(string value)
+    {
+        var outbox = EnsureOutbox();
+        state.State.Outbox = outbox.Add(new OutboxProcessorTestEvent(value));
+        await state.WriteStateAsync();
+
+        try
+        {
+            await processor!.PostAsync();
+            return null;
+        }
+        catch (Exception ex)
+        {
+            return ex.GetType().Name;
+        }
+    }
+
+    public Task<OutboxProcessorSourceState> GetStateAsync() => Task.FromResult(state.State);
+
+    private async Task FirstAttemptBlocksAsync(CancellationToken cancellationToken)
+    {
+        if (++attempts == 1)
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+        }
+    }
+
+    private async ValueTask AcknowledgePostedAsync(
+        ImmutableArray<OutboxMessageEnvelope<OutboxProcessorTestEvent>> items,
+        CancellationToken cancellationToken)
+    {
+        var outbox = EnsureOutbox();
+        foreach (var item in items)
+        {
+            outbox = outbox.Remove(item.Token);
+        }
+
+        state.State.Outbox = outbox;
+        state.State.AcknowledgedCount += items.Length;
+        await state.WriteStateAsync(cancellationToken);
+    }
 
     private Outbox<OutboxProcessorTestEvent> EnsureOutbox()
     {
