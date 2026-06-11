@@ -8,24 +8,24 @@ public sealed class UndiscriminatedSourceMigrationTests
     public void Deserialize_object_without_discriminator_uses_configured_static_source_migrator()
     {
         var options = CreateOptions();
-        const string json = """{"firstName":"Egil","lastName":"Hansen"}""";
+        const string json = """{"firstName":"Jane","lastName":"Doe"}""";
 
         UndiscriminatedStaticTarget? result = JsonSerializer.Deserialize<UndiscriminatedStaticTarget>(json, options);
 
         Assert.NotNull(result);
-        Assert.Equal("Egil Hansen", result.Name);
+        Assert.Equal("Jane Doe", result.Name);
     }
 
     [Fact]
     public void Deserialize_object_without_discriminator_uses_configured_external_source_migrator()
     {
         var options = CreateOptions(static builder => builder.RegisterMigrator<UndiscriminatedExternalMigrator>());
-        const string json = """{"firstName":"Egil","lastName":"Hansen"}""";
+        const string json = """{"firstName":"Jane","lastName":"Doe"}""";
 
         UndiscriminatedExternalTarget? result = JsonSerializer.Deserialize<UndiscriminatedExternalTarget>(json, options);
 
         Assert.NotNull(result);
-        Assert.Equal("Egil Hansen", result.Name);
+        Assert.Equal("Jane Doe", result.Name);
     }
 
     [Fact]
@@ -45,7 +45,7 @@ public sealed class UndiscriminatedSourceMigrationTests
     public void Deserialize_with_configured_source_without_matching_migrator_throws_clear_error()
     {
         var options = CreateOptions();
-        const string json = """{"firstName":"Egil","lastName":"Hansen"}""";
+        const string json = """{"firstName":"Jane","lastName":"Doe"}""";
 
         var exception = Assert.Throws<InvalidOperationException>(
             () => JsonSerializer.Deserialize<UndiscriminatedInvalidTarget>(json, options));

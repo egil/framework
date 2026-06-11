@@ -52,14 +52,14 @@ public sealed class ScopedMigratorsSampleTests
         options.AddJsonMigrationSupport(serviceProvider, static builder =>
             builder.RegisterMigrator<AuditEntryV1, AuditEntryV2, AuditMigrator>());
 
-        var json = """{"$type":"audit-v1","action":"login","user":"Egil Hansen"}""";
+        var json = """{"$type":"audit-v1","action":"login","user":"Jane Doe"}""";
         var entry = JsonSerializer.Deserialize<AuditEntryV2>(json, options);
         // entry.UserId resolved via IUserLookupService from DI
         #endregion
 
         Assert.NotNull(entry);
         Assert.Equal("login", entry.Action);
-        Assert.Equal("uid-egil-hansen", entry.UserId);
+        Assert.Equal("uid-jane-doe", entry.UserId);
         Assert.Equal("migration-service", entry.MigratedBy);
     }
 
@@ -78,7 +78,7 @@ public sealed class ScopedMigratorsSampleTests
         options.AddJsonMigrationSupport(serviceProvider, static builder =>
             builder.RegisterMigrator<AuditEntryV1, AuditEntryV2, AuditMigrator>());
 
-        var json = """{"$type":"audit-v1","action":"login","user":"Egil Hansen"}""";
+        var json = """{"$type":"audit-v1","action":"login","user":"Jane Doe"}""";
 
         // The service provider is queried for the migrator on EACH call.
         var first = JsonSerializer.Deserialize<AuditEntryV2>(json, options);
@@ -87,7 +87,7 @@ public sealed class ScopedMigratorsSampleTests
 
         Assert.NotNull(first);
         Assert.NotNull(second);
-        Assert.Equal("uid-egil-hansen", first.UserId);
-        Assert.Equal("uid-egil-hansen", second.UserId);
+        Assert.Equal("uid-jane-doe", first.UserId);
+        Assert.Equal("uid-jane-doe", second.UserId);
     }
 }

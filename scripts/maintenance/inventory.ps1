@@ -116,8 +116,6 @@ function Get-ProjectDisplayName {
 
     switch ($Scope) {
         "stjm" { return "Egil.SystemTextJson.Migration" }
-        "oes" { return "Egil.Orleans.EventSourcing" }
-        "os" { return "Egil.Orleans.Storage" }
         "ot" { return "Egil.Orleans.Testing" }
         "stp" { return "Egil.StronglyTypedPrimitives" }
         "ci" { return "CI" }
@@ -148,6 +146,34 @@ function Get-XmlAttributeValue {
     }
 
     return [string]$Node.Attributes[$Name].Value
+}
+
+function Get-ObjectPropertyValue {
+    param(
+        [object] $Object,
+        [string] $Name,
+        [string] $Default = ""
+    )
+
+    if ($null -eq $Object) {
+        return $Default
+    }
+
+    $property = $Object.PSObject.Properties[$Name]
+    if ($null -eq $property) {
+        return $Default
+    }
+
+    $value = $property.Value
+    if ($null -eq $value) {
+        return $Default
+    }
+
+    if ($value -is [string] -and [string]::IsNullOrWhiteSpace($value)) {
+        return $Default
+    }
+
+    return [string]$value
 }
 
 function Get-JsonFromCommandOutput {
@@ -188,13 +214,13 @@ function Get-PackageRows {
 
                     $row = [ordered]@{
                         scope = $Scope
-                        project = [string]$project.path
-                        framework = [string]$framework.framework
+                        project = Get-ObjectPropertyValue -Object $project -Name "path"
+                        framework = Get-ObjectPropertyValue -Object $framework -Name "framework" -Default "(unknown framework)"
                         package = $id
                         kind = $Kind
-                        requested = [string]$package.requestedVersion
-                        resolved = [string]$package.resolvedVersion
-                        latest = [string]$package.latestVersion
+                        requested = Get-ObjectPropertyValue -Object $package -Name "requestedVersion"
+                        resolved = Get-ObjectPropertyValue -Object $package -Name "resolvedVersion"
+                        latest = Get-ObjectPropertyValue -Object $package -Name "latestVersion"
                         collection = $collectionName
                     }
 
@@ -380,8 +406,6 @@ $toolRecords |
 
 $workflowScopePatterns = @{
     "egil-systemtextjson-migration" = "stjm"
-    "egil-orleans-eventsourcing" = "oes"
-    "egil-orleans-storage" = "os"
     "egil-orleans-testing" = "ot"
     "egil-strongly-typed-primitives" = "stp"
 }
@@ -536,11 +560,16 @@ if (-not $SkipPackageQueries) {
             $scope = ($_.Name -split ", ")[0]
             $kind = ($_.Name -split ", ")[1]
             $details = ($_.Group | Sort-Object package, framework | Select-Object -First 30 | ForEach-Object {
+                $packageName = Get-ObjectPropertyValue -Object $_ -Name "package" -Default "(unknown package)"
+                $framework = Get-ObjectPropertyValue -Object $_ -Name "framework" -Default "(unknown framework)"
+                $resolved = Get-ObjectPropertyValue -Object $_ -Name "resolved" -Default "(unknown)"
+                $latest = Get-ObjectPropertyValue -Object $_ -Name "latest" -Default "(unknown)"
+                $reason = Get-ObjectPropertyValue -Object $_ -Name "reason"
                 $versionText = switch ($kind) {
-                    "outdated" { "$(Format-MarkdownCode $_.resolved) -> $(Format-MarkdownCode $_.latest)" }
-                    default { "$(Format-MarkdownCode $_.resolved) $($_.reason)" }
+                    "outdated" { "$(Format-MarkdownCode $resolved) -> $(Format-MarkdownCode $latest)" }
+                    default { "$(Format-MarkdownCode $resolved) $reason" }
                 }
-                "- $($_.package) $versionText in $(Format-MarkdownCode $_.framework)"
+                "- $packageName $versionText in $(Format-MarkdownCode $framework)"
             }) -join "`n"
 
             Add-FindingDetail `

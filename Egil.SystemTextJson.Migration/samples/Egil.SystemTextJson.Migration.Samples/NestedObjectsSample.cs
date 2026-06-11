@@ -82,7 +82,7 @@ public sealed class NestedObjectsSampleTests
         var json = """
             {
               "$type":"person-v2",
-              "name":"Egil Hansen",
+              "name":"Jane Doe",
               "address":{
                 "$type":"address-v1",
                 "fullAddress":"123 Main St, Springfield"
@@ -94,7 +94,7 @@ public sealed class NestedObjectsSampleTests
         #endregion
 
         Assert.NotNull(person);
-        Assert.Equal("Egil Hansen", person.Name);
+        Assert.Equal("Jane Doe", person.Name);
         Assert.Equal("123 Main St", person.Address.Street);
         Assert.Equal("Springfield", person.Address.City);
     }
@@ -110,7 +110,7 @@ public sealed class NestedObjectsSampleTests
         var json = """
             {
               "$type":"person-v1",
-              "fullName":"Egil Hansen",
+              "fullName":"Jane Doe",
               "address":{
                 "$type":"address-v1",
                 "fullAddress":"123 Main St, Springfield"
@@ -122,8 +122,8 @@ public sealed class NestedObjectsSampleTests
         #endregion
 
         Assert.NotNull(person);
-        Assert.Equal("Egil", person.FirstName);
-        Assert.Equal("Hansen", person.LastName);
+        Assert.Equal("Jane", person.FirstName);
+        Assert.Equal("Doe", person.LastName);
         Assert.Equal("123 Main St", person.Address.Street);
         Assert.Equal("Springfield", person.Address.City);
     }

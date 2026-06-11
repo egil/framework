@@ -4,8 +4,8 @@
 
 .DESCRIPTION
     Reads BDN -report-github.md files from BenchmarkDotNet artifacts,
-    copies full reports to docs/perf/, and updates the curated summary
-    table in README.md.
+    copies full reports to docs/perf/, and updates the source-generated
+    benchmark table in README.md.
 
 .EXAMPLE
     dotnet run --project perf/Egil.SystemTextJson.Migration.PerfTests -c Release
@@ -16,10 +16,12 @@ param()
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
+$repoRoot = Split-Path $root -Parent
 
 $artifactDirCandidates = @(
     (Join-Path $root 'perf\Egil.SystemTextJson.Migration.PerfTests\BenchmarkDotNet.Artifacts\results'),
-    (Join-Path $root 'BenchmarkDotNet.Artifacts\results')
+    (Join-Path $root 'BenchmarkDotNet.Artifacts\results'),
+    (Join-Path $repoRoot 'BenchmarkDotNet.Artifacts\results')
 )
 $artifactsDir = $artifactDirCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $artifactsDir) {
@@ -45,11 +47,14 @@ function Copy-BdnReport {
     param([string]$Source, [string]$DestName, [string]$Title)
 
     $content = Get-Content $Source -Raw
+    $content = [regex]::Replace($content, '(?m)^\|\s+\*{0,2}PolymorphicPlainStj[^\r\n]*(\r?\n)?', '')
+
     $header = @"
 # $Title
 
 > Auto-generated from BenchmarkDotNet output by ``scripts/update-perf-docs.ps1``.
 > Do not edit manually. Re-run benchmarks and this script to update.
+> Public reports omit the internal ``PolymorphicPlainStj*`` guardrail benchmarks.
 
 "@
     $output = $header + $content
@@ -61,68 +66,149 @@ function Copy-BdnReport {
 Copy-BdnReport $sourceGenReport 'source-gen-benchmarks.md' 'Source-Generated Benchmarks'
 Copy-BdnReport $reflectionReport 'reflection-benchmarks.md' 'Reflection Benchmarks'
 
-# --- Parse source-gen report and build curated summary ---
+# --- Parse source-gen report and build README table ---
 
 $lines = Get-Content $sourceGenReport
 
 # Parse table rows from BDN markdown output.
-# BDN table format: | Method | Categories | TagCount | Mean | Error | StdDev | Ratio | RatioSD | Gen0 | Gen1 | Allocated | Alloc Ratio |
+# BDN table format can vary when extra GC columns appear, so locate values by column name.
 $dataRows = @()
+$columnIndexes = $null
 foreach ($line in $lines) {
+    if ($line -match '^\|\s*Method\s*\|') {
+        $headerCells = $line -split '\|' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }
+        $columnIndexes = @{}
+        for ($index = 0; $index -lt $headerCells.Count; $index++) {
+            $columnIndexes[$headerCells[$index]] = $index
+        }
+
+        continue
+    }
+
     if ($line -match '^\|\s+\*{0,2}(\w+)\*{0,2}\s+\|') {
-        # Skip header/separator rows
-        if ($line -match '^\| Method' -or $line -match '^\|[-:]') { continue }
+        # Skip separator rows
+        if ($line -match '^\|[-:]') { continue }
         # Skip empty separator rows
         if ($line -match '^\|\s+\|') { continue }
+        if (-not $columnIndexes) { continue }
 
         # Strip bold markers for parsing
         $clean = $line -replace '\*{2}', ''
         $cells = $clean -split '\|' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }
 
-        if ($cells.Count -ge 12) {
+        $requiredColumns = @('Method', 'Categories', 'PayloadSize', 'Mean', 'Ratio', 'RatioSD', 'Allocated', 'Alloc Ratio')
+        $hasRequiredColumns = $true
+        foreach ($column in $requiredColumns) {
+            if (-not $columnIndexes.ContainsKey($column) -or $cells.Count -le $columnIndexes[$column]) {
+                $hasRequiredColumns = $false
+                break
+            }
+        }
+
+        if ($hasRequiredColumns) {
             $dataRows += [PSCustomObject]@{
-                Method     = $cells[0]
-                Categories = $cells[1]
-                TagCount   = [int]$cells[2]
-                Ratio      = $cells[6]
-                AllocRatio = $cells[11]
+                Method      = $cells[$columnIndexes['Method']]
+                Categories  = $cells[$columnIndexes['Categories']]
+                PayloadSize = $cells[$columnIndexes['PayloadSize']]
+                Mean        = $cells[$columnIndexes['Mean']]
+                Ratio       = $cells[$columnIndexes['Ratio']]
+                RatioSD     = $cells[$columnIndexes['RatioSD']]
+                Allocated   = $cells[$columnIndexes['Allocated']]
+                AllocRatio  = $cells[$columnIndexes['Alloc Ratio']]
             }
         }
     }
 }
 
-# Build curated summary: pick the JsonMigratable* rows
-$scenarios = @(
-    @{ Label = '**No migration (happy path)**'; Method = 'JsonMigratableNoMigration' }
-    @{ Label = '**Static migration**';          Method = 'JsonMigratableStaticMigration' }
-    @{ Label = '**External migration**';        Method = 'JsonMigratableExternalMigration' }
-    @{ Label = '**Undiscriminated source migration**'; Method = 'JsonMigratableUndiscriminatedSourceMigration' }
-    @{ Label = '**Legacy payload**';            Method = 'JsonMigratableLegacyPayload' }
-    @{ Label = '**Serialization**';             Method = 'JsonMigratableSerializeNoMigration' }
-)
+function Get-ScenarioSortKey {
+    param([string]$Categories)
+
+    switch ($Categories) {
+        'Deserialize,NoMigration' { return 0 }
+        'Deserialize,StaticMigration' { return 1 }
+        'Deserialize,ExternalMigration' { return 2 }
+        'Deserialize,UndiscriminatedSourceMigration' { return 3 }
+        'Deserialize,LegacyPayload' { return 4 }
+        'Serialize' { return 5 }
+        default { return [int]::MaxValue }
+    }
+}
+
+function Get-PayloadSizeSortKey {
+    param([string]$PayloadSize)
+
+    switch ($PayloadSize) {
+        'Small' { return 0 }
+        'Medium' { return 1 }
+        'Large' { return 2 }
+        default { return [int]::MaxValue }
+    }
+}
+
+function Get-MethodSortKey {
+    param([string]$Method)
+
+    if ($Method -like 'PlainStj*') {
+        return 0
+    }
+
+    if ($Method -like 'JsonMigratable*') {
+        return 1
+    }
+
+    return [int]::MaxValue
+}
+
+function Get-ScenarioLabel {
+    param([string]$Categories)
+
+    switch ($Categories) {
+        'Deserialize,NoMigration' { return '**No migration (happy path)**' }
+        'Deserialize,StaticMigration' { return '**Static migration**' }
+        'Deserialize,ExternalMigration' { return '**External migration**' }
+        'Deserialize,UndiscriminatedSourceMigration' { return '**Undiscriminated source migration**' }
+        'Deserialize,LegacyPayload' { return '**Legacy payload**' }
+        'Serialize' { return '**Serialization**' }
+        default { return $Categories }
+    }
+}
+
+function Get-MethodLabel {
+    param([string]$Method)
+
+    switch ($Method) {
+        'PlainStjNoMigration' { return 'Plain STJ' }
+        'PlainStjSerialize' { return 'Plain STJ' }
+        'JsonMigratableNoMigration' { return 'JsonMigratable' }
+        'JsonMigratableSerialize' { return 'JsonMigratable' }
+        'PlainStjStaticMigrationManual' { return 'Manual STJ migration' }
+        'PlainStjExternalMigrationManual' { return 'Manual STJ migration' }
+        'PlainStjUndiscriminatedSourceMigrationManual' { return 'Manual STJ migration' }
+        'PlainStjLegacyPayloadManual' { return 'Plain STJ + tracking' }
+        'JsonMigratableStaticMigration' { return 'JsonMigratable' }
+        'JsonMigratableExternalMigration' { return 'JsonMigratable' }
+        'JsonMigratableUndiscriminatedSourceMigration' { return 'JsonMigratable' }
+        'JsonMigratableLegacyPayload' { return 'JsonMigratable' }
+        default { return $Method }
+    }
+}
+
+$publicRows = $dataRows |
+    Where-Object { $_.Method -notlike 'PolymorphicPlainStj*' } |
+    Sort-Object `
+        @{ Expression = { Get-ScenarioSortKey $_.Categories } }, `
+        @{ Expression = { Get-PayloadSizeSortKey $_.PayloadSize } }, `
+        @{ Expression = { Get-MethodSortKey $_.Method } }
 
 $summaryLines = @()
-$summaryLines += '| Scenario | TagCount | Ratio vs plain STJ | Alloc Ratio |'
-$summaryLines += '|----------|:--------:|:-------------------:|:-----------:|'
+$summaryLines += '| Scenario | Method | Payload size | Mean | Ratio | RatioSD | Allocated | Alloc Ratio |'
+$summaryLines += '|----------|--------|:------------:|-----:|------:|--------:|----------:|------------:|'
 
-foreach ($scenario in $scenarios) {
-    $rows = $dataRows | Where-Object { $_.Method -eq $scenario.Method } | Sort-Object TagCount
-    $first = $true
-    foreach ($row in $rows) {
-        $ratio = $row.Ratio
-        # Format ratio as "X.XX×"
-        if ($ratio -match '[\d.]+') {
-            $ratioNum = [double]$ratio
-            $ratioStr = '{0:F2}×' -f $ratioNum
-        }
-        else {
-            $ratioStr = $ratio
-        }
-
-        $label = if ($first) { $scenario.Label } else { '' }
-        $summaryLines += "| $label | $($row.TagCount) | $ratioStr | $($row.AllocRatio) |"
-        $first = $false
-    }
+$previousScenario = $null
+foreach ($row in $publicRows) {
+    $scenarioLabel = if ($row.Categories -ne $previousScenario) { Get-ScenarioLabel $row.Categories } else { '' }
+    $summaryLines += "| $scenarioLabel | $(Get-MethodLabel $row.Method) | $($row.PayloadSize) | $($row.Mean) | $($row.Ratio) | $($row.RatioSD) | $($row.Allocated) | $($row.AllocRatio) |"
+    $previousScenario = $row.Categories
 }
 
 $summaryTable = $summaryLines -join "`n"

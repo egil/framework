@@ -44,8 +44,6 @@
   },
   "scopeMap": {
     "Egil.SystemTextJson.Migration": "stjm",
-    "Egil.Orleans.EventSourcing": "oes",
-    "Egil.Orleans.Storage": "os",
     "Egil.Orleans.Testing": "ot",
     "Egil.StronglyTypedPrimitives": "stp"
   }

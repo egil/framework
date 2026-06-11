@@ -13,14 +13,14 @@ public class NestedMigratableBehaviorTests
         var json = """
             {
               "$type":"child-v1",
-              "name":"Egil Hansen"
+              "name":"Jane Doe"
             }
             """;
 
         var result = JsonSerializer.Deserialize<NestedChildV2>(json, options);
 
         Assert.NotNull(result);
-        Assert.Equal("Egil Hansen", result.FullName);
+        Assert.Equal("Jane Doe", result.FullName);
     }
 
     [Fact]
@@ -34,7 +34,7 @@ public class NestedMigratableBehaviorTests
               "$type":"parent-v2",
               "child":{
                 "$type":"child-v1",
-                "name":"Egil Hansen"
+                "name":"Jane Doe"
               }
             }
             """;
@@ -43,7 +43,7 @@ public class NestedMigratableBehaviorTests
 
         Assert.NotNull(result);
         Assert.NotNull(result.Child);
-        Assert.Equal("Egil Hansen", result.Child.FullName);
+        Assert.Equal("Jane Doe", result.Child.FullName);
     }
 
     [Fact]
@@ -52,7 +52,7 @@ public class NestedMigratableBehaviorTests
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
         options.AddJsonMigrationSupport();
 
-        var json = JsonSerializer.Serialize(new NestedParentV2(new NestedChildV2("Egil Hansen")), options);
+        var json = JsonSerializer.Serialize(new NestedParentV2(new NestedChildV2("Jane Doe")), options);
 
         Assert.Contains("\"$type\":\"parent-v2\"", json, StringComparison.Ordinal);
         Assert.Contains("\"child\":{\"$type\":\"child-v2\"", json, StringComparison.Ordinal);

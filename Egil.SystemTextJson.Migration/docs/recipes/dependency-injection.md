@@ -44,7 +44,7 @@ var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
 options.AddJsonMigrationSupport(serviceProvider, static builder =>
     builder.RegisterMigrator<AuditEntryV1, AuditEntryV2, AuditMigrator>());
 
-var json = """{"$type":"audit-v1","action":"login","user":"Egil Hansen"}""";
+var json = """{"$type":"audit-v1","action":"login","user":"Jane Doe"}""";
 var entry = JsonSerializer.Deserialize<AuditEntryV2>(json, options);
 // entry.UserId resolved via IUserLookupService from DI
 ```
@@ -91,7 +91,7 @@ var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
 options.AddJsonMigrationSupport(serviceProvider, static builder =>
     builder.RegisterMigrator<AuditEntryV1, AuditEntryV2, AuditMigrator>());
 
-var json = """{"$type":"audit-v1","action":"login","user":"Egil Hansen"}""";
+var json = """{"$type":"audit-v1","action":"login","user":"Jane Doe"}""";
 
 // The service provider is queried for the migrator on EACH call.
 var first = JsonSerializer.Deserialize<AuditEntryV2>(json, options);

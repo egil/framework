@@ -90,9 +90,9 @@ options.AddJsonMigrationSupport(static builder =>
     // ...the static IMigrateFrom<,> on ContactV2 takes precedence.
 });
 
-var json = """{"$type":"contact-v1","fullName":"Egil Hansen","email":"egil@example.com"}""";
+var json = """{"$type":"contact-v1","fullName":"Jane Doe","email":"jane@example.com"}""";
 var contact = JsonSerializer.Deserialize<ContactV2>(json, options);
-// contact.FirstName == "Egil" (from static migrator, not "External")
+// contact.FirstName == "Jane" (from static migrator, not "External")
 ```
 <sup><a href='/samples/Egil.SystemTextJson.Migration.Samples/CombinedMigratorsSample.cs#L40-L52' title='Snippet source file'>snippet source</a> | <a href='#snippet-combined_migrators_usage' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->

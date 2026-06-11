@@ -25,7 +25,7 @@ public class MutationCoverageTests
         var options = CreateTrackingOptions(static builder => builder.RegisterMigrator<TrackingExternalMigrator>());
 
         const string payload = """
-            {"$type":42,"firstName":"Egil","lastName":"Hansen","age":42}
+            {"$type":42,"firstName":"Jane","lastName":"Doe","age":42}
             """;
 
         var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<TrackingV3>(payload, options));
@@ -39,7 +39,7 @@ public class MutationCoverageTests
         var options = CreateTrackingOptions(static builder => builder.RegisterMigrator<TrackingExternalMigrator>());
 
         const string payload = """
-            {"$type":"   ","firstName":"Egil","lastName":"Hansen","age":42}
+            {"$type":"   ","firstName":"Jane","lastName":"Doe","age":42}
             """;
 
         var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<TrackingV3>(payload, options));
@@ -133,11 +133,11 @@ public class MutationCoverageTests
         options.AddJsonMigrationSupport(builder => builder.RegisterMigratorsFromAssemblies(typeof(ScanMigrator).Assembly));
         options.TypeInfoResolverChain.Add(TrackingJsonContext.Default);
 
-        var json = JsonSerializer.Serialize(new ScanSource("Egil Hansen", 42), options);
+        var json = JsonSerializer.Serialize(new ScanSource("Jane Doe", 42), options);
         var migrated = JsonSerializer.Deserialize<ScanTarget>(json, options);
 
         Assert.NotNull(migrated);
-        Assert.Equal("Egil", migrated.FirstName);
+        Assert.Equal("Jane", migrated.FirstName);
     }
 
     [Fact]
@@ -156,7 +156,7 @@ public class MutationCoverageTests
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
         options.AddJsonMigrationSupport(static builder => builder.RegisterMigrator<ExternalFalseMigrator>());
 
-        var json = JsonSerializer.Serialize(new ExternalFalseV1("Egil Hansen", 42), options);
+        var json = JsonSerializer.Serialize(new ExternalFalseV1("Jane Doe", 42), options);
         var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<ExternalFalseV2>(json, options));
 
         Assert.Contains("Migration failed", exception.Message, StringComparison.Ordinal);
@@ -168,7 +168,7 @@ public class MutationCoverageTests
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
         options.AddJsonMigrationSupport();
 
-        var json = JsonSerializer.Serialize(new StaticFalseV1("Egil Hansen", 42), options);
+        var json = JsonSerializer.Serialize(new StaticFalseV1("Jane Doe", 42), options);
         var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<StaticFalseV2>(json, options));
 
         Assert.Contains("Migration failed", exception.Message, StringComparison.Ordinal);
@@ -182,11 +182,11 @@ public class MutationCoverageTests
             .SetMigrationFailureHandling(JsonMigrationFailureHandling.FallBackToTargetType)
             .RegisterMigrator<ExternalFallbackFalseMigrator>());
 
-        var json = JsonSerializer.Serialize(new ExternalFallbackFalseV1("Egil Hansen", 42), options);
+        var json = JsonSerializer.Serialize(new ExternalFallbackFalseV1("Jane Doe", 42), options);
         var deserialized = JsonSerializer.Deserialize<ExternalFallbackFalseV2>(json, options);
 
         Assert.NotNull(deserialized);
-        Assert.Equal("Egil Hansen", deserialized.Name);
+        Assert.Equal("Jane Doe", deserialized.Name);
         Assert.Equal(42, deserialized.Age);
     }
 
@@ -197,11 +197,11 @@ public class MutationCoverageTests
         options.AddJsonMigrationSupport(static builder => builder
             .SetMigrationFailureHandling(JsonMigrationFailureHandling.FallBackToTargetType));
 
-        var json = JsonSerializer.Serialize(new StaticFallbackFalseV1("Egil Hansen", 42), options);
+        var json = JsonSerializer.Serialize(new StaticFallbackFalseV1("Jane Doe", 42), options);
         var deserialized = JsonSerializer.Deserialize<StaticFallbackFalseV2>(json, options);
 
         Assert.NotNull(deserialized);
-        Assert.Equal("Egil Hansen", deserialized.Name);
+        Assert.Equal("Jane Doe", deserialized.Name);
         Assert.Equal(42, deserialized.Age);
     }
 
@@ -211,11 +211,11 @@ public class MutationCoverageTests
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
         options.AddJsonMigrationSupport(static builder => builder.RegisterMigrator<AttributeFallbackFalseMigrator>());
 
-        var json = JsonSerializer.Serialize(new AttributeFallbackFalseV1("Egil Hansen", 42), options);
+        var json = JsonSerializer.Serialize(new AttributeFallbackFalseV1("Jane Doe", 42), options);
         var deserialized = JsonSerializer.Deserialize<AttributeFallbackFalseV2>(json, options);
 
         Assert.NotNull(deserialized);
-        Assert.Equal("Egil Hansen", deserialized.Name);
+        Assert.Equal("Jane Doe", deserialized.Name);
         Assert.Equal(42, deserialized.Age);
     }
 
@@ -225,7 +225,7 @@ public class MutationCoverageTests
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
         options.AddJsonMigrationSupport(static builder => builder.RegisterMigrator<AttributeReturnNullFalseMigrator>());
 
-        var json = JsonSerializer.Serialize(new AttributeReturnNullFalseV1("Egil Hansen", 42), options);
+        var json = JsonSerializer.Serialize(new AttributeReturnNullFalseV1("Jane Doe", 42), options);
         var deserialized = JsonSerializer.Deserialize<AttributeReturnNullFalseV2>(json, options);
 
         Assert.Null(deserialized);
@@ -239,7 +239,7 @@ public class MutationCoverageTests
             .SetMigrationFailureHandling(JsonMigrationFailureHandling.ReturnNull)
             .RegisterMigrator<ReturnNullStructFalseMigrator>());
 
-        var json = JsonSerializer.Serialize(new ReturnNullStructV1("Egil Hansen", 42), options);
+        var json = JsonSerializer.Serialize(new ReturnNullStructV1("Jane Doe", 42), options);
         var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<ReturnNullStructV2>(json, options));
 
         Assert.Contains("cannot be applied to non-nullable value type targets", exception.Message, StringComparison.Ordinal);
@@ -251,11 +251,11 @@ public class MutationCoverageTests
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
         options.AddJsonMigrationSupport(static builder => builder.RegisterMigrator<InheritedPolicyFalseMigrator>());
 
-        var json = JsonSerializer.Serialize(new InheritedPolicySource("Egil Hansen", 42), options);
+        var json = JsonSerializer.Serialize(new InheritedPolicySource("Jane Doe", 42), options);
         var deserialized = JsonSerializer.Deserialize<InheritedPolicyTarget>(json, options);
 
         Assert.NotNull(deserialized);
-        Assert.Equal("Egil Hansen", deserialized.Name);
+        Assert.Equal("Jane Doe", deserialized.Name);
         Assert.Equal(42, deserialized.Age);
     }
 
@@ -283,12 +283,12 @@ public class MutationCoverageTests
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
         options.AddJsonMigrationSupport();
 
-        var json = JsonSerializer.Serialize(new ExplicitStaticContractV1("Egil Hansen", 42), options);
+        var json = JsonSerializer.Serialize(new ExplicitStaticContractV1("Jane Doe", 42), options);
         var migrated = JsonSerializer.Deserialize<ExplicitStaticContractV2>(json, options);
 
         Assert.NotNull(migrated);
-        Assert.Equal("Egil", migrated.FirstName);
-        Assert.Equal("Hansen", migrated.LastName);
+        Assert.Equal("Jane", migrated.FirstName);
+        Assert.Equal("Doe", migrated.LastName);
         Assert.Equal(42, migrated.Age);
     }
 
@@ -298,12 +298,12 @@ public class MutationCoverageTests
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
         options.AddJsonMigrationSupport();
 
-        var json = JsonSerializer.Serialize(new ContractPreferenceV1("Egil Hansen", 42), options);
+        var json = JsonSerializer.Serialize(new ContractPreferenceV1("Jane Doe", 42), options);
         var migrated = JsonSerializer.Deserialize<ContractPreferenceV2>(json, options);
 
         Assert.NotNull(migrated);
         Assert.Equal("contract", migrated.Path);
-        Assert.Equal("Egil", migrated.FirstName);
+        Assert.Equal("Jane", migrated.FirstName);
     }
 
     public static TheoryData<string, bool, bool, JsonCommentHandling, string> DirectReadFailureCases => new()
@@ -346,7 +346,7 @@ public class MutationCoverageTests
         var options = CreateTrackingOptions(static builder => builder.RegisterMigrator<TrackingExternalMigrator>());
 
         const string payload = """
-            {"firstName":"Egil","lastName":"Hansen","age":42}
+            {"firstName":"Jane","lastName":"Doe","age":42}
             """;
 
         var migrated = JsonSerializer.Deserialize<TrackingV3>(payload, options);
@@ -361,11 +361,11 @@ public class MutationCoverageTests
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
         options.AddJsonMigrationSupport(static builder => builder.RegisterMigrator<CustomDiscriminatorMigrator>());
 
-        var json = JsonSerializer.Serialize(new CustomDiscriminatorSource("Egil Hansen", 42), options);
+        var json = JsonSerializer.Serialize(new CustomDiscriminatorSource("Jane Doe", 42), options);
         var migrated = JsonSerializer.Deserialize<TrackingV3>(json, options);
 
         Assert.NotNull(migrated);
-        Assert.Equal("Egil", migrated.FirstName);
+        Assert.Equal("Jane", migrated.FirstName);
         Assert.True(migrated.MigratedDuringDeserialization);
     }
 
@@ -377,13 +377,13 @@ public class MutationCoverageTests
             .SetTypeDiscriminatorPropertyName("__type")
             .RegisterMigrator<TrackingExternalMigrator>());
 
-        var json = JsonSerializer.Serialize(new TrackingV1("Egil Hansen", 42), options);
+        var json = JsonSerializer.Serialize(new TrackingV1("Jane Doe", 42), options);
         Assert.Contains("\"__type\":", json, StringComparison.Ordinal);
         Assert.DoesNotContain("\"$type\":", json, StringComparison.Ordinal);
 
         var migrated = JsonSerializer.Deserialize<TrackingV3>(json, options);
         Assert.NotNull(migrated);
-        Assert.Equal("Egil", migrated.FirstName);
+        Assert.Equal("Jane", migrated.FirstName);
     }
 
     [Fact]
@@ -392,11 +392,11 @@ public class MutationCoverageTests
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
         options.AddJsonMigrationSupport();
 
-        var json = JsonSerializer.Serialize(new SignatureChaosV1("Egil Hansen", 42), options);
+        var json = JsonSerializer.Serialize(new SignatureChaosV1("Jane Doe", 42), options);
         var migrated = JsonSerializer.Deserialize<SignatureChaosV2>(json, options);
 
         Assert.NotNull(migrated);
-        Assert.Equal("Egil", migrated!.FirstName);
+        Assert.Equal("Jane", migrated!.FirstName);
     }
 
     [Fact]
@@ -407,11 +407,11 @@ public class MutationCoverageTests
 
         using var stream = new MemoryStream();
         using var writer = new Utf8JsonWriter(stream);
-        converter.Write(writer, new TrackingV3("Egil", "Hansen", 42), options);
+        converter.Write(writer, new TrackingV3("Jane", "Doe", 42), options);
         writer.Flush();
 
         string json = Encoding.UTF8.GetString(stream.ToArray());
-        Assert.Contains("\"firstName\":\"Egil\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"firstName\":\"Jane\"", json, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -420,7 +420,7 @@ public class MutationCoverageTests
         var options = CreateTrackingOptions();
         JsonConverter<TrackingV3> converter = CreateTrackingConverterWithUntypedTargetInfo(options);
 
-        string json = JsonSerializer.Serialize(new TrackingV3("Egil", "Hansen", 42), options);
+        string json = JsonSerializer.Serialize(new TrackingV3("Jane", "Doe", 42), options);
         var reader = new Utf8JsonReader(Encoding.UTF8.GetBytes(json));
 
         Exception? exception = TryReadTracking(converter, ref reader, options);

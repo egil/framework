@@ -35,9 +35,9 @@ public class ProfileV2 : IJsonOnDeserialized
 var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
 options.AddJsonMigrationSupport();
 
-var json = """{"$type":"profile-v2","firstName":"Egil","lastName":"Hansen"}""";
+var json = """{"$type":"profile-v2","firstName":"Jane","lastName":"Doe"}""";
 var profile = JsonSerializer.Deserialize<ProfileV2>(json, options);
-// profile.DisplayName is "Egil Hansen" — set by OnDeserialized()
+// profile.DisplayName is "Jane Doe" — set by OnDeserialized()
 ```
 <sup><a href='/samples/Egil.SystemTextJson.Migration.Samples/StjCallbacksSample.cs#L86-L93' title='Snippet source file'>snippet source</a> | <a href='#snippet-stj_on_deserialized_usage' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->

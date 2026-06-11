@@ -11,8 +11,8 @@ public class NestedMigratableScenarioMatrixTests
             """
             {
               "$type":"scenario-parent-v2",
-              "parentFirstName":"Egil",
-              "parentLastName":"Hansen",
+              "parentFirstName":"Jane",
+              "parentLastName":"Doe",
               "child":{
                 "$type":"scenario-child-v2",
                 "firstName":"Ada",
@@ -22,8 +22,8 @@ public class NestedMigratableScenarioMatrixTests
             """);
 
         Assert.NotNull(result);
-        Assert.Equal("Egil", result.ParentFirstName);
-        Assert.Equal("Hansen", result.ParentLastName);
+        Assert.Equal("Jane", result.ParentFirstName);
+        Assert.Equal("Doe", result.ParentLastName);
         Assert.NotNull(result.Child);
         Assert.Equal("Ada", result.Child.FirstName);
         Assert.Equal("Lovelace", result.Child.LastName);
@@ -36,8 +36,8 @@ public class NestedMigratableScenarioMatrixTests
             """
             {
               "$type":"scenario-parent-plain-v2",
-              "parentFirstName":"Egil",
-              "parentLastName":"Hansen",
+              "parentFirstName":"Jane",
+              "parentLastName":"Doe",
               "child":{
                 "value":"plain-child"
               }
@@ -45,8 +45,8 @@ public class NestedMigratableScenarioMatrixTests
             """);
 
         Assert.NotNull(result);
-        Assert.Equal("Egil", result.ParentFirstName);
-        Assert.Equal("Hansen", result.ParentLastName);
+        Assert.Equal("Jane", result.ParentFirstName);
+        Assert.Equal("Doe", result.ParentLastName);
         Assert.NotNull(result.Child);
         Assert.Equal("plain-child", result.Child.Value);
     }
@@ -77,7 +77,7 @@ public class NestedMigratableScenarioMatrixTests
             """
             {
               "$type":"scenario-parent-v1",
-              "parentName":"Egil Hansen",
+              "parentName":"Jane Doe",
               "child":{
                 "$type":"scenario-child-v2",
                 "firstName":"Ada",
@@ -87,8 +87,8 @@ public class NestedMigratableScenarioMatrixTests
             """);
 
         Assert.NotNull(result);
-        Assert.Equal("Egil", result.ParentFirstName);
-        Assert.Equal("Hansen", result.ParentLastName);
+        Assert.Equal("Jane", result.ParentFirstName);
+        Assert.Equal("Doe", result.ParentLastName);
         Assert.NotNull(result.Child);
         Assert.Equal("Ada", result.Child.FirstName);
         Assert.Equal("Lovelace", result.Child.LastName);
@@ -101,8 +101,8 @@ public class NestedMigratableScenarioMatrixTests
             """
             {
               "$type":"scenario-parent-v2",
-              "parentFirstName":"Egil",
-              "parentLastName":"Hansen",
+              "parentFirstName":"Jane",
+              "parentLastName":"Doe",
               "child":{
                 "$type":"scenario-child-v1",
                 "name":"Ada Lovelace"
@@ -111,8 +111,8 @@ public class NestedMigratableScenarioMatrixTests
             """);
 
         Assert.NotNull(result);
-        Assert.Equal("Egil", result.ParentFirstName);
-        Assert.Equal("Hansen", result.ParentLastName);
+        Assert.Equal("Jane", result.ParentFirstName);
+        Assert.Equal("Doe", result.ParentLastName);
         Assert.NotNull(result.Child);
         Assert.Equal("Ada", result.Child.FirstName);
         Assert.Equal("Lovelace", result.Child.LastName);
@@ -125,7 +125,7 @@ public class NestedMigratableScenarioMatrixTests
             """
             {
               "$type":"scenario-parent-v1",
-              "parentName":"Egil Hansen",
+              "parentName":"Jane Doe",
               "child":{
                 "$type":"scenario-child-v1",
                 "name":"Ada Lovelace"
@@ -134,8 +134,8 @@ public class NestedMigratableScenarioMatrixTests
             """);
 
         Assert.NotNull(result);
-        Assert.Equal("Egil", result.ParentFirstName);
-        Assert.Equal("Hansen", result.ParentLastName);
+        Assert.Equal("Jane", result.ParentFirstName);
+        Assert.Equal("Doe", result.ParentLastName);
         Assert.NotNull(result.Child);
         Assert.Equal("Ada", result.Child.FirstName);
         Assert.Equal("Lovelace", result.Child.LastName);

@@ -10,7 +10,7 @@ public class RegistrationAndTrackingTests
     {
         var options = CreateOptions(static builder => builder.RegisterMigrator<TrackingExternalMigrator>());
 
-        var json = JsonSerializer.Serialize(new TrackingV1("Egil Hansen", 42), options);
+        var json = JsonSerializer.Serialize(new TrackingV1("Jane Doe", 42), options);
         var migrated = JsonSerializer.Deserialize<TrackingV3>(json, options);
 
         Assert.NotNull(migrated);
@@ -23,7 +23,7 @@ public class RegistrationAndTrackingTests
         var options = CreateOptions(static builder => builder.RegisterMigrator<TrackingExternalMigrator>());
 
         var migrated = JsonSerializer.Deserialize<TrackingV3>("""
-            {"firstName":"Egil","lastName":"Hansen","age":42}
+            {"firstName":"Jane","lastName":"Doe","age":42}
             """, options);
 
         Assert.NotNull(migrated);
@@ -35,7 +35,7 @@ public class RegistrationAndTrackingTests
     {
         var options = CreateOptions(static builder => builder.RegisterMigrator<TrackingExternalMigrator>());
 
-        var json = JsonSerializer.Serialize(new TrackingV3("Egil", "Hansen", 42), options);
+        var json = JsonSerializer.Serialize(new TrackingV3("Jane", "Doe", 42), options);
         var deserialized = JsonSerializer.Deserialize<TrackingV3>(json, options);
 
         Assert.NotNull(deserialized);
@@ -47,7 +47,7 @@ public class RegistrationAndTrackingTests
     {
         var options = CreateOptions(static builder => builder.RegisterMigrator<PrecedenceExternalMigrator>());
 
-        var json = JsonSerializer.Serialize(new PrecedenceV1("Egil Hansen", 42), options);
+        var json = JsonSerializer.Serialize(new PrecedenceV1("Jane Doe", 42), options);
         var migrated = JsonSerializer.Deserialize<PrecedenceV2>(json, options);
 
         Assert.NotNull(migrated);
@@ -59,7 +59,7 @@ public class RegistrationAndTrackingTests
     {
         var options = CreateOptions();
 
-        var json = JsonSerializer.Serialize(new PrecedenceV1("Egil Hansen", 42), options);
+        var json = JsonSerializer.Serialize(new PrecedenceV1("Jane Doe", 42), options);
         var migrated = JsonSerializer.Deserialize<PrecedenceV2>(json, options);
 
         Assert.NotNull(migrated);
@@ -112,12 +112,12 @@ public class RegistrationAndTrackingTests
     {
         var options = CreateOptions(builder => builder.RegisterMigratorsFromAssembly(typeof(TrackingExternalMigrator).Assembly));
 
-        var json = JsonSerializer.Serialize(new ScanSource("Egil Hansen", 42), options);
+        var json = JsonSerializer.Serialize(new ScanSource("Jane Doe", 42), options);
         var migrated = JsonSerializer.Deserialize<ScanTarget>(json, options);
 
         Assert.NotNull(migrated);
-        Assert.Equal("Egil", migrated.FirstName);
-        Assert.Equal("Hansen", migrated.LastName);
+        Assert.Equal("Jane", migrated.FirstName);
+        Assert.Equal("Doe", migrated.LastName);
         Assert.Equal(42, migrated.Age);
     }
 
@@ -126,7 +126,7 @@ public class RegistrationAndTrackingTests
     {
         var options = CreateOptions();
 
-        var json = JsonSerializer.Serialize(new ScanSource("Egil Hansen", 42), options);
+        var json = JsonSerializer.Serialize(new ScanSource("Jane Doe", 42), options);
 
         var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<ScanTarget>(json, options));
         Assert.Contains("No migrator was found", exception.Message, StringComparison.Ordinal);
@@ -157,7 +157,7 @@ public class RegistrationAndTrackingTests
 
         var exception = Assert.Throws<JsonMigrationDuplicateTypeDiscriminatorException>(() => JsonSerializer.Deserialize<DuplicateDiscriminatorTarget>(
             """
-            {"$type":"dup-source","name":"Egil Hansen","age":42}
+            {"$type":"dup-source","name":"Jane Doe","age":42}
             """,
             options));
 
@@ -176,13 +176,13 @@ public class RegistrationAndTrackingTests
 
         var migrated = JsonSerializer.Deserialize<AliasPreferredTarget>(
             """
-            {"$type":"alias-source-v1","name":"Egil Hansen","age":42}
+            {"$type":"alias-source-v1","name":"Jane Doe","age":42}
             """,
             options);
 
         Assert.NotNull(migrated);
-        Assert.Equal("Egil", migrated.FirstName);
-        Assert.Equal("Hansen", migrated.LastName);
+        Assert.Equal("Jane", migrated.FirstName);
+        Assert.Equal("Doe", migrated.LastName);
         Assert.Equal(42, migrated.Age);
     }
 
@@ -196,13 +196,13 @@ public class RegistrationAndTrackingTests
 
         var migrated = JsonSerializer.Deserialize<AliasFallbackTarget>(
             """
-            {"$type":"json-fallback-source-v1","name":"Egil Hansen","age":42}
+            {"$type":"json-fallback-source-v1","name":"Jane Doe","age":42}
             """,
             options);
 
         Assert.NotNull(migrated);
-        Assert.Equal("Egil", migrated.FirstName);
-        Assert.Equal("Hansen", migrated.LastName);
+        Assert.Equal("Jane", migrated.FirstName);
+        Assert.Equal("Doe", migrated.LastName);
         Assert.Equal(42, migrated.Age);
     }
 
@@ -213,13 +213,13 @@ public class RegistrationAndTrackingTests
 
         var migrated = JsonSerializer.Deserialize<DerivedDiscriminatorTarget>(
             $$"""
-            {"$type":"{{typeof(DerivedDiscriminatorSource).FullName}}","name":"Egil Hansen","age":42}
+            {"$type":"{{typeof(DerivedDiscriminatorSource).FullName}}","name":"Jane Doe","age":42}
             """,
             options);
 
         Assert.NotNull(migrated);
-        Assert.Equal("Egil", migrated.FirstName);
-        Assert.Equal("Hansen", migrated.LastName);
+        Assert.Equal("Jane", migrated.FirstName);
+        Assert.Equal("Doe", migrated.LastName);
         Assert.Equal(42, migrated.Age);
     }
 
@@ -230,13 +230,13 @@ public class RegistrationAndTrackingTests
 
         var migrated = JsonSerializer.Deserialize<DerivedJsonDiscriminatorTarget>(
             """
-            {"$type":"derived-json-source","name":"Egil Hansen","age":42}
+            {"$type":"derived-json-source","name":"Jane Doe","age":42}
             """,
             options);
 
         Assert.NotNull(migrated);
-        Assert.Equal("Egil", migrated.FirstName);
-        Assert.Equal("Hansen", migrated.LastName);
+        Assert.Equal("Jane", migrated.FirstName);
+        Assert.Equal("Doe", migrated.LastName);
         Assert.Equal(42, migrated.Age);
     }
 
@@ -251,13 +251,13 @@ public class RegistrationAndTrackingTests
 
         var migrated = JsonSerializer.Deserialize<DerivedAliasDiscriminatorTarget>(
             """
-            {"$type":"derived-alias-source","name":"Egil Hansen","age":42}
+            {"$type":"derived-alias-source","name":"Jane Doe","age":42}
             """,
             options);
 
         Assert.NotNull(migrated);
-        Assert.Equal("Egil", migrated.FirstName);
-        Assert.Equal("Hansen", migrated.LastName);
+        Assert.Equal("Jane", migrated.FirstName);
+        Assert.Equal("Doe", migrated.LastName);
         Assert.Equal(42, migrated.Age);
     }
 
@@ -268,7 +268,7 @@ public class RegistrationAndTrackingTests
         options.AddJsonMigrationSupport(static builder => builder.RegisterMigrator<TrackingExternalMigrator>());
         options.TypeInfoResolverChain.Add(TrackingJsonContext.Default);
 
-        var json = JsonSerializer.Serialize(new TrackingV1("Egil Hansen", 42), options);
+        var json = JsonSerializer.Serialize(new TrackingV1("Jane Doe", 42), options);
         var migrated = JsonSerializer.Deserialize<TrackingV3>(json, options);
 
         Assert.NotNull(migrated);
@@ -283,7 +283,7 @@ public class RegistrationAndTrackingTests
         options.TypeInfoResolverChain.Add(MissingMetadataJsonContext.Default);
 
         var payload = """
-            {"$type":"Egil.SystemTextJson.Migration.Tests.MissingMetadataSource","name":"Egil Hansen","age":42}
+            {"$type":"Egil.SystemTextJson.Migration.Tests.MissingMetadataSource","name":"Jane Doe","age":42}
             """;
 
         var exception = Assert.Throws<InvalidOperationException>(
@@ -296,7 +296,7 @@ public class RegistrationAndTrackingTests
     public void Copied_options_use_their_own_metadata_context_for_converter_creation()
     {
         const string payload = """
-            {"$type":"Egil.SystemTextJson.Migration.Tests.MissingMetadataSource","name":"Egil Hansen","age":42}
+            {"$type":"Egil.SystemTextJson.Migration.Tests.MissingMetadataSource","name":"Jane Doe","age":42}
             """;
 
         var optionsA = new JsonSerializerOptions(JsonSerializerDefaults.Web);
@@ -324,8 +324,8 @@ public class RegistrationAndTrackingTests
 
         var value = new CallbackLifecycleTarget
         {
-            FirstName = "Egil",
-            LastName = "Hansen",
+            FirstName = "Jane",
+            LastName = "Doe",
             Age = 42,
         };
 
@@ -353,14 +353,14 @@ public class RegistrationAndTrackingTests
             .UseServiceProvider(provider)
             .RegisterMigrator<ServiceProviderSource, ServiceProviderTarget, ServiceProviderMigrator>());
 
-        var json = JsonSerializer.Serialize(new ServiceProviderSource("Egil Hansen", 42), options);
+        var json = JsonSerializer.Serialize(new ServiceProviderSource("Jane Doe", 42), options);
         var migrated = JsonSerializer.Deserialize<ServiceProviderTarget>(json, options);
 
         Assert.NotNull(migrated);
-        Assert.Equal("Egil", migrated.FirstName);
-        Assert.Equal("Hansen", migrated.LastName);
+        Assert.Equal("Jane", migrated.FirstName);
+        Assert.Equal("Doe", migrated.LastName);
         Assert.Equal(42, migrated.Age);
-        Assert.Equal("Egil Hansen-from-di", migrated.TaggedName);
+        Assert.Equal("Jane Doe-from-di", migrated.TaggedName);
     }
 
     [Fact]
@@ -374,7 +374,7 @@ public class RegistrationAndTrackingTests
             .UseServiceProvider(provider)
             .RegisterMigrator<ServiceProviderSource, ServiceProviderTarget, ServiceProviderMigrator>());
 
-        var json = JsonSerializer.Serialize(new ServiceProviderSource("Egil Hansen", 42), options);
+        var json = JsonSerializer.Serialize(new ServiceProviderSource("Jane Doe", 42), options);
 
         var exception = Assert.Throws<InvalidOperationException>(
             () => JsonSerializer.Deserialize<ServiceProviderTarget>(json, options));
@@ -391,15 +391,15 @@ public class RegistrationAndTrackingTests
             .UseServiceProvider(provider)
             .RegisterMigrator<ServiceProviderSource, ServiceProviderTarget, ServiceProviderMigrator>());
 
-        var json = JsonSerializer.Serialize(new ServiceProviderSource("Egil Hansen", 42), options);
+        var json = JsonSerializer.Serialize(new ServiceProviderSource("Jane Doe", 42), options);
 
         var first = JsonSerializer.Deserialize<ServiceProviderTarget>(json, options);
         var second = JsonSerializer.Deserialize<ServiceProviderTarget>(json, options);
 
         Assert.NotNull(first);
         Assert.NotNull(second);
-        Assert.Equal("Egil Hansen-from-di-1", first.TaggedName);
-        Assert.Equal("Egil Hansen-from-di-2", second.TaggedName);
+        Assert.Equal("Jane Doe-from-di-1", first.TaggedName);
+        Assert.Equal("Jane Doe-from-di-2", second.TaggedName);
     }
 
     private static JsonSerializerOptions CreateOptions(Action<JsonMigrationBuilder>? configure = null)

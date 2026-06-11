@@ -8,7 +8,7 @@ When data models evolve, old JSON payloads still exist — in databases, caches,
 
 **Key characteristics:**
 
-- **Zero allocation on the happy path** — current-version payloads deserialize with no extra overhead.
+- **Little to no overhead for normal-sized payloads** — the medium source-generated happy-path profile benchmarks close to plain `System.Text.Json` throughput with zero extra library allocations.
 - **O(1) discriminator check** — only the first JSON property is inspected to determine the payload version.
 - **AOT-friendly** — works with source-generated `JsonSerializerContext`.
 - **Two migration styles** — static (target-owned) via `IMigrateFrom<TSource, TTarget>`, or external (separate class) via `IMigrate<TSource, TTarget>` with optional dependency injection.
@@ -88,9 +88,14 @@ UserV2 user = JsonSerializer.Deserialize<UserV2>(json, options)!;
 <sup><a href='/samples/Egil.SystemTextJson.Migration.Samples/StaticMigrationSample.cs#L25-L33' title='Snippet source file'>snippet source</a> | <a href='#snippet-static_migration_usage' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
-### Discriminator-less object payloads
+### Brownfield adoption
 
-When stored JSON was written before migration support existed and represents an older source shape, configure the target with `UndiscriminatedSourceType`:
+Existing projects can adopt migration support one type at a time:
+
+- **No shape change needed:** add `[JsonMigratable]` to the current type and enable `AddJsonMigrationSupport()`. Existing discriminator-less object payloads that already match the current type continue to deserialize as that type; new writes include `$type`, so future reads use the normal happy path.
+- **Existing payloads need migration:** if stored JSON was written before `[JsonMigratable]` existed and represents an older object shape, set `UndiscriminatedSourceType` on the current type and provide a static or external migrator from that source type. The library then treats discriminator-less object payloads as that source shape, while discriminator-bearing payloads still use normal version matching.
+
+When stored JSON represents an older source shape, configure the target with `UndiscriminatedSourceType`:
 
 <!-- snippet: legacy_undiscriminated_source_type -->
 <a id='snippet-legacy_undiscriminated_source_type'></a>
@@ -127,6 +132,8 @@ CustomerNameV1 customer = JsonSerializer.Deserialize<CustomerNameV1>(json, optio
 ```
 <sup><a href='/samples/Egil.SystemTextJson.Migration.Samples/LegacyPayloadSample.cs#L79-L90' title='Snippet source file'>snippet source</a> | <a href='#snippet-legacy_undiscriminated_source_usage' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
+
+`UndiscriminatedSourceType` is intentionally one source type per target. If multiple historical object shapes exist without discriminators, choose the one that represents the stored brownfield payloads you need to migrate.
 
 ### External migration
 
@@ -470,47 +477,53 @@ builder.Services.AddOpenTelemetry()
     });
 ```
 
-### Legacy payloads without a discriminator
-
-Payloads that were serialized before migration support was added will have no `$type` property. The library treats these as **legacy payloads** and attempts migration using the registered source types. This means you can adopt the library incrementally — existing stored JSON keeps working.
-
 ## Performance
 
-Every benchmark compares the library against hand-written migration code on top of plain `System.Text.Json`. Each scenario is tested at three payload sizes (2, 32, and 256 array items) to show how overhead scales.
+Every benchmark compares the library against hand-written migration code on top of plain `System.Text.Json`. The small profile is a minimal `{ "name": "...", "age": ... }` object that highlights worst-case fixed overhead; the medium profile is a best-guess average object with about 12 object members; and the large profile has about 96 object members spread across nested objects, arrays, and dictionary entries. See [benchmark payload examples](https://github.com/egil/framework/blob/main/Egil.SystemTextJson.Migration/docs/perf/payload-examples.md) for representative JSON from each profile.
 
-**Key takeaways:**
-
-- **Happy path (no migration needed):** deserialization is ~1.0–1.3× plain STJ with **zero extra allocations**. The overhead comes from the O(1) first-property discriminator check and is constant regardless of payload size.
-- **Migration path:** static/external discriminator-based migrations are ~1.4× plain STJ for small payloads, converging toward ~1.0× as payload size grows — the fixed migration overhead is amortized over more data.
-- **Undiscriminated source migration:** ~1.0–1.1× plain STJ with **zero extra allocations** compared to a manual source deserialize plus conversion.
-- **Target-shaped legacy payloads (no discriminator):** 1.0–1.2× plain STJ with **zero extra allocations** — the same as current-version payloads.
-- **Serialization:** near 1:1 at larger payloads (ratio ≈ 1.0). Small payloads show ~2× due to the fixed cost of writing the discriminator property.
-
-Detailed results with source-generated `JsonSerializerContext`:
+The generated table below is refreshed by `.\scripts\update-perf-docs.ps1` from the latest source-generated BenchmarkDotNet report. It keeps BenchmarkDotNet's `Ratio`, `RatioSD`, and `Alloc Ratio` columns so README numbers stay tied to the raw benchmark output.
 
 <!-- This is a summary; see [full source-gen results](https://github.com/egil/framework/blob/main/Egil.SystemTextJson.Migration/docs/perf/source-gen-benchmarks.md) and [full reflection results](https://github.com/egil/framework/blob/main/Egil.SystemTextJson.Migration/docs/perf/reflection-benchmarks.md). -->
 
 <!-- perf-summary:start -->
-| Scenario | TagCount | Ratio vs plain STJ | Alloc Ratio |
-|----------|:--------:|:-------------------:|:-----------:|
-| **No migration (happy path)** | 2 | 1.24× | 1.00 |
-|  | 32 | 1.08× | 1.00 |
-|  | 256 | 1.02× | 1.00 |
-| **Static migration** | 2 | 1.42× | 1.00 |
-|  | 32 | 1.14× | 1.00 |
-|  | 256 | 1.02× | 1.00 |
-| **External migration** | 2 | 1.37× | 1.00 |
-|  | 32 | 1.13× | 1.00 |
-|  | 256 | 1.01× | 1.00 |
-| **Undiscriminated source migration** | 2 | 0.99× | 1.00 |
-|  | 32 | 1.07× | 1.00 |
-|  | 256 | 1.02× | 1.00 |
-| **Legacy payload** | 2 | 1.13× | 1.00 |
-|  | 32 | 1.07× | 1.00 |
-|  | 256 | 1.01× | 1.00 |
-| **Serialization** | 2 | 1.81× | 5.45 |
-|  | 32 | 1.08× | 2.02 |
-|  | 256 | 0.89× | 1.15 |
+| Scenario | Method | Payload size | Mean | Ratio | RatioSD | Allocated | Alloc Ratio |
+|----------|--------|:------------:|-----:|------:|--------:|----------:|------------:|
+| **No migration (happy path)** | Plain STJ | Small | 304.5 ns | 1.00 | 0.06 | 160 B | 1.00 |
+|  | JsonMigratable | Small | 337.1 ns | 1.11 | 0.05 | 160 B | 1.00 |
+|  | Plain STJ | Medium | 1,465.9 ns | 1.00 | 0.01 | 1656 B | 1.00 |
+|  | JsonMigratable | Medium | 1,572.8 ns | 1.07 | 0.01 | 1656 B | 1.00 |
+|  | Plain STJ | Large | 15,625.2 ns | 1.00 | 0.01 | 24624 B | 1.00 |
+|  | JsonMigratable | Large | 16,915.7 ns | 1.08 | 0.10 | 24624 B | 1.00 |
+| **Static migration** | Manual STJ migration | Small | 342.7 ns | 1.00 | 0.08 | 312 B | 1.00 |
+|  | JsonMigratable | Small | 632.9 ns | 1.85 | 0.19 | 312 B | 1.00 |
+|  | Manual STJ migration | Medium | 2,013.6 ns | 1.00 | 0.06 | 1808 B | 1.00 |
+|  | JsonMigratable | Medium | 2,104.1 ns | 1.05 | 0.05 | 1808 B | 1.00 |
+|  | Manual STJ migration | Large | 17,840.2 ns | 1.00 | 0.10 | 24776 B | 1.00 |
+|  | JsonMigratable | Large | 16,988.8 ns | 0.96 | 0.09 | 24776 B | 1.00 |
+| **External migration** | Manual STJ migration | Small | 334.1 ns | 1.00 | 0.06 | 312 B | 1.00 |
+|  | JsonMigratable | Small | 566.9 ns | 1.70 | 0.08 | 312 B | 1.00 |
+|  | Manual STJ migration | Medium | 1,861.7 ns | 1.00 | 0.06 | 1808 B | 1.00 |
+|  | JsonMigratable | Medium | 2,405.9 ns | 1.29 | 0.08 | 1808 B | 1.00 |
+|  | Manual STJ migration | Large | 17,206.9 ns | 1.01 | 0.13 | 24776 B | 1.00 |
+|  | JsonMigratable | Large | 18,846.3 ns | 1.10 | 0.17 | 24776 B | 1.00 |
+| **Undiscriminated source migration** | Manual STJ migration | Small | 379.1 ns | 1.00 | 0.09 | 312 B | 1.00 |
+|  | JsonMigratable | Small | 491.2 ns | 1.30 | 0.11 | 312 B | 1.00 |
+|  | Manual STJ migration | Medium | 2,026.8 ns | 1.00 | 0.08 | 1808 B | 1.00 |
+|  | JsonMigratable | Medium | 2,106.4 ns | 1.04 | 0.10 | 1808 B | 1.00 |
+|  | Manual STJ migration | Large | 16,685.8 ns | 1.03 | 0.25 | 24776 B | 1.00 |
+|  | JsonMigratable | Large | 15,659.2 ns | 0.97 | 0.18 | 24776 B | 1.00 |
+| **Legacy payload** | Plain STJ + tracking | Small | 373.4 ns | 1.00 | 0.04 | 192 B | 1.00 |
+|  | JsonMigratable | Small | 486.0 ns | 1.30 | 0.08 | 192 B | 1.00 |
+|  | Plain STJ + tracking | Medium | 1,933.9 ns | 1.01 | 0.12 | 1688 B | 1.00 |
+|  | JsonMigratable | Medium | 1,991.9 ns | 1.04 | 0.12 | 1688 B | 1.00 |
+|  | Plain STJ + tracking | Large | 16,924.1 ns | 1.00 | 0.02 | 24656 B | 1.00 |
+|  | JsonMigratable | Large | 15,528.3 ns | 0.92 | 0.05 | 24656 B | 1.00 |
+| **Serialization** | Plain STJ | Small | 107.8 ns | 1.00 | 0.03 | 56 B | 1.00 |
+|  | JsonMigratable | Small | 169.8 ns | 1.58 | 0.03 | 136 B | 2.43 |
+|  | Plain STJ | Medium | 436.8 ns | 1.00 | 0.00 | 416 B | 1.00 |
+|  | JsonMigratable | Medium | 735.2 ns | 1.68 | 0.01 | 800 B | 1.92 |
+|  | Plain STJ | Large | 3,689.9 ns | 1.00 | 0.01 | 10384 B | 1.00 |
+|  | JsonMigratable | Large | 4,982.6 ns | 1.35 | 0.01 | 10776 B | 1.04 |
 <!-- perf-summary:end -->
 
 > Full benchmark reports: [source-gen](https://github.com/egil/framework/blob/main/Egil.SystemTextJson.Migration/docs/perf/source-gen-benchmarks.md) · [reflection](https://github.com/egil/framework/blob/main/Egil.SystemTextJson.Migration/docs/perf/reflection-benchmarks.md)
