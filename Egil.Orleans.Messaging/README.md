@@ -154,7 +154,20 @@ base interfaces or catch-all handlers.
 
 Failed dispatches are reported through `ReconcileFailedAsync`. That callback
 is where the owning grain applies retry, dead-letter, max-depth, or trimming
-policy, because the grain owns the durable outbox state.
+policy, because the grain owns the durable outbox state. The attempt counts
+passed to the callback are in-memory per activation (and pruned once an item
+is no longer pending), so policies that must survive activation restarts need
+to persist their own counters on the items or grain state.
+
+The outbox tools do not require the state manager. When persisting the outbox
+with plain `IPersistentState<T>` writes, the pipeline stays at-least-once on
+its own: items only leave durable state when the grain removes them in
+`AcknowledgePostedAsync` after a successful post, so a failed or ambiguous
+state write leaves them pending and at worst causes duplicate delivery, never
+loss. Be aware that `Outbox<T>.Equals` is an O(1) fingerprint (sender,
+sequence metadata, count, and first/last pending tokens), not deep payload
+equality — safe for dirty-checks and write recovery, but not a substitute for
+comparing message contents item by item.
 
 If a post run fails before reconciliation completes — for example when the
 run exceeds `ProcessingTimeout` or an acknowledgement callback throws — the
