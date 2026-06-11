@@ -312,14 +312,42 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
     /// last pending tokens (including their timestamps).
     /// </summary>
     /// <remarks>
-    /// This intentionally does not compare message payloads. Items are only
-    /// ever appended at the tail, so two histories that diverged by adding
-    /// different messages — for example duplicate grain activations racing an
-    /// ambiguous storage write — always differ in their highest pending
-    /// token, whose timestamp is stamped by the producing activation.
-    /// Histories that diverged only by removals can still compare equal;
-    /// the state-manager recovery path then at worst re-delivers an already
-    /// posted item (at-least-once) but never loses a pending message.
+    /// <para>
+    /// This equality is the contract the state-manager write recovery relies
+    /// on: after an ambiguous storage write (the call threw but the write may
+    /// have landed, e.g. a timeout or lost response), the state manager reads
+    /// the persisted state back and uses <c>Equals</c> to decide between
+    /// "lost response — the write landed, swallow the error" and "the write
+    /// did not land — rethrow so the caller retries". A false positive here
+    /// would make recovery adopt a foreign state and silently drop pending
+    /// messages, so the fingerprint must never compare equal for a history
+    /// that is missing items this instance added.
+    /// </para>
+    /// <para>
+    /// The fingerprint intentionally does not compare message payloads, to
+    /// avoid an O(n) scan on every recovery. It is still loss-safe because
+    /// items are only ever appended at the tail: two histories that diverged
+    /// by <em>adding</em> different messages — for example duplicate grain
+    /// activations of the same grain in two silos racing an ambiguous write —
+    /// always differ in count or in their highest pending token. The token
+    /// timestamp is stamped by the producing activation's clock, which also
+    /// distinguishes same-count races unless both activations produced the
+    /// exact same timestamp.
+    /// </para>
+    /// <para>
+    /// Note that direct optimistic-concurrency conflicts are not handled
+    /// here: when the storage provider reports an ETag conflict
+    /// (<c>InconsistentStateException</c>) the state manager rethrows it even
+    /// if the values happen to match, so this equality only decides the
+    /// ambiguous-outcome cases described above.
+    /// </para>
+    /// <para>
+    /// Accepted trade-off: histories that diverged only by <em>removals</em>
+    /// (or the exact-timestamp tie above) can still compare equal. Recovery
+    /// then at worst re-delivers an already posted item — duplicate delivery
+    /// is acceptable under the at-least-once contract, losing a pending
+    /// message is not.
+    /// </para>
     /// </remarks>
     public bool Equals(Outbox<T>? other)
     {
@@ -346,6 +374,11 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
             FirstToken,
             LastToken);
 
+    // Full tokens (sequence number + epoch + timestamp) rather than bare
+    // sequence numbers: the timestamp comes from the producing activation's
+    // clock, so it disambiguates duplicate activations that appended different
+    // items yet reached the same sequence number. See Equals for the recovery
+    // contract this protects.
     private OutboxSequenceToken? FirstToken =>
         items.IsDefaultOrEmpty ? null : items[0].Token;
 
