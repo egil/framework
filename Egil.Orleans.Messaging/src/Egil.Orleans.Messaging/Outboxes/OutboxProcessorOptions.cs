@@ -25,6 +25,17 @@ public sealed class OutboxProcessorOptions<TOutbox>
     /// The grain is expected to remove these items from durable outbox state
     /// and persist the update.
     /// </summary>
+    /// <remarks>
+    /// The batch contains exactly the items that posted successfully and is
+    /// <em>not necessarily a contiguous prefix</em> of the
+    /// <see cref="PendingItems"/> snapshot: different postmen dispatch their
+    /// groups concurrently, and an item without a matching postman fails in
+    /// place while later items can still succeed. Remove the received items
+    /// themselves (for example by their <c>OutboxSequenceToken</c> when
+    /// <typeparamref name="TOutbox"/> is <c>OutboxMessageEnvelope&lt;T&gt;</c>),
+    /// never by position or count — positional removal can drop a failed,
+    /// undelivered item and lose it.
+    /// </remarks>
     public required Func<ImmutableArray<TOutbox>, CancellationToken, ValueTask> AcknowledgePostedAsync { get; init; }
 
     /// <summary>
