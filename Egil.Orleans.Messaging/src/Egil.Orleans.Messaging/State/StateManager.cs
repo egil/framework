@@ -74,6 +74,11 @@ public abstract class StateManagerBase<T> : IStateManager<T>
     private readonly IPersistentState<T> storage;
     private T state;
 
+    /// <summary>
+    /// Initializes the manager over the grain's persistent state facet,
+    /// adopting the currently loaded <c>IPersistentState&lt;T&gt;.State</c>
+    /// as the committed snapshot.
+    /// </summary>
     protected StateManagerBase(IPersistentState<T> storage)
     {
         ArgumentNullException.ThrowIfNull(storage);
