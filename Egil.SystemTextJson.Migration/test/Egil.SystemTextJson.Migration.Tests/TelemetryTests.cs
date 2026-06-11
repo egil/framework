@@ -49,7 +49,7 @@ public class TelemetryTests : IDisposable
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
         options.AddJsonMigrationSupport();
 
-        var json = JsonSerializer.Serialize(new TelV1("Egil Hansen", 42), options);
+        var json = JsonSerializer.Serialize(new TelV1("Jane Doe", 42), options);
         JsonSerializer.Deserialize<TelV2>(json, options);
 
         var relevant = GetMeasurementsForTarget(typeof(TelV2).FullName!);
@@ -105,7 +105,7 @@ public class TelemetryTests : IDisposable
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
         options.AddJsonMigrationSupport();
 
-        var json = JsonSerializer.Serialize(new TelNoMigrateV1("Egil", 42), options);
+        var json = JsonSerializer.Serialize(new TelNoMigrateV1("Jane", 42), options);
         JsonSerializer.Deserialize<TelNoMigrateV1>(json, options);
 
         var relevant = GetMeasurementsForTarget(typeof(TelNoMigrateV1).FullName!);
@@ -118,7 +118,7 @@ public class TelemetryTests : IDisposable
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
         options.AddJsonMigrationSupport();
 
-        var json = """{"name":"Egil","age":42}""";
+        var json = """{"name":"Jane","age":42}""";
         JsonSerializer.Deserialize<TelNoMigrateV1>(json, options);
 
         var relevant = GetMeasurementsForTarget(typeof(TelNoMigrateV1).FullName!);
@@ -131,7 +131,7 @@ public class TelemetryTests : IDisposable
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
         options.AddJsonMigrationSupport();
 
-        var json1 = JsonSerializer.Serialize(new TelMultiV1("Egil Hansen", 42), options);
+        var json1 = JsonSerializer.Serialize(new TelMultiV1("Jane Doe", 42), options);
         var json2 = JsonSerializer.Serialize(new TelMultiV1("Jane Doe", 30), options);
 
         JsonSerializer.Deserialize<TelMultiV2>(json1, options);

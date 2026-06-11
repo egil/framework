@@ -46,13 +46,13 @@ public sealed class CombinedMigratorsSampleTests
             // ...the static IMigrateFrom<,> on ContactV2 takes precedence.
         });
 
-        var json = """{"$type":"contact-v1","fullName":"Egil Hansen","email":"egil@example.com"}""";
+        var json = """{"$type":"contact-v1","fullName":"Jane Doe","email":"jane@example.com"}""";
         var contact = JsonSerializer.Deserialize<ContactV2>(json, options);
-        // contact.FirstName == "Egil" (from static migrator, not "External")
+        // contact.FirstName == "Jane" (from static migrator, not "External")
         #endregion
 
         Assert.NotNull(contact);
-        Assert.Equal("Egil", contact.FirstName);
-        Assert.Equal("Hansen", contact.LastName);
+        Assert.Equal("Jane", contact.FirstName);
+        Assert.Equal("Doe", contact.LastName);
     }
 }

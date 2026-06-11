@@ -2,75 +2,70 @@
 
 > Auto-generated from BenchmarkDotNet output by `scripts/update-perf-docs.ps1`.
 > Do not edit manually. Re-run benchmarks and this script to update.
+> Public reports omit the internal `PolymorphicPlainStj*` guardrail benchmarks.
 ```
 
-BenchmarkDotNet v0.15.6, Windows 11 (10.0.26200.8328)
-AMD Ryzen 9 5950X 3.40GHz, 1 CPU, 32 logical and 16 physical cores
-.NET SDK 10.0.203
-  [Host] : .NET 10.0.7 (10.0.7, 10.0.726.21808), X64 RyuJIT x86-64-v3
+BenchmarkDotNet v0.15.6, Windows 11 (10.0.26200.8655)
+Unknown processor
+.NET SDK 11.0.100-preview.4.26230.115
+  [Host] : .NET 10.0.9 (10.0.9, 10.0.926.27113), X64 RyuJIT x86-64-v3
 
 Toolchain=InProcessNoEmitToolchain  IterationCount=5  LaunchCount=1  
 WarmupCount=1  
 
 ```
-| Method                                       | Categories                                 | TagCount | Mean       | Error       | StdDev    | Ratio | RatioSD | Gen0   | Gen1   | Allocated | Alloc Ratio |
-|--------------------------------------------- |------------------------------------------- |--------- |-----------:|------------:|----------:|------:|--------:|-------:|-------:|----------:|------------:|
-| **JsonMigratableExternalMigration**              | **Deserialize,ExternalMigration**              | **2**        |   **641.7 ns** |    **26.62 ns** |   **6.91 ns** |  **1.38** |    **0.02** | **0.0610** |      **-** |    **1032 B** |        **1.00** |
-| PlainStjExternalMigrationManual              | Deserialize,ExternalMigration              | 2        |   466.2 ns |    11.40 ns |   2.96 ns |  1.00 |    0.01 | 0.0615 |      - |    1032 B |        1.00 |
-|                                              |                                            |          |            |             |           |       |         |        |        |           |             |
-| **JsonMigratableExternalMigration**              | **Deserialize,ExternalMigration**              | **32**       | **1,653.2 ns** |    **20.74 ns** |   **5.39 ns** |  **1.13** |    **0.01** | **0.1774** | **0.0019** |    **2992 B** |        **1.00** |
-| PlainStjExternalMigrationManual              | Deserialize,ExternalMigration              | 32       | 1,461.3 ns |    39.66 ns |  10.30 ns |  1.00 |    0.01 | 0.1774 | 0.0019 |    2992 B |        1.00 |
-|                                              |                                            |          |            |             |           |       |         |        |        |           |             |
-| **JsonMigratableExternalMigration**              | **Deserialize,ExternalMigration**              | **256**      | **8,622.3 ns** |   **215.99 ns** |  **56.09 ns** |  **1.02** |    **0.01** | **1.0376** | **0.0916** |   **17400 B** |        **1.00** |
-| PlainStjExternalMigrationManual              | Deserialize,ExternalMigration              | 256      | 8,456.8 ns |   336.65 ns |  87.43 ns |  1.00 |    0.01 | 1.0376 | 0.0916 |   17400 B |        1.00 |
-|                                              |                                            |          |            |             |           |       |         |        |        |           |             |
-| **JsonMigratableLegacyPayload**                  | **Deserialize,LegacyPayload**                  | **2**        |   **549.8 ns** |    **26.55 ns** |   **6.89 ns** |  **1.18** |    **0.01** | **0.0534** |      **-** |     **904 B** |        **1.00** |
-| PlainStjLegacyPayloadManual                  | Deserialize,LegacyPayload                  | 2        |   467.2 ns |     9.61 ns |   2.50 ns |  1.00 |    0.01 | 0.0539 |      - |     904 B |        1.00 |
-|                                              |                                            |          |            |             |           |       |         |        |        |           |             |
-| **JsonMigratableLegacyPayload**                  | **Deserialize,LegacyPayload**                  | **32**       | **1,570.0 ns** |    **40.64 ns** |   **6.29 ns** |  **1.06** |    **0.01** | **0.1698** | **0.0019** |    **2864 B** |        **1.00** |
-| PlainStjLegacyPayloadManual                  | Deserialize,LegacyPayload                  | 32       | 1,484.4 ns |    34.00 ns |   8.83 ns |  1.00 |    0.01 | 0.1698 | 0.0019 |    2864 B |        1.00 |
-|                                              |                                            |          |            |             |           |       |         |        |        |           |             |
-| **JsonMigratableLegacyPayload**                  | **Deserialize,LegacyPayload**                  | **256**      | **8,480.5 ns** |   **198.67 ns** |  **51.60 ns** |  **1.02** |    **0.01** | **1.0223** | **0.0916** |   **17272 B** |        **1.00** |
-| PlainStjLegacyPayloadManual                  | Deserialize,LegacyPayload                  | 256      | 8,296.1 ns |   265.61 ns |  68.98 ns |  1.00 |    0.01 | 1.0223 | 0.0916 |   17272 B |        1.00 |
-|                                              |                                            |          |            |             |           |       |         |        |        |           |             |
-| **PlainStjNoMigration**                          | **Deserialize,NoMigration**                    | **2**        |   **414.7 ns** |     **6.40 ns** |   **1.66 ns** |  **1.00** |    **0.01** | **0.0520** |      **-** |     **872 B** |        **1.00** |
-| PolymorphicPlainStjNoMigration               | Deserialize,NoMigration                    | 2        |   453.9 ns |     6.39 ns |   0.99 ns |  1.09 |    0.00 | 0.0520 |      - |     872 B |        1.00 |
-| JsonMigratableNoMigration                    | Deserialize,NoMigration                    | 2        |   510.9 ns |    12.45 ns |   1.93 ns |  1.23 |    0.01 | 0.0515 |      - |     872 B |        1.00 |
-|                                              |                                            |          |            |             |           |       |         |        |        |           |             |
-| **PlainStjNoMigration**                          | **Deserialize,NoMigration**                    | **32**       | **1,392.1 ns** |    **24.82 ns** |   **6.45 ns** |  **1.00** |    **0.01** | **0.1678** | **0.0019** |    **2832 B** |        **1.00** |
-| PolymorphicPlainStjNoMigration               | Deserialize,NoMigration                    | 32       | 1,436.1 ns |    28.64 ns |   7.44 ns |  1.03 |    0.01 | 0.1678 | 0.0019 |    2832 B |        1.00 |
-| JsonMigratableNoMigration                    | Deserialize,NoMigration                    | 32       | 1,522.4 ns |    37.28 ns |   9.68 ns |  1.09 |    0.01 | 0.1678 | 0.0019 |    2832 B |        1.00 |
-|                                              |                                            |          |            |             |           |       |         |        |        |           |             |
-| **PlainStjNoMigration**                          | **Deserialize,NoMigration**                    | **256**      | **8,212.0 ns** |   **176.11 ns** |  **27.25 ns** |  **1.00** |    **0.00** | **1.0223** | **0.0916** |   **17240 B** |        **1.00** |
-| PolymorphicPlainStjNoMigration               | Deserialize,NoMigration                    | 256      | 8,254.3 ns |   113.97 ns |  29.60 ns |  1.01 |    0.00 | 1.0223 | 0.0916 |   17240 B |        1.00 |
-| JsonMigratableNoMigration                    | Deserialize,NoMigration                    | 256      | 8,307.1 ns |   124.08 ns |  19.20 ns |  1.01 |    0.00 | 1.0223 | 0.0916 |   17240 B |        1.00 |
-|                                              |                                            |          |            |             |           |       |         |        |        |           |             |
-| **JsonMigratableStaticMigration**                | **Deserialize,StaticMigration**                | **2**        |   **642.4 ns** |     **8.30 ns** |   **2.16 ns** |  **1.42** |    **0.01** | **0.0610** |      **-** |    **1032 B** |        **1.00** |
-| PlainStjStaticMigrationManual                | Deserialize,StaticMigration                | 2        |   452.3 ns |     8.31 ns |   2.16 ns |  1.00 |    0.01 | 0.0615 |      - |    1032 B |        1.00 |
-|                                              |                                            |          |            |             |           |       |         |        |        |           |             |
-| **JsonMigratableStaticMigration**                | **Deserialize,StaticMigration**                | **32**       | **1,646.7 ns** |    **25.86 ns** |   **4.00 ns** |  **1.14** |    **0.00** | **0.1774** | **0.0019** |    **2992 B** |        **1.00** |
-| PlainStjStaticMigrationManual                | Deserialize,StaticMigration                | 32       | 1,441.5 ns |    14.68 ns |   3.81 ns |  1.00 |    0.00 | 0.1774 | 0.0019 |    2992 B |        1.00 |
-|                                              |                                            |          |            |             |           |       |         |        |        |           |             |
-| **JsonMigratableStaticMigration**                | **Deserialize,StaticMigration**                | **256**      | **8,581.1 ns** |   **406.20 ns** | **105.49 ns** |  **1.03** |    **0.01** | **1.0376** | **0.0916** |   **17400 B** |        **1.00** |
-| PlainStjStaticMigrationManual                | Deserialize,StaticMigration                | 256      | 8,345.4 ns |   141.01 ns |  36.62 ns |  1.00 |    0.01 | 1.0376 | 0.0916 |   17400 B |        1.00 |
-|                                              |                                            |          |            |             |           |       |         |        |        |           |             |
-| **JsonMigratableUndiscriminatedSourceMigration** | **Deserialize,UndiscriminatedSourceMigration** | **2**        |   **555.0 ns** |    **16.97 ns** |   **2.63 ns** |  **1.14** |    **0.01** | **0.0610** |      **-** |    **1032 B** |        **1.00** |
-| PlainStjUndiscriminatedSourceMigrationManual | Deserialize,UndiscriminatedSourceMigration | 2        |   484.9 ns |    11.86 ns |   3.08 ns |  1.00 |    0.01 | 0.0610 |      - |    1032 B |        1.00 |
-|                                              |                                            |          |            |             |           |       |         |        |        |           |             |
-| **JsonMigratableUndiscriminatedSourceMigration** | **Deserialize,UndiscriminatedSourceMigration** | **32**       | **1,554.2 ns** |    **37.16 ns** |   **9.65 ns** |  **1.07** |    **0.01** | **0.1774** | **0.0019** |    **2992 B** |        **1.00** |
-| PlainStjUndiscriminatedSourceMigrationManual | Deserialize,UndiscriminatedSourceMigration | 32       | 1,458.8 ns |    52.00 ns |  13.50 ns |  1.00 |    0.01 | 0.1774 | 0.0019 |    2992 B |        1.00 |
-|                                              |                                            |          |            |             |           |       |         |        |        |           |             |
-| **JsonMigratableUndiscriminatedSourceMigration** | **Deserialize,UndiscriminatedSourceMigration** | **256**      | **9,609.7 ns** | **1,446.95 ns** | **375.77 ns** |  **1.00** |    **0.05** | **1.0376** | **0.0916** |   **17400 B** |        **1.00** |
-| PlainStjUndiscriminatedSourceMigrationManual | Deserialize,UndiscriminatedSourceMigration | 256      | 9,617.4 ns | 1,562.82 ns | 405.86 ns |  1.00 |    0.05 | 1.0376 | 0.0916 |   17400 B |        1.00 |
-|                                              |                                            |          |            |             |           |       |         |        |        |           |             |
-| **PlainStjSerializeNoMigration**                 | **Serialize,NoMigration**                      | **2**        |   **235.9 ns** |    **33.40 ns** |   **5.17 ns** |  **1.00** |    **0.03** | **0.0238** |      **-** |     **400 B** |        **1.00** |
-| PolymorphicPlainStjSerializeNoMigration      | Serialize,NoMigration                      | 2        |   338.0 ns |    75.35 ns |  19.57 ns |  1.43 |    0.08 | 0.0262 |      - |     440 B |        1.10 |
-| JsonMigratableSerializeNoMigration           | Serialize,NoMigration                      | 2        |   294.9 ns |    42.36 ns |   6.56 ns |  1.25 |    0.03 | 0.0286 |      - |     480 B |        1.20 |
-|                                              |                                            |          |            |             |           |       |         |        |        |           |             |
-| **PlainStjSerializeNoMigration**                 | **Serialize,NoMigration**                      | **32**       |   **771.0 ns** |   **104.49 ns** |  **27.14 ns** |  **1.00** |    **0.05** | **0.0410** |      **-** |     **696 B** |        **1.00** |
-| PolymorphicPlainStjSerializeNoMigration      | Serialize,NoMigration                      | 32       |   847.5 ns |   130.34 ns |  33.85 ns |  1.10 |    0.05 | 0.0439 |      - |     744 B |        1.07 |
-| JsonMigratableSerializeNoMigration           | Serialize,NoMigration                      | 32       |   714.0 ns |     9.64 ns |   1.49 ns |  0.93 |    0.03 | 0.0458 |      - |     776 B |        1.11 |
-|                                              |                                            |          |            |             |           |       |         |        |        |           |             |
-| **PlainStjSerializeNoMigration**                 | **Serialize,NoMigration**                      | **256**      | **3,810.3 ns** |    **34.32 ns** |   **8.91 ns** |  **1.00** |    **0.00** | **0.1755** |      **-** |    **2936 B** |        **1.00** |
-| PolymorphicPlainStjSerializeNoMigration      | Serialize,NoMigration                      | 256      | 3,919.9 ns |   110.11 ns |  17.04 ns |  1.03 |    0.00 | 0.1755 |      - |    2984 B |        1.02 |
-| JsonMigratableSerializeNoMigration           | Serialize,NoMigration                      | 256      | 3,875.3 ns |    18.89 ns |   2.92 ns |  1.02 |    0.00 | 0.1755 |      - |    3016 B |        1.03 |
+| Method                                       | Categories                                 | PayloadSize | Mean        | Error       | StdDev      | Ratio | RatioSD | Gen0   | Gen1   | Allocated | Alloc Ratio |
+|--------------------------------------------- |------------------------------------------- |------------ |------------:|------------:|------------:|------:|--------:|-------:|-------:|----------:|------------:|
+| **JsonMigratableExternalMigration**              | **Deserialize,ExternalMigration**              | **Small**       |    **529.1 ns** |    **66.94 ns** |    **10.36 ns** |  **1.46** |    **0.08** | **0.0200** |      **-** |     **336 B** |        **1.00** |
+| PlainStjExternalMigrationManual              | Deserialize,ExternalMigration              | Small       |    363.2 ns |    85.01 ns |    22.08 ns |  1.00 |    0.08 | 0.0200 |      - |     336 B |        1.00 |
+|                                              |                                            |             |             |             |             |       |         |        |        |           |             |
+| **JsonMigratableExternalMigration**              | **Deserialize,ExternalMigration**              | **Medium**      |  **2,305.0 ns** |   **423.38 ns** |   **109.95 ns** |  **1.30** |    **0.08** | **0.1106** |      **-** |    **1880 B** |        **1.00** |
+| PlainStjExternalMigrationManual              | Deserialize,ExternalMigration              | Medium      |  1,783.0 ns |   349.52 ns |    90.77 ns |  1.00 |    0.07 | 0.1106 |      - |    1880 B |        1.00 |
+|                                              |                                            |             |             |             |             |       |         |        |        |           |             |
+| **JsonMigratableExternalMigration**              | **Deserialize,ExternalMigration**              | **Large**       | **15,026.2 ns** | **2,895.85 ns** |   **752.04 ns** |  **0.97** |    **0.07** | **1.4648** | **0.1831** |   **24608 B** |        **1.00** |
+| PlainStjExternalMigrationManual              | Deserialize,ExternalMigration              | Large       | 15,506.3 ns | 3,606.56 ns |   936.61 ns |  1.00 |    0.08 | 1.4648 | 0.1831 |   24608 B |        1.00 |
+|                                              |                                            |             |             |             |             |       |         |        |        |           |             |
+| **JsonMigratableLegacyPayload**                  | **Deserialize,LegacyPayload**                  | **Small**       |    **457.5 ns** |    **14.59 ns** |     **3.79 ns** |  **1.25** |    **0.04** | **0.0129** |      **-** |     **216 B** |        **1.00** |
+| PlainStjLegacyPayloadManual                  | Deserialize,LegacyPayload                  | Small       |    365.9 ns |    52.85 ns |    13.72 ns |  1.00 |    0.05 | 0.0129 |      - |     216 B |        1.00 |
+|                                              |                                            |             |             |             |             |       |         |        |        |           |             |
+| **JsonMigratableLegacyPayload**                  | **Deserialize,LegacyPayload**                  | **Medium**      |  **2,316.1 ns** |   **772.17 ns** |   **200.53 ns** |  **1.16** |    **0.12** | **0.1030** |      **-** |    **1760 B** |        **1.00** |
+| PlainStjLegacyPayloadManual                  | Deserialize,LegacyPayload                  | Medium      |  2,003.9 ns |   567.00 ns |   147.25 ns |  1.00 |    0.10 | 0.1030 |      - |    1760 B |        1.00 |
+|                                              |                                            |             |             |             |             |       |         |        |        |           |             |
+| **JsonMigratableLegacyPayload**                  | **Deserialize,LegacyPayload**                  | **Large**       | **14,745.9 ns** | **5,020.19 ns** | **1,303.73 ns** |  **1.29** |    **0.11** | **1.4343** | **0.1526** |   **24488 B** |        **1.00** |
+| PlainStjLegacyPayloadManual                  | Deserialize,LegacyPayload                  | Large       | 11,412.0 ns |   666.48 ns |   173.08 ns |  1.00 |    0.02 | 1.4496 | 0.1678 |   24488 B |        1.00 |
+|                                              |                                            |             |             |             |             |       |         |        |        |           |             |
+| **PlainStjNoMigration**                          | **Deserialize,NoMigration**                    | **Small**       |    **214.1 ns** |    **14.70 ns** |     **2.27 ns** |  **1.00** |    **0.01** | **0.0110** |      **-** |     **184 B** |        **1.00** |
+| JsonMigratableNoMigration                    | Deserialize,NoMigration                    | Small       |    393.2 ns |    55.51 ns |    14.42 ns |  1.84 |    0.06 | 0.0110 |      - |     184 B |        1.00 |
+|                                              |                                            |             |             |             |             |       |         |        |        |           |             |
+| **PlainStjNoMigration**                          | **Deserialize,NoMigration**                    | **Medium**      |  **1,792.1 ns** |   **257.80 ns** |    **66.95 ns** |  **1.00** |    **0.05** | **0.1030** |      **-** |    **1728 B** |        **1.00** |
+| JsonMigratableNoMigration                    | Deserialize,NoMigration                    | Medium      |  1,907.1 ns |   671.04 ns |   103.84 ns |  1.07 |    0.06 | 0.1030 |      - |    1728 B |        1.00 |
+|                                              |                                            |             |             |             |             |       |         |        |        |           |             |
+| **PlainStjNoMigration**                          | **Deserialize,NoMigration**                    | **Large**       | **11,793.4 ns** | **2,358.73 ns** |   **365.02 ns** |  **1.00** |    **0.04** | **1.4496** | **0.1678** |   **24456 B** |        **1.00** |
+| JsonMigratableNoMigration                    | Deserialize,NoMigration                    | Large       | 15,605.1 ns | 2,718.11 ns |   705.88 ns |  1.32 |    0.07 | 1.4343 | 0.1526 |   24456 B |        1.00 |
+|                                              |                                            |             |             |             |             |       |         |        |        |           |             |
+| **JsonMigratableStaticMigration**                | **Deserialize,StaticMigration**                | **Small**       |    **575.5 ns** |    **65.20 ns** |    **10.09 ns** |  **1.71** |    **0.05** | **0.0200** |      **-** |     **336 B** |        **1.00** |
+| PlainStjStaticMigrationManual                | Deserialize,StaticMigration                | Small       |    336.1 ns |    35.32 ns |     9.17 ns |  1.00 |    0.04 | 0.0200 |      - |     336 B |        1.00 |
+|                                              |                                            |             |             |             |             |       |         |        |        |           |             |
+| **JsonMigratableStaticMigration**                | **Deserialize,StaticMigration**                | **Medium**      |  **2,353.4 ns** |   **840.48 ns** |   **218.27 ns** |  **1.25** |    **0.11** | **0.1106** |      **-** |    **1880 B** |        **1.00** |
+| PlainStjStaticMigrationManual                | Deserialize,StaticMigration                | Medium      |  1,885.4 ns |   214.74 ns |    55.77 ns |  1.00 |    0.04 | 0.1106 |      - |    1880 B |        1.00 |
+|                                              |                                            |             |             |             |             |       |         |        |        |           |             |
+| **JsonMigratableStaticMigration**                | **Deserialize,StaticMigration**                | **Large**       | **11,877.9 ns** |   **555.00 ns** |   **144.13 ns** |  **1.07** |    **0.01** | **1.4648** | **0.1831** |   **24608 B** |        **1.00** |
+| PlainStjStaticMigrationManual                | Deserialize,StaticMigration                | Large       | 11,113.6 ns |   168.78 ns |    43.83 ns |  1.00 |    0.01 | 1.4648 | 0.1831 |   24608 B |        1.00 |
+|                                              |                                            |             |             |             |             |       |         |        |        |           |             |
+| **JsonMigratableUndiscriminatedSourceMigration** | **Deserialize,UndiscriminatedSourceMigration** | **Small**       |    **352.5 ns** |    **10.36 ns** |     **2.69 ns** |  **1.33** |    **0.01** | **0.0200** |      **-** |     **336 B** |        **1.00** |
+| PlainStjUndiscriminatedSourceMigrationManual | Deserialize,UndiscriminatedSourceMigration | Small       |    264.8 ns |     6.21 ns |     1.61 ns |  1.00 |    0.01 | 0.0200 |      - |     336 B |        1.00 |
+|                                              |                                            |             |             |             |             |       |         |        |        |           |             |
+| **JsonMigratableUndiscriminatedSourceMigration** | **Deserialize,UndiscriminatedSourceMigration** | **Medium**      |  **1,840.8 ns** | **1,035.10 ns** |   **268.81 ns** |  **0.93** |    **0.18** | **0.1106** |      **-** |    **1880 B** |        **1.00** |
+| PlainStjUndiscriminatedSourceMigrationManual | Deserialize,UndiscriminatedSourceMigration | Medium      |  2,024.1 ns | 1,226.94 ns |   318.63 ns |  1.02 |    0.21 | 0.1106 |      - |    1880 B |        1.00 |
+|                                              |                                            |             |             |             |             |       |         |        |        |           |             |
+| **JsonMigratableUndiscriminatedSourceMigration** | **Deserialize,UndiscriminatedSourceMigration** | **Large**       | **13,011.3 ns** | **3,674.11 ns** |   **954.15 ns** |  **0.74** |    **0.07** | **1.4648** | **0.1831** |   **24608 B** |        **1.00** |
+| PlainStjUndiscriminatedSourceMigrationManual | Deserialize,UndiscriminatedSourceMigration | Large       | 17,763.2 ns | 4,990.79 ns | 1,296.09 ns |  1.00 |    0.10 | 1.4648 | 0.1831 |   24608 B |        1.00 |
+|                                              |                                            |             |             |             |             |       |         |        |        |           |             |
+| **PlainStjSerialize**                            | **Serialize**                                  | **Small**       |    **149.2 ns** |    **24.33 ns** |     **6.32 ns** |  **1.00** |    **0.06** | **0.0033** |      **-** |      **56 B** |        **1.00** |
+| JsonMigratableSerialize                      | Serialize                                  | Small       |    241.3 ns |    97.89 ns |    25.42 ns |  1.62 |    0.17 | 0.0081 |      - |     136 B |        2.43 |
+|                                              |                                            |             |             |             |             |       |         |        |        |           |             |
+| **PlainStjSerialize**                            | **Serialize**                                  | **Medium**      |    **793.2 ns** |   **291.33 ns** |    **45.08 ns** |  **1.00** |    **0.07** | **0.0429** |      **-** |     **728 B** |        **1.00** |
+| JsonMigratableSerialize                      | Serialize                                  | Medium      |    955.8 ns |   128.40 ns |    33.34 ns |  1.21 |    0.07 | 0.0477 |      - |     800 B |        1.10 |
+|                                              |                                            |             |             |             |             |       |         |        |        |           |             |
+| **PlainStjSerialize**                            | **Serialize**                                  | **Large**       |  **7,111.7 ns** | **1,509.26 ns** |   **391.95 ns** |  **1.00** |    **0.07** | **0.6332** | **0.0229** |   **10696 B** |        **1.00** |
+| JsonMigratableSerialize                      | Serialize                                  | Large       |  6,248.2 ns | 1,040.23 ns |   160.98 ns |  0.88 |    0.05 | 0.6409 | 0.0229 |   10776 B |        1.01 |

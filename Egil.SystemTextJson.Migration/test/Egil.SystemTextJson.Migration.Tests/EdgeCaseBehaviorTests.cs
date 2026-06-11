@@ -11,7 +11,7 @@ public class EdgeCaseBehaviorTests
         var options = CreateOptions();
         var list = new List<ListItemV2>
         {
-            new("Egil", "Hansen"),
+            new("Jane", "Doe"),
             new("Jane", "Doe"),
         };
 
@@ -20,7 +20,7 @@ public class EdgeCaseBehaviorTests
 
         Assert.NotNull(result);
         Assert.Equal(2, result.Count);
-        Assert.Equal("Egil", result[0].FirstName);
+        Assert.Equal("Jane", result[0].FirstName);
         Assert.Equal("Doe", result[1].LastName);
     }
 
@@ -29,15 +29,15 @@ public class EdgeCaseBehaviorTests
     {
         var options = CreateOptions();
         var json = JsonSerializer.Serialize(
-            new List<ListItemV1> { new("Egil Hansen"), new("Jane Doe") },
+            new List<ListItemV1> { new("Jane Doe"), new("Jane Doe") },
             options);
 
         var result = JsonSerializer.Deserialize<List<ListItemV2>>(json, options);
 
         Assert.NotNull(result);
         Assert.Equal(2, result.Count);
-        Assert.Equal("Egil", result[0].FirstName);
-        Assert.Equal("Hansen", result[0].LastName);
+        Assert.Equal("Jane", result[0].FirstName);
+        Assert.Equal("Doe", result[0].LastName);
         Assert.Equal("Jane", result[1].FirstName);
         Assert.Equal("Doe", result[1].LastName);
     }
@@ -46,14 +46,14 @@ public class EdgeCaseBehaviorTests
     public void Deserialize_array_of_migratable_types_without_migration()
     {
         var options = CreateOptions();
-        var array = new[] { new ListItemV2("Egil", "Hansen") };
+        var array = new[] { new ListItemV2("Jane", "Doe") };
 
         var json = JsonSerializer.Serialize(array, options);
         var result = JsonSerializer.Deserialize<ListItemV2[]>(json, options);
 
         Assert.NotNull(result);
         Assert.Single(result);
-        Assert.Equal("Egil", result[0].FirstName);
+        Assert.Equal("Jane", result[0].FirstName);
     }
 
     [Fact]
@@ -61,15 +61,15 @@ public class EdgeCaseBehaviorTests
     {
         var options = CreateOptions();
         var json = JsonSerializer.Serialize(
-            new[] { new ListItemV1("Egil Hansen") },
+            new[] { new ListItemV1("Jane Doe") },
             options);
 
         var result = JsonSerializer.Deserialize<ListItemV2[]>(json, options);
 
         Assert.NotNull(result);
         Assert.Single(result);
-        Assert.Equal("Egil", result[0].FirstName);
-        Assert.Equal("Hansen", result[0].LastName);
+        Assert.Equal("Jane", result[0].FirstName);
+        Assert.Equal("Doe", result[0].LastName);
     }
 
     [Fact]
@@ -78,7 +78,7 @@ public class EdgeCaseBehaviorTests
         var options = CreateOptions();
         var dict = new Dictionary<string, ListItemV2>
         {
-            ["user1"] = new("Egil", "Hansen"),
+            ["user1"] = new("Jane", "Doe"),
         };
 
         var json = JsonSerializer.Serialize(dict, options);
@@ -86,7 +86,7 @@ public class EdgeCaseBehaviorTests
 
         Assert.NotNull(result);
         Assert.True(result.ContainsKey("user1"));
-        Assert.Equal("Egil", result["user1"].FirstName);
+        Assert.Equal("Jane", result["user1"].FirstName);
     }
 
     [Fact]
@@ -94,15 +94,15 @@ public class EdgeCaseBehaviorTests
     {
         var options = CreateOptions();
         var json = JsonSerializer.Serialize(
-            new Dictionary<string, ListItemV1> { ["user1"] = new("Egil Hansen") },
+            new Dictionary<string, ListItemV1> { ["user1"] = new("Jane Doe") },
             options);
 
         var result = JsonSerializer.Deserialize<Dictionary<string, ListItemV2>>(json, options);
 
         Assert.NotNull(result);
         Assert.True(result.ContainsKey("user1"));
-        Assert.Equal("Egil", result["user1"].FirstName);
-        Assert.Equal("Hansen", result["user1"].LastName);
+        Assert.Equal("Jane", result["user1"].FirstName);
+        Assert.Equal("Doe", result["user1"].LastName);
     }
 
     [Fact]
@@ -119,29 +119,29 @@ public class EdgeCaseBehaviorTests
     public async Task Deserialize_async_stream_without_migration()
     {
         var options = CreateOptions();
-        var data = new ListItemV2("Egil", "Hansen");
+        var data = new ListItemV2("Jane", "Doe");
         var json = JsonSerializer.SerializeToUtf8Bytes(data, options);
 
         using var stream = new MemoryStream(json);
         var result = await JsonSerializer.DeserializeAsync<ListItemV2>(stream, options, TestContext.Current.CancellationToken);
 
         Assert.NotNull(result);
-        Assert.Equal("Egil", result.FirstName);
-        Assert.Equal("Hansen", result.LastName);
+        Assert.Equal("Jane", result.FirstName);
+        Assert.Equal("Doe", result.LastName);
     }
 
     [Fact]
     public async Task Deserialize_async_stream_with_migration()
     {
         var options = CreateOptions();
-        var json = JsonSerializer.SerializeToUtf8Bytes(new ListItemV1("Egil Hansen"), options);
+        var json = JsonSerializer.SerializeToUtf8Bytes(new ListItemV1("Jane Doe"), options);
 
         using var stream = new MemoryStream(json);
         var result = await JsonSerializer.DeserializeAsync<ListItemV2>(stream, options, TestContext.Current.CancellationToken);
 
         Assert.NotNull(result);
-        Assert.Equal("Egil", result.FirstName);
-        Assert.Equal("Hansen", result.LastName);
+        Assert.Equal("Jane", result.FirstName);
+        Assert.Equal("Doe", result.LastName);
     }
 
     [Fact]
@@ -150,12 +150,12 @@ public class EdgeCaseBehaviorTests
         var options = CreateOptions();
         options.UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow;
 
-        var data = new ListItemV2("Egil", "Hansen");
+        var data = new ListItemV2("Jane", "Doe");
         var json = JsonSerializer.Serialize(data, options);
         var result = JsonSerializer.Deserialize<ListItemV2>(json, options);
 
         Assert.NotNull(result);
-        Assert.Equal("Egil", result.FirstName);
+        Assert.Equal("Jane", result.FirstName);
     }
 
     [Fact]
@@ -164,12 +164,12 @@ public class EdgeCaseBehaviorTests
         var options = CreateOptions();
         options.UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow;
 
-        var json = JsonSerializer.Serialize(new ListItemV1("Egil Hansen"), options);
+        var json = JsonSerializer.Serialize(new ListItemV1("Jane Doe"), options);
         var result = JsonSerializer.Deserialize<ListItemV2>(json, options);
 
         Assert.NotNull(result);
-        Assert.Equal("Egil", result.FirstName);
-        Assert.Equal("Hansen", result.LastName);
+        Assert.Equal("Jane", result.FirstName);
+        Assert.Equal("Doe", result.LastName);
     }
 
     [Fact]
@@ -178,12 +178,12 @@ public class EdgeCaseBehaviorTests
         var options = CreateOptions();
 
         // JSON with $type NOT as the first property — treated as legacy payload.
-        var json = """{"firstName":"Egil","lastName":"Hansen","$type":"not-first"}""";
+        var json = """{"firstName":"Jane","lastName":"Doe","$type":"not-first"}""";
         var result = JsonSerializer.Deserialize<ListItemV2>(json, options);
 
         Assert.NotNull(result);
-        Assert.Equal("Egil", result.FirstName);
-        Assert.Equal("Hansen", result.LastName);
+        Assert.Equal("Jane", result.FirstName);
+        Assert.Equal("Doe", result.LastName);
     }
 
     [Fact]
@@ -191,12 +191,12 @@ public class EdgeCaseBehaviorTests
     {
         var options = CreateOptions();
 
-        var json = """{"firstName":"Egil","lastName":"Hansen"}""";
+        var json = """{"firstName":"Jane","lastName":"Doe"}""";
         var result = JsonSerializer.Deserialize<ListItemV2>(json, options);
 
         Assert.NotNull(result);
-        Assert.Equal("Egil", result.FirstName);
-        Assert.Equal("Hansen", result.LastName);
+        Assert.Equal("Jane", result.FirstName);
+        Assert.Equal("Doe", result.LastName);
     }
 
     private static JsonSerializerOptions CreateOptions()

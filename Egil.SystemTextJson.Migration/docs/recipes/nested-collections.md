@@ -47,7 +47,7 @@ options.AddJsonMigrationSupport();
 var json = """
     {
       "$type":"person-v2",
-      "name":"Egil Hansen",
+      "name":"Jane Doe",
       "address":{
         "$type":"address-v1",
         "fullAddress":"123 Main St, Springfield"
@@ -100,7 +100,7 @@ options.AddJsonMigrationSupport();
 var json = """
     {
       "$type":"person-v1",
-      "fullName":"Egil Hansen",
+      "fullName":"Jane Doe",
       "address":{
         "$type":"address-v1",
         "fullAddress":"123 Main St, Springfield"
