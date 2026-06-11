@@ -116,37 +116,45 @@ public async Task SubmitAsync()
 }
 ```
 
-Use `OutboxProcessor<T>` to dispatch pending items and acknowledge only the items that were posted successfully:
+Use `OutboxProcessor<T>` to dispatch pending items and acknowledge only the items that were posted successfully. Use `OutboxMessageEnvelope<T>` as the processor item type so the acknowledgement callback can remove exactly the posted items by token:
 
 ```csharp
 public sealed class OrderGrain : Grain, IOutboxGrain
 {
-    private OutboxProcessor<IOrderEvent> outboxProcessor = default!;
+    private OutboxProcessor<OutboxMessageEnvelope<IOrderEvent>> outboxProcessor = default!;
 
     public override Task OnActivateAsync(CancellationToken cancellationToken)
     {
-        outboxProcessor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<IOrderEvent>
+        outboxProcessor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxMessageEnvelope<IOrderEvent>>
         {
-            PendingItems = () => state.State.Outbox.Select(item => item.Message).ToImmutableArray(),
+            PendingItems = () => [.. state.State.Outbox],
             AcknowledgePostedAsync = async (items, ct) =>
             {
-                var posted = state.State.Outbox
-                    .Take(items.Length)
-                    .Select(item => item.Token);
-
                 await state.WriteAsync(state.State with
                 {
-                    Outbox = state.State.Outbox.RemoveRange(posted)
+                    Outbox = state.State.Outbox.RemoveRange(items.Select(item => item.Token))
                 });
             },
             ReconcileFailedAsync = (_, _) => ValueTask.CompletedTask,
         })
-        .AddPostman<OrderSubmitted>(PublishSubmittedAsync);
+        .AddPostman<OutboxMessageEnvelope<IOrderEvent>>(
+            envelope => PublishSubmittedAsync(envelope.Message));
 
         return Task.CompletedTask;
     }
 }
 ```
+
+`AcknowledgePostedAsync` receives exactly the items that posted successfully —
+**not necessarily a contiguous prefix of the pending list**. Different message
+types dispatch through different postmen concurrently, and an item without a
+matching postman fails in place while later items can still succeed. Never
+acknowledge by position (for example `outbox.Take(items.Length)`); that can
+remove a failed item and lose it. When the processor item type is a bare
+message type instead of the envelope, the callback must map each received item
+back to its token — which is only reliable when payloads are unique — so
+prefer the envelope form above unless per-message-type postman registration
+(shown below) is required.
 
 `IOutboxGrain` forwards reminder ticks to the attached processor. The grain remains responsible for its own message contracts, posting target, and dead-letter policy.
 Postman matching is first-match-wins: register specific message types before
