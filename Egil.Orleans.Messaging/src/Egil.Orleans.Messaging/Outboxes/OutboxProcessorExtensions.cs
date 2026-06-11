@@ -36,7 +36,8 @@ public static class OutboxProcessorExtensions
         ///             .Select(e => e.Message).ToImmutableArray(),
         ///         AcknowledgePostedAsync = async (items, ct) =>
         ///         {
-        ///             // remove delivered items and persist
+        ///             // remove exactly the delivered items (match items or their
+        ///             // tokens, never positions) and persist
         ///         },
         ///         ReconcileFailedAsync = async (failures, ct) =>
         ///         {
