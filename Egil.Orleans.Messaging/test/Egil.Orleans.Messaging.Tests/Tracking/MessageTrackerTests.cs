@@ -82,6 +82,23 @@ public sealed class MessageTrackerTests
     }
 
     [Fact]
+    public void LatestOutbox_preserves_sender_timestamp_when_receiver_clock_differs()
+    {
+        // Sender stamped the token an hour before the receiver processed it.
+        var senderTime = new DateTimeOffset(2026, 5, 23, 11, 30, 0, TimeSpan.Zero);
+        var receiverTime = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
+        var sender = GrainId.Create("test/sender", "one");
+        var time = new ManualTimeProvider(receiverTime);
+        var tracker = new MessageTracker();
+        tracker.RegisterTimeProvider(time);
+        var token = new OutboxSequenceToken(1, sender, senderTime, senderTime);
+
+        tracker.ProcessMessage(token, out var next);
+
+        Assert.Equal(token, next.LatestOutbox(sender));
+    }
+
+    [Fact]
     public void Evict_removes_stream_and_outbox_entries_at_or_before_cutoff()
     {
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);

@@ -61,7 +61,11 @@ internal sealed class MessageTrackerJsonConverter : JsonConverter<MessageTracker
                 new MessageTracker.OutboxEntry(
                     item.Epoch,
                     item.LastSequenceNumber,
-                    item.Received));
+                    item.Received,
+                    // Payloads written before LastTimestamp existed lack the
+                    // property; fall back to Received, the previous (receiver
+                    // clock) behavior, rather than default(DateTimeOffset).
+                    item.LastTimestamp ?? item.Received));
         }
 
         return new MessageTracker(streams.ToImmutable(), outbox.ToImmutable());
@@ -90,7 +94,8 @@ internal sealed class MessageTrackerJsonConverter : JsonConverter<MessageTracker
                 ToJsonModel(item.Key),
                 item.Value.Epoch,
                 item.Value.LastSequenceNumber,
-                item.Value.Received);
+                item.Value.Received,
+                item.Value.LastTimestamp);
         }
 
         JsonSerializer.Serialize(
@@ -123,7 +128,8 @@ internal sealed class MessageTrackerJsonConverter : JsonConverter<MessageTracker
         GrainIdJsonModel Sender,
         DateTimeOffset Epoch,
         long LastSequenceNumber,
-        DateTimeOffset Received);
+        DateTimeOffset Received,
+        DateTimeOffset? LastTimestamp = null);
 
     private sealed record GrainIdJsonModel(
         string Type,
