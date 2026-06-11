@@ -242,6 +242,18 @@ public abstract class StateManagerBase<T> : IStateManager<T>
         return StorageFailureKind.UnknownOutcome;
     }
 
+    /// <summary>
+    /// Decides whether a read-back state proves an ambiguous write actually
+    /// landed (the "lost response" case in <see cref="WriteAsync"/>).
+    /// </summary>
+    /// <remarks>
+    /// For non-<see cref="VersionedState"/> types this delegates to the state
+    /// type's own equality, which therefore carries recovery semantics: it
+    /// must never return <c>true</c> when the persisted state is missing data
+    /// the attempted write contained, or recovery would adopt a foreign state
+    /// and silently lose that data. <c>Outbox&lt;T&gt;.Equals</c> documents
+    /// how its O(1) fingerprint satisfies this contract.
+    /// </remarks>
     private static bool IsEquivalent(T persisted, T attempted)
     {
         if (persisted is VersionedState persistedVersioned
