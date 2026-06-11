@@ -39,6 +39,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     private IGrainTimer? dispatchTimer;
     private IGrainTimer? reconciliationTimer;
     private IGrainReminder? reminder;
+    private bool checkedForExistingReminder;
     private OutboxReconciliationBatch<TOutbox>? pendingReconciliation;
     private TaskCompletionSource? activeDrain;
     private bool backgroundDrainOwnsActiveDrain;
@@ -234,6 +235,12 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     /// <summary>
     /// Schedules a timer-backed post run and returns after scheduling.
     /// </summary>
+    /// <remarks>
+    /// Only an in-memory grain timer is armed here. The durable reminder —
+    /// which costs a storage write — is registered lazily, when a post run
+    /// fails or leaves items pending, so successful posts incur no reminder
+    /// I/O.
+    /// </remarks>
     public async ValueTask PostInBackgroundAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -244,7 +251,6 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         }
 
         EnsureDispatchTimer(TimeSpan.Zero);
-        await EnsureReminderAsync();
     }
 
     /// <summary>
@@ -294,6 +300,10 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         {
             if (!drainCompleted)
             {
+                // The reminder is armed lazily, so a run that throws before
+                // reconciliation must arm retry itself or pending items would
+                // only survive in this activation's timer.
+                await TrySchedulePendingRetryAsync();
                 CompleteDrain();
             }
 
@@ -310,6 +320,14 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         {
             await RunAsActiveDrainAsync(
                 () => ReconcileAsync(reconciliation.GetValueOrDefault(), cancellationToken));
+        }
+        catch
+        {
+            // A failed acknowledgement/reconciliation callback skips
+            // ReconcileRetryStateAsync; arm retry so pending items are not
+            // stranded if the activation goes away.
+            await TrySchedulePendingRetryAsync();
+            throw;
         }
         finally
         {
@@ -434,7 +452,6 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         }
 
         EnsureDispatchTimer(TimeSpan.Zero);
-        await EnsureReminderAsync();
     }
 
     private async Task TrySchedulePendingRetryAsync()
@@ -542,7 +559,16 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         reconciliationTimer?.Dispose();
         reconciliationTimer = null;
 
-        var activeReminder = reminder ?? await owner.GetReminder(reminderName);
+        // Look up a leftover reminder from a previous activation at most once;
+        // afterwards the local field is authoritative, so an empty outbox does
+        // not pay a reminder-table read on every successful drain.
+        var activeReminder = reminder;
+        if (activeReminder is null && !checkedForExistingReminder)
+        {
+            activeReminder = await owner.GetReminder(reminderName);
+            checkedForExistingReminder = true;
+        }
+
         if (activeReminder is not null)
         {
             await owner.UnregisterReminder(activeReminder);
