@@ -33,6 +33,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     private readonly OutboxPostmanRegistry<TOutbox> postmen = new();
     private readonly OutboxDispatcher<TOutbox> dispatcher;
     private readonly OutboxReconciler<TOutbox> reconciler;
+    private readonly ILogger logger;
     private readonly string grainType;
     private readonly string reminderName;
     private IGrainTimer? dispatchTimer;
@@ -67,6 +68,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         this.owner = owner;
         this.grainFactory = grainFactory;
         this.options = options;
+        this.logger = logger;
         grainType = owner.GetType().Name;
         reminderName = ReminderPrefix + typeof(TOutbox).FullName;
         dispatcher = new OutboxDispatcher<TOutbox>(postmen, logger, grainType);
@@ -192,7 +194,11 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     /// <summary>
     /// Posts one pending snapshot by dispatching each item to its matching
     /// postman. Arms timer/reminder if items remain; unregisters retry work if
-    /// empty.
+    /// empty. If the run itself fails — for example with a
+    /// <see cref="TimeoutException"/> when
+    /// <see cref="OutboxProcessorOptions{TOutbox}.ProcessingTimeout"/> elapses,
+    /// or when a reconciliation callback throws — retry work is armed before
+    /// the exception is rethrown so pending items are not stranded.
     /// </summary>
     public async ValueTask PostAsync(CancellationToken cancellationToken = default)
     {
@@ -206,6 +212,16 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         try
         {
             await DrainOnceAsync(cancellationToken);
+        }
+        catch
+        {
+            // A failed foreground run (timeout, cancellation, or a reconciliation
+            // callback error) skips ReconcileRetryStateAsync, and unlike the
+            // background path no timer/reminder was armed beforehand. Arm retry
+            // here — only on failure — so announced items still get delivered
+            // without paying the reminder write on every successful post.
+            await TrySchedulePendingRetryAsync();
+            throw;
         }
         finally
         {
@@ -419,6 +435,28 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
 
         EnsureDispatchTimer(TimeSpan.Zero);
         await EnsureReminderAsync();
+    }
+
+    private async Task TrySchedulePendingRetryAsync()
+    {
+        try
+        {
+            if (options.PendingItems().IsDefaultOrEmpty)
+            {
+                return;
+            }
+
+            EnsureDispatchTimer(options.RetryDelay);
+            await EnsureReminderAsync();
+        }
+        catch (Exception ex)
+        {
+            // Swallow so the original post-run failure stays the surfaced error.
+            logger.LogWarning(
+                ex,
+                "Failed to arm outbox retry after a failed post run on grain {GrainType}. Pending items remain until the next post or activation.",
+                grainType);
+        }
     }
 
     private Task? TryBeginDrainOrGetCurrent()

@@ -156,6 +156,12 @@ Failed dispatches are reported through `ReconcileFailedAsync`. That callback
 is where the owning grain applies retry, dead-letter, max-depth, or trimming
 policy, because the grain owns the durable outbox state.
 
+If a foreground `PostAsync` run fails before reconciliation completes — for
+example when the run exceeds `ProcessingTimeout` or an acknowledgement
+callback throws — the processor arms its retry timer and reminder before
+rethrowing, so pending items are retried without requiring another explicit
+post. Successful runs never pay the reminder registration cost.
+
 Background outbox postage allows unrelated grain calls to continue while
 postmen await I/O by default. `IPostman<T>` services should be state-free with
 respect to the owning grain. Inline lambda postmen may read activation-local
