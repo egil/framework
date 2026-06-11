@@ -116,8 +116,6 @@ function Get-ProjectDisplayName {
 
     switch ($Scope) {
         "stjm" { return "Egil.SystemTextJson.Migration" }
-        "oes" { return "Egil.Orleans.EventSourcing" }
-        "os" { return "Egil.Orleans.Storage" }
         "ot" { return "Egil.Orleans.Testing" }
         "stp" { return "Egil.StronglyTypedPrimitives" }
         "ci" { return "CI" }
@@ -408,8 +406,6 @@ $toolRecords |
 
 $workflowScopePatterns = @{
     "egil-systemtextjson-migration" = "stjm"
-    "egil-orleans-eventsourcing" = "oes"
-    "egil-orleans-storage" = "os"
     "egil-orleans-testing" = "ot"
     "egil-strongly-typed-primitives" = "stp"
 }

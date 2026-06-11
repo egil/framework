@@ -9,8 +9,6 @@ Each top-level project ships as its own NuGet package and has its own CI workflo
 | Project directory                | Conventional Commit scope |
 |----------------------------------|---------------------------|
 | `Egil.SystemTextJson.Migration/` | `stjm`                    |
-| `Egil.Orleans.EventSourcing/`    | `oes`                     |
-| `Egil.Orleans.Storage/`          | `os`                      |
 | `Egil.Orleans.Testing/`          | `ot`                      |
 | `Egil.StronglyTypedPrimitives/`  | `stp`                     |
 

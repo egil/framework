@@ -33,8 +33,6 @@ $labelDefinitions = @(
     @{ name = "maintenance:tools"; color = "c5def5"; description = "Dotnet local tool maintenance" },
     @{ name = "build"; color = "bfdadc"; description = "Repo build and tooling scope" },
     @{ name = "stjm"; color = "d4c5f9"; description = "Egil.SystemTextJson.Migration scope" },
-    @{ name = "oes"; color = "d4c5f9"; description = "Egil.Orleans.EventSourcing scope" },
-    @{ name = "os"; color = "d4c5f9"; description = "Egil.Orleans.Storage scope" },
     @{ name = "ot"; color = "d4c5f9"; description = "Egil.Orleans.Testing scope" },
     @{ name = "stp"; color = "d4c5f9"; description = "Egil.StronglyTypedPrimitives scope" }
 )
