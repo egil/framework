@@ -206,21 +206,21 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
         if (!outbox.TryGetValue(token.Sender, out var entry))
         {
             MessagingTelemetry.RecordOutboxReceiveLag(token, now);
-            next = CreateTracker(streams, outbox.Add(token.Sender, new OutboxEntry(token.Epoch, token.SequenceNumber, now)));
+            next = CreateTracker(streams, outbox.Add(token.Sender, new OutboxEntry(token.Epoch, token.SequenceNumber, now, token.Timestamp)));
             return true;
         }
 
         if (token.Epoch > entry.Epoch)
         {
             MessagingTelemetry.RecordOutboxReceiveLag(token, now);
-            next = CreateTracker(streams, outbox.SetItem(token.Sender, new OutboxEntry(token.Epoch, token.SequenceNumber, now)));
+            next = CreateTracker(streams, outbox.SetItem(token.Sender, new OutboxEntry(token.Epoch, token.SequenceNumber, now, token.Timestamp)));
             return true;
         }
 
         if (token.Epoch == entry.Epoch && token.SequenceNumber > entry.LastSequenceNumber)
         {
             MessagingTelemetry.RecordOutboxReceiveLag(token, now);
-            next = CreateTracker(streams, outbox.SetItem(token.Sender, new OutboxEntry(entry.Epoch, token.SequenceNumber, now)));
+            next = CreateTracker(streams, outbox.SetItem(token.Sender, new OutboxEntry(entry.Epoch, token.SequenceNumber, now, token.Timestamp)));
             return true;
         }
 
@@ -330,8 +330,12 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
     /// </summary>
     public OutboxSequenceToken? LatestOutbox(GrainId sender)
     {
+        // Reconstruct with the sender-stamped LastTimestamp, not Received:
+        // OutboxSequenceToken equality includes Timestamp, so using receiver
+        // time would make the returned token differ from the token that was
+        // actually accepted whenever sender and receiver clocks drift.
         return outbox.TryGetValue(sender, out var entry)
-            ? new OutboxSequenceToken(entry.LastSequenceNumber, sender, entry.Received, entry.Epoch)
+            ? new OutboxSequenceToken(entry.LastSequenceNumber, sender, entry.LastTimestamp, entry.Epoch)
             : null;
     }
 
@@ -556,11 +560,20 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
 
     /// <summary>
     /// Internal entry tracking an outbox source's last known epoch,
-    /// sequence number, and the wall-clock time it was received.
+    /// sequence number, the sender-stamped timestamp of the last accepted
+    /// token, and the wall-clock time it was received.
     /// </summary>
+    /// <remarks>
+    /// <c>LastTimestamp</c> preserves the sender's original token timestamp
+    /// so <see cref="LatestOutbox"/> can reconstruct the token faithfully.
+    /// <c>Received</c> uses the receiver's clock and exists for eviction
+    /// policies only — the two differ whenever sender and receiver clocks
+    /// drift.
+    /// </remarks>
     [GenerateSerializer]
     internal readonly record struct OutboxEntry(
         [property: Id(0)] DateTimeOffset Epoch,
         [property: Id(1)] long LastSequenceNumber,
-        [property: Id(2)] DateTimeOffset Received);
+        [property: Id(2)] DateTimeOffset Received,
+        [property: Id(3)] DateTimeOffset LastTimestamp);
 }
