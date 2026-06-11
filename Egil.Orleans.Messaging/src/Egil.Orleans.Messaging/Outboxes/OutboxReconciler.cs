@@ -53,6 +53,40 @@ internal sealed class OutboxReconciler<TOutbox>(
         }
     }
 
+    /// <summary>
+    /// Drops attempt counters for items that are no longer pending.
+    /// </summary>
+    /// <remarks>
+    /// Attempt counts are keyed by item value equality and only removed by
+    /// <see cref="ReconcileAsync"/> when the item posts successfully. Items
+    /// that leave the outbox any other way — dead-lettered or dropped by
+    /// <c>ReconcileFailedAsync</c>, or removed directly by the grain — would
+    /// otherwise keep their entries for the lifetime of the activation, a
+    /// slow memory leak that the owning grain cannot observe or clean up.
+    /// The processor calls this with a fresh pending snapshot after each
+    /// reconciliation.
+    /// </remarks>
+    public void PruneAttempts(ImmutableArray<TOutbox> pending)
+    {
+        if (attempts.Count == 0)
+        {
+            return;
+        }
+
+        if (pending.IsDefaultOrEmpty)
+        {
+            attempts.Clear();
+            return;
+        }
+
+        var stillPending = new HashSet<TOutbox>(pending);
+        var stale = attempts.Keys.Where(item => !stillPending.Contains(item)).ToList();
+        foreach (var item in stale)
+        {
+            attempts.Remove(item);
+        }
+    }
+
     private int IncrementAttempt(TOutbox item)
     {
         attempts.TryGetValue(item, out var current);

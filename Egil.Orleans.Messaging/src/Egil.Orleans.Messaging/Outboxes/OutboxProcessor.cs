@@ -427,6 +427,11 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         var pending = options.PendingItems();
         MessagingTelemetry.RecordOutboxDepth(grainType, pending.IsDefault ? 0 : pending.Length);
 
+        // Items the grain removed without a successful post (dead-lettered or
+        // dropped in ReconcileFailedAsync) would otherwise leak their attempt
+        // counters for the activation lifetime.
+        reconciler.PruneAttempts(pending);
+
         if (pending.IsDefaultOrEmpty)
         {
             await DisableRetryAsync();
