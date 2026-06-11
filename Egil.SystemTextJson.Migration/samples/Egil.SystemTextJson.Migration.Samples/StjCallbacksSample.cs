@@ -87,13 +87,13 @@ public sealed class StjCallbacksSampleTests
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
         options.AddJsonMigrationSupport();
 
-        var json = """{"$type":"profile-v2","firstName":"Egil","lastName":"Hansen"}""";
+        var json = """{"$type":"profile-v2","firstName":"Jane","lastName":"Doe"}""";
         var profile = JsonSerializer.Deserialize<ProfileV2>(json, options);
-        // profile.DisplayName is "Egil Hansen" — set by OnDeserialized()
+        // profile.DisplayName is "Jane Doe" — set by OnDeserialized()
         #endregion
 
         Assert.NotNull(profile);
-        Assert.Equal("Egil Hansen", profile.DisplayName);
+        Assert.Equal("Jane Doe", profile.DisplayName);
     }
 
     [Fact]

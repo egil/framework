@@ -19,21 +19,21 @@ public class LibraryCoreBehaviorTests
     [Fact]
     public void Migrate_with_static_and_registered_external_migrators()
     {
-        var v1 = new CoreSampleV1("Egil Hansen", 42);
+        var v1 = new CoreSampleV1("Jane Doe", 42);
         var json = JsonSerializer.Serialize(v1, options);
 
         var migrated = JsonSerializer.Deserialize<CoreSampleV3>(json, options);
 
         Assert.NotNull(migrated);
-        Assert.Equal("Egil", migrated.FirstName);
-        Assert.Equal("Hansen", migrated.LastName);
+        Assert.Equal("Jane", migrated.FirstName);
+        Assert.Equal("Doe", migrated.LastName);
         Assert.Equal(42, migrated.Age);
     }
 
     [Fact]
     public void Serialize_writes_type_discriminator_first()
     {
-        var v2 = new CoreSampleV2("Egil", "Hansen", 42);
+        var v2 = new CoreSampleV2("Jane", "Doe", 42);
 
         var json = JsonSerializer.Serialize(v2, options);
 
@@ -43,7 +43,7 @@ public class LibraryCoreBehaviorTests
     [Fact]
     public void Serialize_and_deserialize_without_migration()
     {
-        var v1 = new CoreSampleV1("Egil", 42);
+        var v1 = new CoreSampleV1("Jane", 42);
 
         var json = JsonSerializer.Serialize(v1, options);
         var result = JsonSerializer.Deserialize<CoreSampleV1>(json, options);

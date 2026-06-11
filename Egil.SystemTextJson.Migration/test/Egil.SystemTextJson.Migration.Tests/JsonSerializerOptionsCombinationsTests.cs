@@ -25,7 +25,7 @@ public class JsonSerializerOptionsCombinationsTests
     public void Serialize_and_deserialize_without_migration_works_for_all_option_combinations(OptionsCombination combination)
     {
         var options = CreateOptions(combination);
-        var current = new OptionsMatrixV2("Egil", "Hansen", 42, null);
+        var current = new OptionsMatrixV2("Jane", "Doe", 42, null);
 
         var json = JsonSerializer.Serialize(current, options);
         var deserialized = JsonSerializer.Deserialize<OptionsMatrixV2>(json, options);
@@ -43,14 +43,14 @@ public class JsonSerializerOptionsCombinationsTests
     public void Serialize_and_deserialize_with_migration_works_for_all_option_combinations(OptionsCombination combination)
     {
         var options = CreateOptions(combination);
-        var legacy = new OptionsMatrixV1("Egil Hansen", 42, null);
+        var legacy = new OptionsMatrixV1("Jane Doe", 42, null);
 
         var json = JsonSerializer.Serialize(legacy, options);
         var migrated = JsonSerializer.Deserialize<OptionsMatrixV2>(json, options);
 
         Assert.NotNull(migrated);
-        Assert.Equal("Egil", migrated.FirstName);
-        Assert.Equal("Hansen", migrated.LastName);
+        Assert.Equal("Jane", migrated.FirstName);
+        Assert.Equal("Doe", migrated.LastName);
         Assert.Equal(legacy.Age, migrated.Age);
         Assert.Equal(legacy.NickName, migrated.NickName);
         Assert.True(migrated.MigratedDuringDeserialization);
@@ -60,7 +60,7 @@ public class JsonSerializerOptionsCombinationsTests
     public void Serialize_without_migration_applies_selected_output_options()
     {
         var options = CreateOutputSensitiveOptions();
-        var current = new OptionsMatrixV2("Egil", "Hansen", 42, null);
+        var current = new OptionsMatrixV2("Jane", "Doe", 42, null);
 
         var json = JsonSerializer.Serialize(current, options);
 
@@ -69,8 +69,8 @@ public class JsonSerializerOptionsCombinationsTests
 
         Assert.Contains('\n', json);
         Assert.Equal(typeof(OptionsMatrixV2).FullName, root.GetProperty("$type").GetString());
-        Assert.Equal("Egil", root.GetProperty("firstName").GetString());
-        Assert.Equal("Hansen", root.GetProperty("lastName").GetString());
+        Assert.Equal("Jane", root.GetProperty("firstName").GetString());
+        Assert.Equal("Doe", root.GetProperty("lastName").GetString());
         Assert.Equal(JsonValueKind.String, root.GetProperty("age").ValueKind);
         Assert.Equal("42", root.GetProperty("age").GetString());
         Assert.False(root.TryGetProperty("nickName", out _));
@@ -81,7 +81,7 @@ public class JsonSerializerOptionsCombinationsTests
     public void Deserialize_with_migration_then_serialize_applies_selected_output_options()
     {
         var options = CreateOutputSensitiveOptions();
-        var legacy = new OptionsMatrixV1("Egil Hansen", 42, null);
+        var legacy = new OptionsMatrixV1("Jane Doe", 42, null);
 
         var legacyJson = JsonSerializer.Serialize(legacy, options);
         var migrated = JsonSerializer.Deserialize<OptionsMatrixV2>(legacyJson, options);
@@ -95,8 +95,8 @@ public class JsonSerializerOptionsCombinationsTests
 
         Assert.Contains('\n', migratedJson);
         Assert.Equal(typeof(OptionsMatrixV2).FullName, root.GetProperty("$type").GetString());
-        Assert.Equal("Egil", root.GetProperty("firstName").GetString());
-        Assert.Equal("Hansen", root.GetProperty("lastName").GetString());
+        Assert.Equal("Jane", root.GetProperty("firstName").GetString());
+        Assert.Equal("Doe", root.GetProperty("lastName").GetString());
         Assert.Equal(JsonValueKind.String, root.GetProperty("age").ValueKind);
         Assert.Equal("42", root.GetProperty("age").GetString());
         Assert.False(root.TryGetProperty("nickName", out _));
