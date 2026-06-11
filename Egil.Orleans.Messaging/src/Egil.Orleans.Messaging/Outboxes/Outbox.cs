@@ -42,7 +42,16 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// <para>
 /// <b>Equality:</b> Two <see cref="Outbox{T}"/> instances are equal when
 /// sender, sequence metadata, epoch, count, and the full first and last
-/// pending tokens are equal. Equality is O(1) and ignores message payloads.
+/// pending tokens are equal. Equality is O(1) and ignores message payloads —
+/// it is a fingerprint, not deep content equality. Within a single history
+/// lineage every mutation changes the fingerprint (<see cref="Add"/> changes
+/// the last token, removals change the count or tokens), so dirty-check
+/// "skip write if unchanged" logic is safe. Outboxes from <em>divergent</em>
+/// histories (duplicate activations of the same grain) can compare equal when
+/// they diverged only by removals; treating them as interchangeable
+/// re-delivers already posted items but never loses pending ones. See
+/// <see cref="Equals(Outbox{T}?)"/> for the full contract before relying on
+/// equality for anything beyond dirty-checks or write recovery.
 /// </para>
 /// <para>
 /// <b>Unbounded growth risk:</b> If postman targets are down, the outbox grows
