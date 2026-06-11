@@ -207,4 +207,29 @@ public sealed class OutboxTests
         Assert.NotEqual(left, right);
     }
 
+    [Fact]
+    public void Equals_returns_false_when_diverged_tail_items_have_different_timestamps()
+    {
+        var sender = GrainId.Create("test/sender", "one");
+        var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
+        var leftTime = new ManualTimeProvider(now);
+        var rightTime = new ManualTimeProvider(now);
+        var left = Outbox<string>.Create(sender);
+        var right = Outbox<string>.Create(sender);
+        left.RegisterTimeProvider(leftTime);
+        right.RegisterTimeProvider(rightTime);
+
+        // Shared history establishes the same epoch and head token, then two
+        // duplicate activations each append their own message at the same
+        // sequence number but at different wall-clock instants.
+        left = left.Add("base");
+        right = right.Add("base");
+        leftTime.Advance(TimeSpan.FromMilliseconds(1));
+        rightTime.Advance(TimeSpan.FromMilliseconds(2));
+        left = left.Add("from-activation-a");
+        right = right.Add("from-activation-b");
+
+        Assert.NotEqual(left, right);
+    }
+
 }

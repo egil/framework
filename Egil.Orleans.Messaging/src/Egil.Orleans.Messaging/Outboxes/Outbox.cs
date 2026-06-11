@@ -41,8 +41,8 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// </para>
 /// <para>
 /// <b>Equality:</b> Two <see cref="Outbox{T}"/> instances are equal when
-/// sender, sequence metadata, epoch, count, first sequence number, and last
-/// sequence number are equal. Equality is O(1).
+/// sender, sequence metadata, epoch, count, and the full first and last
+/// pending tokens are equal. Equality is O(1) and ignores message payloads.
 /// </para>
 /// <para>
 /// <b>Unbounded growth risk:</b> If postman targets are down, the outbox grows
@@ -308,15 +308,18 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
 
     /// <summary>
     /// O(1) equality over the outbox identity and sequence fingerprint:
-    /// sender, latest sequence number, epoch, count, first sequence number,
-    /// and last sequence number.
+    /// sender, latest sequence number, epoch, count, and the full first and
+    /// last pending tokens (including their timestamps).
     /// </summary>
     /// <remarks>
-    /// This intentionally does not compare message payloads. The outbox owns
-    /// sequence assignment, removal is FIFO-only, and sequence numbers are never
-    /// reused within an epoch. Under those invariants the metadata fingerprint
-    /// uniquely represents the pending outbox contents for equality/recovery
-    /// purposes while avoiding an O(n) payload walk during state comparisons.
+    /// This intentionally does not compare message payloads. Items are only
+    /// ever appended at the tail, so two histories that diverged by adding
+    /// different messages — for example duplicate grain activations racing an
+    /// ambiguous storage write — always differ in their highest pending
+    /// token, whose timestamp is stamped by the producing activation.
+    /// Histories that diverged only by removals can still compare equal;
+    /// the state-manager recovery path then at worst re-delivers an already
+    /// posted item (at-least-once) but never loses a pending message.
     /// </remarks>
     public bool Equals(Outbox<T>? other)
     {
@@ -326,8 +329,8 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
                 && latestSequenceNumber == other.latestSequenceNumber
                 && epoch == other.epoch
                 && items.Length == other.items.Length
-                && FirstSequenceNumber == other.FirstSequenceNumber
-                && LastSequenceNumber == other.LastSequenceNumber);
+                && Equals(FirstToken, other.FirstToken)
+                && Equals(LastToken, other.LastToken));
     }
 
     /// <inheritdoc/>
@@ -340,12 +343,12 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
             latestSequenceNumber,
             epoch,
             items.Length,
-            FirstSequenceNumber,
-            LastSequenceNumber);
+            FirstToken,
+            LastToken);
 
-    private long FirstSequenceNumber =>
-        items.IsDefaultOrEmpty ? 0 : items[0].Token.SequenceNumber;
+    private OutboxSequenceToken? FirstToken =>
+        items.IsDefaultOrEmpty ? null : items[0].Token;
 
-    private long LastSequenceNumber =>
-        items.IsDefaultOrEmpty ? 0 : items[^1].Token.SequenceNumber;
+    private OutboxSequenceToken? LastToken =>
+        items.IsDefaultOrEmpty ? null : items[^1].Token;
 }
