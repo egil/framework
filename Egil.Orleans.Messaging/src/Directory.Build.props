@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project>
+
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)..'))" />
+
+  <PropertyGroup Label="Compile settings">
+    <!--
+      Shipped packages must document all public API: re-enable CS1591
+      (missing XML comment) that the repo-wide Directory.Build.props
+      suppresses, so doc coverage is enforced by the build for the
+      src projects only.
+    -->
+    <NoWarn>$(NoWarn.Replace('1591', ''))</NoWarn>
+  </PropertyGroup>
+
+</Project>
