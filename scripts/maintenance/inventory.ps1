@@ -195,7 +195,7 @@ function Get-PackageRows {
     )
 
     $rows = New-Object System.Collections.Generic.List[object]
-    if ($null -eq $Json.projects) {
+    if (($null -eq $Json) -or (-not ($Json.PSObject.Properties.Name -contains "projects")) -or ($null -eq $Json.projects)) {
         return $rows
     }
 
