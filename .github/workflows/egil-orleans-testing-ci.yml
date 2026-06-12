@@ -45,7 +45,8 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.x
+          dotnet-version: |
+            10.x
 
       - name: Build and pack
         run: |
@@ -71,7 +72,8 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.x
+          dotnet-version: |
+            10.x
 
       - uses: actions/download-artifact@v4
         with:
@@ -102,7 +104,8 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.x
+          dotnet-version: |
+            10.x
 
       - name: Run tests
         working-directory: Egil.Orleans.Testing
@@ -133,7 +136,8 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.x
+          dotnet-version: |
+            10.x
 
       - name: NuGet login (trusted publishing)
         uses: NuGet/login@v1
