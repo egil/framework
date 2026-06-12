@@ -1,6 +1,12 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <!--
+      Roslyn source generators and analyzers must target netstandard2.0 so they load into the
+      compiler host across all SDK versions; this target is required and is not a support-window
+      choice. The runtime types consumers reference ship from the Abstractions project (see the
+      pack items below), which multi-targets the supported consumer frameworks.
+    -->
     <TargetFramework>netstandard2.0</TargetFramework>
     <IncludeBuildOutput>false</IncludeBuildOutput>
     <Nullable>enable</Nullable>
@@ -64,6 +70,7 @@
     <None Include="..\Egil.StronglyTypedPrimitives.Abstractions\bin\Release\netstandard2.0\*" Pack="true" PackagePath="lib/netstandard2.0" Visible="false" />
     <None Include="..\Egil.StronglyTypedPrimitives.Abstractions\bin\Release\net8.0\*" Pack="true" PackagePath="lib/net8.0" Visible="false" />
     <None Include="..\Egil.StronglyTypedPrimitives.Abstractions\bin\Release\net9.0\*" Pack="true" PackagePath="lib/net9.0" Visible="false" />
+    <None Include="..\Egil.StronglyTypedPrimitives.Abstractions\bin\Release\net10.0\*" Pack="true" PackagePath="lib/net10.0" Visible="false" />
   </ItemGroup>
 
 </Project>

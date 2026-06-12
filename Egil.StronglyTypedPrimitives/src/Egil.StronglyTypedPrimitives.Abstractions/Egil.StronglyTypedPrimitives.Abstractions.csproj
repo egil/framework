@@ -1,6 +1,16 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <!--
+      Runtime assembly shipped inside the Egil.StronglyTypedPrimitives NuGet package (see the
+      generator project's pack items). Each target framework is intentional:
+        net10.0       Preferred active target; provides the OpenAPI schema transformer built
+                      against the Microsoft.OpenApi v2 API (StronglyTypedSchemaTransformer.net10.cs).
+        net9.0        Support-window target; provides the OpenAPI schema transformer built against
+                      the Microsoft.OpenApi v1 API (StronglyTypedSchemaTransformer.net9.cs).
+        net8.0        LTS support-window target for consumers on .NET 8 (attribute + interfaces only).
+        netstandard2.0 Broad consumer compatibility (for example .NET Framework / older runtimes).
+    -->
     <TargetFrameworks>net10.0;net9.0;net8.0;netstandard2.0</TargetFrameworks>
     <Nullable>enable</Nullable>
     <RootNamespace>Egil.StronglyTypedPrimitives</RootNamespace>
