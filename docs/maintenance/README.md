@@ -27,3 +27,4 @@ This repo contains several independently released libraries. Maintenance automat
 - Renovate opens low-noise grouped PRs for NuGet packages, GitHub Actions, and dotnet local tools.
 - The maintenance inventory workflow creates or updates deterministic issues for cross-cutting drift that needs judgment or coding-agent work.
 - Generated reports are written under `artifacts/maintenance/` and uploaded from CI.
+- When a package is retired, its source, workflow, and baseline scope entry are removed together. The inventory then stops emitting that package's findings, and the next scheduled run closes the now-resolved maintenance issues automatically (`scripts/maintenance/upsert-issues.ps1 -CloseResolved`). A package CI alignment finding that points at a workflow which no longer exists is therefore stale and not applicable.
