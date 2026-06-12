@@ -25,6 +25,11 @@ env:
 permissions:
   contents: read
 
+# SDK band policy: every setup-dotnet step below installs only the 10.x SDK
+# because the package and all of its projects (src, test, perf, samples) target
+# net10.0 exclusively. Keep these bands in sync with the retained target
+# frameworks: add a band here only when a matching TFM is reintroduced, and drop
+# one when its TFM is removed.
 jobs:
   create-nuget:
     runs-on: ubuntu-latest
