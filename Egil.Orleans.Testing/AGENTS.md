@@ -15,7 +15,12 @@ This project is part of a mono-repo with shared inherited artifacts (for example
 This project intentionally keeps its own `global.json`; the SDK policy it declares is **package-specific, not repo-wide**. The mono-repo has no root `global.json`, and the other packages do not need one. Two settings make it specific to this package:
 
 - `sdk.rollForward: latestMajor` (with `allowPrerelease: false`): the package and its tests target `net10.0`, so builds and tooling roll forward to the newest installed major .NET SDK.
-- `test.runner: Microsoft.Testing.Platform`: required because the test project (`test/Egil.Orleans.Testing.Tests`) is Microsoft Testing Platform-only — it references `xunit.v3.mtp-v2` and intentionally omits `Microsoft.NET.Test.Sdk`/`xunit.runner.visualstudio`. This setting tells `dotnet test` to use the Microsoft Testing Platform runner. The sibling packages keep the legacy VSTest adapters as a fallback, so they do not require this `global.json` entry.
+- `test.runner: Microsoft.Testing.Platform`: required because the test project
+  (`test/Egil.Orleans.Testing.Tests`) is Microsoft Testing Platform-only — it references
+  `xunit.v3.mtp-v2` and intentionally omits `Microsoft.NET.Test.Sdk`/`xunit.runner.visualstudio`.
+  This setting tells `dotnet test` to use the Microsoft Testing Platform runner. The sibling
+  packages keep the legacy VSTest adapters as a fallback, so they do not require this
+  `global.json` entry.
 
 Do not promote this file to the repository root unless every package adopts the same MTP-only test setup.
 
