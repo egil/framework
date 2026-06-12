@@ -195,11 +195,15 @@ function Get-PackageRows {
     )
 
     $rows = New-Object System.Collections.Generic.List[object]
-    if ($null -eq $Json.projects) {
+    if (($null -eq $Json) -or (-not ($Json.PSObject.Properties.Name -contains "projects")) -or ($null -eq $Json.projects)) {
         return $rows
     }
 
     foreach ($project in @($Json.projects)) {
+        if (-not ($project.PSObject.Properties.Name -contains "frameworks")) {
+            continue
+        }
+
         foreach ($framework in @($project.frameworks)) {
             foreach ($collectionName in @("topLevelPackages", "transitivePackages")) {
                 if (-not ($framework.PSObject.Properties.Name -contains $collectionName)) {
