@@ -350,6 +350,7 @@ Get-ChildItem -LiteralPath $RepositoryRoot -Recurse -File -Filter "*.csproj" |
 Get-ChildItem -LiteralPath $RepositoryRoot -Recurse -File |
     Where-Object { $_.Name -ieq "global.json" } |
     Where-Object { $_.FullName -notmatch "[\\/](bin|obj)[\\/]" } |
+    Where-Object { (ConvertTo-RepoPath $_.FullName) -ine "global.json" } |
     ForEach-Object {
         $scope = Get-ScopeFromPath $_.FullName
         $json = Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json

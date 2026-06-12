@@ -15,6 +15,7 @@ This repo contains several independently released libraries. Maintenance automat
 - `net9.0` and `net8.0` remain support-window targets until November 2026, but they should be tracked by maintenance issues so migration work is planned.
 - `netstandard2.0` is allowed only where consumer compatibility requires it.
 - CI should avoid .NET preview SDKs unless a preview-readiness issue explicitly tracks that work.
+- SDK selection is a repo-wide concern declared in the repo-root `global.json` (roll-forward and prerelease policy). Packages should not carry their own `global.json` for SDK selection; the inventory workflow flags any package-level `global.json` as drift so the policy stays consolidated at the root. Per-package test-runner preferences remain a package concern (see Test Harness Policy).
 
 ## Test Harness Policy
 
