@@ -1,7 +1,11 @@
 using Examples;
 using Microsoft.AspNetCore.OpenApi;
 using Microsoft.Extensions.DependencyInjection;
+#if NET9_0
 using Microsoft.OpenApi.Models;
+#elif NET10_0
+using Microsoft.OpenApi;
+#endif
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 
@@ -9,6 +13,21 @@ namespace Egil.StronglyTypedPrimitives;
 
 public class StronglyTypedSchemaTransformerTest
 {
+    // Microsoft.OpenApi v1 (net9.0) models schema types as strings, while v2 (net10.0)
+    // uses the JsonSchemaType enum. These constants let the test bodies stay identical
+    // across both TFMs.
+#if NET9_0
+    private const string StringType = "string";
+    private const string IntegerType = "integer";
+    private const string NumberType = "number";
+    private const string ArrayType = "array";
+#elif NET10_0
+    private const JsonSchemaType StringType = JsonSchemaType.String;
+    private const JsonSchemaType IntegerType = JsonSchemaType.Integer;
+    private const JsonSchemaType NumberType = JsonSchemaType.Number;
+    private const JsonSchemaType ArrayType = JsonSchemaType.Array;
+#endif
+
     [Fact]
     public async Task String_based_strongly_typed()
     {
@@ -18,8 +37,8 @@ public class StronglyTypedSchemaTransformerTest
 
         await sut.TransformAsync(schema, context, TestContext.Current.CancellationToken);
 
-        Assert.Equal("string", schema.Type);
-        Assert.Empty(schema.Properties);
+        Assert.Equal(StringType, schema.Type);
+        AssertNoProperties(schema);
     }
 
     [Fact]
@@ -27,13 +46,13 @@ public class StronglyTypedSchemaTransformerTest
     {
         var sut = new StronglyTypedSchemaTransformer();
         var context = CreateTransformerContext(typeof(StronglyTypedString[]));
-        var schema = new OpenApiSchema() { Type = "array" };
+        var schema = new OpenApiSchema() { Type = ArrayType };
 
         await sut.TransformAsync(schema, context, TestContext.Current.CancellationToken);
 
-        Assert.Equal("array", schema.Type);
-        Assert.Equal("string", schema.Items.Type);
-        Assert.Empty(schema.Properties);
+        Assert.Equal(ArrayType, schema.Type);
+        Assert.Equal(StringType, schema.Items?.Type);
+        AssertNoProperties(schema);
     }
 
     [Fact]
@@ -45,9 +64,9 @@ public class StronglyTypedSchemaTransformerTest
 
         await sut.TransformAsync(schema, context, TestContext.Current.CancellationToken);
 
-        Assert.Equal("integer", schema.Type);
+        Assert.Equal(IntegerType, schema.Type);
         Assert.Equal("uint8", schema.Format);
-        Assert.Empty(schema.Properties);
+        AssertNoProperties(schema);
     }
 
     [Fact]
@@ -55,14 +74,14 @@ public class StronglyTypedSchemaTransformerTest
     {
         var sut = new StronglyTypedSchemaTransformer();
         var context = CreateTransformerContext(typeof(StronglyTypedByte[]));
-        var schema = new OpenApiSchema() { Type = "array" };
+        var schema = new OpenApiSchema() { Type = ArrayType };
 
         await sut.TransformAsync(schema, context, TestContext.Current.CancellationToken);
 
-        Assert.Equal("array", schema.Type);
-        Assert.Equal("integer", schema.Items.Type);
-        Assert.Equal("uint8", schema.Items.Format);
-        Assert.Empty(schema.Properties);
+        Assert.Equal(ArrayType, schema.Type);
+        Assert.Equal(IntegerType, schema.Items?.Type);
+        Assert.Equal("uint8", schema.Items?.Format);
+        AssertNoProperties(schema);
     }
 
     [Fact]
@@ -74,9 +93,9 @@ public class StronglyTypedSchemaTransformerTest
 
         await sut.TransformAsync(schema, context, TestContext.Current.CancellationToken);
 
-        Assert.Equal("integer", schema.Type);
+        Assert.Equal(IntegerType, schema.Type);
         Assert.Equal("int32", schema.Format);
-        Assert.Empty(schema.Properties);
+        AssertNoProperties(schema);
     }
 
     [Fact]
@@ -84,14 +103,14 @@ public class StronglyTypedSchemaTransformerTest
     {
         var sut = new StronglyTypedSchemaTransformer();
         var context = CreateTransformerContext(typeof(StronglyTypedInt[]));
-        var schema = new OpenApiSchema() { Type = "array" };
+        var schema = new OpenApiSchema() { Type = ArrayType };
 
         await sut.TransformAsync(schema, context, TestContext.Current.CancellationToken);
 
-        Assert.Equal("array", schema.Type);
-        Assert.Equal("integer", schema.Items.Type);
-        Assert.Equal("int32", schema.Items.Format);
-        Assert.Empty(schema.Properties);
+        Assert.Equal(ArrayType, schema.Type);
+        Assert.Equal(IntegerType, schema.Items?.Type);
+        Assert.Equal("int32", schema.Items?.Format);
+        AssertNoProperties(schema);
     }
 
     [Fact]
@@ -103,9 +122,9 @@ public class StronglyTypedSchemaTransformerTest
 
         await sut.TransformAsync(schema, context, TestContext.Current.CancellationToken);
 
-        Assert.Equal("integer", schema.Type);
+        Assert.Equal(IntegerType, schema.Type);
         Assert.Equal("uint32", schema.Format);
-        Assert.Empty(schema.Properties);
+        AssertNoProperties(schema);
     }
 
     [Fact]
@@ -113,14 +132,14 @@ public class StronglyTypedSchemaTransformerTest
     {
         var sut = new StronglyTypedSchemaTransformer();
         var context = CreateTransformerContext(typeof(StronglyTypedUInt[]));
-        var schema = new OpenApiSchema() { Type = "array" };
+        var schema = new OpenApiSchema() { Type = ArrayType };
 
         await sut.TransformAsync(schema, context, TestContext.Current.CancellationToken);
 
-        Assert.Equal("array", schema.Type);
-        Assert.Equal("integer", schema.Items.Type);
-        Assert.Equal("uint32", schema.Items.Format);
-        Assert.Empty(schema.Properties);
+        Assert.Equal(ArrayType, schema.Type);
+        Assert.Equal(IntegerType, schema.Items?.Type);
+        Assert.Equal("uint32", schema.Items?.Format);
+        AssertNoProperties(schema);
     }
 
     [Fact]
@@ -132,9 +151,9 @@ public class StronglyTypedSchemaTransformerTest
 
         await sut.TransformAsync(schema, context, TestContext.Current.CancellationToken);
 
-        Assert.Equal("integer", schema.Type);
+        Assert.Equal(IntegerType, schema.Type);
         Assert.Equal("int64", schema.Format);
-        Assert.Empty(schema.Properties);
+        AssertNoProperties(schema);
     }
 
     [Fact]
@@ -142,14 +161,14 @@ public class StronglyTypedSchemaTransformerTest
     {
         var sut = new StronglyTypedSchemaTransformer();
         var context = CreateTransformerContext(typeof(StronglyTypedLong[]));
-        var schema = new OpenApiSchema() { Type = "array" };
+        var schema = new OpenApiSchema() { Type = ArrayType };
 
         await sut.TransformAsync(schema, context, TestContext.Current.CancellationToken);
 
-        Assert.Equal("array", schema.Type);
-        Assert.Equal("integer", schema.Items.Type);
-        Assert.Equal("int64", schema.Items.Format);
-        Assert.Empty(schema.Properties);
+        Assert.Equal(ArrayType, schema.Type);
+        Assert.Equal(IntegerType, schema.Items?.Type);
+        Assert.Equal("int64", schema.Items?.Format);
+        AssertNoProperties(schema);
     }
 
     [Fact]
@@ -161,9 +180,9 @@ public class StronglyTypedSchemaTransformerTest
 
         await sut.TransformAsync(schema, context, TestContext.Current.CancellationToken);
 
-        Assert.Equal("integer", schema.Type);
+        Assert.Equal(IntegerType, schema.Type);
         Assert.Equal("uint64", schema.Format);
-        Assert.Empty(schema.Properties);
+        AssertNoProperties(schema);
     }
 
     [Fact]
@@ -171,14 +190,14 @@ public class StronglyTypedSchemaTransformerTest
     {
         var sut = new StronglyTypedSchemaTransformer();
         var context = CreateTransformerContext(typeof(StronglyTypedULong[]));
-        var schema = new OpenApiSchema() { Type = "array" };
+        var schema = new OpenApiSchema() { Type = ArrayType };
 
         await sut.TransformAsync(schema, context, TestContext.Current.CancellationToken);
 
-        Assert.Equal("array", schema.Type);
-        Assert.Equal("integer", schema.Items.Type);
-        Assert.Equal("uint64", schema.Items.Format);
-        Assert.Empty(schema.Properties);
+        Assert.Equal(ArrayType, schema.Type);
+        Assert.Equal(IntegerType, schema.Items?.Type);
+        Assert.Equal("uint64", schema.Items?.Format);
+        AssertNoProperties(schema);
     }
 
     [Fact]
@@ -190,9 +209,9 @@ public class StronglyTypedSchemaTransformerTest
 
         await sut.TransformAsync(schema, context, TestContext.Current.CancellationToken);
 
-        Assert.Equal("integer", schema.Type);
+        Assert.Equal(IntegerType, schema.Type);
         Assert.Equal("int16", schema.Format);
-        Assert.Empty(schema.Properties);
+        AssertNoProperties(schema);
     }
 
     [Fact]
@@ -200,14 +219,14 @@ public class StronglyTypedSchemaTransformerTest
     {
         var sut = new StronglyTypedSchemaTransformer();
         var context = CreateTransformerContext(typeof(StronglyTypedShort[]));
-        var schema = new OpenApiSchema() { Type = "array" };
+        var schema = new OpenApiSchema() { Type = ArrayType };
 
         await sut.TransformAsync(schema, context, TestContext.Current.CancellationToken);
 
-        Assert.Equal("array", schema.Type);
-        Assert.Equal("integer", schema.Items.Type);
-        Assert.Equal("int16", schema.Items.Format);
-        Assert.Empty(schema.Properties);
+        Assert.Equal(ArrayType, schema.Type);
+        Assert.Equal(IntegerType, schema.Items?.Type);
+        Assert.Equal("int16", schema.Items?.Format);
+        AssertNoProperties(schema);
     }
 
     [Fact]
@@ -219,9 +238,9 @@ public class StronglyTypedSchemaTransformerTest
 
         await sut.TransformAsync(schema, context, TestContext.Current.CancellationToken);
 
-        Assert.Equal("integer", schema.Type);
+        Assert.Equal(IntegerType, schema.Type);
         Assert.Equal("uint16", schema.Format);
-        Assert.Empty(schema.Properties);
+        AssertNoProperties(schema);
     }
 
     [Fact]
@@ -229,14 +248,14 @@ public class StronglyTypedSchemaTransformerTest
     {
         var sut = new StronglyTypedSchemaTransformer();
         var context = CreateTransformerContext(typeof(StronglyTypedUShort[]));
-        var schema = new OpenApiSchema() { Type = "array" };
+        var schema = new OpenApiSchema() { Type = ArrayType };
 
         await sut.TransformAsync(schema, context, TestContext.Current.CancellationToken);
 
-        Assert.Equal("array", schema.Type);
-        Assert.Equal("integer", schema.Items.Type);
-        Assert.Equal("uint16", schema.Items.Format);
-        Assert.Empty(schema.Properties);
+        Assert.Equal(ArrayType, schema.Type);
+        Assert.Equal(IntegerType, schema.Items?.Type);
+        Assert.Equal("uint16", schema.Items?.Format);
+        AssertNoProperties(schema);
     }
 
     [Fact]
@@ -248,9 +267,9 @@ public class StronglyTypedSchemaTransformerTest
 
         await sut.TransformAsync(schema, context, TestContext.Current.CancellationToken);
 
-        Assert.Equal("number", schema.Type);
+        Assert.Equal(NumberType, schema.Type);
         Assert.Equal("float", schema.Format);
-        Assert.Empty(schema.Properties);
+        AssertNoProperties(schema);
     }
 
     [Fact]
@@ -258,14 +277,14 @@ public class StronglyTypedSchemaTransformerTest
     {
         var sut = new StronglyTypedSchemaTransformer();
         var context = CreateTransformerContext(typeof(StronglyTypedFloat[]));
-        var schema = new OpenApiSchema() { Type = "array" };
+        var schema = new OpenApiSchema() { Type = ArrayType };
 
         await sut.TransformAsync(schema, context, TestContext.Current.CancellationToken);
 
-        Assert.Equal("array", schema.Type);
-        Assert.Equal("number", schema.Items.Type);
-        Assert.Equal("float", schema.Items.Format);
-        Assert.Empty(schema.Properties);
+        Assert.Equal(ArrayType, schema.Type);
+        Assert.Equal(NumberType, schema.Items?.Type);
+        Assert.Equal("float", schema.Items?.Format);
+        AssertNoProperties(schema);
     }
 
     [Fact]
@@ -277,9 +296,9 @@ public class StronglyTypedSchemaTransformerTest
 
         await sut.TransformAsync(schema, context, TestContext.Current.CancellationToken);
 
-        Assert.Equal("number", schema.Type);
+        Assert.Equal(NumberType, schema.Type);
         Assert.Equal("double", schema.Format);
-        Assert.Empty(schema.Properties);
+        AssertNoProperties(schema);
     }
 
     [Fact]
@@ -287,14 +306,14 @@ public class StronglyTypedSchemaTransformerTest
     {
         var sut = new StronglyTypedSchemaTransformer();
         var context = CreateTransformerContext(typeof(StronglyTypedDouble[]));
-        var schema = new OpenApiSchema() { Type = "array" };
+        var schema = new OpenApiSchema() { Type = ArrayType };
 
         await sut.TransformAsync(schema, context, TestContext.Current.CancellationToken);
 
-        Assert.Equal("array", schema.Type);
-        Assert.Equal("number", schema.Items.Type);
-        Assert.Equal("double", schema.Items.Format);
-        Assert.Empty(schema.Properties);
+        Assert.Equal(ArrayType, schema.Type);
+        Assert.Equal(NumberType, schema.Items?.Type);
+        Assert.Equal("double", schema.Items?.Format);
+        AssertNoProperties(schema);
     }
 
     [Fact]
@@ -306,9 +325,9 @@ public class StronglyTypedSchemaTransformerTest
 
         await sut.TransformAsync(schema, context, TestContext.Current.CancellationToken);
 
-        Assert.Equal("number", schema.Type);
+        Assert.Equal(NumberType, schema.Type);
         Assert.Equal("double", schema.Format);
-        Assert.Empty(schema.Properties);
+        AssertNoProperties(schema);
     }
 
     [Fact]
@@ -316,14 +335,14 @@ public class StronglyTypedSchemaTransformerTest
     {
         var sut = new StronglyTypedSchemaTransformer();
         var context = CreateTransformerContext(typeof(StronglyTypedDecimal[]));
-        var schema = new OpenApiSchema() { Type = "array" };
+        var schema = new OpenApiSchema() { Type = ArrayType };
 
         await sut.TransformAsync(schema, context, TestContext.Current.CancellationToken);
 
-        Assert.Equal("array", schema.Type);
-        Assert.Equal("number", schema.Items.Type);
-        Assert.Equal("double", schema.Items.Format);
-        Assert.Empty(schema.Properties);
+        Assert.Equal(ArrayType, schema.Type);
+        Assert.Equal(NumberType, schema.Items?.Type);
+        Assert.Equal("double", schema.Items?.Format);
+        AssertNoProperties(schema);
     }
 
     [Fact]
@@ -335,9 +354,9 @@ public class StronglyTypedSchemaTransformerTest
 
         await sut.TransformAsync(schema, context, TestContext.Current.CancellationToken);
 
-        Assert.Equal("string", schema.Type);
+        Assert.Equal(StringType, schema.Type);
         Assert.Equal("date-time", schema.Format);
-        Assert.Empty(schema.Properties);
+        AssertNoProperties(schema);
     }
 
     [Fact]
@@ -345,14 +364,14 @@ public class StronglyTypedSchemaTransformerTest
     {
         var sut = new StronglyTypedSchemaTransformer();
         var context = CreateTransformerContext(typeof(StronglyTypedDateTime[]));
-        var schema = new OpenApiSchema() { Type = "array" };
+        var schema = new OpenApiSchema() { Type = ArrayType };
 
         await sut.TransformAsync(schema, context, TestContext.Current.CancellationToken);
 
-        Assert.Equal("array", schema.Type);
-        Assert.Equal("string", schema.Items.Type);
-        Assert.Equal("date-time", schema.Items.Format);
-        Assert.Empty(schema.Properties);
+        Assert.Equal(ArrayType, schema.Type);
+        Assert.Equal(StringType, schema.Items?.Type);
+        Assert.Equal("date-time", schema.Items?.Format);
+        AssertNoProperties(schema);
     }
 
     [Fact]
@@ -364,9 +383,9 @@ public class StronglyTypedSchemaTransformerTest
 
         await sut.TransformAsync(schema, context, TestContext.Current.CancellationToken);
 
-        Assert.Equal("string", schema.Type);
+        Assert.Equal(StringType, schema.Type);
         Assert.Equal("date-time", schema.Format);
-        Assert.Empty(schema.Properties);
+        AssertNoProperties(schema);
     }
 
     [Fact]
@@ -374,14 +393,14 @@ public class StronglyTypedSchemaTransformerTest
     {
         var sut = new StronglyTypedSchemaTransformer();
         var context = CreateTransformerContext(typeof(StronglyTypedDateTimeOffset[]));
-        var schema = new OpenApiSchema() { Type = "array" };
+        var schema = new OpenApiSchema() { Type = ArrayType };
 
         await sut.TransformAsync(schema, context, TestContext.Current.CancellationToken);
 
-        Assert.Equal("array", schema.Type);
-        Assert.Equal("string", schema.Items.Type);
-        Assert.Equal("date-time", schema.Items.Format);
-        Assert.Empty(schema.Properties);
+        Assert.Equal(ArrayType, schema.Type);
+        Assert.Equal(StringType, schema.Items?.Type);
+        Assert.Equal("date-time", schema.Items?.Format);
+        AssertNoProperties(schema);
     }
 
     [Fact]
@@ -393,9 +412,9 @@ public class StronglyTypedSchemaTransformerTest
 
         await sut.TransformAsync(schema, context, TestContext.Current.CancellationToken);
 
-        Assert.Equal("string", schema.Type);
+        Assert.Equal(StringType, schema.Type);
         Assert.Equal("uuid", schema.Format);
-        Assert.Empty(schema.Properties);
+        AssertNoProperties(schema);
     }
 
     [Fact]
@@ -403,14 +422,14 @@ public class StronglyTypedSchemaTransformerTest
     {
         var sut = new StronglyTypedSchemaTransformer();
         var context = CreateTransformerContext(typeof(StronglyTypedGuid[]));
-        var schema = new OpenApiSchema() { Type = "array" };
+        var schema = new OpenApiSchema() { Type = ArrayType };
 
         await sut.TransformAsync(schema, context, TestContext.Current.CancellationToken);
 
-        Assert.Equal("array", schema.Type);
-        Assert.Equal("string", schema.Items.Type);
-        Assert.Equal("uuid", schema.Items.Format);
-        Assert.Empty(schema.Properties);
+        Assert.Equal(ArrayType, schema.Type);
+        Assert.Equal(StringType, schema.Items?.Type);
+        Assert.Equal("uuid", schema.Items?.Format);
+        AssertNoProperties(schema);
     }
 
     [Fact]
@@ -422,9 +441,9 @@ public class StronglyTypedSchemaTransformerTest
 
         await sut.TransformAsync(schema, context, TestContext.Current.CancellationToken);
 
-        Assert.Equal("string", schema.Type);
+        Assert.Equal(StringType, schema.Type);
         Assert.Equal("time", schema.Format);
-        Assert.Empty(schema.Properties);
+        AssertNoProperties(schema);
     }
 
     [Fact]
@@ -432,14 +451,14 @@ public class StronglyTypedSchemaTransformerTest
     {
         var sut = new StronglyTypedSchemaTransformer();
         var context = CreateTransformerContext(typeof(StronglyTypedTimeOnly[]));
-        var schema = new OpenApiSchema() { Type = "array" };
+        var schema = new OpenApiSchema() { Type = ArrayType };
 
         await sut.TransformAsync(schema, context, TestContext.Current.CancellationToken);
 
-        Assert.Equal("array", schema.Type);
-        Assert.Equal("string", schema.Items.Type);
-        Assert.Equal("time", schema.Items.Format);
-        Assert.Empty(schema.Properties);
+        Assert.Equal(ArrayType, schema.Type);
+        Assert.Equal(StringType, schema.Items?.Type);
+        Assert.Equal("time", schema.Items?.Format);
+        AssertNoProperties(schema);
     }
 
     [Fact]
@@ -451,9 +470,9 @@ public class StronglyTypedSchemaTransformerTest
 
         await sut.TransformAsync(schema, context, TestContext.Current.CancellationToken);
 
-        Assert.Equal("string", schema.Type);
+        Assert.Equal(StringType, schema.Type);
         Assert.Equal("date", schema.Format);
-        Assert.Empty(schema.Properties);
+        AssertNoProperties(schema);
     }
 
     [Fact]
@@ -461,15 +480,20 @@ public class StronglyTypedSchemaTransformerTest
     {
         var sut = new StronglyTypedSchemaTransformer();
         var context = CreateTransformerContext(typeof(StronglyTypedDateOnly[]));
-        var schema = new OpenApiSchema() { Type = "array" };
+        var schema = new OpenApiSchema() { Type = ArrayType };
 
         await sut.TransformAsync(schema, context, TestContext.Current.CancellationToken);
 
-        Assert.Equal("array", schema.Type);
-        Assert.Equal("string", schema.Items.Type);
-        Assert.Equal("date", schema.Items.Format);
-        Assert.Empty(schema.Properties);
+        Assert.Equal(ArrayType, schema.Type);
+        Assert.Equal(StringType, schema.Items?.Type);
+        Assert.Equal("date", schema.Items?.Format);
+        AssertNoProperties(schema);
     }
+
+    // Properties is non-nullable in Microsoft.OpenApi v1 but nullable in v2, so accept both
+    // null and empty as "no properties".
+    private static void AssertNoProperties(OpenApiSchema schema)
+        => Assert.True(schema.Properties is null or { Count: 0 });
 
     private static OpenApiSchemaTransformerContext CreateTransformerContext(Type jsonType) => new OpenApiSchemaTransformerContext
     {

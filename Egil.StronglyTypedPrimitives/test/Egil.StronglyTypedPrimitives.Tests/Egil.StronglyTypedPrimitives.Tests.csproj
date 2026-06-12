@@ -5,6 +5,11 @@
     <Nullable>enable</Nullable>
     <OutputType>Exe</OutputType>
     <RootNamespace>StronglyTypedPrimitives</RootNamespace>
+    <!--
+      Pinned to net9.0 on purpose: these tests Verify the generator's emitted source, which depends
+      on the BCL surface of the test compilation's target framework (for example System.Guid only
+      implements IUtf8SpanParsable on net10.0). Pinning keeps the verified snapshots deterministic.
+    -->
     <TargetFramework>net9.0</TargetFramework>
     <LangVersion>latest</LangVersion>
     <PreserveCompilationContext>true</PreserveCompilationContext>
