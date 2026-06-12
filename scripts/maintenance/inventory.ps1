@@ -200,6 +200,10 @@ function Get-PackageRows {
     }
 
     foreach ($project in @($Json.projects)) {
+        if (-not ($project.PSObject.Properties.Name -contains "frameworks")) {
+            continue
+        }
+
         foreach ($framework in @($project.frameworks)) {
             foreach ($collectionName in @("topLevelPackages", "transitivePackages")) {
                 if (-not ($framework.PSObject.Properties.Name -contains $collectionName)) {
