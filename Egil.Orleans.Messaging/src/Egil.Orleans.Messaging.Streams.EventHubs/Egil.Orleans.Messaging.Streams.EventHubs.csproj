@@ -1,0 +1,54 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <DebugType>embedded</DebugType>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <PackageId>Egil.Orleans.Messaging.Streams.EventHubs</PackageId>
+    <Title>Orleans Messaging Event Hubs Extensions</Title>
+    <Company>Egil Hansen</Company>
+    <Authors>Egil Hansen</Authors>
+    <Description>
+      Event Hubs-specific stream token enrichment for Egil.Orleans.Messaging.
+    </Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>orleans,messaging,streams,eventhubs,event-hubs,egil</PackageTags>
+    <Copyright>Egil Hansen</Copyright>
+    <PackageProjectUrl>https://github.com/egil/framework</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/egil/framework</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <EnablePackageValidation>true</EnablePackageValidation>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DotNet.ReproducibleBuilds">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.Orleans.Streaming.EventHubs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Egil.Orleans.Messaging\Egil.Orleans.Messaging.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\..\LICENSE">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+    <None Include="..\..\README.md">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+  </ItemGroup>
+
+</Project>

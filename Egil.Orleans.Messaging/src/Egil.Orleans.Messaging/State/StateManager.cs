@@ -1,0 +1,272 @@
+using Orleans.Storage;
+
+namespace Egil.Orleans.Messaging.State;
+
+/// <summary>
+/// Base implementation of <see cref="IStateManager{T}"/>. Wraps an
+/// <see cref="IPersistentState{T}"/> and provides committed-state fencing,
+/// version stamping for <see cref="VersionedState"/>-derived types, and
+/// configurable write-failure recovery behavior.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>Committed-state fence:</b> <see cref="State"/> always returns the
+/// last successfully written value. During <see cref="WriteAsync"/>, the
+/// underlying <see cref="IPersistentState{T}"/>.State is mutated, but the
+/// caller's view is updated only after the write succeeds. On failure, the
+/// recovery path re-reads from storage to determine whether the write
+/// actually landed.
+/// </para>
+/// <para>
+/// <b>Version stamping:</b> If <typeparamref name="T"/> derives from
+/// <see cref="VersionedState"/>, the manager stamps a fresh
+/// <see cref="Guid.CreateVersion7()"/> on the <see cref="VersionedState.Version"/>
+/// property before every write. The recovery path then compares versions
+/// directly (pattern-matched via <c>is VersionedState</c>) instead of
+/// relying on <see cref="IEquatable{T}.Equals(T)"/>, which avoids the
+/// <see cref="System.Collections.Immutable.ImmutableArray{T}"/>
+/// reference-equality trap.
+/// </para>
+/// <para>
+/// <b>Recovery matrix:</b>
+/// <list type="table">
+/// <listheader>
+///   <term>Failure</term>
+///   <description>Outcome after <c>WriteAsync</c></description>
+/// </listheader>
+/// <item>
+///   <term>Success</term>
+///   <description><c>State == newState</c>, returns normally.</description>
+/// </item>
+/// <item>
+///   <term>Write throws, re-read succeeds, state matches</term>
+///   <description>Lost-response — write landed. Exception swallowed.</description>
+/// </item>
+/// <item>
+///   <term>Write throws, re-read succeeds, state does not match</term>
+///   <description>Write genuinely failed. Original exception rethrown.</description>
+/// </item>
+/// <item>
+///   <term>Write throws, re-read also throws</term>
+///   <description>Double failure. <c>State</c> reverts to pre-write snapshot.
+///   Original exception rethrown. Caller must call <see cref="ReadAsync"/>
+///   before the next write to re-sync.</description>
+/// </item>
+/// </list>
+/// </para>
+/// <para>
+/// <b>Concurrency:</b> Uses the storage provider's optimistic concurrency
+/// checks (typically ETag-based). Writes against stale versions fail with
+/// <c>InconsistentStateException</c>.
+/// </para>
+/// <para>
+/// <b>Thread safety:</b> Relies on Orleans turn-based concurrency. Not safe
+/// for <c>[Reentrant]</c> grains unless <see cref="State"/> is only read
+/// (never written) from interleaved calls.
+/// </para>
+/// </remarks>
+/// <typeparam name="T">
+/// <inheritdoc cref="IStateManager{T}" path="/typeparam"/>
+/// </typeparam>
+public abstract class StateManagerBase<T> : IStateManager<T>
+    where T : class, IEquatable<T>
+{
+    private readonly IPersistentState<T> storage;
+    private T state;
+
+    /// <summary>
+    /// Initializes the manager over the grain's persistent state facet,
+    /// adopting the currently loaded <c>IPersistentState&lt;T&gt;.State</c>
+    /// as the committed snapshot.
+    /// </summary>
+    protected StateManagerBase(IPersistentState<T> storage)
+    {
+        ArgumentNullException.ThrowIfNull(storage);
+        this.storage = storage;
+        state = storage.State;
+    }
+
+    /// <inheritdoc/>
+    public T State
+    {
+        get => state;
+    }
+
+    /// <inheritdoc/>
+    public async Task ReadAsync()
+    {
+        await storage.ReadStateAsync();
+        state = storage.State;
+    }
+
+    /// <inheritdoc/>
+    public async Task WriteAsync(T newState)
+    {
+        ArgumentNullException.ThrowIfNull(newState);
+
+        var previousState = state;
+
+        if (newState is VersionedState versioned)
+        {
+            versioned.Version = Guid.CreateVersion7();
+        }
+
+        storage.State = newState;
+
+        try
+        {
+            await storage.WriteStateAsync();
+            state = storage.State;
+            return;
+        }
+        catch (Exception ex)
+        {
+            var failureKind = ClassifyWriteFailure(ex);
+            if (failureKind is StorageFailureKind.DidNotPersist)
+            {
+                // Provider-specific classification says the write never reached durable storage.
+                // Revert our local fence immediately and rethrow the original write error.
+                state = previousState;
+                storage.State = previousState;
+                throw;
+            }
+
+            try
+            {
+                // Unknown outcome: write may have persisted despite the exception.
+                // Read back from storage to distinguish "lost response" from "real failure."
+                await storage.ReadStateAsync();
+                var persisted = storage.State;
+
+                if (ex is InconsistentStateException)
+                {
+                    // Concurrency conflicts must be surfaced even if values happen to match.
+                    // A coincidental equality must not hide an optimistic concurrency violation.
+                    storage.State = previousState;
+                    throw;
+                }
+
+                if (IsEquivalent(persisted, newState))
+                {
+                    // Lost-response case: write landed, but acknowledgement failed.
+                    // Advance committed fence to persisted value and swallow write exception.
+                    state = persisted;
+                    return;
+                }
+
+                // Read-back proved write did not land; restore local snapshot and rethrow.
+                storage.State = previousState;
+                throw;
+            }
+            catch when (ex is not InconsistentStateException)
+            {
+                // no-op; throw original below
+            }
+
+            // Write failed and recovery read also failed: keep committed fence coherent by
+            // reverting to the pre-write snapshot, then surface the original write error.
+            state = previousState;
+            storage.State = previousState;
+            throw;
+        }
+    }
+
+    /// <inheritdoc/>
+    public async Task ClearAsync()
+    {
+        var previousState = state;
+        var recoveryReadSucceeded = false;
+
+        try
+        {
+            await storage.ClearStateAsync();
+            state = storage.State;
+            return;
+        }
+        catch (Exception ex)
+        {
+            var failureKind = ClassifyClearFailure(ex);
+            if (failureKind is StorageFailureKind.DidNotPersist)
+            {
+                // The provider proved the clear was rejected before it could
+                // persist, so the in-memory view must stay at the pre-clear
+                // state and the original error should be surfaced.
+                state = previousState;
+                storage.State = previousState;
+                throw;
+            }
+
+            try
+            {
+                // Ambiguous failures may have persisted even though the caller
+                // observed an exception. Read back before deciding whether the
+                // local state should represent "cleared" or the previous value.
+                await storage.ReadStateAsync();
+                recoveryReadSucceeded = true;
+
+                if (!storage.RecordExists)
+                {
+                    state = storage.State;
+                    return;
+                }
+
+                state = storage.State;
+            }
+            catch
+            {
+                // Preserve the original clear exception. A recovery-read
+                // failure tells us nothing useful about whether the clear
+                // landed, so surfacing the original write-path error is the
+                // least surprising failure for the caller.
+            }
+
+            if (!recoveryReadSucceeded)
+            {
+                // Without read-back confirmation, keep the local activation
+                // conservative. The next successful read/write can reconcile
+                // against storage.
+                state = previousState;
+                storage.State = previousState;
+            }
+
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Classifies a write failure so the base can decide recovery behavior.
+    /// </summary>
+    protected abstract StorageFailureKind ClassifyWriteFailure(Exception exception);
+
+    /// <summary>
+    /// Classifies a clear failure so the base can decide recovery behavior.
+    /// </summary>
+    protected virtual StorageFailureKind ClassifyClearFailure(Exception exception)
+    {
+        ArgumentNullException.ThrowIfNull(exception);
+        return StorageFailureKind.UnknownOutcome;
+    }
+
+    /// <summary>
+    /// Decides whether a read-back state proves an ambiguous write actually
+    /// landed (the "lost response" case in <see cref="WriteAsync"/>).
+    /// </summary>
+    /// <remarks>
+    /// For non-<see cref="VersionedState"/> types this delegates to the state
+    /// type's own equality, which therefore carries recovery semantics: it
+    /// must never return <c>true</c> when the persisted state is missing data
+    /// the attempted write contained, or recovery would adopt a foreign state
+    /// and silently lose that data. <c>Outbox&lt;T&gt;.Equals</c> documents
+    /// how its O(1) fingerprint satisfies this contract.
+    /// </remarks>
+    private static bool IsEquivalent(T persisted, T attempted)
+    {
+        if (persisted is VersionedState persistedVersioned
+            && attempted is VersionedState attemptedVersioned)
+        {
+            return persistedVersioned.Version == attemptedVersioned.Version;
+        }
+
+        return persisted.Equals(attempted);
+    }
+}
