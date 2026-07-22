@@ -95,9 +95,13 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
     /// Non-persisted service reference. No <c>[Id]</c>, no serialization.
     /// Falls back to <see cref="TimeProvider.System"/> when not explicitly set.
     /// </summary>
-    [NonSerialized]
+    [field: NonSerialized]
     [JsonIgnore]
-    private TimeProvider time = TimeProvider.System;
+    private TimeProvider Time
+    {
+        get => field ?? TimeProvider.System;
+        set => field = value;
+    } = TimeProvider.System;
 
     /// <summary>
     /// Internal constructor used by mutation methods to produce new instances.
@@ -140,12 +144,26 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
     /// Must be called after deserialization to inject a test-friendly clock.
     /// </summary>
     /// <remarks>
-    /// This is a void mutator on a non-persisted field — it does not produce
+    /// <para>
+    /// This is a void mutator on a non-persisted property — it does not produce
     /// a new <see cref="Outbox{T}"/> instance. The provider is carried forward
     /// to successor instances created by <see cref="Add"/>, <see cref="Remove"/>,
     /// <see cref="RemoveRange"/>, and <see cref="Clear"/>.
+    /// </para>
+    /// <para>
+    /// The provider is intentionally not serialized. Every serialization and
+    /// deserialization round trip, including Orleans deep copies and state
+    /// rehydration, discards a previously registered custom provider. The
+    /// resulting outbox falls back to <see cref="TimeProvider.System"/>.
+    /// </para>
+    /// <para>
+    /// If timestamp generation depends on a custom provider for tests or
+    /// business logic, call this method on the resulting outbox after every
+    /// deserialization or rehydration and before the next <see cref="Add"/>.
+    /// Registering the provider only on the original instance is insufficient.
+    /// </para>
     /// </remarks>
-    public void RegisterTimeProvider(TimeProvider time) => this.time = time;
+    public void RegisterTimeProvider(TimeProvider time) => Time = time;
 
     /// <summary>
     /// The <see cref="GrainId"/> of the grain that owns this outbox. Baked
@@ -203,6 +221,7 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
     /// <returns>A new outbox containing the appended message.</returns>
     public Outbox<T> Add(T message)
     {
+        var time = Time;
         var now = time.GetUtcNow();
         var epoch = this.epoch ?? now;
         var sequenceNumber = latestSequenceNumber + 1;
@@ -241,7 +260,7 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
             items.RemoveAt(0),
             epoch);
 
-        next.RegisterTimeProvider(time);
+        next.RegisterTimeProvider(Time);
         return next;
     }
 
@@ -283,7 +302,7 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
             latestSequenceNumber,
             remaining,
             epoch);
-        next.RegisterTimeProvider(time);
+        next.RegisterTimeProvider(Time);
         return next;
     }
 
@@ -311,7 +330,7 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
             [],
             epoch);
 
-        next.RegisterTimeProvider(time);
+        next.RegisterTimeProvider(Time);
         return next;
     }
 
