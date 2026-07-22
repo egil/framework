@@ -1,9 +1,28 @@
+using Orleans.Serialization;
 using TimeProviderExtensions;
 
 namespace Egil.Orleans.Messaging.Tests.Outboxes;
 
 public sealed class OutboxTests
 {
+    [Fact]
+    public void Add_after_Orleans_deep_copy_appends_without_registered_time_provider()
+    {
+        var sender = GrainId.Create("test/sender", "one");
+        var outbox = Outbox<string>.Create(sender).Add("first");
+        var services = new ServiceCollection();
+        services.AddSerializer(builder => builder.AddAssembly(typeof(Outbox<>).Assembly));
+        using var serviceProvider = services.BuildServiceProvider();
+        var copied = serviceProvider.GetRequiredService<DeepCopier>().Copy(outbox);
+
+        var next = copied.Add("second");
+
+        Assert.Equal(2, next.Count);
+        Assert.Equal(2, next.LatestSequenceNumber);
+        Assert.Equal("second", next[1].Message);
+        Assert.Equal(2, next[1].Token.SequenceNumber);
+    }
+
     [Fact]
     public void Add_appends_message_with_next_sequence_sender_and_time()
     {
