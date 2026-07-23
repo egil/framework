@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Orleans.Providers.Streams.Common;
@@ -16,6 +17,9 @@ namespace Egil.Orleans.Messaging.Streams;
 /// token payload directly to the registered <see cref="JsonConverter{T}"/>.
 /// Converters should be registered during silo startup before persisted stream
 /// positions are serialized or deserialized.
+/// The envelope reader accepts properties in any order and ignores unknown
+/// properties. Registered converters are responsible for providing the same
+/// forward-compatible behavior inside their payloads.
 /// </remarks>
 public static class StreamSequenceTokenJsonConverters
 {
@@ -86,27 +90,93 @@ public static class StreamSequenceTokenJsonConverters
             throw new JsonException($"Expected stream sequence token object, got '{reader.TokenType}'.");
         }
 
-        var typeDescriptor = ReadRequiredStringProperty(ref reader, "Kind");
-        var registration = registrations.FirstOrDefault(x => x.TypeDescriptor == typeDescriptor);
-        if (registration is null)
+        Registration? registration = null;
+        var hasKind = false;
+        var hasPayload = false;
+        JsonElement bufferedPayload = default;
+        StreamSequenceToken? token = null;
+        var tokenRead = false;
+
+        while (reader.Read())
         {
-            throw new JsonException(CreateUnsupportedTokenMessage(typeDescriptor));
+            if (reader.TokenType is JsonTokenType.EndObject)
+            {
+                if (!hasKind)
+                {
+                    throw new JsonException("Missing stream sequence token property 'Kind'.");
+                }
+
+                if (!hasPayload)
+                {
+                    throw new JsonException("Missing stream sequence token property 'Payload'.");
+                }
+
+                return tokenRead
+                    ? token!
+                    : ReadBufferedPayload(bufferedPayload, registration!, options);
+            }
+
+            if (reader.TokenType is not JsonTokenType.PropertyName)
+            {
+                throw new JsonException($"Expected stream sequence token property, got '{reader.TokenType}'.");
+            }
+
+            var propertyName = reader.GetString();
+            if (!reader.Read())
+            {
+                throw new JsonException("Unexpected end of stream sequence token JSON.");
+            }
+
+            switch (propertyName)
+            {
+                case "Kind":
+                    ThrowIfDuplicate(hasKind, "Kind");
+                    if (reader.TokenType is not JsonTokenType.String)
+                    {
+                        throw new JsonException("Stream sequence token property 'Kind' must be a string.");
+                    }
+
+                    var typeDescriptor = reader.GetString();
+                    if (string.IsNullOrWhiteSpace(typeDescriptor))
+                    {
+                        throw new JsonException("Stream sequence token property 'Kind' must not be empty.");
+                    }
+
+                    registration = registrations.FirstOrDefault(x => x.TypeDescriptor == typeDescriptor);
+                    if (registration is null)
+                    {
+                        throw new JsonException(CreateUnsupportedTokenMessage(typeDescriptor));
+                    }
+
+                    hasKind = true;
+                    break;
+                case "Payload":
+                {
+                    ThrowIfDuplicate(hasPayload, "Payload");
+                    if (registration is null)
+                    {
+                        // JSON properties are unordered, so payload can arrive before
+                        // its discriminator. Buffer only this value until Kind selects
+                        // the registered converter; canonical Kind-first input streams.
+                        using var document = JsonDocument.ParseValue(ref reader);
+                        bufferedPayload = document.RootElement.Clone();
+                    }
+                    else
+                    {
+                        token = registration.Read(ref reader, options);
+                        tokenRead = true;
+                    }
+
+                    hasPayload = true;
+                    break;
+                }
+                default:
+                    reader.Skip();
+                    break;
+            }
         }
 
-        ReadRequiredPropertyName(ref reader, "Payload");
-        if (!reader.Read())
-        {
-            throw new JsonException("Unexpected end of stream sequence token payload.");
-        }
-
-        var token = registration.Read(ref reader, options);
-
-        if (!reader.Read() || reader.TokenType is not JsonTokenType.EndObject)
-        {
-            throw new JsonException("Expected end of stream sequence token object.");
-        }
-
-        return token;
+        throw new JsonException("Unexpected end of stream sequence token JSON.");
     }
 
     internal static NotSupportedException CreateUnsupportedTokenException(string tokenIdentifier) =>
@@ -135,33 +205,39 @@ public static class StreamSequenceTokenJsonConverters
         }
     }
 
-    private static string ReadRequiredStringProperty(ref Utf8JsonReader reader, string propertyName)
+    private static StreamSequenceToken ReadBufferedPayload(
+        JsonElement payload,
+        Registration registration,
+        JsonSerializerOptions options)
     {
-        ReadRequiredPropertyName(ref reader, propertyName);
-        if (!reader.Read() || reader.TokenType is not JsonTokenType.String)
+        var bytes = Encoding.UTF8.GetBytes(payload.GetRawText());
+        var payloadReader = new Utf8JsonReader(
+            bytes,
+            new JsonReaderOptions
+            {
+                AllowTrailingCommas = options.AllowTrailingCommas,
+                CommentHandling = options.ReadCommentHandling,
+                MaxDepth = options.MaxDepth
+            });
+        if (!payloadReader.Read())
         {
-            throw new JsonException($"Stream sequence token property '{propertyName}' must be a string.");
+            throw new JsonException("Unexpected end of stream sequence token payload.");
         }
 
-        var value = reader.GetString();
-        if (string.IsNullOrWhiteSpace(value))
+        var token = registration.Read(ref payloadReader, options);
+        if (payloadReader.Read())
         {
-            throw new JsonException($"Stream sequence token property '{propertyName}' must not be empty.");
+            throw new JsonException("Expected a single stream sequence token payload.");
         }
 
-        return value;
+        return token;
     }
 
-    private static void ReadRequiredPropertyName(ref Utf8JsonReader reader, string propertyName)
+    private static void ThrowIfDuplicate(bool hasProperty, string propertyName)
     {
-        if (!reader.Read() || reader.TokenType is not JsonTokenType.PropertyName)
+        if (hasProperty)
         {
-            throw new JsonException($"Expected stream sequence token property '{propertyName}'.");
-        }
-
-        if (!reader.ValueTextEquals(propertyName))
-        {
-            throw new JsonException($"Expected stream sequence token property '{propertyName}', got '{reader.GetString()}'.");
+            throw new JsonException($"Duplicate stream sequence token property '{propertyName}'.");
         }
     }
 
@@ -227,9 +303,9 @@ public static class StreamSequenceTokenJsonConverters
                 throw new JsonException($"Expected {nameof(EventSequenceToken)} object, got '{reader.TokenType}'.");
             }
 
-            var sequenceNumber = ReadRequiredInt64Property(ref reader, "SequenceNumber");
-            var eventIndex = ReadRequiredInt32Property(ref reader, "EventIndex");
-            ReadEndObject(ref reader);
+            var (sequenceNumber, eventIndex) = ReadEventSequenceTokenProperties(
+                ref reader,
+                nameof(EventSequenceToken));
 
             return new EventSequenceToken(sequenceNumber, eventIndex);
         }
@@ -252,9 +328,9 @@ public static class StreamSequenceTokenJsonConverters
                 throw new JsonException($"Expected {nameof(EventSequenceTokenV2)} object, got '{reader.TokenType}'.");
             }
 
-            var sequenceNumber = ReadRequiredInt64Property(ref reader, "SequenceNumber");
-            var eventIndex = ReadRequiredInt32Property(ref reader, "EventIndex");
-            ReadEndObject(ref reader);
+            var (sequenceNumber, eventIndex) = ReadEventSequenceTokenProperties(
+                ref reader,
+                nameof(EventSequenceTokenV2));
 
             return new EventSequenceTokenV2(sequenceNumber, eventIndex);
         }
@@ -268,33 +344,67 @@ public static class StreamSequenceTokenJsonConverters
         }
     }
 
-    private static long ReadRequiredInt64Property(ref Utf8JsonReader reader, string propertyName)
+    private static (long SequenceNumber, int EventIndex) ReadEventSequenceTokenProperties(
+        ref Utf8JsonReader reader,
+        string typeName)
     {
-        ReadRequiredPropertyName(ref reader, propertyName);
-        if (!reader.Read() || reader.TokenType is not JsonTokenType.Number)
+        long sequenceNumber = 0;
+        var hasSequenceNumber = false;
+        var eventIndex = 0;
+        var hasEventIndex = false;
+
+        while (reader.Read())
         {
-            throw new JsonException($"Property '{propertyName}' must be a number.");
+            if (reader.TokenType is JsonTokenType.EndObject)
+            {
+                return (
+                    hasSequenceNumber
+                        ? sequenceNumber
+                        : throw new JsonException($"Missing {typeName} property 'SequenceNumber'."),
+                    hasEventIndex
+                        ? eventIndex
+                        : throw new JsonException($"Missing {typeName} property 'EventIndex'."));
+            }
+
+            if (reader.TokenType is not JsonTokenType.PropertyName)
+            {
+                throw new JsonException($"Expected {typeName} property, got '{reader.TokenType}'.");
+            }
+
+            var propertyName = reader.GetString();
+            if (!reader.Read())
+            {
+                throw new JsonException($"Unexpected end of {typeName} JSON.");
+            }
+
+            switch (propertyName)
+            {
+                case "SequenceNumber":
+                    ThrowIfDuplicate(hasSequenceNumber, "SequenceNumber");
+                    if (reader.TokenType is not JsonTokenType.Number
+                        || !reader.TryGetInt64(out sequenceNumber))
+                    {
+                        throw new JsonException("Property 'SequenceNumber' must be a 64-bit integer.");
+                    }
+
+                    hasSequenceNumber = true;
+                    break;
+                case "EventIndex":
+                    ThrowIfDuplicate(hasEventIndex, "EventIndex");
+                    if (reader.TokenType is not JsonTokenType.Number
+                        || !reader.TryGetInt32(out eventIndex))
+                    {
+                        throw new JsonException("Property 'EventIndex' must be a 32-bit integer.");
+                    }
+
+                    hasEventIndex = true;
+                    break;
+                default:
+                    reader.Skip();
+                    break;
+            }
         }
 
-        return reader.GetInt64();
-    }
-
-    private static int ReadRequiredInt32Property(ref Utf8JsonReader reader, string propertyName)
-    {
-        ReadRequiredPropertyName(ref reader, propertyName);
-        if (!reader.Read() || reader.TokenType is not JsonTokenType.Number)
-        {
-            throw new JsonException($"Property '{propertyName}' must be a number.");
-        }
-
-        return reader.GetInt32();
-    }
-
-    private static void ReadEndObject(ref Utf8JsonReader reader)
-    {
-        if (!reader.Read() || reader.TokenType is not JsonTokenType.EndObject)
-        {
-            throw new JsonException("Expected end of JSON object.");
-        }
+        throw new JsonException($"Unexpected end of {typeName} JSON.");
     }
 }

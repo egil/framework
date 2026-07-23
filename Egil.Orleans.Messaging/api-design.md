@@ -1066,6 +1066,14 @@ stream providers can register their own converter with
 `AddStreamSequenceTokenJsonConverter<TToken, TConverter>(...)` or
 `StreamSequenceTokenJsonConverters.Register(...)`.
 
+Cursor, discriminator-envelope, and built-in token readers treat JSON object
+property order as insignificant and skip unknown properties. Writers keep a
+canonical order. This allows older silos to read additive payloads during
+rolling upgrades or rollback; newly added properties must still be optional
+because an older silo cannot preserve an unknown value when it rewrites the
+payload. Custom token converters are responsible for the same forward-tolerant
+read behavior inside their payloads.
+
 ### Event Hub adapter for enriched tokens
 
 The library ships `EnrichedEventHubAdapter`, a public unsealed

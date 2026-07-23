@@ -7,6 +7,49 @@ namespace Egil.Orleans.Messaging.Tests.Streams;
 
 public sealed class StreamCursorJsonConverterTests
 {
+    public static TheoryData<string, string> InvalidCursorJson => new()
+    {
+        { """{"Token":null}""", "StreamNamespace" },
+        { """{"StreamNamespace":"orders"}""", "Token" },
+        {
+            """{"StreamNamespace":"orders","Token":{"Payload":{"SequenceNumber":1,"EventIndex":0}}}""",
+            "Kind"
+        },
+        {
+            """{"StreamNamespace":"orders","Token":{"Kind":"event-sequence"}}""",
+            "Payload"
+        },
+        {
+            """{"StreamNamespace":"orders","Token":{"Kind":"event-sequence","Payload":{"EventIndex":0}}}""",
+            "SequenceNumber"
+        },
+        {
+            """{"StreamNamespace":"orders","Token":{"Kind":"event-sequence","Payload":{"SequenceNumber":1}}}""",
+            "EventIndex"
+        },
+        { """{"StreamNamespace":1,"Token":null}""", "must be a string" },
+        {
+            """{"StreamNamespace":"orders","Token":{"Kind":1,"Payload":{"SequenceNumber":1,"EventIndex":0}}}""",
+            "must be a string"
+        },
+        {
+            """{"StreamNamespace":"orders","Token":{"Kind":"event-sequence","Payload":{"SequenceNumber":"1","EventIndex":0}}}""",
+            "must be a 64-bit integer"
+        },
+        {
+            """{"StreamNamespace":"orders","StreamNamespace":"other","Token":null}""",
+            "Duplicate"
+        },
+        {
+            """{"StreamNamespace":"orders","Token":{"Kind":"event-sequence","Kind":"event-sequence","Payload":{"SequenceNumber":1,"EventIndex":0}}}""",
+            "Duplicate"
+        },
+        {
+            """{"StreamNamespace":"orders","Token":{"Kind":"event-sequence","Payload":{"SequenceNumber":1,"SequenceNumber":2,"EventIndex":0}}}""",
+            "Duplicate"
+        }
+    };
+
     [Fact]
     public void StreamCursor_is_decorated_with_stream_cursor_json_converter()
     {
@@ -52,6 +95,49 @@ public sealed class StreamCursorJsonConverterTests
 
         Assert.NotNull(roundTripped);
         Assert.Equal(cursor, roundTripped);
+    }
+
+    [Fact]
+    public void JsonSerializer_deserializes_reordered_cursor_and_token_with_unknown_properties()
+    {
+        var json = """
+            {
+              "FutureCursor": {
+                "Nested": [1, { "Enabled": true }]
+              },
+              "ProviderName": "provider-a",
+              "Token": {
+                "Payload": {
+                  "FuturePayload": {
+                    "Nested": ["ignored"]
+                  },
+                  "EventIndex": 1,
+                  "SequenceNumber": 7
+                },
+                "FutureEnvelope": [1, 2, 3],
+                "Kind": "event-sequence"
+              },
+              "StreamNamespace": "orders"
+            }
+            """;
+
+        var cursor = JsonSerializer.Deserialize<StreamCursor>(json);
+
+        Assert.NotNull(cursor);
+        Assert.Equal("orders", cursor.StreamNamespace);
+        Assert.Equal("provider-a", cursor.ProviderName);
+        Assert.Equal(new EventSequenceToken(7, 1), cursor.Token);
+    }
+
+    [Theory]
+    [MemberData(nameof(InvalidCursorJson))]
+    public void JsonSerializer_rejects_missing_invalid_or_duplicate_known_properties(
+        string json,
+        string expectedMessage)
+    {
+        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<StreamCursor>(json));
+
+        Assert.Contains(expectedMessage, exception.Message);
     }
 
     [Fact]

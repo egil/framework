@@ -28,13 +28,15 @@ public sealed class EventHubSequenceTokenJsonConverter : JsonConverter<EventHubS
     /// <inheritdoc/>
     public override EventHubSequenceToken Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
-        EventHubSequenceTokenJsonConverterHelpers.ExpectStartObject(ref reader, nameof(EventHubSequenceToken));
-        var offset = EventHubSequenceTokenJsonConverterHelpers.ReadRequiredStringProperty(ref reader, "EventHubOffset");
-        var sequenceNumber = EventHubSequenceTokenJsonConverterHelpers.ReadRequiredInt64Property(ref reader, "SequenceNumber");
-        var eventIndex = EventHubSequenceTokenJsonConverterHelpers.ReadRequiredInt32Property(ref reader, "EventIndex");
-        EventHubSequenceTokenJsonConverterHelpers.ReadEndObject(ref reader);
+        var properties = EventHubSequenceTokenJsonConverterHelpers.ReadProperties(
+            ref reader,
+            nameof(EventHubSequenceToken),
+            requireEnrichedProperties: false);
 
-        return new EventHubSequenceToken(offset, sequenceNumber, eventIndex);
+        return new EventHubSequenceToken(
+            properties.EventHubOffset,
+            properties.SequenceNumber,
+            properties.EventIndex);
     }
 
     /// <inheritdoc/>
@@ -58,13 +60,15 @@ public sealed class EventHubSequenceTokenV2JsonConverter : JsonConverter<EventHu
     /// <inheritdoc/>
     public override EventHubSequenceTokenV2 Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
-        EventHubSequenceTokenJsonConverterHelpers.ExpectStartObject(ref reader, nameof(EventHubSequenceTokenV2));
-        var offset = EventHubSequenceTokenJsonConverterHelpers.ReadRequiredStringProperty(ref reader, "EventHubOffset");
-        var sequenceNumber = EventHubSequenceTokenJsonConverterHelpers.ReadRequiredInt64Property(ref reader, "SequenceNumber");
-        var eventIndex = EventHubSequenceTokenJsonConverterHelpers.ReadRequiredInt32Property(ref reader, "EventIndex");
-        EventHubSequenceTokenJsonConverterHelpers.ReadEndObject(ref reader);
+        var properties = EventHubSequenceTokenJsonConverterHelpers.ReadProperties(
+            ref reader,
+            nameof(EventHubSequenceTokenV2),
+            requireEnrichedProperties: false);
 
-        return new EventHubSequenceTokenV2(offset, sequenceNumber, eventIndex);
+        return new EventHubSequenceTokenV2(
+            properties.EventHubOffset,
+            properties.SequenceNumber,
+            properties.EventIndex);
     }
 
     /// <inheritdoc/>
@@ -88,22 +92,18 @@ public sealed class EnrichedEventHubSequenceTokenJsonConverter : JsonConverter<E
     /// <inheritdoc/>
     public override EnrichedEventHubSequenceToken Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
-        EventHubSequenceTokenJsonConverterHelpers.ExpectStartObject(ref reader, nameof(EnrichedEventHubSequenceToken));
-        var offset = EventHubSequenceTokenJsonConverterHelpers.ReadRequiredStringProperty(ref reader, "EventHubOffset");
-        var sequenceNumber = EventHubSequenceTokenJsonConverterHelpers.ReadRequiredInt64Property(ref reader, "SequenceNumber");
-        var eventIndex = EventHubSequenceTokenJsonConverterHelpers.ReadRequiredInt32Property(ref reader, "EventIndex");
-        var enqueuedTime = EventHubSequenceTokenJsonConverterHelpers.ReadRequiredDateTimeOffsetProperty(ref reader, "EnqueuedTime");
-        var providerName = EventHubSequenceTokenJsonConverterHelpers.ReadRequiredStringProperty(ref reader, "ProviderName");
-        var traceParent = EventHubSequenceTokenJsonConverterHelpers.ReadNullableStringProperty(ref reader, "TraceParent");
-        EventHubSequenceTokenJsonConverterHelpers.ReadEndObject(ref reader);
+        var properties = EventHubSequenceTokenJsonConverterHelpers.ReadProperties(
+            ref reader,
+            nameof(EnrichedEventHubSequenceToken),
+            requireEnrichedProperties: true);
 
         return new EnrichedEventHubSequenceToken(
-            offset,
-            sequenceNumber,
-            eventIndex,
-            enqueuedTime,
-            providerName,
-            traceParent);
+            properties.EventHubOffset,
+            properties.SequenceNumber,
+            properties.EventIndex,
+            properties.EnqueuedTime,
+            properties.ProviderName!,
+            properties.TraceParent);
     }
 
     /// <inheritdoc/>
@@ -124,14 +124,6 @@ public sealed class EnrichedEventHubSequenceTokenJsonConverter : JsonConverter<E
 
 internal static class EventHubSequenceTokenJsonConverterHelpers
 {
-    public static void ExpectStartObject(ref Utf8JsonReader reader, string typeName)
-    {
-        if (reader.TokenType is not JsonTokenType.StartObject)
-        {
-            throw new JsonException($"Expected {typeName} object, got '{reader.TokenType}'.");
-        }
-    }
-
     public static void WriteBaseProperties(
         Utf8JsonWriter writer,
         string eventHubOffset,
@@ -143,82 +135,153 @@ internal static class EventHubSequenceTokenJsonConverterHelpers
         writer.WriteNumber("EventIndex", eventIndex);
     }
 
-    public static string ReadRequiredStringProperty(ref Utf8JsonReader reader, string propertyName)
+    public static Properties ReadProperties(
+        ref Utf8JsonReader reader,
+        string typeName,
+        bool requireEnrichedProperties)
     {
-        ReadRequiredPropertyName(ref reader, propertyName);
-        if (!reader.Read() || reader.TokenType is not JsonTokenType.String)
+        if (reader.TokenType is not JsonTokenType.StartObject)
         {
-            throw new JsonException($"Property '{propertyName}' must be a string.");
+            throw new JsonException($"Expected {typeName} object, got '{reader.TokenType}'.");
         }
 
-        return reader.GetString()
-            ?? throw new JsonException($"Property '{propertyName}' must not be null.");
+        string? eventHubOffset = null;
+        var hasEventHubOffset = false;
+        long sequenceNumber = 0;
+        var hasSequenceNumber = false;
+        var eventIndex = 0;
+        var hasEventIndex = false;
+        DateTimeOffset enqueuedTime = default;
+        var hasEnqueuedTime = false;
+        string? providerName = null;
+        var hasProviderName = false;
+        string? traceParent = null;
+        var hasTraceParent = false;
+
+        while (reader.Read())
+        {
+            if (reader.TokenType is JsonTokenType.EndObject)
+            {
+                return new Properties(
+                    hasEventHubOffset
+                        ? eventHubOffset!
+                        : throw new JsonException($"Missing {typeName} property 'EventHubOffset'."),
+                    hasSequenceNumber
+                        ? sequenceNumber
+                        : throw new JsonException($"Missing {typeName} property 'SequenceNumber'."),
+                    hasEventIndex
+                        ? eventIndex
+                        : throw new JsonException($"Missing {typeName} property 'EventIndex'."),
+                    !requireEnrichedProperties || hasEnqueuedTime
+                        ? enqueuedTime
+                        : throw new JsonException($"Missing {typeName} property 'EnqueuedTime'."),
+                    !requireEnrichedProperties || hasProviderName
+                        ? providerName
+                        : throw new JsonException($"Missing {typeName} property 'ProviderName'."),
+                    !requireEnrichedProperties || hasTraceParent
+                        ? traceParent
+                        : throw new JsonException($"Missing {typeName} property 'TraceParent'."));
+            }
+
+            if (reader.TokenType is not JsonTokenType.PropertyName)
+            {
+                throw new JsonException($"Expected {typeName} property, got '{reader.TokenType}'.");
+            }
+
+            var propertyName = reader.GetString();
+            if (!reader.Read())
+            {
+                throw new JsonException($"Unexpected end of {typeName} JSON.");
+            }
+
+            switch (propertyName)
+            {
+                case "EventHubOffset":
+                    ThrowIfDuplicate(hasEventHubOffset, typeName, propertyName);
+                    if (reader.TokenType is not JsonTokenType.String)
+                    {
+                        throw new JsonException("Property 'EventHubOffset' must be a string.");
+                    }
+
+                    eventHubOffset = reader.GetString()
+                        ?? throw new JsonException("Property 'EventHubOffset' must not be null.");
+                    hasEventHubOffset = true;
+                    break;
+                case "SequenceNumber":
+                    ThrowIfDuplicate(hasSequenceNumber, typeName, propertyName);
+                    if (reader.TokenType is not JsonTokenType.Number
+                        || !reader.TryGetInt64(out sequenceNumber))
+                    {
+                        throw new JsonException("Property 'SequenceNumber' must be a 64-bit integer.");
+                    }
+
+                    hasSequenceNumber = true;
+                    break;
+                case "EventIndex":
+                    ThrowIfDuplicate(hasEventIndex, typeName, propertyName);
+                    if (reader.TokenType is not JsonTokenType.Number
+                        || !reader.TryGetInt32(out eventIndex))
+                    {
+                        throw new JsonException("Property 'EventIndex' must be a 32-bit integer.");
+                    }
+
+                    hasEventIndex = true;
+                    break;
+                case "EnqueuedTime" when requireEnrichedProperties:
+                    ThrowIfDuplicate(hasEnqueuedTime, typeName, propertyName);
+                    if (reader.TokenType is not JsonTokenType.String
+                        || !reader.TryGetDateTimeOffset(out enqueuedTime))
+                    {
+                        throw new JsonException("Property 'EnqueuedTime' must be a date-time string.");
+                    }
+
+                    hasEnqueuedTime = true;
+                    break;
+                case "ProviderName" when requireEnrichedProperties:
+                    ThrowIfDuplicate(hasProviderName, typeName, propertyName);
+                    if (reader.TokenType is not JsonTokenType.String)
+                    {
+                        throw new JsonException("Property 'ProviderName' must be a string.");
+                    }
+
+                    providerName = reader.GetString()
+                        ?? throw new JsonException("Property 'ProviderName' must not be null.");
+                    hasProviderName = true;
+                    break;
+                case "TraceParent" when requireEnrichedProperties:
+                    ThrowIfDuplicate(hasTraceParent, typeName, propertyName);
+                    if (reader.TokenType is not (JsonTokenType.Null or JsonTokenType.String))
+                    {
+                        throw new JsonException("Property 'TraceParent' must be a string or null.");
+                    }
+
+                    traceParent = reader.TokenType is JsonTokenType.Null
+                        ? null
+                        : reader.GetString();
+                    hasTraceParent = true;
+                    break;
+                default:
+                    reader.Skip();
+                    break;
+            }
+        }
+
+        throw new JsonException($"Unexpected end of {typeName} JSON.");
     }
 
-    public static string? ReadNullableStringProperty(ref Utf8JsonReader reader, string propertyName)
+    private static void ThrowIfDuplicate(bool hasProperty, string typeName, string? propertyName)
     {
-        ReadRequiredPropertyName(ref reader, propertyName);
-        if (!reader.Read())
+        if (hasProperty)
         {
-            throw new JsonException($"Unexpected end of JSON while reading '{propertyName}'.");
-        }
-
-        return reader.TokenType is JsonTokenType.Null
-            ? null
-            : reader.GetString();
-    }
-
-    public static long ReadRequiredInt64Property(ref Utf8JsonReader reader, string propertyName)
-    {
-        ReadRequiredPropertyName(ref reader, propertyName);
-        if (!reader.Read() || reader.TokenType is not JsonTokenType.Number)
-        {
-            throw new JsonException($"Property '{propertyName}' must be a number.");
-        }
-
-        return reader.GetInt64();
-    }
-
-    public static int ReadRequiredInt32Property(ref Utf8JsonReader reader, string propertyName)
-    {
-        ReadRequiredPropertyName(ref reader, propertyName);
-        if (!reader.Read() || reader.TokenType is not JsonTokenType.Number)
-        {
-            throw new JsonException($"Property '{propertyName}' must be a number.");
-        }
-
-        return reader.GetInt32();
-    }
-
-    public static DateTimeOffset ReadRequiredDateTimeOffsetProperty(ref Utf8JsonReader reader, string propertyName)
-    {
-        ReadRequiredPropertyName(ref reader, propertyName);
-        if (!reader.Read() || reader.TokenType is not JsonTokenType.String)
-        {
-            throw new JsonException($"Property '{propertyName}' must be a date-time string.");
-        }
-
-        return reader.GetDateTimeOffset();
-    }
-
-    public static void ReadEndObject(ref Utf8JsonReader reader)
-    {
-        if (!reader.Read() || reader.TokenType is not JsonTokenType.EndObject)
-        {
-            throw new JsonException("Expected end of JSON object.");
+            throw new JsonException($"Duplicate {typeName} property '{propertyName}'.");
         }
     }
 
-    private static void ReadRequiredPropertyName(ref Utf8JsonReader reader, string propertyName)
-    {
-        if (!reader.Read() || reader.TokenType is not JsonTokenType.PropertyName)
-        {
-            throw new JsonException($"Expected property '{propertyName}'.");
-        }
-
-        if (!reader.ValueTextEquals(propertyName))
-        {
-            throw new JsonException($"Expected property '{propertyName}', got '{reader.GetString()}'.");
-        }
-    }
+    public readonly record struct Properties(
+        string EventHubOffset,
+        long SequenceNumber,
+        int EventIndex,
+        DateTimeOffset EnqueuedTime,
+        string? ProviderName,
+        string? TraceParent);
 }

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Orleans.Streams;
 
 namespace Egil.Orleans.Messaging.Streams;
 
@@ -40,52 +41,79 @@ internal sealed class StreamCursorJsonConverter : JsonConverter<StreamCursor>
             throw new JsonException($"Expected StreamCursor object, got '{reader.TokenType}'.");
         }
 
-        var streamNamespace = ReadRequiredStringProperty(ref reader, nameof(StreamCursor.StreamNamespace));
-
-        ReadRequiredPropertyName(ref reader, nameof(StreamCursor.Token));
-        if (!reader.Read())
-        {
-            throw new JsonException("Unexpected end of StreamCursor token JSON.");
-        }
-
-        var token = reader.TokenType is JsonTokenType.Null
-            ? null
-            : StreamSequenceTokenJsonConverters.Read(ref reader, options);
-
+        string? streamNamespace = null;
+        var hasStreamNamespace = false;
+        StreamSequenceToken? token = null;
+        var hasToken = false;
         string? providerName = null;
-        if (!reader.Read())
+        var hasProviderName = false;
+        while (reader.Read())
         {
-            throw new JsonException("Unexpected end of StreamCursor JSON.");
-        }
-
-        if (reader.TokenType is JsonTokenType.PropertyName)
-        {
-            if (!reader.ValueTextEquals(nameof(StreamCursor.ProviderName)))
+            if (reader.TokenType is JsonTokenType.EndObject)
             {
-                throw new JsonException($"Expected StreamCursor property '{nameof(StreamCursor.ProviderName)}', got '{reader.GetString()}'.");
+                return new StreamCursor(
+                    hasStreamNamespace
+                        ? streamNamespace!
+                        : throw new JsonException($"Missing StreamCursor property '{nameof(StreamCursor.StreamNamespace)}'."),
+                    hasToken
+                        ? token
+                        : throw new JsonException($"Missing StreamCursor property '{nameof(StreamCursor.Token)}'."),
+                    providerName);
             }
 
-            if (!reader.Read())
+            if (reader.TokenType is not JsonTokenType.PropertyName)
             {
-                throw new JsonException("Unexpected end of StreamCursor provider name JSON.");
+                throw new JsonException($"Expected StreamCursor property, got '{reader.TokenType}'.");
             }
 
-            providerName = reader.TokenType is JsonTokenType.Null
-                ? null
-                : reader.GetString();
-
+            var propertyName = reader.GetString();
             if (!reader.Read())
             {
                 throw new JsonException("Unexpected end of StreamCursor JSON.");
             }
+
+            switch (propertyName)
+            {
+                case nameof(StreamCursor.StreamNamespace):
+                    ThrowIfDuplicate(hasStreamNamespace, nameof(StreamCursor.StreamNamespace));
+                    if (reader.TokenType is not JsonTokenType.String)
+                    {
+                        throw new JsonException(
+                            $"StreamCursor property '{nameof(StreamCursor.StreamNamespace)}' must be a string.");
+                    }
+
+                    streamNamespace = reader.GetString()
+                        ?? throw new JsonException(
+                            $"StreamCursor property '{nameof(StreamCursor.StreamNamespace)}' must not be null.");
+                    hasStreamNamespace = true;
+                    break;
+                case nameof(StreamCursor.Token):
+                    ThrowIfDuplicate(hasToken, nameof(StreamCursor.Token));
+                    token = reader.TokenType is JsonTokenType.Null
+                        ? null
+                        : StreamSequenceTokenJsonConverters.Read(ref reader, options);
+                    hasToken = true;
+                    break;
+                case nameof(StreamCursor.ProviderName):
+                    ThrowIfDuplicate(hasProviderName, nameof(StreamCursor.ProviderName));
+                    if (reader.TokenType is not (JsonTokenType.Null or JsonTokenType.String))
+                    {
+                        throw new JsonException(
+                            $"StreamCursor property '{nameof(StreamCursor.ProviderName)}' must be a string or null.");
+                    }
+
+                    providerName = reader.TokenType is JsonTokenType.Null
+                        ? null
+                        : reader.GetString();
+                    hasProviderName = true;
+                    break;
+                default:
+                    reader.Skip();
+                    break;
+            }
         }
 
-        if (reader.TokenType is not JsonTokenType.EndObject)
-        {
-            throw new JsonException("Expected end of StreamCursor object.");
-        }
-
-        return new StreamCursor(streamNamespace, token, providerName);
+        throw new JsonException("Unexpected end of StreamCursor JSON.");
     }
 
     /// <inheritdoc/>
@@ -111,28 +139,11 @@ internal sealed class StreamCursorJsonConverter : JsonConverter<StreamCursor>
         writer.WriteEndObject();
     }
 
-    private static string ReadRequiredStringProperty(ref Utf8JsonReader reader, string propertyName)
+    private static void ThrowIfDuplicate(bool hasProperty, string propertyName)
     {
-        ReadRequiredPropertyName(ref reader, propertyName);
-        if (!reader.Read() || reader.TokenType is not JsonTokenType.String)
+        if (hasProperty)
         {
-            throw new JsonException($"StreamCursor property '{propertyName}' must be a string.");
-        }
-
-        return reader.GetString()
-            ?? throw new JsonException($"StreamCursor property '{propertyName}' must not be null.");
-    }
-
-    private static void ReadRequiredPropertyName(ref Utf8JsonReader reader, string propertyName)
-    {
-        if (!reader.Read() || reader.TokenType is not JsonTokenType.PropertyName)
-        {
-            throw new JsonException($"Expected StreamCursor property '{propertyName}'.");
-        }
-
-        if (!reader.ValueTextEquals(propertyName))
-        {
-            throw new JsonException($"Expected StreamCursor property '{propertyName}', got '{reader.GetString()}'.");
+            throw new JsonException($"Duplicate StreamCursor property '{propertyName}'.");
         }
     }
 }
