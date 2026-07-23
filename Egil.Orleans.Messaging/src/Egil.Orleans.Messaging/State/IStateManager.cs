@@ -135,5 +135,20 @@ public interface IStateManager<T>
     /// Clears the persisted state. On success, <see cref="State"/> reflects
     /// the storage provider's cleared value and may be <see langword="null"/>.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// For failures whose outcome is ambiguous, the manager reads storage to
+    /// determine whether the clear landed. A missing record confirms a
+    /// non-conflicting clear, but an <c>InconsistentStateException</c> always
+    /// rethrows because a coincidental deletion must not hide an optimistic
+    /// concurrency conflict.
+    /// </para>
+    /// <para>
+    /// When recovery successfully reads a provider value before rethrowing,
+    /// <see cref="State"/> adopts that value and can therefore change even
+    /// though this method throws. If recovery also fails, <see cref="State"/>
+    /// reverts to its pre-clear value.
+    /// </para>
+    /// </remarks>
     Task ClearAsync();
 }

@@ -196,14 +196,14 @@ public abstract class StateManagerBase<T> : IStateManager<T>
                 // local state should represent "cleared" or the previous value.
                 await storage.ReadStateAsync();
                 recoveryReadSucceeded = true;
+                state = storage.State;
 
-                if (!storage.RecordExists)
+                // A missing record confirms an ambiguous clear, but it cannot
+                // hide a real concurrency conflict caused by another writer.
+                if (ex is not InconsistentStateException && !storage.RecordExists)
                 {
-                    state = storage.State;
                     return;
                 }
-
-                state = storage.State;
             }
             catch
             {
