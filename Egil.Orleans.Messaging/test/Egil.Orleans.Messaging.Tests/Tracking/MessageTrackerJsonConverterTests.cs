@@ -7,6 +7,13 @@ namespace Egil.Orleans.Messaging.Tests.Tracking;
 
 public sealed class MessageTrackerJsonConverterTests
 {
+    public static TheoryData<string> MissingRootArraysJson => new()
+    {
+        """{"Streams":[]}""",
+        """{"Outboxes":[]}""",
+        """{}"""
+    };
+
     public static TheoryData<StreamSequenceToken> SupportedStreamTokens => new()
     {
         new EventSequenceToken(7, 1),
@@ -82,6 +89,42 @@ public sealed class MessageTrackerJsonConverterTests
     }
 
     [Fact]
+    public void JsonSerializer_round_trips_full_tracker_across_property_naming_policies()
+    {
+        var tracker = CreateFullTracker();
+        var camelCaseOptions = new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        };
+
+        var camelCaseJson = JsonSerializer.Serialize(tracker, camelCaseOptions);
+        var fromCamelCase = JsonSerializer.Deserialize<MessageTracker>(camelCaseJson);
+        var defaultJson = JsonSerializer.Serialize(tracker);
+        var fromDefault = JsonSerializer.Deserialize<MessageTracker>(defaultJson, camelCaseOptions);
+
+        Assert.Contains("\"Streams\"", camelCaseJson);
+        Assert.Contains("\"Outboxes\"", camelCaseJson);
+        Assert.Contains("\"LastPosition\"", camelCaseJson);
+        Assert.Contains("\"Received\"", camelCaseJson);
+        Assert.Contains("\"Sender\"", camelCaseJson);
+        Assert.Contains("\"Epoch\"", camelCaseJson);
+        Assert.Contains("\"LastSequenceNumber\"", camelCaseJson);
+        Assert.Contains("\"LastTimestamp\"", camelCaseJson);
+        Assert.Contains("\"Type\"", camelCaseJson);
+        Assert.Contains("\"Key\"", camelCaseJson);
+        Assert.DoesNotContain("\"streams\"", camelCaseJson);
+        Assert.Equal(tracker, fromCamelCase);
+        Assert.Equal(tracker, fromDefault);
+    }
+
+    [Theory]
+    [MemberData(nameof(MissingRootArraysJson))]
+    public void JsonSerializer_throws_when_required_root_array_is_missing(string json)
+    {
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<MessageTracker>(json));
+    }
+
+    [Fact]
     public void JsonSerializer_deserializes_tracked_stream_without_sequence_token()
     {
         var streamId = StreamId.Create("orders", "no-token");
@@ -133,6 +176,24 @@ public sealed class MessageTrackerJsonConverterTests
             """;
 
         Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<MessageTracker>(json));
+    }
+
+    private static MessageTracker CreateFullTracker()
+    {
+        var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
+        var tracker = new MessageTracker();
+        tracker.RegisterTimeProvider(new ManualTimeProvider(now));
+        tracker.ProcessMessage(
+            new StreamCursor("orders", new EventSequenceToken(7, 1), "provider-a"),
+            out tracker);
+        tracker.ProcessMessage(
+            new OutboxSequenceToken(
+                42,
+                GrainId.Create("test/sender", "one"),
+                now,
+                now),
+            out tracker);
+        return tracker;
     }
 
     private sealed class UnsupportedSequenceToken(long sequenceNumber, int eventIndex) : StreamSequenceToken

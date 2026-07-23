@@ -1706,6 +1706,12 @@ Orleans token converters and provider packages register their own
 unknown token types fail loudly instead of being silently downcast to an
 ancestor token shape.
 
+`MessageTrackerJsonConverter` pins every private model property to its
+PascalCase wire name, independent of ambient STJ naming policies. Its
+`Streams` and `Outboxes` roots are required so a naming mismatch or malformed
+payload fails instead of silently producing empty deduplication state;
+explicit `null` roots remain valid empty collections.
+
 **Why custom converters (not `[JsonInclude]` on private fields):**
 
 `Outbox<T>` and `MessageTracker` are sealed classes with private

@@ -20,6 +20,11 @@ namespace Egil.Orleans.Messaging.Tracking;
 /// the exact wire format.
 /// </para>
 /// <para>
+/// Wire property names are pinned on the private models so ambient naming
+/// policies cannot change persisted state. Both root arrays are required;
+/// explicit <c>null</c> is still accepted as an empty collection.
+/// </para>
+/// <para>
 /// Registered on <see cref="MessageTracker"/> via <c>[JsonConverter]</c>.
 /// STJ discovers the attribute automatically - no user-side
 /// <see cref="JsonSerializerOptions"/> configuration needed.
@@ -117,21 +122,34 @@ internal sealed class MessageTrackerJsonConverter : JsonConverter<MessageTracker
         new(grainId.Type.ToString()!, grainId.Key.ToString()!);
 
     private sealed record MessageTrackerJsonModel(
+        [property: JsonPropertyName("Streams")]
+        [property: JsonRequired]
         StreamEntryJsonModel[]? Streams,
+        [property: JsonPropertyName("Outboxes")]
+        [property: JsonRequired]
         OutboxEntryJsonModel[]? Outboxes);
 
     private sealed record StreamEntryJsonModel(
+        [property: JsonPropertyName("LastPosition")]
         StreamCursor LastPosition,
+        [property: JsonPropertyName("Received")]
         DateTimeOffset Received);
 
     private sealed record OutboxEntryJsonModel(
+        [property: JsonPropertyName("Sender")]
         GrainIdJsonModel Sender,
+        [property: JsonPropertyName("Epoch")]
         DateTimeOffset Epoch,
+        [property: JsonPropertyName("LastSequenceNumber")]
         long LastSequenceNumber,
+        [property: JsonPropertyName("Received")]
         DateTimeOffset Received,
+        [property: JsonPropertyName("LastTimestamp")]
         DateTimeOffset? LastTimestamp = null);
 
     private sealed record GrainIdJsonModel(
+        [property: JsonPropertyName("Type")]
         string Type,
+        [property: JsonPropertyName("Key")]
         string Key);
 }
