@@ -9,6 +9,7 @@ on:
         type: choice
         required: true
         options:
+          - Egil.Orleans.Messaging
           - Egil.Orleans.Testing
           - Egil.StronglyTypedPrimitives
           - Egil.SystemTextJson.Migration
