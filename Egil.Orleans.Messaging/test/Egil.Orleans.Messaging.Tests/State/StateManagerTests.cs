@@ -179,6 +179,26 @@ public sealed class StateManagerTests
     }
 
     [Fact]
+    public async Task WriteAsync_when_conflict_and_read_fail_reverts_state_and_rethrows_conflict()
+    {
+        var initial = new TestState("initial");
+        var writeException = new InconsistentStateException("write conflict");
+        var storage = new FakePersistentState(initial)
+        {
+            WriteException = writeException,
+            ReadException = new InvalidOperationException("read failed")
+        };
+        var manager = new DefaultStateManager<TestState>(storage);
+
+        var ex = await Assert.ThrowsAsync<InconsistentStateException>(
+            () => manager.WriteAsync(new TestState("next")));
+
+        Assert.Same(writeException, ex);
+        Assert.Same(initial, manager.State);
+        Assert.Same(initial, storage.State);
+    }
+
+    [Fact]
     public async Task WriteAsync_on_versioned_state_stamps_new_version()
     {
         var original = new VersionedTestState("initial");
