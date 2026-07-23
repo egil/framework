@@ -77,6 +77,9 @@ public sealed class OrderGrain(
 {
     private IStateManager<OrderState> state = default!;
 
+    private OrderState CurrentState =>
+        state.State ?? throw new InvalidOperationException("Order state is not initialized.");
+
     public override Task OnActivateAsync(CancellationToken cancellationToken)
     {
         state = this.RegisterStateManager("state", storage);
@@ -85,12 +88,21 @@ public sealed class OrderGrain(
 
     public async Task RenameAsync(string name)
     {
-        await state.WriteAsync(state.State with { Name = name });
+        await state.WriteAsync(CurrentState with { Name = name });
     }
 }
 ```
 
-State types must be reference types and implement `IEquatable<T>`. For non-trivial state graphs, inherit from `VersionedState` so the recovery path compares a library-stamped version rather than relying on structural collection equality.
+`State` is nullable because persistent storage can expose no value, including
+after `ClearAsync`. Initialize missing state or guard it before dereferencing,
+as `CurrentState` does above. Later snippets use `state.State!` only to keep
+their focus narrow and assume the surrounding grain has already established
+that invariant.
+
+State types must be reference types and implement `IEquatable<T>`. For
+non-trivial state graphs, inherit from `VersionedState` so the recovery path
+compares a library-stamped version rather than relying on structural
+collection equality.
 
 ## Outbox
 
@@ -108,9 +120,9 @@ public sealed record OrderState : VersionedState
 
 public async Task SubmitAsync()
 {
-    var next = state.State with
+    var next = state.State! with
     {
-        Outbox = state.State.Outbox.Add(new OrderSubmitted())
+        Outbox = state.State!.Outbox.Add(new OrderSubmitted())
     };
 
     await state.WriteAsync(next);
@@ -135,12 +147,12 @@ public sealed class OrderGrain : Grain, IOutboxGrain
     {
         outboxProcessor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxMessageEnvelope<IOrderEvent>>
         {
-            PendingItems = () => [.. state.State.Outbox],
+            PendingItems = () => [.. state.State!.Outbox],
             AcknowledgePostedAsync = async (items, ct) =>
             {
-                await state.WriteAsync(state.State with
+                await state.WriteAsync(state.State! with
                 {
-                    Outbox = state.State.Outbox.RemoveRange(items.Select(item => item.Token))
+                    Outbox = state.State!.Outbox.RemoveRange(items.Select(item => item.Token))
                 });
             },
             ReconcileFailedAsync = (_, _) => ValueTask.CompletedTask,
@@ -255,12 +267,12 @@ outboxProcessor = this.RegisterOutboxProcessor(options)
 `MessageTracker` accepts a message only when its stream token, stream cursor, or outbox token advances the stored high-water mark:
 
 ```csharp
-if (!state.State.Tracker.ProcessMessage("prices", token, out var tracker))
+if (!state.State!.Tracker.ProcessMessage("prices", token, out var tracker))
 {
     return;
 }
 
-await state.WriteAsync(state.State with { Tracker = tracker });
+await state.WriteAsync(state.State! with { Tracker = tracker });
 ```
 
 Use `LatestStreamSequenceToken("prices")` when all you need is the previous
@@ -275,18 +287,18 @@ The tracker can also evict old sender or stream entries when your retention poli
 Use `StreamManager` to configure stream subscriptions from `OnActivateAsync`. Pass a tracker snapshot when you want persisted resume tokens, or omit it when the grain does not track stream positions:
 
 ```csharp
-streamManager = this.RegisterStreamManager(state.State.Tracker)
+streamManager = this.RegisterStreamManager(state.State!.Tracker)
     .ConfigureExplicitSubscription<PriceChanged>(
         "StreamProvider",
         "prices",
         async (message, cursor) =>
         {
-            if (!state.State.Tracker.ProcessMessage(cursor, out var tracker))
+            if (!state.State!.Tracker.ProcessMessage(cursor, out var tracker))
             {
                 return;
             }
 
-            await state.WriteAsync(state.State with { Tracker = tracker });
+            await state.WriteAsync(state.State! with { Tracker = tracker });
         });
 
 await streamManager.EnsureExplicitSubscriptionsAsync(cancellationToken);
@@ -297,7 +309,7 @@ identity. Use the `StreamId` overload for an explicit stream keyed by another
 application id:
 
 ```csharp
-streamManager = this.RegisterStreamManager(state.State.Tracker)
+streamManager = this.RegisterStreamManager(state.State!.Tracker)
     .ConfigureExplicitSubscription<PriceChanged>(
         "StreamProvider",
         StreamId.Create("prices", customerId),
@@ -309,7 +321,7 @@ the previous token when a tracker snapshot is supplied. Opt out when a
 subscription should attach without a resume token:
 
 ```csharp
-streamManager = this.RegisterStreamManager(state.State.Tracker)
+streamManager = this.RegisterStreamManager(state.State!.Tracker)
     .ConfigureExplicitSubscription<PriceChanged>(
         "StreamProvider",
         "prices",

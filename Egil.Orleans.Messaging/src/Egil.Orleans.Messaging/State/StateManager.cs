@@ -10,12 +10,12 @@ namespace Egil.Orleans.Messaging.State;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Committed-state fence:</b> <see cref="State"/> always returns the
-/// last successfully written value. During <see cref="WriteAsync"/>, the
-/// underlying <see cref="IPersistentState{T}"/>.State is mutated, but the
-/// caller's view is updated only after the write succeeds. On failure, the
-/// recovery path re-reads from storage to determine whether the write
-/// actually landed.
+/// <b>Committed-state fence:</b> <see cref="State"/> returns the last
+/// committed value, including <see langword="null"/> when no state value
+/// exists. During <see cref="WriteAsync"/>, the underlying
+/// <see cref="IPersistentState{T}"/>.State is mutated, but the caller's view
+/// is updated only after the write succeeds. On failure, the recovery path
+/// re-reads from storage to determine whether the write actually landed.
 /// </para>
 /// <para>
 /// <b>Version stamping:</b> If <typeparamref name="T"/> derives from
@@ -73,7 +73,7 @@ public abstract class StateManagerBase<T> : IStateManager<T>
     where T : class, IEquatable<T>
 {
     private readonly IPersistentState<T> storage;
-    private T state;
+    private T? state;
 
     /// <summary>
     /// Initializes the manager over the grain's persistent state facet,
@@ -88,7 +88,7 @@ public abstract class StateManagerBase<T> : IStateManager<T>
     }
 
     /// <inheritdoc/>
-    public T State
+    public T? State
     {
         get => state;
     }
@@ -127,8 +127,7 @@ public abstract class StateManagerBase<T> : IStateManager<T>
             {
                 // Provider-specific classification says the write never reached durable storage.
                 // Revert our local fence immediately and rethrow the original write error.
-                state = previousState;
-                storage.State = previousState;
+                RestoreState(previousState);
                 throw;
             }
 
@@ -138,7 +137,7 @@ public abstract class StateManagerBase<T> : IStateManager<T>
                 // Unknown outcome: write may have persisted despite the exception.
                 // Read back from storage to distinguish "lost response" from "real failure."
                 await storage.ReadStateAsync();
-                var persisted = storage.State;
+                T? persisted = storage.State;
                 recoveryReadSucceeded = true;
                 state = persisted;
 
@@ -155,8 +154,7 @@ public abstract class StateManagerBase<T> : IStateManager<T>
                 {
                     // A failed read yields no trustworthy durable value. Restore
                     // the pre-write snapshot; the original write error is rethrown below.
-                    state = previousState;
-                    storage.State = previousState;
+                    RestoreState(previousState);
                 }
             }
 
@@ -187,8 +185,7 @@ public abstract class StateManagerBase<T> : IStateManager<T>
                 // The provider proved the clear was rejected before it could
                 // persist, so the in-memory view must stay at the pre-clear
                 // state and the original error should be surfaced.
-                state = previousState;
-                storage.State = previousState;
+                RestoreState(previousState);
                 throw;
             }
 
@@ -221,8 +218,7 @@ public abstract class StateManagerBase<T> : IStateManager<T>
                 // Without read-back confirmation, keep the local activation
                 // conservative. The next successful read/write can reconcile
                 // against storage.
-                state = previousState;
-                storage.State = previousState;
+                RestoreState(previousState);
             }
 
             throw;
@@ -255,8 +251,13 @@ public abstract class StateManagerBase<T> : IStateManager<T>
     /// and silently lose that data. <c>Outbox&lt;T&gt;.Equals</c> documents
     /// how its O(1) fingerprint satisfies this contract.
     /// </remarks>
-    private static bool IsEquivalent(T persisted, T attempted)
+    private static bool IsEquivalent(T? persisted, T attempted)
     {
+        if (persisted is null)
+        {
+            return false;
+        }
+
         if (persisted is VersionedState persistedVersioned
             && attempted is VersionedState attemptedVersioned)
         {
@@ -264,5 +265,13 @@ public abstract class StateManagerBase<T> : IStateManager<T>
         }
 
         return persisted.Equals(attempted);
+    }
+
+    private void RestoreState(T? previousState)
+    {
+        state = previousState;
+
+        // Orleans annotates State as non-null even though clearing reference state can make it null.
+        storage.State = previousState!;
     }
 }
