@@ -1217,6 +1217,9 @@ in the `Clever.PricingEngine` codebase.
 
 - **Grain-scoped, not silo-scoped.** Each grain with an outbox gets its
   own `OutboxProcessor`. No external scan, no registry, no second store.
+- **One processor per activation.** A second registration is rejected because
+  the `IOutboxGrain` reminder bridge has one component slot. Different item
+  subtypes use multiple postmen on the same processor.
 - **In-process retry** for fast retry while activated.
 - **Durable Reminder** for cross-activation recovery. Reactivates the
   grain if it deactivates with pending items. Retry scheduling is updated on

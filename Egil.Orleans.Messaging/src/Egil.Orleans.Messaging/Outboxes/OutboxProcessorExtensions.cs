@@ -26,6 +26,12 @@ public static class OutboxProcessorExtensions
         /// for reminder forwarding.
         /// </para>
         /// <para>
+        /// Register exactly one processor per grain activation. Add multiple
+        /// postmen to that processor when different outbox item subtypes need
+        /// different delivery behavior. A second registration throws
+        /// <see cref="InvalidOperationException"/>.
+        /// </para>
+        /// <para>
         /// <b>Usage:</b>
         /// <code>
         /// public override async Task OnActivateAsync(CancellationToken ct)
@@ -57,11 +63,21 @@ public static class OutboxProcessorExtensions
         /// in a grain field for later <see cref="OutboxProcessor{TOutbox}.PostAsync"/>
         /// calls.
         /// </returns>
+        /// <exception cref="InvalidOperationException">
+        /// An outbox processor is already registered for the current grain
+        /// activation.
+        /// </exception>
         public OutboxProcessor<TOutbox> RegisterOutboxProcessor<TOutbox>(OutboxProcessorOptions<TOutbox> options)
             where TOutbox : notnull
         {
             ArgumentNullException.ThrowIfNull(grain);
             ArgumentNullException.ThrowIfNull(options);
+
+            if (grain.GrainContext.GetComponent<IOutboxComponent>() is not null)
+            {
+                throw new InvalidOperationException(
+                    OutboxProcessor<TOutbox>.DuplicateRegistrationMessage);
+            }
 
             var services = grain.GrainContext.ActivationServices;
             var processor = new OutboxProcessor<TOutbox>(
