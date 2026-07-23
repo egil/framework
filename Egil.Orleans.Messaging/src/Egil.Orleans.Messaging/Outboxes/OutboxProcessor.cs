@@ -622,16 +622,17 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         // Look up a leftover reminder from a previous activation at most once;
         // afterwards the local field is authoritative, so an empty outbox does
         // not pay a reminder-table read on every successful drain.
-        var activeReminder = reminder;
-        if (activeReminder is null && !checkedForExistingReminder)
+        if (reminder is null && !checkedForExistingReminder)
         {
-            activeReminder = await owner.GetReminder(reminderName);
+            // Retain an inherited handle before attempting removal. If removal
+            // fails, the next empty drain must retry it without another lookup.
+            reminder = await owner.GetReminder(reminderName);
             checkedForExistingReminder = true;
         }
 
-        if (activeReminder is not null)
+        if (reminder is not null)
         {
-            await owner.UnregisterReminder(activeReminder);
+            await owner.UnregisterReminder(reminder);
             reminder = null;
         }
     }
