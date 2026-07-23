@@ -410,7 +410,8 @@ instances — with three additions:
 - A baked-in `Sender` (grain id).
 - A monotonic `LatestSequenceNumber` that persists independently of the
   message array contents.
-- An `Add(T payload)` mutator that owns sequence assignment.
+- `Add` mutators that own sequence assignment and either sample system
+  UTC or accept the caller's current UTC instant explicitly.
 
 ### Shape
 
@@ -435,11 +436,6 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
     [Id(2)] private readonly ImmutableArray<OutboxMessageEnvelope<T>> items;
     [Id(3)] private readonly DateTimeOffset? epoch;
 
-    // Non-persisted; no [Id]. Mutable, registered post-construction.
-    [NonSerialized]
-    [JsonIgnore]
-    private TimeProvider time = TimeProvider.System;
-
     internal Outbox(
         GrainId sender,
         long latestSequenceNumber,
@@ -455,8 +451,6 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
     public static Outbox<T> Create(GrainId sender) =>
         new(sender, latestSequenceNumber: 0, items: [], epoch: null);
 
-    public void RegisterTimeProvider(TimeProvider time) => this.time = time;
-
     public GrainId Sender => sender;
     public long LatestSequenceNumber => latestSequenceNumber;
     public DateTimeOffset? Epoch => epoch;
@@ -468,7 +462,9 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
         => ((IEnumerable<OutboxMessageEnvelope<T>>)items).GetEnumerator();
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
-    public Outbox<T> Add(T message) { /* increments seq, stamps epoch on first call */ }
+    public Outbox<T> Add(T message) { /* delegates with system UTC */ }
+    public Outbox<T> Add(T message, DateTimeOffset utcNow)
+        { /* increments seq, stamps epoch on first call */ }
     public Outbox<T> Remove(OutboxSequenceToken token) { /* removes FIFO head if token matches */ }
     public Outbox<T> RemoveRange(IEnumerable<OutboxSequenceToken> tokens) { /* removes matching FIFO prefix */ }
     public Outbox<T> Clear() { /* removes all items, preserves LatestSequenceNumber + Epoch */ }
@@ -529,12 +525,14 @@ detect that invalid state.
 ### Why these choices
 
 - **Sealed class, not record.** No `with`, no synthesized copy
-  constructor. Mutation through four methods only. Reference type because
-  `RegisterTimeProvider` is a void mutator.
+  constructor. Mutation through four method families only, preserving
+  sequence and epoch invariants.
 - **`Add(T payload)` not `Add(envelope)`.** Outbox owns sequence
   assignment. Callers cannot fabricate sequence numbers.
-- **`RegisterTimeProvider` not per-call argument.** Matches
-  `MessageTracker`. Successor instances carry the provider forward.
+- **Time is per append, never retained.** `Add(T)` samples system UTC;
+  `Add(T, DateTimeOffset)` accepts the caller's current instant and
+  normalizes it to UTC. Persisted values therefore contain no transient
+  clock reference and require no post-deserialization registration.
 - **Lazy `Epoch`.** A grain that never sends doesn't burn a fresh epoch
   on storage.
 - **`Remove(token)` not `Remove(envelope)`.** Token is the identity, but
@@ -1162,7 +1160,7 @@ Grains using this library should follow a functional-command model:
    fields.
 
 2. **Commands run sequentially.** Methods that mutate state ("commands")
-   produce a new state value from `(currentState, commandPayload)` and
+   produce a new state value from `(currentState, commandPayload, utcNow)` and
    call `IStateManager<T>.WriteAsync(newState)`. They run under
    Orleans' default non-reentrant turn-based concurrency — one at a
    time, no interleaving.
@@ -1182,7 +1180,7 @@ Grains using this library should follow a functional-command model:
 
 ### Why this works
 
-- **Deterministic commands.** Same state + same payload → same result.
+- **Deterministic commands.** Same state + same payload + same UTC input → same result.
   Easy to test, easy to reason about, no ambient dependencies.
 - **Safe concurrency.** Reads never block writes. Writes are serialised
   by the runtime. No custom locks.
@@ -1418,11 +1416,11 @@ extension<TGrain>(TGrain grain) where TGrain : IOutboxGrain, IGrainBase
     {
         var services = grain.GrainContext.ActivationServices;
         var processor = new OutboxProcessor<TOutbox>(
-            grain, options,
+            grain,
+            services.GetRequiredService<IGrainFactory>(),
+            options,
             services.GetRequiredService<ILoggerFactory>()
-                    .CreateLogger($"OutboxProcessor<{typeof(TOutbox).Name}>"),
-            services.GetService<TimeProvider>() ?? TimeProvider.System,
-            services.GetRequiredService<IReminderRegistry>());
+                    .CreateLogger<OutboxProcessor<TOutbox>>());
         processor.AttachToGrain();
         return processor;
     }
@@ -1451,6 +1449,10 @@ public sealed class OutboxProcessorOptions<TOutbox> where TOutbox : notnull
     /// Max time per post run. Set below grain's response timeout.
     public TimeSpan ProcessingTimeout { get; init; } = TimeSpan.FromSeconds(20);
 
+    /// Clock used only to enforce ProcessingTimeout. Orleans owns the grain
+    /// timers and reminders used for RetryDelay.
+    public TimeProvider TimeProvider { get; init; } = TimeProvider.System;
+
     /// Timer + reminder period. Orleans reminders fire at most once/minute.
     public TimeSpan RetryDelay { get; init; } = TimeSpan.FromMinutes(2);
 
@@ -1467,6 +1469,12 @@ public sealed class OutboxProcessorOptions<TOutbox> where TOutbox : notnull
     public bool KeepAlive { get; init; } = false;
 }
 ```
+
+An activation-scoped clock is supplied independently at both call sites:
+assign it to `OutboxProcessorOptions.TimeProvider` for deterministic
+processing-timeout behavior, and pass `timeProvider.GetUtcNow()` to
+`Outbox.Add(message, utcNow)` when appending. The processor does not own the
+persisted outbox or re-inject transient services into it.
 
 Naming note: `PendingItems` intentionally names the role of the callback
 rather than an imperative method (`GetPending`). `OutboxAccessor` was
@@ -1705,7 +1713,7 @@ generic types. The factory's `CreateConverter` method creates the closed
 
 ### Non-serialized fields
 
-Service-reference fields like `TimeProvider time` get both
+`MessageTracker`'s transient `TimeProvider time` field gets both
 `[NonSerialized]` and `[JsonIgnore]` — belt-and-suspenders:
 
 - **No `[Id]`** → Orleans `[GenerateSerializer]` skips them.
@@ -1714,9 +1722,10 @@ Service-reference fields like `TimeProvider time` get both
   bypasses our custom converter and falls back to reflection.
 - **Custom converters** also skip them explicitly.
 
-All four layers prevent accidental serialization of non-restorable
-service references. `RegisterTimeProvider()` re-injects after
-deserialization.
+All four layers prevent accidental serialization of the non-restorable
+reference. `MessageTracker.RegisterTimeProvider()` re-injects it after
+deserialization. `Outbox<T>` deliberately does not use this pattern: its
+clock input is sampled by the caller for each append.
 
 ### Telemetry
 

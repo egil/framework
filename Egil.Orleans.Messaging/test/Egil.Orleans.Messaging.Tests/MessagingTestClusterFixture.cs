@@ -4,6 +4,7 @@ using Egil.Orleans.Messaging.Tests.Outboxes;
 using Egil.Orleans.Messaging.Tests.Streams;
 using Orleans.Streams;
 using Orleans.TestingHost;
+using TimeProviderExtensions;
 
 namespace Egil.Orleans.Messaging.Tests;
 
@@ -12,6 +13,9 @@ public sealed class MessagingTestClusterFixture : IAsyncLifetime, IGrainActivity
     private InProcessTestCluster? cluster;
 
     public GrainActivityCollector Collector { get; } = new();
+
+    public ManualTimeProvider TimeProvider { get; } =
+        new(new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero));
 
     public InProcessTestCluster Cluster => cluster ?? throw new InvalidOperationException("Test cluster not initialized.");
 
@@ -30,6 +34,7 @@ public sealed class MessagingTestClusterFixture : IAsyncLifetime, IGrainActivity
             AddStreamProviders(siloBuilder);
             siloBuilder.ConfigureServices(services =>
             {
+                services.AddSingleton(TimeProvider);
                 services
                     .AddOutboxPostman<KeyedOutboxProcessorSuccessPostman>(OutboxProcessorTestPostmanNames.Success)
                     .AddOutboxPostman<KeyedOutboxProcessorFailingPostman>(OutboxProcessorTestPostmanNames.Failure)

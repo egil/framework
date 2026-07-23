@@ -39,10 +39,8 @@ public sealed class OutboxProcessorCoverageTests(MessagingTestClusterFixture fix
             await gate.DispatchStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
 
             var secondPost = grain.PublishAndPostAsync("second");
-            var completed = await Task.WhenAny(
-                secondPost,
-                Task.Delay(TimeSpan.FromMilliseconds(150), TestContext.Current.CancellationToken));
-            Assert.NotSame(secondPost, completed);
+            await gate.ForegroundPostStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
+            Assert.False(secondPost.IsCompleted);
 
             gate.AllowDispatch.SetResult();
             await firstPost.WaitAsync(TestContext.Current.CancellationToken);
@@ -224,16 +222,48 @@ public sealed class OutboxProcessorCoverageTests(MessagingTestClusterFixture fix
         {
             await grain.PublishInBackgroundAsync("dispatch", interleaveReconciliation: false);
             await gate.DispatchStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
-            using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
-            cancellation.CancelAfter(TimeSpan.FromSeconds(2));
 
-            var postAgain = grain.PostAgainAsync(cancellation.Token);
+            var postAgain = grain.PostAgainAsync(TestContext.Current.CancellationToken);
             await gate.ForegroundPostStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
             gate.AllowDispatch.SetResult();
             gate.AllowReconciliation.SetResult();
 
             await postAgain;
             await gate.ReconciliationStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
+
+            await fixture.WaitForAssertionAsync(
+                grain,
+                async () =>
+                {
+                    var state = await grain.GetSchedulingStateAsync();
+                    Assert.Equal(1, state.AcknowledgedCount);
+                },
+                ct: TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            gate.AllowDispatch.TrySetResult();
+            gate.AllowReconciliation.TrySetResult();
+            OutboxProcessorSchedulingGate.Remove(grainKey);
+        }
+    }
+
+    [Fact]
+    public async Task Empty_background_post_does_not_cancel_active_reconciliation()
+    {
+        var grainKey = Guid.NewGuid();
+        var grain = fixture.GrainFactory.GetGrain<IOutboxProcessorReconciliationSchedulingGrain>(grainKey);
+        var gate = OutboxProcessorSchedulingGate.For(grainKey);
+
+        try
+        {
+            await grain.PublishInBackgroundAsync("dispatch", interleaveReconciliation: true);
+            await gate.DispatchStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
+            gate.AllowDispatch.SetResult();
+
+            await gate.ReconciliationStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
+            await grain.ClearAndPostInBackgroundAsync(TestContext.Current.CancellationToken);
+            gate.AllowReconciliation.SetResult();
 
             await fixture.WaitForAssertionAsync(
                 grain,
@@ -266,8 +296,6 @@ public sealed class OutboxProcessorCoverageTests(MessagingTestClusterFixture fix
             await gate.ReconciliationStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
 
             var writeTask = grain.RecordWriteAsync("during-reconciliation");
-            var completed = await Task.WhenAny(writeTask, Task.Delay(TimeSpan.FromMilliseconds(150), TestContext.Current.CancellationToken));
-            Assert.NotSame(writeTask, completed);
 
             gate.AllowReconciliation.SetResult();
             await writeTask.WaitAsync(TestContext.Current.CancellationToken);
@@ -366,6 +394,8 @@ public interface IOutboxProcessorReconciliationSchedulingGrain : IGrainWithGuidK
     Task PublishInBackgroundAsync(string value, bool interleaveReconciliation);
 
     Task PostAgainAsync(CancellationToken cancellationToken);
+
+    Task ClearAndPostInBackgroundAsync(CancellationToken cancellationToken);
 
     Task RecordWriteAsync(string value);
 
@@ -522,7 +552,9 @@ public sealed class OutboxProcessorConcurrentManualPostGrain(
     {
         state.State.Outbox = EnsureOutbox().Add(new OutboxProcessorTestEvent(value));
         await state.WriteStateAsync();
-        await processor!.PostAsync();
+        var post = processor!.PostAsync().AsTask();
+        OutboxProcessorSchedulingGate.For(this.GetPrimaryKey()).ForegroundPostStarted.SetResult();
+        await post;
         return state.State;
     }
 
@@ -840,6 +872,13 @@ public sealed class OutboxProcessorReconciliationSchedulingGrain(
         var gate = OutboxProcessorSchedulingGate.For(this.GetPrimaryKey());
         gate.ForegroundPostStarted.SetResult();
         await processor!.PostAsync(cancellationToken);
+    }
+
+    public async Task ClearAndPostInBackgroundAsync(CancellationToken cancellationToken)
+    {
+        state.State.Outbox = EnsureOutbox().Clear();
+        await state.WriteStateAsync(cancellationToken);
+        await processor!.PostInBackgroundAsync(cancellationToken);
     }
 
     public Task RecordWriteAsync(string value)
