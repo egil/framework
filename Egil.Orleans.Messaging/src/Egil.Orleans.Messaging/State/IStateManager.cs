@@ -112,7 +112,9 @@ public interface IStateManager<T>
     /// <para>
     /// <b>Recovery on failure:</b> Re-reads from storage. If the write actually
     /// landed (version or equality match), swallows the exception and returns
-    /// normally. If it did not land, rethrows the original exception.
+    /// normally. If it did not land, adopts the persisted state before
+    /// rethrowing the original exception so the state remains paired with the
+    /// ETag refreshed by the read.
     /// <c>InconsistentStateException</c> always rethrows
     /// even if equality matches — a coincidental match must not hide a real
     /// concurrent write.
