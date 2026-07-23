@@ -42,7 +42,6 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     private bool checkedForExistingReminder;
     private OutboxReconciliationBatch<TOutbox>? pendingReconciliation;
     private TaskCompletionSource? activeDrain;
-    private bool backgroundDrainOwnsActiveDrain;
     private bool drainRequested;
 
     internal OutboxProcessor(
@@ -281,14 +280,31 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         var drainCompleted = false;
         try
         {
+            if (pendingReconciliation is not null)
+            {
+                // A dispatch callback can win the drain gate before the queued
+                // reconciliation callback. Defer instead of posting the same
+                // durable snapshot again.
+                EnsureReconciliationTimer(TimeSpan.Zero);
+                CompleteDrain();
+                drainCompleted = true;
+                return;
+            }
+
             var reconciliation = await RunAsActiveDrainAsync(
                 () => ProcessPendingItemsAsync(cancellationToken));
 
             if (reconciliation.HasWork)
             {
                 pendingReconciliation = reconciliation;
-                backgroundDrainOwnsActiveDrain = true;
                 EnsureReconciliationTimer(TimeSpan.Zero);
+
+                // Reconciliation is a separate Orleans turn. Keeping the gate
+                // across that boundary lets a non-reentrant foreground PostAsync
+                // occupy the activation while waiting for the queued callback,
+                // so neither operation can complete.
+                CompleteDrain();
+                drainCompleted = true;
                 return;
             }
 
@@ -313,6 +329,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
 
     private async Task ReconcileInBackgroundAsync(CancellationToken cancellationToken)
     {
+        await WaitForTurnAsync(cancellationToken);
         var reconciliation = pendingReconciliation;
         pendingReconciliation = null;
 
@@ -331,11 +348,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         }
         finally
         {
-            if (backgroundDrainOwnsActiveDrain)
-            {
-                backgroundDrainOwnsActiveDrain = false;
-                CompleteDrain();
-            }
+            CompleteDrain();
         }
 
         await ScheduleRequestedDrainAsync();
@@ -360,6 +373,18 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         await RunAsActiveDrainAsync(async () =>
         {
             drainRequested = false;
+
+            // A foreground caller can acquire the gate between background
+            // dispatch and its queued reconciliation turn. Finish that batch
+            // first so already-posted items are acknowledged before taking a
+            // new durable snapshot for dispatch.
+            var pending = pendingReconciliation;
+            pendingReconciliation = null;
+            if (pending is not null)
+            {
+                await ReconcileAsync(pending.Value, cancellationToken);
+            }
+
             var reconciliation = await ProcessPendingItemsAsync(cancellationToken);
             await ReconcileAsync(reconciliation, cancellationToken);
         });
