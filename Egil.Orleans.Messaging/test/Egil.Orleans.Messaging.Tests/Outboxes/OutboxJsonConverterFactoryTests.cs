@@ -1,5 +1,4 @@
 using System.Text.Json;
-using TimeProviderExtensions;
 
 namespace Egil.Orleans.Messaging.Tests.Outboxes;
 
@@ -11,10 +10,8 @@ public sealed class OutboxJsonConverterFactoryTests
     {
         var sender = GrainId.Create("test/sender", "one");
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
-        var time = new ManualTimeProvider(now);
         var outbox = Outbox<string>.Create(sender);
-        outbox.RegisterTimeProvider(time);
-        outbox = outbox.Add(first).Add(second);
+        outbox = outbox.Add(first, now).Add(second, now);
 
         var json = JsonSerializer.Serialize(outbox);
         var roundTripped = JsonSerializer.Deserialize<Outbox<string>>(json);
@@ -30,13 +27,12 @@ public sealed class OutboxJsonConverterFactoryTests
     {
         var sender = GrainId.Create("test/sender", "one");
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
-        var time = new ManualTimeProvider(now);
         var outbox = Outbox<ComplexMessage>.Create(sender);
-        outbox.RegisterTimeProvider(time);
         outbox = outbox.Add(new ComplexMessage(
             "order-17",
             42,
-            new NestedMessage("north", true)));
+            new NestedMessage("north", true)),
+            now);
 
         var json = JsonSerializer.Serialize(outbox);
         var roundTripped = JsonSerializer.Deserialize<Outbox<ComplexMessage>>(json);

@@ -116,6 +116,12 @@ public async Task SubmitAsync()
 }
 ```
 
+`Add(message)` uses system UTC. When a grain uses an injected clock, sample it
+at the call site and pass the instant with
+`Add(message, timeProvider.GetUtcNow())`. The persisted outbox never retains
+the provider, so serialization and state rehydration need no clock
+re-registration.
+
 Use `OutboxProcessor<T>` to dispatch pending items and acknowledge only the items that were posted successfully. Use `OutboxMessageEnvelope<T>` as the processor item type so the acknowledgement callback can remove exactly the posted items by token:
 
 ```csharp

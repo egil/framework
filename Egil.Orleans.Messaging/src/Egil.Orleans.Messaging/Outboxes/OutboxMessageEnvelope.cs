@@ -63,7 +63,7 @@ public sealed record OutboxMessageEnvelope<T>
 
     /// <summary>
     /// The sequence token identifying this message. Assigned by
-    /// <see cref="Outbox{T}.Add"/> — never user-constructed.
+    /// <see cref="Outbox{T}.Add(T)"/> — never user-constructed.
     /// </summary>
     [Id(0)]
     public required OutboxSequenceToken Token { get; init; }
