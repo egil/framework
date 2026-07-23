@@ -162,7 +162,11 @@ back to its token — which is only reliable when payloads are unique — so
 prefer the envelope form above unless per-message-type postman registration
 (shown below) is required.
 
-`IOutboxGrain` forwards reminder ticks to the attached processor. The grain remains responsible for its own message contracts, posting target, and dead-letter policy.
+`IOutboxGrain` forwards reminder ticks to the single attached processor.
+Register exactly one processor per grain activation; a second registration
+throws. Add multiple postmen to that processor when item subtypes need
+different delivery behavior. The grain remains responsible for its own
+message contracts, posting target, and dead-letter policy.
 Postman matching is first-match-wins: register specific message types before
 base interfaces or catch-all handlers.
 

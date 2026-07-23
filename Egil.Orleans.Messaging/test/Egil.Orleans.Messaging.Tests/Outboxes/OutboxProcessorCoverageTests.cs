@@ -178,6 +178,20 @@ public sealed class OutboxProcessorCoverageTests(MessagingTestClusterFixture fix
     }
 
     [Fact]
+    public async Task Registering_second_outbox_processor_throws_without_replacing_first_reminder_component()
+    {
+        var grain = fixture.GrainFactory.GetGrain<IOutboxProcessorValidationCoverageGrain>(Guid.NewGuid());
+
+        var error = await grain.RegisterSecondProcessorAndReceiveFirstReminderAsync();
+        var state = await grain.GetStateAsync();
+
+        Assert.Equal(
+            "Only one outbox processor can be registered per grain activation.",
+            error);
+        Assert.Equal(1, state.FirstProcessorReminderCount);
+    }
+
+    [Fact]
     public async Task Background_dispatch_allows_other_calls_while_postman_is_awaiting()
     {
         var grainKey = Guid.NewGuid();
@@ -387,6 +401,10 @@ public interface IOutboxProcessorValidationCoverageGrain : IGrainWithGuidKey
     Task<string?> ValidateProcessingTimeoutAsync();
 
     Task<string?> ValidateRetryDelayAsync();
+
+    Task<string?> RegisterSecondProcessorAndReceiveFirstReminderAsync();
+
+    Task<OutboxProcessorSourceState> GetStateAsync();
 }
 
 public interface IOutboxProcessorReconciliationSchedulingGrain : IGrainWithGuidKey
@@ -813,6 +831,39 @@ public sealed class OutboxProcessorValidationCoverageGrain(
             return Task.FromResult<string?>(ex.ParamName);
         }
     }
+
+    public async Task<string?> RegisterSecondProcessorAndReceiveFirstReminderAsync()
+    {
+        var firstProcessor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxMessageEnvelope<OutboxProcessorTestEvent>>
+        {
+            PendingItems = () =>
+            {
+                state.State.FirstProcessorReminderCount++;
+                return [];
+            },
+            AcknowledgePostedAsync = static (_, _) => ValueTask.CompletedTask,
+            RetryDelay = TimeSpan.FromMilliseconds(100)
+        });
+
+        string? error = null;
+        try
+        {
+            _ = this.RegisterOutboxProcessor(new OutboxProcessorOptions<string>
+            {
+                PendingItems = static () => [],
+                AcknowledgePostedAsync = static (_, _) => ValueTask.CompletedTask
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            error = ex.Message;
+        }
+
+        await ((IRemindable)this).ReceiveReminder(firstProcessor.ReminderName, default);
+        return error;
+    }
+
+    public Task<OutboxProcessorSourceState> GetStateAsync() => Task.FromResult(state.State);
 
     private OutboxProcessorOptions<OutboxMessageEnvelope<OutboxProcessorTestEvent>> CreateOptions(
         Func<ImmutableArray<OutboxMessageEnvelope<OutboxProcessorTestEvent>>> pendingItems,

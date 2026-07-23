@@ -24,6 +24,9 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     where TOutbox : notnull
 {
     private const string ReminderPrefix = "egil.orleans.messaging.outbox.";
+    internal const string DuplicateRegistrationMessage =
+        "Only one outbox processor can be registered per grain activation.";
+
     private static readonly AsyncLocal<OutboxProcessor<TOutbox>?> ActiveDrain = new();
 
     private readonly IGrainBase owner;
@@ -270,6 +273,14 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     /// </summary>
     internal void AttachToGrain()
     {
+        if (owner.GrainContext.GetComponent<IOutboxComponent>() is not null)
+        {
+            // The IOutboxGrain DIM has one component slot through which all
+            // durable reminders enter. Replacing it would silently orphan the
+            // first processor's cross-activation retry path.
+            throw new InvalidOperationException(DuplicateRegistrationMessage);
+        }
+
         owner.GrainContext.SetComponent<IOutboxComponent>(this);
     }
 

@@ -31,6 +31,11 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// extension method constrains <c>TGrain : IOutboxGrain, IGrainBase</c>,
 /// so grains that forget to implement this interface get a compile error.
 /// </para>
+/// <para>
+/// Register exactly one outbox processor per grain activation. Register
+/// multiple postmen on that processor when different item subtypes require
+/// different delivery behavior.
+/// </para>
 /// </remarks>
 public interface IOutboxGrain : IRemindable
 {

@@ -446,6 +446,9 @@ public sealed class OutboxProcessorSourceState
 
     [Id(4)]
     public int MaxConcurrentPostmen { get; set; }
+
+    [Id(5)]
+    public int FirstProcessorReminderCount { get; set; }
 }
 
 [GenerateSerializer]
