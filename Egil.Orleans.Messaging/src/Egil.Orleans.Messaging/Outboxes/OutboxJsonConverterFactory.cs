@@ -16,8 +16,8 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// </para>
 /// <para>
 /// The converter serializes only the structural data needed to reconstruct
-/// the outbox (sender, epoch, sequence numbers, items). Internal
-/// non-restorable service references such as the time provider are excluded.
+/// the outbox (sender, epoch, sequence numbers, items) while keeping its
+/// persisted representation encapsulated behind read-only properties.
 /// </para>
 /// </remarks>
 internal sealed class OutboxJsonConverterFactory : JsonConverterFactory

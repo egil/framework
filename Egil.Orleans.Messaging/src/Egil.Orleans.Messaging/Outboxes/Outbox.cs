@@ -14,12 +14,12 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// <para>
 /// <b>Immutable-collection semantics:</b> Behaves like
 /// <see cref="ImmutableArray{T}"/> — read-only iteration, indexer access,
-/// mutators (<see cref="Add"/>, <see cref="Remove"/>, <see cref="RemoveRange"/>,
+/// mutators (<see cref="Add(T)"/>, <see cref="Remove"/>, <see cref="RemoveRange"/>,
 /// <see cref="Clear"/>) return <em>new</em> instances. The original is never
 /// modified. Assign the return value back to the state property and write.
 /// </para>
 /// <para>
-/// <b>Sequence ownership:</b> Only <see cref="Add"/> assigns sequence numbers.
+/// <b>Sequence ownership:</b> Only <see cref="Add(T)"/> assigns sequence numbers.
 /// Callers supply the payload; the outbox stamps <see cref="OutboxSequenceToken"/>
 /// with a monotonically increasing <see cref="LatestSequenceNumber"/> and the
 /// current <see cref="Epoch"/>. This is a hard invariant — there is no public
@@ -31,8 +31,8 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// <item><see cref="Create(GrainId)"/> → <c>Epoch = null</c>,
 /// <c>LatestSequenceNumber = 0</c>. Use at construction time or for deliberate
 /// ops-level sequence-space resets.</item>
-/// <item>First <see cref="Add"/> → stamps <c>Epoch = now</c>. Persisted with state.</item>
-/// <item>Subsequent <see cref="Add"/> → same epoch, incrementing sequence number.</item>
+/// <item>First <see cref="Add(T)"/> → stamps <c>Epoch = now</c>. Persisted with state.</item>
+/// <item>Subsequent <see cref="Add(T)"/> → same epoch, incrementing sequence number.</item>
 /// <item><see cref="Clear"/> → removes all items but <b>preserves</b>
 /// <see cref="LatestSequenceNumber"/> and <see cref="Epoch"/>. This is the normal
 /// "postman drained successfully" path.</item>
@@ -44,7 +44,7 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// sender, sequence metadata, epoch, count, and the full first and last
 /// pending tokens are equal. Equality is O(1) and ignores message payloads —
 /// it is a fingerprint, not deep content equality. Within a single history
-/// lineage every mutation changes the fingerprint (<see cref="Add"/> changes
+/// lineage every mutation changes the fingerprint (<see cref="Add(T)"/> changes
 /// the last token, removals change the count or tokens), so dirty-check
 /// "skip write if unchanged" logic is safe. Outboxes from <em>divergent</em>
 /// histories (duplicate activations of the same grain) can compare equal when
@@ -68,13 +68,6 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// Newtonsoft.Json is not supported out of the box; users can write and
 /// register their own Newtonsoft converter if needed.
 /// </para>
-/// <para>
-/// <b>TimeProvider:</b> The <c>time</c> field is non-persisted
-/// (<c>[NonSerialized]</c>, <c>[JsonIgnore]</c>, no <c>[Id]</c>). After
-/// deserialization the grain must call <see cref="RegisterTimeProvider"/> to
-/// inject a test-friendly clock. Falls back to <see cref="TimeProvider.System"/>
-/// if skipped — correct for production, breaks fake-clock tests.
-/// </para>
 /// </remarks>
 /// <typeparam name="T">
 /// The user-defined message payload type. Must be serializable by Orleans
@@ -92,21 +85,9 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
     [Id(3)] private readonly DateTimeOffset? epoch;
 
     /// <summary>
-    /// Non-persisted service reference. No <c>[Id]</c>, no serialization.
-    /// Falls back to <see cref="TimeProvider.System"/> when not explicitly set.
-    /// </summary>
-    [field: NonSerialized]
-    [JsonIgnore]
-    private TimeProvider Time
-    {
-        get => field ?? TimeProvider.System;
-        set => field = value;
-    } = TimeProvider.System;
-
-    /// <summary>
     /// Internal constructor used by mutation methods to produce new instances.
     /// Not user-callable — use <see cref="Create(GrainId)"/> to create the
-    /// initial outbox, then <see cref="Add"/> to append messages.
+    /// initial outbox, then <see cref="Add(T)"/> to append messages.
     /// </summary>
     internal Outbox(
         GrainId sender,
@@ -123,47 +104,21 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
     /// <summary>
     /// Creates a fresh, empty outbox for the given <paramref name="sender"/>.
     /// <see cref="Epoch"/> is <c>null</c> and <see cref="LatestSequenceNumber"/>
-    /// is <c>0</c>. The next <see cref="Add"/> stamps a new epoch.
+    /// is <c>0</c>. The next <see cref="Add(T)"/> stamps a new epoch.
     /// </summary>
     /// <remarks>
     /// Use at grain-state construction time (default property initializer).
     /// Calling on an active outbox is a <b>nuclear reset</b> — the next
-    /// <see cref="Add"/> starts a fresh epoch. Receivers see the epoch change
+    /// <see cref="Add(T)"/> starts a fresh epoch. Receivers see the epoch change
     /// and accept unconditionally. Prefer <see cref="Clear"/> for the normal
     /// "postman drained" path.
     /// </remarks>
     /// <param name="sender">
     /// The <see cref="GrainId"/> of the grain that owns this outbox. Baked
-    /// into every <see cref="OutboxSequenceToken"/> produced by <see cref="Add"/>.
+    /// into every <see cref="OutboxSequenceToken"/> produced by <see cref="Add(T)"/>.
     /// </param>
     public static Outbox<T> Create(GrainId sender) =>
         new(sender, latestSequenceNumber: 0, items: [], epoch: null);
-
-    /// <summary>
-    /// Registers a <see cref="TimeProvider"/> for timestamp generation.
-    /// Must be called after deserialization to inject a test-friendly clock.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// This is a void mutator on a non-persisted property — it does not produce
-    /// a new <see cref="Outbox{T}"/> instance. The provider is carried forward
-    /// to successor instances created by <see cref="Add"/>, <see cref="Remove"/>,
-    /// <see cref="RemoveRange"/>, and <see cref="Clear"/>.
-    /// </para>
-    /// <para>
-    /// The provider is intentionally not serialized. Every serialization and
-    /// deserialization round trip, including Orleans deep copies and state
-    /// rehydration, discards a previously registered custom provider. The
-    /// resulting outbox falls back to <see cref="TimeProvider.System"/>.
-    /// </para>
-    /// <para>
-    /// If timestamp generation depends on a custom provider for tests or
-    /// business logic, call this method on the resulting outbox after every
-    /// deserialization or rehydration and before the next <see cref="Add"/>.
-    /// Registering the provider only on the original instance is insufficient.
-    /// </para>
-    /// </remarks>
-    public void RegisterTimeProvider(TimeProvider time) => Time = time;
 
     /// <summary>
     /// The <see cref="GrainId"/> of the grain that owns this outbox. Baked
@@ -179,7 +134,7 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
     public long LatestSequenceNumber => latestSequenceNumber;
 
     /// <summary>
-    /// The epoch marker stamped on the first <see cref="Add"/> call. <c>null</c>
+    /// The epoch marker stamped on the first <see cref="Add(T)"/> call. <c>null</c>
     /// only for a freshly constructed (<see cref="Create(GrainId)"/>) outbox that
     /// has never had an item added.
     /// </summary>
@@ -219,21 +174,44 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
     /// </remarks>
     /// <param name="message">The user-defined payload to enqueue.</param>
     /// <returns>A new outbox containing the appended message.</returns>
-    public Outbox<T> Add(T message)
+    public Outbox<T> Add(T message) =>
+        Add(message, TimeProvider.System.GetUtcNow());
+
+    /// <summary>
+    /// Appends a message using an explicitly supplied current UTC instant,
+    /// assigning the next sequence number and stamping the epoch on first call.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Use this overload when timestamp generation must use an injected clock.
+    /// Pass the clock's current instant for each append:
+    /// <code>
+    /// state = state with
+    /// {
+    ///     Outbox = state.Outbox.Add(myEvent, timeProvider.GetUtcNow())
+    /// };
+    /// </code>
+    /// </para>
+    /// <para>
+    /// <paramref name="utcNow"/> is the append instant, not the message's
+    /// domain timestamp. It becomes the token timestamp and, for the first
+    /// append, the outbox epoch. Non-UTC offsets are normalized to UTC.
+    /// </para>
+    /// </remarks>
+    /// <param name="message">The user-defined payload to enqueue.</param>
+    /// <param name="utcNow">The current instant used to timestamp this append.</param>
+    /// <returns>A new outbox containing the appended message.</returns>
+    public Outbox<T> Add(T message, DateTimeOffset utcNow)
     {
-        var time = Time;
-        var now = time.GetUtcNow();
-        var epoch = this.epoch ?? now;
+        utcNow = utcNow.ToUniversalTime();
+        var epoch = this.epoch ?? utcNow;
         var sequenceNumber = latestSequenceNumber + 1;
-        var token = new OutboxSequenceToken(sequenceNumber, sender, now, epoch);
-        var next = new Outbox<T>(
+        var token = new OutboxSequenceToken(sequenceNumber, sender, utcNow, epoch);
+        return new Outbox<T>(
             sender,
             sequenceNumber,
             items.Add(new OutboxMessageEnvelope<T>(token, message)),
             epoch);
-
-        next.RegisterTimeProvider(time);
-        return next;
     }
 
     /// <summary>
@@ -254,14 +232,11 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
             return this;
         }
 
-        var next = new Outbox<T>(
+        return new Outbox<T>(
             sender,
             latestSequenceNumber,
             items.RemoveAt(0),
             epoch);
-
-        next.RegisterTimeProvider(Time);
-        return next;
     }
 
     /// <summary>
@@ -297,13 +272,11 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
         }
 
         var remaining = remainingBuilder.ToImmutable();
-        var next = new Outbox<T>(
+        return new Outbox<T>(
             sender,
             latestSequenceNumber,
             remaining,
             epoch);
-        next.RegisterTimeProvider(Time);
-        return next;
     }
 
     /// <summary>
@@ -312,7 +285,7 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
     /// </summary>
     /// <remarks>
     /// This is the normal path after the postman has successfully drained all
-    /// items. The high-water mark persists so subsequent <see cref="Add"/> calls
+    /// items. The high-water mark persists so subsequent <see cref="Add(T)"/> calls
     /// continue the sequence without gaps. Receivers see monotonically increasing
     /// sequence numbers within the same epoch.
     /// </remarks>
@@ -324,14 +297,11 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
             return this;
         }
 
-        var next = new Outbox<T>(
+        return new Outbox<T>(
             sender,
             latestSequenceNumber,
             [],
             epoch);
-
-        next.RegisterTimeProvider(Time);
-        return next;
     }
 
     /// <summary>

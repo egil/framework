@@ -65,7 +65,7 @@ public sealed record OutboxSequenceToken
 
     /// <summary>
     /// Monotonically increasing sequence number within a single <see cref="Epoch"/>.
-    /// Assigned by <see cref="Outbox{T}.Add"/> — callers cannot fabricate or choose
+    /// Assigned by <see cref="Outbox{T}.Add(T)"/> — callers cannot fabricate or choose
     /// sequence numbers. Starts at 1 for each new epoch.
     /// </summary>
     [Id(0)]
