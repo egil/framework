@@ -44,7 +44,8 @@ namespace Egil.Orleans.Messaging.State;
 /// </item>
 /// <item>
 ///   <term>Write throws, re-read succeeds, state does not match</term>
-///   <description>Write genuinely failed. Original exception rethrown.</description>
+///   <description>Write genuinely failed. Persisted state adopted and original
+///   exception rethrown.</description>
 /// </item>
 /// <item>
 ///   <term>Write throws, re-read also throws</term>
@@ -131,42 +132,37 @@ public abstract class StateManagerBase<T> : IStateManager<T>
                 throw;
             }
 
+            var recoveryReadSucceeded = false;
             try
             {
                 // Unknown outcome: write may have persisted despite the exception.
                 // Read back from storage to distinguish "lost response" from "real failure."
                 await storage.ReadStateAsync();
                 var persisted = storage.State;
+                recoveryReadSucceeded = true;
+                state = persisted;
 
-                if (ex is InconsistentStateException)
-                {
-                    // Concurrency conflicts must be surfaced even if values happen to match.
-                    // A coincidental equality must not hide an optimistic concurrency violation.
-                    storage.State = previousState;
-                    throw;
-                }
-
-                if (IsEquivalent(persisted, newState))
+                if (ex is not InconsistentStateException && IsEquivalent(persisted, newState))
                 {
                     // Lost-response case: write landed, but acknowledgement failed.
-                    // Advance committed fence to persisted value and swallow write exception.
-                    state = persisted;
+                    // The committed fence already reflects the persisted value.
                     return;
                 }
-
-                // Read-back proved write did not land; restore local snapshot and rethrow.
-                storage.State = previousState;
-                throw;
             }
-            catch when (ex is not InconsistentStateException)
+            catch
             {
-                // no-op; throw original below
+                if (!recoveryReadSucceeded)
+                {
+                    // A failed read yields no trustworthy durable value. Restore
+                    // the pre-write snapshot; the original write error is rethrown below.
+                    state = previousState;
+                    storage.State = previousState;
+                }
             }
 
-            // Write failed and recovery read also failed: keep committed fence coherent by
-            // reverting to the pre-write snapshot, then surface the original write error.
-            state = previousState;
-            storage.State = previousState;
+            // A mismatch proves the write did not land. A concurrency conflict
+            // must be surfaced even if values happen to match. Once read-back
+            // succeeds, keep the server value paired with its refreshed ETag.
             throw;
         }
     }

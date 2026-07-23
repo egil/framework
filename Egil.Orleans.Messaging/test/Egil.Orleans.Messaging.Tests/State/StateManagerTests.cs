@@ -1,3 +1,5 @@
+using Orleans.Storage;
+
 namespace Egil.Orleans.Messaging.Tests.State;
 
 public sealed class StateManagerTests
@@ -44,20 +46,77 @@ public sealed class StateManagerTests
     }
 
     [Fact]
-    public async Task WriteAsync_when_write_fails_and_read_shows_different_state_rethrows_original_exception()
+    public async Task WriteAsync_when_write_fails_and_read_shows_different_state_adopts_persisted_state_and_rethrows()
     {
         var writeException = new TimeoutException("write timeout");
+        var persisted = new TestState("other");
         var storage = new FakePersistentState(new TestState("initial"))
         {
             WriteException = writeException,
-            OnRead = state => state.State = new TestState("other")
+            OnRead = state =>
+            {
+                state.State = persisted;
+                state.Etag = "etag-2";
+            }
         };
         var manager = new DefaultStateManager<TestState>(storage);
 
         var ex = await Assert.ThrowsAsync<TimeoutException>(() => manager.WriteAsync(new TestState("next")));
 
         Assert.Same(writeException, ex);
-        Assert.Equal(new TestState("initial"), manager.State);
+        Assert.Equal(persisted, manager.State);
+        Assert.Equal(persisted, storage.State);
+        Assert.Equal("etag-2", storage.Etag);
+    }
+
+    [Fact]
+    public async Task WriteAsync_on_concurrency_conflict_adopts_persisted_state_and_rethrows()
+    {
+        var writeException = new InconsistentStateException("write conflict");
+        var attempted = new TestState("next");
+        var persisted = new TestState("other");
+        var storage = new FakePersistentState(new TestState("initial"))
+        {
+            WriteException = writeException,
+            OnRead = state =>
+            {
+                state.State = persisted;
+                state.Etag = "etag-2";
+            }
+        };
+        var manager = new DefaultStateManager<TestState>(storage);
+
+        var ex = await Assert.ThrowsAsync<InconsistentStateException>(
+            () => manager.WriteAsync(attempted));
+
+        Assert.Same(writeException, ex);
+        Assert.Equal(persisted, manager.State);
+        Assert.Equal(persisted, storage.State);
+        Assert.Equal("etag-2", storage.Etag);
+    }
+
+    [Fact]
+    public async Task WriteAsync_on_concurrency_conflict_rethrows_when_persisted_state_matches_attempt()
+    {
+        var writeException = new InconsistentStateException("write conflict");
+        var attempted = new TestState("next");
+        var storage = new FakePersistentState(new TestState("initial"))
+        {
+            WriteException = writeException,
+            OnRead = state =>
+            {
+                state.State = new TestState("next");
+                state.Etag = "etag-2";
+            }
+        };
+        var manager = new DefaultStateManager<TestState>(storage);
+
+        var ex = await Assert.ThrowsAsync<InconsistentStateException>(
+            () => manager.WriteAsync(attempted));
+
+        Assert.Same(writeException, ex);
+        Assert.Equal(new TestState("next"), manager.State);
+        Assert.Equal("etag-2", storage.Etag);
     }
 
     [Fact]
