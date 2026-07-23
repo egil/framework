@@ -5,6 +5,16 @@ namespace Egil.Orleans.Messaging.Tests.Outboxes;
 
 public sealed class OutboxSequenceTokenJsonConverterTests
 {
+    public static TheoryData<string> InvalidKnownPropertyJson => new()
+    {
+        { """{"SequenceNumber":"7"}""" },
+        { """{"SequenceNumber":1.5}""" },
+        { """{"Timestamp":7}""" },
+        { """{"Timestamp":"not-a-date"}""" },
+        { """{"Epoch":7}""" },
+        { """{"Epoch":"not-a-date"}""" }
+    };
+
     public static TheoryData<GrainId> GrainIdCases => new()
     {
         GrainId.Create("test/type", "plain-string"),
@@ -63,6 +73,13 @@ public sealed class OutboxSequenceTokenJsonConverterTests
             }
             """;
 
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<OutboxSequenceToken>(json));
+    }
+
+    [Theory]
+    [MemberData(nameof(InvalidKnownPropertyJson))]
+    public void JsonSerializer_reports_invalid_known_property_as_json_error(string json)
+    {
         Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<OutboxSequenceToken>(json));
     }
 }
