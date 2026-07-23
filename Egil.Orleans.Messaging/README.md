@@ -49,9 +49,11 @@ Register the default state manager factory on the silo:
 siloBuilder.AddDefaultStateManager("state");
 ```
 
-For Orleans Azure Table or Blob grain storage, install
-`Egil.Orleans.Messaging.State.AzureStorage` and register the Azure-aware
-factory instead:
+For Orleans Azure Table or Blob grain storage, install and configure the
+Orleans storage provider separately. The Messaging companion works through
+`IPersistentState<T>` and Azure SDK exceptions; it does not select or install
+the underlying provider. Install `Egil.Orleans.Messaging.State.AzureStorage`
+and register the Azure-aware factory instead:
 
 ```csharp
 siloBuilder.AddAzureStorageStateManager("state");
