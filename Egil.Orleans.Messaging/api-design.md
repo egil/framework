@@ -117,7 +117,7 @@ stale `storage.State` after a failed write.
 ```csharp
 public interface IStateManager<T> where T : class, IEquatable<T>
 {
-    T State { get; }
+    T? State { get; }
     Task ReadAsync();
     Task WriteAsync(T newState);
     Task ClearAsync();
@@ -154,6 +154,11 @@ point of view: by the time `OnActivateAsync` runs, `State` already
 reflects what is durably stored. Grain code does **not** call `ReadAsync`
 during activation.
 
+`State` is nullable because storage can expose no value, including after a
+successful `ClearAsync`. The manager cannot construct an arbitrary `T` as a
+fallback. Grain code must initialize missing state or guard it before
+dereferencing.
+
 This is achieved by composition rather than reimplementation: the
 default `StateManager<T>` wraps an `IPersistentState<T>` facet that
 Orleans hydrates during the `SetupState` grain-lifecycle stage. The
@@ -177,7 +182,7 @@ otherwise it falls back to `T.Equals(...)`.
 internal sealed class StateManager<T>(IPersistentState<T> storage) : IStateManager<T>
     where T : class, IEquatable<T>
 {
-    public T State => storage.State;
+    public T? State => storage.State;
 
     public Task ReadAsync() => storage.ReadStateAsync();
 
@@ -214,10 +219,11 @@ internal sealed class StateManager<T>(IPersistentState<T> storage) : IStateManag
         }
     }
 
-    private static bool IsEquivalent(T persisted, T attempted) =>
-        persisted is VersionedState pv && attempted is VersionedState av
+    private static bool IsEquivalent(T? persisted, T attempted) =>
+        persisted is not null
+        && (persisted is VersionedState pv && attempted is VersionedState av
             ? pv.Version.Equals(av.Version)
-            : persisted.Equals(attempted);
+            : persisted.Equals(attempted));
 }
 ```
 
@@ -228,6 +234,7 @@ Behaviour matrix:
 | Success                            | `State == newState`, returns                     |
 | Timeout, write actually persisted  | `State == newState`, returns (silent recovery)   |
 | Timeout, write did not persist     | `State == server's value`, throws original ex    |
+| Recovery read exposes `null`       | `State == null`, throws original ex              |
 | 5xx / transient                    | Same as timeout — re-read decides                |
 | `InconsistentStateException`       | `State == server's value`, **always rethrows**   |
 | Re-read also fails (double failure)| `storage.State` reverted, throws original ex     |
@@ -314,8 +321,8 @@ The wrapper was debated — recovery logic is stateless, could be an
 extension method on `IPersistentState<T>`. But the wrapper does a fourth
 thing extensions cannot: **it hides `IPersistentState<T>.State`**.
 
-`IStateManager<T>.State` exposes only the **committed** snapshot — the
-value after the last successful `WriteAsync`. During an in-flight write,
+`IStateManager<T>.State` exposes only the **committed** snapshot, or
+`null` when the storage provider exposes no value. During an in-flight write,
 `IPersistentState<T>.State` already holds the uncommitted value. Read
 methods marked `[AlwaysInterleave]` that access `storage.State` directly
 could observe uncommitted state — and if the write fails, they returned

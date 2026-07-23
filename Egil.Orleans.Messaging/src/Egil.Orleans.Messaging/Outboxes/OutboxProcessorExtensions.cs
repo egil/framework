@@ -38,7 +38,8 @@ public static class OutboxProcessorExtensions
         /// {
         ///     outboxProcessor = this.RegisterOutboxProcessor(new OutboxProcessorOptions&lt;IMyEvent&gt;
         ///     {
-        ///         PendingItems = () => stateManager.State.Outbox
+        ///         PendingItems = () => (stateManager.State
+        ///             ?? throw new InvalidOperationException("State is not initialized.")).Outbox
         ///             .Select(e => e.Message).ToImmutableArray(),
         ///         AcknowledgePostedAsync = async (items, ct) =>
         ///         {

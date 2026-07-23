@@ -77,7 +77,9 @@ public interface IStateManager<T>
     where T : class, IEquatable<T>
 {
     /// <summary>
-    /// Gets the last successfully committed state snapshot.
+    /// Gets the last successfully committed state snapshot, or
+    /// <see langword="null"/> when the underlying persistent state contains
+    /// no value.
     /// </summary>
     /// <remarks>
     /// Safe to read from <c>[AlwaysInterleave]</c> methods — returns only
@@ -85,7 +87,7 @@ public interface IStateManager<T>
     /// committed-state fence that justifies the wrapper over raw
     /// <see cref="IPersistentState{TState}"/>.
     /// </remarks>
-    T State { get; }
+    T? State { get; }
 
     /// <summary>
     /// Re-reads state from durable storage, replacing the current
@@ -130,7 +132,8 @@ public interface IStateManager<T>
     Task WriteAsync(T newState);
 
     /// <summary>
-    /// Clears the persisted state, resetting it to <c>default</c>.
+    /// Clears the persisted state. On success, <see cref="State"/> reflects
+    /// the storage provider's cleared value and may be <see langword="null"/>.
     /// </summary>
     Task ClearAsync();
 }

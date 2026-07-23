@@ -5,6 +5,29 @@ namespace Egil.Orleans.Messaging.Tests.State;
 public sealed class StateManagerTests
 {
     [Fact]
+    public void State_when_storage_exposes_null_is_null()
+    {
+        var storage = new FakePersistentState(null);
+        var manager = new DefaultStateManager<TestState>(storage);
+
+        Assert.Null(manager.State);
+    }
+
+    [Fact]
+    public void State_when_storage_exposes_value_without_record_exposes_value()
+    {
+        var initial = new TestState("default");
+        var storage = new FakePersistentState(initial)
+        {
+            RecordExists = false
+        };
+        var manager = new DefaultStateManager<TestState>(storage);
+
+        Assert.Same(initial, manager.State);
+        Assert.False(storage.RecordExists);
+    }
+
+    [Fact]
     public async Task ReadAsync_refreshes_state_from_storage()
     {
         var storage = new FakePersistentState(new TestState("initial"));
@@ -14,6 +37,25 @@ public sealed class StateManagerTests
         await manager.ReadAsync();
 
         Assert.Equal(new TestState("fresh"), manager.State);
+    }
+
+    [Fact]
+    public async Task ReadAsync_when_storage_exposes_null_updates_state_to_null()
+    {
+        var storage = new FakePersistentState(new TestState("initial"))
+        {
+            OnRead = state =>
+            {
+                state.State = null!;
+                state.RecordExists = false;
+            }
+        };
+        var manager = new DefaultStateManager<TestState>(storage);
+
+        await manager.ReadAsync();
+
+        Assert.Null(manager.State);
+        Assert.False(storage.RecordExists);
     }
 
     [Fact]
@@ -147,7 +189,7 @@ public sealed class StateManagerTests
         await manager.WriteAsync(next);
 
         Assert.NotEqual(Guid.Empty, next.Version);
-        Assert.Equal(next.Version, manager.State.Version);
+        Assert.Equal(next.Version, manager.State!.Version);
     }
 
     [Fact]
@@ -158,6 +200,42 @@ public sealed class StateManagerTests
 
         await manager.ClearAsync();
 
+        Assert.Null(manager.State);
+        Assert.False(storage.RecordExists);
+    }
+
+    [Fact]
+    public async Task WriteAsync_after_clear_can_persist_new_state()
+    {
+        var storage = new FakePersistentState(new TestState("initial"));
+        var manager = new DefaultStateManager<TestState>(storage);
+        var next = new TestState("next");
+
+        await manager.ClearAsync();
+        await manager.WriteAsync(next);
+
+        Assert.Equal(next, manager.State);
+        Assert.Equal(next, storage.State);
+    }
+
+    [Fact]
+    public async Task WriteAsync_from_cleared_state_when_recovery_read_exposes_null_keeps_null()
+    {
+        var writeException = new TimeoutException("write timeout");
+        var storage = new FakePersistentState(new TestState("initial"));
+        var manager = new DefaultStateManager<TestState>(storage);
+        await manager.ClearAsync();
+        storage.WriteException = writeException;
+        storage.OnRead = state =>
+        {
+            state.State = null!;
+            state.RecordExists = false;
+        };
+
+        var ex = await Assert.ThrowsAsync<TimeoutException>(
+            () => manager.WriteAsync(new TestState("next")));
+
+        Assert.Same(writeException, ex);
         Assert.Null(manager.State);
         Assert.False(storage.RecordExists);
     }
@@ -205,9 +283,10 @@ public sealed class StateManagerTests
 
     private sealed class FakePersistentState : IPersistentState<TestState>
     {
-        public FakePersistentState(TestState state)
+        public FakePersistentState(TestState? state)
         {
-            State = state;
+            State = state!;
+            RecordExists = state is not null;
         }
 
         public Exception? ReadException { get; set; }
