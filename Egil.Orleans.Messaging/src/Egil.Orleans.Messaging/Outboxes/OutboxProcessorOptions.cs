@@ -60,6 +60,16 @@ public sealed class OutboxProcessorOptions<TOutbox>
     public TimeSpan ProcessingTimeout { get; init; } = TimeSpan.FromSeconds(20);
 
     /// <summary>
+    /// Clock used to enforce <see cref="ProcessingTimeout"/>. Default:
+    /// <see cref="TimeProvider.System"/>.
+    /// </summary>
+    /// <remarks>
+    /// This provider controls only the processing timeout. Orleans owns the
+    /// grain timers and reminders used for <see cref="RetryDelay"/>.
+    /// </remarks>
+    public TimeProvider TimeProvider { get; init; } = global::System.TimeProvider.System;
+
+    /// <summary>
     /// Delay before retrying remaining pending items. Cross-activation retry
     /// is clamped to at least one minute because Orleans reminders do not
     /// support sub-minute precision.

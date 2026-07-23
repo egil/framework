@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Egil.Orleans.Testing;
+using TimeProviderExtensions;
 
 namespace Egil.Orleans.Messaging.Tests.Outboxes;
 
@@ -117,37 +118,58 @@ public sealed class OutboxProcessorTests(MessagingTestClusterFixture fixture) : 
     public async Task PostAsync_propagates_cancellation_to_keyed_postman_and_leaves_item_pending()
     {
         var source = fixture.GrainFactory.GetGrain<IOutboxProcessorKeyedCancellationPostmanGrain>(Guid.NewGuid());
+        var value = $"cancel-{Guid.NewGuid():N}";
+        using var gate = OutboxProcessorPostmanGate.Create(value);
 
-        var exceptionType = await source.PublishWithCancellationAsync("cancel");
+        var publish = source.PublishWithCancellationAsync(value);
+        await gate.Started.Task.WaitAsync(TestContext.Current.CancellationToken);
+        fixture.TimeProvider.Advance(TimeSpan.FromHours(1));
+
+        var exceptionType = await publish.WaitAsync(TestContext.Current.CancellationToken);
         var state = await source.GetStateAsync();
 
         Assert.Equal(nameof(TaskCanceledException), exceptionType);
         Assert.Equal(0, state.AcknowledgedCount);
         Assert.Equal(0, state.FailedCount);
         Assert.Equal(1, state.Outbox?.Count);
+
+        await source.DiscardPendingAsync();
     }
 
     [Fact]
     public async Task PostAsync_timeout_from_keyed_postman_leaves_item_pending()
     {
         var source = fixture.GrainFactory.GetGrain<IOutboxProcessorKeyedTimeoutPostmanGrain>(Guid.NewGuid());
+        var value = $"timeout-{Guid.NewGuid():N}";
+        using var gate = OutboxProcessorPostmanGate.Create(value);
 
-        var exceptionType = await source.PublishWithTimeoutAsync("timeout");
+        var publish = source.PublishWithTimeoutAsync(value);
+        await gate.Started.Task.WaitAsync(TestContext.Current.CancellationToken);
+        fixture.TimeProvider.Advance(TimeSpan.FromHours(1));
+
+        var exceptionType = await publish.WaitAsync(TestContext.Current.CancellationToken);
         var state = await source.GetStateAsync();
 
         Assert.Equal(nameof(TimeoutException), exceptionType);
         Assert.Equal(0, state.AcknowledgedCount);
         Assert.Equal(0, state.FailedCount);
         Assert.Equal(1, state.Outbox?.Count);
+
+        await source.DiscardPendingAsync();
     }
 
     [Fact]
     public async Task PostAsync_timeout_arms_retry_and_later_run_delivers_pending_item()
     {
         var source = fixture.GrainFactory.GetGrain<IOutboxProcessorTimeoutRetryGrain>(Guid.NewGuid());
+        var value = $"timeout-retry-{Guid.NewGuid():N}";
+        using var gate = OutboxProcessorPostmanGate.Create(value);
 
-        var exceptionType = await source.PublishWithTimeoutAsync("timeout-retry");
+        var publish = source.PublishWithTimeoutAsync(value);
+        await gate.Started.Task.WaitAsync(TestContext.Current.CancellationToken);
+        fixture.TimeProvider.Advance(TimeSpan.FromHours(1));
 
+        var exceptionType = await publish.WaitAsync(TestContext.Current.CancellationToken);
         Assert.Equal(nameof(TimeoutException), exceptionType);
         await fixture.WaitForAssertionAsync(
             source,
@@ -165,8 +187,20 @@ public sealed class OutboxProcessorTests(MessagingTestClusterFixture fixture) : 
     public async Task PostAsync_dispatches_items_for_same_postman_sequentially()
     {
         var source = fixture.GrainFactory.GetGrain<IOutboxProcessorConcurrentPostmanGrain>(Guid.NewGuid());
+        var first = $"first-{Guid.NewGuid():N}";
+        var second = $"second-{Guid.NewGuid():N}";
+        using var firstGate = OutboxProcessorPostmanGate.Create(first);
+        using var secondGate = OutboxProcessorPostmanGate.Create(second);
 
-        await source.PublishTwoAsync("first", "second");
+        var publish = source.PublishTwoAsync(first, second);
+        await firstGate.Started.Task.WaitAsync(TestContext.Current.CancellationToken);
+        Assert.False(secondGate.Started.Task.IsCompleted);
+
+        firstGate.AllowCompletion.SetResult();
+        await secondGate.Started.Task.WaitAsync(TestContext.Current.CancellationToken);
+        secondGate.AllowCompletion.SetResult();
+
+        await publish.WaitAsync(TestContext.Current.CancellationToken);
         var state = await source.GetStateAsync();
 
         Assert.Equal(2, state.AcknowledgedCount);
@@ -179,10 +213,20 @@ public sealed class OutboxProcessorTests(MessagingTestClusterFixture fixture) : 
     public async Task PostAsync_dispatches_different_postmen_concurrently()
     {
         var source = fixture.GrainFactory.GetGrain<IOutboxProcessorOrderedPostmanGrain>(Guid.NewGuid());
+        var primary = $"primary-{Guid.NewGuid():N}";
+        var secondary = $"secondary-{Guid.NewGuid():N}";
+        using var primaryGate = OutboxProcessorPostmanGate.Create(primary);
+        using var secondaryGate = OutboxProcessorPostmanGate.Create(secondary);
 
-        var state = await source.PublishTwoPostmenAsync("primary", "secondary");
+        var publish = source.PublishTwoPostmenAsync(primary, secondary);
+        await Task.WhenAll(
+            primaryGate.Started.Task.WaitAsync(TestContext.Current.CancellationToken),
+            secondaryGate.Started.Task.WaitAsync(TestContext.Current.CancellationToken));
+        primaryGate.AllowCompletion.SetResult();
+        secondaryGate.AllowCompletion.SetResult();
 
-        Assert.Equal(["primary", "secondary"], state.PostedValues.Sort());
+        var state = await publish.WaitAsync(TestContext.Current.CancellationToken);
+        Assert.Equal([primary, secondary], state.PostedValues.Sort());
         Assert.Empty(state.FailedValues);
         Assert.Empty(state.PendingValues);
         Assert.Equal(2, state.MaxConcurrentPostmen);
@@ -205,17 +249,25 @@ public sealed class OutboxProcessorTests(MessagingTestClusterFixture fixture) : 
     public async Task PostInBackgroundAsync_allows_other_calls_while_postman_is_awaiting()
     {
         var source = fixture.GrainFactory.GetGrain<IOutboxProcessorConcurrentPostmanGrain>(Guid.NewGuid());
+        var value = $"background-{Guid.NewGuid():N}";
+        using var gate = OutboxProcessorPostmanGate.Create(value);
 
-        await source.PublishInBackgroundAsync("background");
+        await source.PublishInBackgroundAsync(value);
+        await gate.Started.Task.WaitAsync(TestContext.Current.CancellationToken);
 
+        var state = await source.GetStateAsync();
+        Assert.Equal(1, state.MaxConcurrentPostmen);
+        Assert.Equal(0, state.AcknowledgedCount);
+        Assert.Equal(1, state.Outbox?.Count);
+
+        gate.AllowCompletion.SetResult();
         await fixture.WaitForAssertionAsync(
             source,
             async () =>
             {
-                var state = await source.GetStateAsync();
-                Assert.Equal(1, state.MaxConcurrentPostmen);
-                Assert.Equal(0, state.AcknowledgedCount);
-                Assert.Equal(1, state.Outbox?.Count);
+                var completed = await source.GetStateAsync();
+                Assert.Equal(1, completed.AcknowledgedCount);
+                Assert.Equal(0, completed.Outbox?.Count);
             },
             ct: TestContext.Current.CancellationToken);
     }
@@ -236,6 +288,59 @@ internal static class OutboxProcessorTestPostmanNames
     public const string Success = "outbox-processor-success";
     public const string Failure = "outbox-processor-failure";
     public const string Delay = "outbox-processor-delay";
+}
+
+internal sealed class OutboxProcessorPostmanGate : IDisposable
+{
+    private static readonly Dictionary<string, OutboxProcessorPostmanGate> Gates = [];
+    private readonly string value;
+
+    private OutboxProcessorPostmanGate(string value)
+    {
+        this.value = value;
+    }
+
+    public TaskCompletionSource Started { get; } =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public TaskCompletionSource AllowCompletion { get; } =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public static OutboxProcessorPostmanGate Create(string value)
+    {
+        var gate = new OutboxProcessorPostmanGate(value);
+        lock (Gates)
+        {
+            Gates.Add(value, gate);
+        }
+
+        return gate;
+    }
+
+    public static OutboxProcessorPostmanGate For(string value)
+    {
+        lock (Gates)
+        {
+            return Gates[value];
+        }
+    }
+
+    public static OutboxProcessorPostmanGate? Find(string value)
+    {
+        lock (Gates)
+        {
+            return Gates.GetValueOrDefault(value);
+        }
+    }
+
+    public void Dispose()
+    {
+        AllowCompletion.TrySetResult();
+        lock (Gates)
+        {
+            Gates.Remove(value);
+        }
+    }
 }
 
 public interface IOutboxProcessorSourceGrain : IGrainWithGuidKey
@@ -278,6 +383,8 @@ public interface IOutboxProcessorKeyedCancellationPostmanGrain : IGrainWithGuidK
     Task<string?> PublishWithCancellationAsync(string value);
 
     Task<OutboxProcessorSourceState> GetStateAsync();
+
+    Task DiscardPendingAsync();
 }
 
 public interface IOutboxProcessorKeyedTimeoutPostmanGrain : IGrainWithGuidKey
@@ -285,6 +392,8 @@ public interface IOutboxProcessorKeyedTimeoutPostmanGrain : IGrainWithGuidKey
     Task<string?> PublishWithTimeoutAsync(string value);
 
     Task<OutboxProcessorSourceState> GetStateAsync();
+
+    Task DiscardPendingAsync();
 }
 
 public interface IOutboxProcessorTimeoutRetryGrain : IGrainWithGuidKey
@@ -698,7 +807,8 @@ public sealed class OutboxProcessorKeyedFailingPostmanGrain(
 }
 
 public sealed class OutboxProcessorKeyedCancellationPostmanGrain(
-    [PersistentState("state", "Default")] IPersistentState<OutboxProcessorSourceState> state)
+    [PersistentState("state", "Default")] IPersistentState<OutboxProcessorSourceState> state,
+    ManualTimeProvider timeProvider)
     : Grain, IOutboxProcessorKeyedCancellationPostmanGrain, IOutboxGrain
 {
     private OutboxProcessor<OutboxMessageEnvelope<OutboxProcessorTestEvent>>? processor;
@@ -712,7 +822,8 @@ public sealed class OutboxProcessorKeyedCancellationPostmanGrain(
             PendingItems = () => state.State.Outbox?.ToImmutableArray() ?? [],
             AcknowledgePostedAsync = AcknowledgePostedAsync,
             ReconcileFailedAsync = ReconcileFailedAsync,
-            ProcessingTimeout = TimeSpan.FromSeconds(5),
+            ProcessingTimeout = TimeSpan.FromHours(2),
+            TimeProvider = timeProvider,
             RetryDelay = TimeSpan.FromMilliseconds(100)
         })
         .AddPostman<OutboxMessageEnvelope<OutboxProcessorTestEvent>>(OutboxProcessorTestPostmanNames.Delay);
@@ -726,7 +837,7 @@ public sealed class OutboxProcessorKeyedCancellationPostmanGrain(
         state.State.Outbox = outbox.Add(new OutboxProcessorTestEvent(value));
         await state.WriteStateAsync();
 
-        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(20));
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromHours(1), timeProvider);
         try
         {
             await processor!.PostAsync(cancellation.Token);
@@ -739,6 +850,13 @@ public sealed class OutboxProcessorKeyedCancellationPostmanGrain(
     }
 
     public Task<OutboxProcessorSourceState> GetStateAsync() => Task.FromResult(state.State);
+
+    public async Task DiscardPendingAsync()
+    {
+        state.State.Outbox = EnsureOutbox().Clear();
+        await state.WriteStateAsync();
+        await processor!.PostInBackgroundAsync();
+    }
 
     private ValueTask AcknowledgePostedAsync(
         ImmutableArray<OutboxMessageEnvelope<OutboxProcessorTestEvent>> items,
@@ -757,7 +875,8 @@ public sealed class OutboxProcessorKeyedCancellationPostmanGrain(
 }
 
 public sealed class OutboxProcessorKeyedTimeoutPostmanGrain(
-    [PersistentState("state", "Default")] IPersistentState<OutboxProcessorSourceState> state)
+    [PersistentState("state", "Default")] IPersistentState<OutboxProcessorSourceState> state,
+    ManualTimeProvider timeProvider)
     : Grain, IOutboxProcessorKeyedTimeoutPostmanGrain, IOutboxGrain
 {
     private OutboxProcessor<OutboxMessageEnvelope<OutboxProcessorTestEvent>>? processor;
@@ -771,7 +890,8 @@ public sealed class OutboxProcessorKeyedTimeoutPostmanGrain(
             PendingItems = () => state.State.Outbox?.ToImmutableArray() ?? [],
             AcknowledgePostedAsync = AcknowledgePostedAsync,
             ReconcileFailedAsync = ReconcileFailedAsync,
-            ProcessingTimeout = TimeSpan.FromMilliseconds(20),
+            ProcessingTimeout = TimeSpan.FromHours(1),
+            TimeProvider = timeProvider,
             RetryDelay = TimeSpan.FromMilliseconds(100)
         })
         .AddPostman<OutboxMessageEnvelope<OutboxProcessorTestEvent>>(OutboxProcessorTestPostmanNames.Delay);
@@ -798,6 +918,13 @@ public sealed class OutboxProcessorKeyedTimeoutPostmanGrain(
 
     public Task<OutboxProcessorSourceState> GetStateAsync() => Task.FromResult(state.State);
 
+    public async Task DiscardPendingAsync()
+    {
+        state.State.Outbox = EnsureOutbox().Clear();
+        await state.WriteStateAsync();
+        await processor!.PostInBackgroundAsync();
+    }
+
     private ValueTask AcknowledgePostedAsync(
         ImmutableArray<OutboxMessageEnvelope<OutboxProcessorTestEvent>> items,
         CancellationToken cancellationToken) =>
@@ -815,7 +942,8 @@ public sealed class OutboxProcessorKeyedTimeoutPostmanGrain(
 }
 
 public sealed class OutboxProcessorTimeoutRetryGrain(
-    [PersistentState("state", "Default")] IPersistentState<OutboxProcessorSourceState> state)
+    [PersistentState("state", "Default")] IPersistentState<OutboxProcessorSourceState> state,
+    ManualTimeProvider timeProvider)
     : Grain, IOutboxProcessorTimeoutRetryGrain, IOutboxGrain
 {
     private OutboxProcessor<OutboxMessageEnvelope<OutboxProcessorTestEvent>>? processor;
@@ -830,10 +958,11 @@ public sealed class OutboxProcessorTimeoutRetryGrain(
             PendingItems = () => state.State.Outbox?.ToImmutableArray() ?? [],
             AcknowledgePostedAsync = AcknowledgePostedAsync,
             ReconcileFailedAsync = (_, _) => ValueTask.CompletedTask,
-            ProcessingTimeout = TimeSpan.FromMilliseconds(250),
+            ProcessingTimeout = TimeSpan.FromHours(1),
+            TimeProvider = timeProvider,
             RetryDelay = TimeSpan.FromMilliseconds(100)
         })
-        .AddPostman<OutboxMessageEnvelope<OutboxProcessorTestEvent>>((_, ct) => FirstAttemptBlocksAsync(ct));
+        .AddPostman<OutboxMessageEnvelope<OutboxProcessorTestEvent>>(FirstAttemptBlocksAsync);
 
         await base.OnActivateAsync(cancellationToken);
     }
@@ -857,11 +986,15 @@ public sealed class OutboxProcessorTimeoutRetryGrain(
 
     public Task<OutboxProcessorSourceState> GetStateAsync() => Task.FromResult(state.State);
 
-    private async Task FirstAttemptBlocksAsync(CancellationToken cancellationToken)
+    private async Task FirstAttemptBlocksAsync(
+        OutboxMessageEnvelope<OutboxProcessorTestEvent> envelope,
+        CancellationToken cancellationToken)
     {
         if (++attempts == 1)
         {
-            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            var gate = OutboxProcessorPostmanGate.For(envelope.Message.Value);
+            gate.Started.TrySetResult();
+            await gate.AllowCompletion.Task.WaitAsync(cancellationToken);
         }
     }
 
@@ -904,7 +1037,7 @@ public sealed class OutboxProcessorConcurrentPostmanGrain(
             ReconcileFailedAsync = ReconcileFailedAsync,
             RetryDelay = TimeSpan.FromMilliseconds(100)
         })
-        .AddPostman<OutboxMessageEnvelope<OutboxProcessorTestEvent>>(DelayAndTrackConcurrencyAsync);
+        .AddPostman<OutboxMessageEnvelope<OutboxProcessorTestEvent>>(PostWithGateAndTrackConcurrencyAsync);
 
         await base.OnActivateAsync(cancellationToken);
     }
@@ -930,7 +1063,7 @@ public sealed class OutboxProcessorConcurrentPostmanGrain(
 
     public Task<OutboxProcessorSourceState> GetStateAsync() => Task.FromResult(state.State);
 
-    private async Task DelayAndTrackConcurrencyAsync(
+    private async Task PostWithGateAndTrackConcurrencyAsync(
         OutboxMessageEnvelope<OutboxProcessorTestEvent> envelope,
         CancellationToken cancellationToken)
     {
@@ -939,7 +1072,9 @@ public sealed class OutboxProcessorConcurrentPostmanGrain(
 
         try
         {
-            await Task.Delay(TimeSpan.FromMilliseconds(500), cancellationToken);
+            var gate = OutboxProcessorPostmanGate.For(envelope.Message.Value);
+            gate.Started.TrySetResult();
+            await gate.AllowCompletion.Task.WaitAsync(cancellationToken);
         }
         finally
         {
@@ -1065,7 +1200,11 @@ public sealed class OutboxProcessorOrderedPostmanGrain
                 throw new InvalidOperationException($"Cannot post {message.Value}.");
             }
 
-            await Task.Delay(TimeSpan.FromMilliseconds(200), cancellationToken);
+            if (OutboxProcessorPostmanGate.Find(message.Value) is { } gate)
+            {
+                gate.Started.TrySetResult();
+                await gate.AllowCompletion.Task.WaitAsync(cancellationToken);
+            }
         }
         finally
         {
@@ -1134,7 +1273,9 @@ public sealed class KeyedOutboxProcessorDelayingPostman :
         OutboxMessageEnvelope<OutboxProcessorTestEvent> message,
         CancellationToken cancellationToken)
     {
-        await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+        var gate = OutboxProcessorPostmanGate.For(message.Message.Value);
+        gate.Started.TrySetResult();
+        await gate.AllowCompletion.Task.WaitAsync(cancellationToken);
     }
 }
 

@@ -7,7 +7,8 @@ namespace Egil.Orleans.Messaging.Outboxes;
 internal sealed class OutboxDispatcher<TOutbox>(
     OutboxPostmanRegistry<TOutbox> postmen,
     ILogger logger,
-    string grainType)
+    string grainType,
+    TimeProvider timeProvider)
     where TOutbox : notnull
 {
     public async Task<ImmutableArray<OutboxDispatchResult<TOutbox>>> DispatchAsync(
@@ -15,7 +16,7 @@ internal sealed class OutboxDispatcher<TOutbox>(
         TimeSpan processingTimeout,
         CancellationToken cancellationToken)
     {
-        using var timeout = new CancellationTokenSource(processingTimeout);
+        using var timeout = new CancellationTokenSource(processingTimeout, timeProvider);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
         var started = Stopwatch.GetTimestamp();
 

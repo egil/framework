@@ -53,6 +53,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         ArgumentNullException.ThrowIfNull(owner);
         ArgumentNullException.ThrowIfNull(grainFactory);
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(options.TimeProvider);
         ArgumentNullException.ThrowIfNull(logger);
 
         if (options.ProcessingTimeout <= TimeSpan.Zero)
@@ -71,7 +72,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         this.logger = logger;
         grainType = owner.GetType().Name;
         reminderName = ReminderPrefix + typeof(TOutbox).FullName;
-        dispatcher = new OutboxDispatcher<TOutbox>(postmen, logger, grainType);
+        dispatcher = new OutboxDispatcher<TOutbox>(postmen, logger, grainType, options.TimeProvider);
         reconciler = new OutboxReconciler<TOutbox>(
             options.AcknowledgePostedAsync,
             options.ReconcileFailedAsync);
@@ -331,15 +332,26 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     {
         await WaitForTurnAsync(cancellationToken);
         var reconciliation = pendingReconciliation;
-        pendingReconciliation = null;
 
         try
         {
-            await RunAsActiveDrainAsync(
-                () => ReconcileAsync(reconciliation.GetValueOrDefault(), cancellationToken));
+            await RunAsActiveDrainAsync(async () =>
+            {
+                await reconciler.ReconcileAsync(
+                    reconciliation.GetValueOrDefault(),
+                    cancellationToken);
+
+                // Keep ownership visible while user callbacks run. An
+                // interleaving empty post must not dispose this timer and
+                // cancel the reconciliation callback that is using it.
+                pendingReconciliation = null;
+                await ReconcileRetryStateAsync();
+            });
         }
         catch
         {
+            pendingReconciliation = null;
+
             // A failed acknowledgement/reconciliation callback skips
             // ReconcileRetryStateAsync; arm retry so pending items are not
             // stranded if the activation goes away.
@@ -586,8 +598,15 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     {
         dispatchTimer?.Dispose();
         dispatchTimer = null;
-        reconciliationTimer?.Dispose();
-        reconciliationTimer = null;
+
+        // The durable outbox can be cleared while an already-dispatched batch
+        // still awaits callbacks. Its timer owns that reconciliation turn;
+        // disposing it here would cancel the callback before it can finish.
+        if (pendingReconciliation is null)
+        {
+            reconciliationTimer?.Dispose();
+            reconciliationTimer = null;
+        }
 
         // Look up a leftover reminder from a previous activation at most once;
         // afterwards the local field is authoritative, so an empty outbox does
