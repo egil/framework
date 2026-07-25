@@ -3,6 +3,7 @@ using Azure.Messaging.EventHubs;
 using Orleans.Providers.Streams.Common;
 using Orleans.Serialization;
 using Orleans.Streaming.EventHubs;
+using Orleans.Streams;
 
 namespace Egil.Orleans.Messaging.Tests.Streams.EventHubs;
 
@@ -122,13 +123,74 @@ public sealed class EnrichedEventHubAdapterTests
         Assert.Equal("provider-a", enriched.ProviderName);
     }
 
-    private static EnrichedEventHubAdapter CreateAdapter()
+    [Fact]
+    public void GetBatchContainer_delivers_enriched_tokens_from_cached_message()
+    {
+        var adapter = CreateAdapter(out var serializer);
+        var streamId = StreamId.Create("orders", "one");
+        var traceParent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+        var enqueuedTime = new DateTimeOffset(2026, 5, 24, 19, 0, 0, TimeSpan.Zero);
+        var outgoing = adapter.ToQueueMessage(
+            streamId,
+            ["event-1", "event-2"],
+            null!,
+            []);
+        var properties = new Dictionary<string, object>(outgoing.Properties)
+        {
+            ["traceparent"] = traceParent
+        };
+#pragma warning disable CS0618 // Test-only factory path for broker-owned EventData fields in the installed Event Hubs package.
+        var received = EventHubsModelFactory.EventData(
+            outgoing.EventBody,
+            properties,
+            systemProperties: new Dictionary<string, object>(),
+            partitionKey: "one",
+            sequenceNumber: 42,
+            offset: 123,
+            enqueuedTime: enqueuedTime);
+#pragma warning restore CS0618
+        var position = adapter.GetStreamPosition("0", received);
+        var cachedMessage = adapter.FromQueueMessage(
+            position,
+            received,
+            new DateTime(2026, 5, 24, 19, 0, 1, DateTimeKind.Utc),
+            static size => new ArraySegment<byte>(new byte[size]));
+
+        var serialized = serializer.SerializeToArray<IBatchContainer>(
+            adapter.GetBatchContainer(ref cachedMessage));
+        var container = serializer.Deserialize<IBatchContainer>(serialized);
+        var delivered = container.GetEvents<string>().ToArray();
+
+        Assert.Equal(["event-1", "event-2"], delivered.Select(item => item.Item1));
+        AssertEnrichedToken(container.SequenceToken, 0, enqueuedTime, traceParent);
+        AssertEnrichedToken(delivered[0].Item2, 0, enqueuedTime, traceParent);
+        AssertEnrichedToken(delivered[1].Item2, 1, enqueuedTime, traceParent);
+    }
+
+    private static EnrichedEventHubAdapter CreateAdapter() => CreateAdapter(out _);
+
+    private static EnrichedEventHubAdapter CreateAdapter(out Serializer serializer)
     {
         var services = new ServiceCollection();
-        services.AddSerializer(static _ => { });
+        services.AddSerializer(builder => builder.AddAssembly(typeof(EnrichedEventHubAdapter).Assembly));
         var provider = services.BuildServiceProvider();
-        var serializer = provider.GetRequiredService<Serializer>();
+        serializer = provider.GetRequiredService<Serializer>();
 
         return new EnrichedEventHubAdapter("provider-a", serializer);
+    }
+
+    private static void AssertEnrichedToken(
+        StreamSequenceToken token,
+        int expectedEventIndex,
+        DateTimeOffset expectedEnqueuedTime,
+        string expectedTraceParent)
+    {
+        var enriched = Assert.IsType<EnrichedEventHubSequenceToken>(token);
+        Assert.Equal("123", enriched.EventHubOffset);
+        Assert.Equal(42, enriched.SequenceNumber);
+        Assert.Equal(expectedEventIndex, enriched.EventIndex);
+        Assert.Equal(expectedEnqueuedTime, enriched.EnqueuedTime);
+        Assert.Equal("provider-a", enriched.ProviderName);
+        Assert.Equal(expectedTraceParent, enriched.TraceParent);
     }
 }

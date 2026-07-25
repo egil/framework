@@ -25,20 +25,24 @@ namespace Egil.Orleans.Messaging.Streams.EventHubs;
 /// </code>
 /// </para>
 /// <para>
-/// <b>Overrides:</b> This adapter overrides three methods:
+/// <b>Overrides:</b> This adapter overrides the Event Hubs conversion points
+/// that create messages and sequence tokens:
 /// <list type="bullet">
 /// <item><see cref="EventHubDataAdapter.GetStreamPosition"/> and
 /// <see cref="EventHubDataAdapter.GetSequenceToken(ref CachedMessage)"/>
 /// — to return <see cref="EnrichedEventHubSequenceToken"/> instead of
 /// <see cref="EventHubSequenceTokenV2"/>.</item>
+/// <item><c>GetBatchContainer(EventHubMessage)</c> — to expose enriched
+/// per-event tokens to stream consumers while preserving the base batch
+/// container behavior.</item>
 /// <item><see cref="ToQueueMessage{T}"/> — to stamp
 /// <c>Activity.Current?.Id</c> into the outgoing
 /// <c>EventData.Properties["traceparent"]</c> before the event hits
 /// Event Hub, enabling cross-queue trace correlation via
 /// <see cref="ActivityLink"/>s on the consumer side.</item>
 /// </list>
-/// All other adapter behavior (batch container, partition key) is
-/// inherited unchanged from <see cref="EventHubDataAdapter"/>.
+/// All other adapter behavior, including partition-key selection, is inherited
+/// unchanged from <see cref="EventHubDataAdapter"/>.
 /// </para>
 /// <para>
 /// <b>OTel trace correlation:</b> Orleans streams lose
@@ -48,8 +52,8 @@ namespace Egil.Orleans.Messaging.Streams.EventHubs;
 /// <item><b>Producer side</b> (<see cref="ToQueueMessage{T}"/>):
 /// stashes <c>Activity.Current?.Id</c> into
 /// <c>EventData.Properties["traceparent"]</c>.</item>
-/// <item><b>Consumer side</b> (<see cref="GetStreamPosition"/>):
-/// extracts the <c>traceparent</c> property and stores it in
+/// <item><b>Consumer side</b> (<c>GetBatchContainer(EventHubMessage)</c>):
+/// extracts the <c>traceparent</c> property and stores it in each delivered
 /// <see cref="EnrichedEventHubSequenceToken.TraceParent"/>.</item>
 /// <item><b>StreamManager</b>: reads
 /// <see cref="StreamCursor.TryGetTraceParent"/> and creates an
@@ -121,8 +125,8 @@ public class EnrichedEventHubAdapter : EventHubDataAdapter
     /// This is the <b>producer side</b> of the OTel trace correlation pattern.
     /// The current <see cref="Activity.Id"/> (W3C format) is captured at
     /// publish time and stored as an Event Hub application property. On the
-    /// consumer side, <see cref="GetStreamPosition"/> extracts it into the
-    /// <see cref="EnrichedEventHubSequenceToken.TraceParent"/> property.
+    /// consumer side, the batch-container conversion extracts it into each
+    /// delivered <see cref="EnrichedEventHubSequenceToken.TraceParent"/>.
     /// </para>
     /// <para>
     /// If no <see cref="Activity"/> is active at publish time, no property
@@ -166,11 +170,11 @@ public class EnrichedEventHubAdapter : EventHubDataAdapter
     /// cached message — no additional broker round-trip is needed.
     /// </para>
     /// <para>
-    /// <b>Note:</b> The <see cref="EnrichedEventHubSequenceToken.TraceParent"/>
-    /// is <b>not available</b> on tokens reconstructed from cache — the
-    /// <see cref="CachedMessage"/> struct does not carry Event Hub application
-    /// properties. Trace correlation uses the token produced by
-    /// <see cref="GetStreamPosition"/> at initial ingest.
+    /// <b>Note:</b> This cache-cursor token cannot include
+    /// <see cref="EnrichedEventHubSequenceToken.TraceParent"/> because
+    /// <see cref="CachedMessage"/> does not expose Event Hub application
+    /// properties. Consumer delivery reconstructs those properties and adds
+    /// the traceparent through <c>GetBatchContainer(EventHubMessage)</c>.
     /// </para>
     /// </remarks>
     /// <param name="cachedMessage">The cached Event Hub message.</param>
@@ -185,19 +189,33 @@ public class EnrichedEventHubAdapter : EventHubDataAdapter
             ? string.Empty
             : GetOffset(cachedMessage) ?? string.Empty;
 
-        var enqueueTimeUtc = cachedMessage.EnqueueTimeUtc.Kind switch
-        {
-            DateTimeKind.Unspecified => DateTime.SpecifyKind(cachedMessage.EnqueueTimeUtc, DateTimeKind.Utc),
-            DateTimeKind.Local => cachedMessage.EnqueueTimeUtc.ToUniversalTime(),
-            _ => cachedMessage.EnqueueTimeUtc
-        };
-
         return new EnrichedEventHubSequenceToken(
             offset,
             cachedMessage.SequenceNumber,
             cachedMessage.EventIndex,
-            new DateTimeOffset(enqueueTimeUtc),
+            NormalizeUtc(cachedMessage.EnqueueTimeUtc),
             ProviderName);
+    }
+
+    /// <summary>
+    /// Wraps the base batch container so the tokens observed by stream
+    /// consumers carry the Event Hub metadata reconstructed from cache.
+    /// </summary>
+    protected override IBatchContainer GetBatchContainer(EventHubMessage eventHubMessage)
+    {
+        var inner = base.GetBatchContainer(eventHubMessage);
+        var traceParent = eventHubMessage.Properties.TryGetValue(TraceParentPropertyKey, out var value)
+            ? value as string ?? value?.ToString()
+            : null;
+        var sequenceToken = new EnrichedEventHubSequenceToken(
+            eventHubMessage.Offset,
+            eventHubMessage.SequenceNumber,
+            inner.SequenceToken.EventIndex,
+            NormalizeUtc(eventHubMessage.EnqueueTimeUtc),
+            ProviderName,
+            traceParent);
+
+        return new EnrichedEventHubBatchContainer(inner, sequenceToken);
     }
 
     /// <summary>
@@ -251,5 +269,17 @@ public class EnrichedEventHubAdapter : EventHubDataAdapter
             traceParent);
 
         return new StreamPosition(streamPosition.StreamId, enrichedToken);
+    }
+
+    private static DateTimeOffset NormalizeUtc(DateTime value)
+    {
+        var utc = value.Kind switch
+        {
+            DateTimeKind.Unspecified => DateTime.SpecifyKind(value, DateTimeKind.Utc),
+            DateTimeKind.Local => value.ToUniversalTime(),
+            _ => value
+        };
+
+        return new DateTimeOffset(utc);
     }
 }

@@ -14,9 +14,9 @@ namespace Egil.Orleans.Messaging.Streams.EventHubs;
 /// <b>Registration:</b> Call
 /// <see cref="EnrichedEventHubAdapterExtensions.UseEnrichedDataAdapter"/>
 /// on the Event Hub stream configurator during silo setup. This registers
-/// the library's internal <c>EnrichedEventHubAdapter</c> that overrides
-/// <c>GetStreamPosition</c> and <c>GetSequenceToken</c> to produce
-/// <see cref="EnrichedEventHubSequenceToken"/> instances automatically.
+/// the library's <see cref="EnrichedEventHubAdapter"/>, which produces
+/// <see cref="EnrichedEventHubSequenceToken"/> instances for cache positions
+/// and consumer delivery.
 /// </para>
 /// <para>
 /// <b>Transparent to StreamManager:</b> The <see cref="StreamManager"/> is
@@ -81,8 +81,8 @@ public class EnrichedEventHubSequenceToken : EventHubSequenceTokenV2, IStreamSeq
     /// </summary>
     /// <remarks>
     /// Stamped by <see cref="EnrichedEventHubAdapter"/> in its
-    /// <c>ToQueueMessage</c> override (producer side) and extracted in
-    /// <c>GetStreamPosition</c> (consumer side).
+    /// <c>ToQueueMessage</c> override (producer side) and extracted during
+    /// batch-container conversion (consumer side).
     /// <see cref="StreamManager"/> uses this to create
     /// <see cref="System.Diagnostics.ActivityLink"/>s — correlating consumer
     /// spans to producer spans without creating multi-hour parent-child traces.
