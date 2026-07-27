@@ -281,6 +281,31 @@ public sealed class StateManagerTests
     }
 
     [Fact]
+    public async Task ClearAsync_when_clear_fails_and_read_shows_record_still_exists_adopts_state_and_rethrows()
+    {
+        var clearException = new TimeoutException("clear timeout");
+        var persisted = new TestState("persisted");
+        var storage = new FakePersistentState(new TestState("initial"))
+        {
+            ClearException = clearException,
+            OnRead = state =>
+            {
+                state.State = persisted;
+                state.RecordExists = true;
+                state.Etag = "etag-2";
+            }
+        };
+        var manager = new DefaultStateManager<TestState>(storage);
+
+        var ex = await Assert.ThrowsAsync<TimeoutException>(() => manager.ClearAsync());
+
+        Assert.Same(clearException, ex);
+        Assert.Same(persisted, manager.State);
+        Assert.True(storage.RecordExists);
+        Assert.Equal("etag-2", storage.Etag);
+    }
+
+    [Fact]
     public async Task ClearAsync_on_conflict_when_read_shows_missing_record_adopts_state_and_rethrows_conflict()
     {
         var clearException = new InconsistentStateException("clear conflict");
