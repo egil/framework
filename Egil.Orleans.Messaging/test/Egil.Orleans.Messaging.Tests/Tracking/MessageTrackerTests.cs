@@ -267,6 +267,26 @@ public sealed class MessageTrackerTests
     }
 
     [Fact]
+    public void ProcessMessage_accepts_outbox_token_when_same_epoch_and_sequence_is_newer()
+    {
+        var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
+        var sender = GrainId.Create("test/sender", "one");
+        var first = new OutboxSequenceToken(1, sender, now, now);
+        var second = new OutboxSequenceToken(2, sender, now, now);
+        var tracker = new MessageTracker();
+        tracker.RegisterTimeProvider(new ManualTimeProvider(now));
+        tracker.ProcessMessage(first, out tracker);
+
+        var accepted = tracker.ProcessMessage(second, out var next);
+        var acceptedAgain = next.ProcessMessage(second, out var unchanged);
+
+        Assert.True(accepted);
+        Assert.Equal(second, next.LatestOutbox(sender));
+        Assert.False(acceptedAgain);
+        Assert.Same(next, unchanged);
+    }
+
+    [Fact]
     public void ProcessMessage_rejects_outbox_token_when_epoch_is_stale()
     {
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
