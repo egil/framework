@@ -74,6 +74,24 @@ public sealed class OutboxProcessorCoverageTests(MessagingTestClusterFixture fix
     }
 
     [Fact]
+    public async Task Failed_dispatch_registers_reminder_and_successful_retry_unregisters_it()
+    {
+        var grain = fixture.GrainFactory.GetGrain<IOutboxProcessorRetryPendingGrain>(Guid.NewGuid());
+
+        var failedState = await grain.PublishAndFailAsync("retry");
+
+        Assert.Equal(1, failedState.FailedCount);
+        Assert.Equal(1, failedState.Outbox?.Count);
+        Assert.True(await grain.HasReminderAsync());
+
+        var recoveredState = await grain.RetrySuccessfullyAsync();
+
+        Assert.Equal(1, recoveredState.AcknowledgedCount);
+        Assert.Equal(0, recoveredState.Outbox?.Count);
+        Assert.False(await grain.HasReminderAsync());
+    }
+
+    [Fact]
     public async Task ReceiveReminderAsync_ignores_unrelated_reminder_name()
     {
         var grain = fixture.GrainFactory.GetGrain<IOutboxProcessorReminderCoverageGrain>(Guid.NewGuid());
@@ -374,6 +392,12 @@ public interface IOutboxProcessorRetryPendingGrain : IGrainWithGuidKey
 {
     Task PublishInBackgroundAsync(string value);
 
+    Task<OutboxProcessorSourceState> PublishAndFailAsync(string value);
+
+    Task<OutboxProcessorSourceState> RetrySuccessfullyAsync();
+
+    Task<bool> HasReminderAsync();
+
     Task<OutboxProcessorSourceState> GetStateAsync();
 }
 
@@ -619,6 +643,7 @@ public sealed class OutboxProcessorRetryPendingGrain(
     : Grain, IOutboxProcessorRetryPendingGrain, IOutboxGrain
 {
     private OutboxProcessor<OutboxMessageEnvelope<OutboxProcessorTestEvent>>? processor;
+    private bool failPosting = true;
 
     public override async Task OnActivateAsync(CancellationToken cancellationToken)
     {
@@ -627,11 +652,9 @@ public sealed class OutboxProcessorRetryPendingGrain(
             PendingItems = () => state.State.Outbox?.ToImmutableArray() ?? [],
             AcknowledgePostedAsync = AcknowledgePostedAsync,
             ReconcileFailedAsync = ReconcileFailedAsync,
-            RetryDelay = TimeSpan.FromMilliseconds(100)
+            RetryDelay = TimeSpan.FromMinutes(2)
         })
-        .AddPostman<OutboxMessageEnvelope<OutboxProcessorTestEvent>>(
-            static _ => new ValueTask(Task.FromException(
-                new InvalidOperationException("Keep pending for retry."))));
+        .AddPostman<OutboxMessageEnvelope<OutboxProcessorTestEvent>>(PostItemAsync);
 
         await base.OnActivateAsync(cancellationToken);
     }
@@ -643,12 +666,45 @@ public sealed class OutboxProcessorRetryPendingGrain(
         await processor!.PostInBackgroundAsync();
     }
 
+    public async Task<OutboxProcessorSourceState> PublishAndFailAsync(string value)
+    {
+        state.State.Outbox = EnsureOutbox().Add(new OutboxProcessorTestEvent(value));
+        await state.WriteStateAsync();
+        await processor!.PostAsync();
+        return state.State;
+    }
+
+    public async Task<OutboxProcessorSourceState> RetrySuccessfullyAsync()
+    {
+        failPosting = false;
+        await processor!.PostAsync();
+        return state.State;
+    }
+
+    public async Task<bool> HasReminderAsync() =>
+        await this.GetReminder(processor!.ReminderName) is not null;
+
     public Task<OutboxProcessorSourceState> GetStateAsync() => Task.FromResult(state.State);
 
-    private ValueTask AcknowledgePostedAsync(
+    private ValueTask PostItemAsync(OutboxMessageEnvelope<OutboxProcessorTestEvent> _) =>
+        failPosting
+            ? new ValueTask(Task.FromException(new InvalidOperationException("Keep pending for retry.")))
+            : ValueTask.CompletedTask;
+
+    private async ValueTask AcknowledgePostedAsync(
         ImmutableArray<OutboxMessageEnvelope<OutboxProcessorTestEvent>> items,
-        CancellationToken cancellationToken) =>
-        ValueTask.CompletedTask;
+        CancellationToken cancellationToken)
+    {
+        var outbox = EnsureOutbox();
+        foreach (var item in items)
+        {
+            outbox = outbox.Remove(item.Token);
+        }
+
+        state.State.Outbox = outbox;
+        state.State.AcknowledgedCount += items.Length;
+        await state.WriteStateAsync(cancellationToken);
+    }
 
     private async ValueTask ReconcileFailedAsync(
         ImmutableArray<(OutboxMessageEnvelope<OutboxProcessorTestEvent> Item, Exception Error, int Attempt)> failures,
