@@ -183,6 +183,26 @@ public sealed class OutboxTests
     }
 
     [Fact]
+    public void Equals_treats_removal_only_divergence_as_same_recovery_fingerprint()
+    {
+        var sender = GrainId.Create("test/sender", "one");
+        var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
+        var baseline = Outbox<string>.Create(sender)
+            .Add("first", now)
+            .Add("second", now)
+            .Add("third", now)
+            .Add("fourth", now);
+
+        var left = baseline.RemoveRange([baseline[2].Token]);
+        var right = baseline.RemoveRange([baseline[1].Token]);
+
+        Assert.Equal([1L, 2L, 4L], left.Select(item => item.Token.SequenceNumber).ToArray());
+        Assert.Equal([1L, 3L, 4L], right.Select(item => item.Token.SequenceNumber).ToArray());
+        Assert.Equal(left, right);
+        Assert.Equal(left.GetHashCode(), right.GetHashCode());
+    }
+
+    [Fact]
     public void Equals_returns_true_when_sender_sequence_epoch_and_envelopes_match()
     {
         var sender = GrainId.Create("test/sender", "one");
