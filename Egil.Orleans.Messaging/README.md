@@ -304,9 +304,20 @@ streamManager = this.RegisterStreamManager(state.State!.Tracker)
 await streamManager.EnsureExplicitSubscriptionsAsync(cancellationToken);
 ```
 
-The string namespace overload derives a stream id from the receiving grain
-identity. Use the `StreamId` overload for an explicit stream keyed by another
-application id:
+The string namespace overload derives a stream id from the complete receiving
+`GrainId`, including its grain type and compound-key extension. Publishers must
+use the same helper with the target grain identity:
+
+```csharp
+var customer = grainFactory.GetGrain<ICustomerGrain>(customerId);
+var streamId = StreamManager.CreateStreamId("prices", customer.GetGrainId());
+var stream = streamProvider.GetStream<PriceChanged>(streamId);
+```
+
+This convention follows the grain type, so renaming that type changes the
+derived stream id. Use the `StreamId` overload for an application-owned id that
+must survive grain-type changes, or when a custom grain identity cannot
+round-trip through Orleans' textual `GrainId` representation:
 
 ```csharp
 streamManager = this.RegisterStreamManager(state.State!.Tracker)
@@ -315,6 +326,10 @@ streamManager = this.RegisterStreamManager(state.State!.Tracker)
         StreamId.Create("prices", customerId),
         HandlePriceChangedAsync);
 ```
+
+The previous key-only convention is not compatible with these full-identity
+stream ids. Recreate existing durable subscriptions and update publishers
+together, or preserve the previous id through the explicit `StreamId` overload.
 
 Tracked resume tokens are a per-subscription choice. The default is to pass
 the previous token when a tracker snapshot is supplied. Opt out when a

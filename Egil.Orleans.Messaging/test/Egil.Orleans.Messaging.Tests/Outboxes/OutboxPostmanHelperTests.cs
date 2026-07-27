@@ -139,11 +139,15 @@ public sealed class OutboxProcessorStreamPostmanGrain(
     public override async Task OnActivateAsync(CancellationToken cancellationToken)
     {
         EnsureOutbox();
+        var sink = GrainFactory.GetGrain<IOutboxProcessorSinkGrain>(this.GetPrimaryKey());
+        var streamId = StreamManager.CreateStreamId(
+            OutboxProcessorTestNamespaces.Events,
+            sink.GetGrainId());
 
         processor = this.RegisterOutboxProcessor(CreateOptions())
             .AddStreamPostman<OutboxMessageEnvelope<OutboxProcessorTestEvent>>(
                 OutboxProcessorTestProviderNames.Events,
-                envelope => StreamId.Create(OutboxProcessorTestNamespaces.Events, this.GetPrimaryKey()));
+                _ => streamId);
 
         await base.OnActivateAsync(cancellationToken);
     }
@@ -210,11 +214,15 @@ public sealed class OutboxProcessorProjectedStreamPostmanGrain(
     public override async Task OnActivateAsync(CancellationToken cancellationToken)
     {
         EnsureOutbox();
+        var sink = GrainFactory.GetGrain<IOutboxProcessorProjectedSinkGrain>(this.GetPrimaryKey());
+        var streamId = StreamManager.CreateStreamId(
+            OutboxProcessorTestNamespaces.Events,
+            sink.GetGrainId());
 
         processor = this.RegisterOutboxProcessor(CreateOptions())
             .AddStreamPostman<OutboxMessageEnvelope<OutboxProcessorTestEvent>, OutboxProcessorTestEvent>(
                 OutboxProcessorTestProviderNames.Events,
-                envelope => StreamId.Create(OutboxProcessorTestNamespaces.Events, this.GetPrimaryKey()),
+                _ => streamId,
                 envelope => envelope.Message);
 
         await base.OnActivateAsync(cancellationToken);

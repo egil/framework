@@ -56,7 +56,7 @@ public sealed class StreamManager : IStreamManagerComponent
             owner,
             trackerSnapshot,
             services.GetRequiredKeyedService<IStreamProvider>,
-            streamNamespace => CreateStreamId(owner, streamNamespace),
+            streamNamespace => CreateStreamId(streamNamespace, owner.GrainContext.GrainId),
             logger);
 
         manager.AttachToGrain();
@@ -123,9 +123,12 @@ public sealed class StreamManager : IStreamManagerComponent
     /// library's grain-keyed stream id convention.
     /// </summary>
     /// <remarks>
-    /// The stream id is derived from the receiving grain identity and
-    /// <paramref name="streamNamespace"/>. Use the <see cref="StreamId"/>
-    /// overload when the explicit stream is keyed by another application id.
+    /// The stream id is derived from the complete receiving grain identity and
+    /// <paramref name="streamNamespace"/>. Publishers targeting this
+    /// subscription must use <see cref="CreateStreamId(string, GrainId)"/> with
+    /// that receiving grain's identity. Use the <see cref="StreamId"/> overload
+    /// for an application-owned identity which must not change with the grain
+    /// type.
     /// </remarks>
     public StreamManager ConfigureExplicitSubscription<TEvent>(
         string streamProviderName,
@@ -173,6 +176,45 @@ public sealed class StreamManager : IStreamManagerComponent
             (item, cursor) => new ValueTask(onNextAsync(item, cursor)),
             onError,
             useTrackedResumeToken);
+    }
+
+    /// <summary>
+    /// Creates the stream identity used by grain-keyed explicit subscriptions.
+    /// </summary>
+    /// <remarks>
+    /// Uses Orleans' textual <see cref="GrainId"/> representation so producers
+    /// and receiving grains can independently derive the same durable stream
+    /// identity. This identity includes the grain type and therefore changes if
+    /// that type changes. Grain identities which do not round-trip through the
+    /// Orleans representation are rejected instead of risking a collision; use
+    /// an explicit <see cref="StreamId"/> for those identities.
+    /// </remarks>
+    /// <param name="streamNamespace">The Orleans stream namespace.</param>
+    /// <param name="grainId">The identity of the receiving grain.</param>
+    /// <returns>The stream identity derived from <paramref name="grainId"/>.</returns>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="streamNamespace"/> is blank, <paramref name="grainId"/>
+    /// is the default value, or the grain identity cannot round-trip through
+    /// Orleans' textual representation.
+    /// </exception>
+    public static StreamId CreateStreamId(string streamNamespace, GrainId grainId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(streamNamespace);
+        if (grainId.IsDefault)
+        {
+            throw new ArgumentException("GrainId must not be the default value.", nameof(grainId));
+        }
+
+        var textualGrainId = grainId.ToString();
+        if (!GrainId.TryParse(textualGrainId, out var parsed) || parsed != grainId)
+        {
+            throw new ArgumentException(
+                "GrainId cannot be represented unambiguously using Orleans' textual grain identity format. "
+                + "Provide an explicit StreamId instead.",
+                nameof(grainId));
+        }
+
+        return StreamId.Create(streamNamespace, textualGrainId);
     }
 
     /// <summary>
@@ -495,22 +537,6 @@ public sealed class StreamManager : IStreamManagerComponent
         {
             throw new InvalidOperationException("Cannot configure stream subscriptions after handler attachment or explicit resume has started.");
         }
-    }
-
-    private static StreamId CreateStreamId(IGrainBase owner, string streamNamespace)
-    {
-        var grainId = owner.GrainContext.GrainId;
-        if (GrainIdKeyExtensions.TryGetGuidKey(grainId, out var guidKey, out _))
-        {
-            return StreamId.Create(streamNamespace, guidKey);
-        }
-
-        if (GrainIdKeyExtensions.TryGetIntegerKey(grainId, out var longKey, out _))
-        {
-            return StreamId.Create(streamNamespace, longKey);
-        }
-
-        return StreamId.Create(streamNamespace, grainId.Key.ToString());
     }
 
     private interface IImplicitSubscription

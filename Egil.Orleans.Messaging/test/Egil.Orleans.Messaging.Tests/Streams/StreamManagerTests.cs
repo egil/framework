@@ -13,7 +13,7 @@ public sealed class StreamManagerTests(MessagingTestClusterFixture fixture) : IC
         var stream = fixture.GetStream<string>(
             StreamManagerTestProviderNames.Explicit,
             StreamManagerTestNamespaces.ValueTask,
-            grainKey);
+            grain.GetGrainId());
 
         await stream.OnNextAsync("value-task");
 
@@ -95,7 +95,7 @@ public sealed class StreamManagerTests(MessagingTestClusterFixture fixture) : IC
         var stream = fixture.GetStream<string>(
             StreamManagerTestProviderNames.Explicit,
             StreamManagerTestNamespaces.ValueTask,
-            grainKey);
+            grain.GetGrainId());
 
         await stream.OnNextAsync("after-reactivation");
 
@@ -113,7 +113,7 @@ public sealed class StreamManagerTests(MessagingTestClusterFixture fixture) : IC
         var stream = fixture.GetStream<string>(
             StreamManagerTestProviderNames.Explicit,
             StreamManagerTestNamespaces.Task,
-            grainKey);
+            grain.GetGrainId());
 
         await stream.OnNextAsync("task");
 
@@ -131,7 +131,7 @@ public sealed class StreamManagerTests(MessagingTestClusterFixture fixture) : IC
         var stream = fixture.GetStream<string>(
             StreamManagerTestProviderNames.Explicit,
             StreamManagerTestNamespaces.Failure,
-            grainKey);
+            grain.GetGrainId());
 
         await stream.OnNextAsync("fail");
         await stream.OnNextAsync("after-failure");
@@ -150,7 +150,7 @@ public sealed class StreamManagerTests(MessagingTestClusterFixture fixture) : IC
         var stream = fixture.GetStream<string>(
             StreamManagerTestProviderNames.Explicit,
             StreamManagerTestNamespaces.ValueTask,
-            grainKey);
+            grain.GetGrainId());
 
         var exceptionType = await grain.EnsureExplicitSubscriptionsAgainAsync();
 

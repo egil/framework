@@ -514,9 +514,13 @@ public sealed class OutboxProcessorSourceGrain(
         OutboxMessageEnvelope<OutboxProcessorTestEvent> envelope,
         CancellationToken cancellationToken)
     {
+        var sink = GrainFactory.GetGrain<IOutboxProcessorSinkGrain>(this.GetPrimaryKey());
+        var streamId = StreamManager.CreateStreamId(
+            OutboxProcessorTestNamespaces.Events,
+            sink.GetGrainId());
         var stream = this.GetStreamProvider(OutboxProcessorTestProviderNames.Events)
             .GetStream<OutboxMessageEnvelope<OutboxProcessorTestEvent>>(
-                StreamId.Create(OutboxProcessorTestNamespaces.Events, this.GetPrimaryKey()));
+                streamId);
 
         _ = stream.OnNextAsync(envelope);
         return Task.CompletedTask;
