@@ -69,6 +69,12 @@ public sealed class MessagingTestClusterFixture : IAsyncLifetime, IGrainActivity
         return provider.GetStream<T>(StreamId.Create(streamNamespace, key));
     }
 
+    public IAsyncStream<T> GetStream<T>(string providerName, string streamNamespace, GrainId grainId)
+    {
+        var provider = Cluster.Client.GetStreamProvider(providerName);
+        return provider.GetStream<T>(StreamManager.CreateStreamId(streamNamespace, grainId));
+    }
+
     Task<TResult> IGrainActivityWaiter.WaitForAssertionAsync<TResult>(
         Func<ValueTask<TResult>> assertion,
         Predicate<GrainActivity>? filter,

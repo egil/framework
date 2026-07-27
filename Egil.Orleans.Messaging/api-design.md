@@ -821,6 +821,10 @@ public interface IImplicitStreamGrain : IStreamSubscriptionObserver
 
 public sealed class StreamManager
 {
+    public static StreamId CreateStreamId(
+        string streamNamespace,
+        GrainId grainId);
+
     public StreamManager ConfigureImplicitSubscription<TEvent>(
         string streamNamespace,
         Func<TEvent, StreamCursor, ValueTask> onNextAsync,
@@ -885,8 +889,11 @@ parameter. Orleans provides the concrete provider and stream id through
 `ConfigureExplicitSubscription` requires a provider name because the library
 must ask Orleans for the stream and durable subscription handles itself. The
 string namespace overload follows the library's grain-keyed convention and
-derives the stream id from the receiving grain identity. Use the `StreamId`
-overload when subscribing to an arbitrary Orleans explicit stream.
+derives the stream id from the complete receiving `GrainId`. Producers call
+`StreamManager.CreateStreamId(streamNamespace, target.GetGrainId())` to derive
+the same id. The helper uses Orleans' textual grain identity and rejects any
+custom identity which does not round-trip through `GrainId.TryParse`. Use the
+`StreamId` overload for an arbitrary or application-owned stream identity.
 
 `RegisterStreamManager()` can be called without a `MessageTracker` when the
 grain does not persist stream high-water marks. In that mode the manager
@@ -954,8 +961,18 @@ public override async Task OnActivateAsync(CancellationToken ct)
 
 The `TEvent` generic argument is usually inferred from the handler method
 group. Users only specify it for inline lambdas or ambiguous method groups.
-Use the `StreamId` overload when the target explicit stream is not keyed by
-the receiving grain:
+Publishers targeting the grain-keyed convention derive the stream id from the
+target grain reference:
+
+```csharp
+var target = grainFactory.GetGrain<ITariffGrain>(customerId);
+var streamId = StreamManager.CreateStreamId("tariff-events", target.GetGrainId());
+var stream = streamProvider.GetStream<PriceChanged>(streamId);
+```
+
+Because the derived key contains the grain type, a grain-type rename changes
+the stream id. Use the `StreamId` overload when the target stream needs an
+application-owned identity or is not keyed by the receiving grain:
 
 ```csharp
 streamManager = this.RegisterStreamManager(state.Tracker)
@@ -964,6 +981,10 @@ streamManager = this.RegisterStreamManager(state.Tracker)
         StreamId.Create("tariff-events", customerId),
         HandleTariffChangedAsync);
 ```
+
+The full-identity convention is incompatible with the previous key-only
+derivation. Existing durable handles must be recreated while publishers move
+to `CreateStreamId`, or retained by configuring their previous ids explicitly.
 
 ### Implementation changes from the previous design
 
@@ -980,6 +1001,8 @@ streamManager = this.RegisterStreamManager(state.Tracker)
   component.
 - Change stream handlers to receive `StreamCursor` instead of raw
   `StreamSequenceToken?`.
+- Derive grain-keyed stream ids from the complete, round-trippable `GrainId`
+  and expose `CreateStreamId(...)` for producers.
 - Keep explicit subscription unsubscribe orchestration out of the initial API.
   The first version only resumes or ensures explicit subscriptions.
 
@@ -1008,7 +1031,7 @@ streamManager = this.RegisterStreamManager(state.Tracker)
 
 - `ConfigureExplicitSubscription(...)` records the provider, stream identity,
   event type, handler, and error callback. The namespace overload derives the
-  stream id from the receiving grain identity; the `StreamId` overload uses
+  stream id from the complete receiving `GrainId`; the `StreamId` overload uses
   the caller-provided stream identity directly.
 - `ResumeExplicitSubscriptionsAsync(...)` resumes all existing durable
   handles for each configured explicit stream from the activation-time
