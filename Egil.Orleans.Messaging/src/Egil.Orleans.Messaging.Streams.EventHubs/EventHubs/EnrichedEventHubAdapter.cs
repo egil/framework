@@ -147,8 +147,8 @@ public class EnrichedEventHubAdapter : EventHubDataAdapter
     public override Azure.Messaging.EventHubs.EventData ToQueueMessage<T>(
         StreamId streamId,
         IEnumerable<T> events,
-        StreamSequenceToken token,
-        Dictionary<string, object> requestContext)
+        StreamSequenceToken? token,
+        Dictionary<string, object>? requestContext)
     {
         var queueMessage = base.ToQueueMessage(streamId, events, token, requestContext);
         if (Activity.Current?.Id is { } traceParent)

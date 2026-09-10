@@ -16,6 +16,7 @@ public sealed class OutboxTests
         using var serviceProvider = services.BuildServiceProvider();
         var copied = serviceProvider.GetRequiredService<DeepCopier>().Copy(outbox);
 
+        Assert.NotNull(copied);
         var next = copied.Add("second", later);
 
         Assert.Equal(2, next.Count);
