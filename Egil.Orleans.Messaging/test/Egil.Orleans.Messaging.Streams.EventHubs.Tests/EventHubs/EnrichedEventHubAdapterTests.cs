@@ -159,6 +159,7 @@ public sealed class EnrichedEventHubAdapterTests
         var serialized = serializer.SerializeToArray<IBatchContainer>(
             adapter.GetBatchContainer(ref cachedMessage));
         var container = serializer.Deserialize<IBatchContainer>(serialized);
+        Assert.NotNull(container);
         var delivered = container.GetEvents<string>().ToArray();
 
         Assert.Equal(["event-1", "event-2"], delivered.Select(item => item.Item1));

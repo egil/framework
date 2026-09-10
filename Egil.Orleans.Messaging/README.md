@@ -344,6 +344,12 @@ streamManager = this.RegisterStreamManager(state.State!.Tracker)
         useTrackedResumeToken: false);
 ```
 
+Orleans 10.3 lets `[StatelessWorker]` grains consume streams, but such
+consumers use provider-managed live delivery and reject any non-null resume
+token. When a stateless worker registers a stream manager with a tracker
+snapshot, set `useTrackedResumeToken: false` on its subscriptions, or omit the
+snapshot, or Orleans throws `InvalidOperationException` during attach.
+
 ```csharp
 this.RegisterStreamManager()
     .ConfigureImplicitSubscription<PriceChanged>(
@@ -376,6 +382,24 @@ The core package can consume provider-specific token metadata through
 Custom stream providers that expose custom `StreamSequenceToken` types should
 register a `JsonConverter<TToken>` with `StreamSequenceTokenJsonConverters`
 during startup.
+
+## JSON Grain Storage
+
+`Outbox<T>`, `OutboxMessageEnvelope<T>`, `OutboxSequenceToken`,
+`MessageTracker`, and `StreamCursor` carry `[JsonConverter]` attributes, so
+they round-trip through any System.Text.Json-based grain storage — including
+the Orleans 10.3 `siloBuilder.UseSystemTextJsonGrainStorageSerializer()` —
+without extra `JsonSerializerOptions` configuration. Orleans' own
+System.Text.Json `StreamSequenceToken` converter only handles
+`EventSequenceToken`/`EventSequenceTokenV2`; tokens stored inside
+`MessageTracker` or `StreamCursor` bypass it and use the
+`StreamSequenceTokenJsonConverters` registry instead, so provider tokens such
+as `EnrichedEventHubSequenceToken` persist correctly.
+
+Orleans' default Newtonsoft.Json storage serializer is not supported by these
+converters. All library state types are `[GenerateSerializer]`, so they pass
+the Orleans 10.3 JSON `$type` allow-list, but the payload shape is not
+guaranteed; use a System.Text.Json serializer or the Orleans binary serializer.
 
 ## Scope
 
