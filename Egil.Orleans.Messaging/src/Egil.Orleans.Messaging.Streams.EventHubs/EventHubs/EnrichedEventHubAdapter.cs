@@ -137,8 +137,8 @@ public class EnrichedEventHubAdapter : EventHubDataAdapter
     /// <typeparam name="T">The type of stream events.</typeparam>
     /// <param name="streamId">The target stream identity.</param>
     /// <param name="events">The events to publish.</param>
-    /// <param name="token">The sequence token (must be <c>null</c> for Event Hubs).</param>
-    /// <param name="requestContext">The Orleans request context dictionary.</param>
+    /// <param name="token">The sequence token; Event Hubs always passes <c>null</c>.</param>
+    /// <param name="requestContext">The Orleans request context dictionary, or <c>null</c> when no request context is flowing.</param>
     /// <returns>
     /// An <see cref="Azure.Messaging.EventHubs.EventData"/> with the
     /// <c>traceparent</c> property stamped if an <see cref="Activity"/>
