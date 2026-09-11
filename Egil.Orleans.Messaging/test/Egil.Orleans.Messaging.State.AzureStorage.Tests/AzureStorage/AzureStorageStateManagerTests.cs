@@ -14,7 +14,7 @@ public sealed class AzureStorageStateManagerTests
         {
             WriteException = exception
         };
-        var manager = new AzureStorageStateManager<TestState>(storage);
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
 
         var actual = await Assert.ThrowsAsync<RequestFailedException>(
             () => manager.WriteAsync(new TestState("next")));
@@ -35,7 +35,7 @@ public sealed class AzureStorageStateManagerTests
         {
             WriteException = exception
         };
-        var manager = new AzureStorageStateManager<TestState>(storage);
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
 
         var actual = await Assert.ThrowsAsync<InvalidOperationException>(
             () => manager.WriteAsync(new TestState("next")));
@@ -57,7 +57,7 @@ public sealed class AzureStorageStateManagerTests
         {
             WriteException = exception
         };
-        var manager = new AzureStorageStateManager<TestState>(storage);
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
 
         var actual = await Assert.ThrowsAsync<RequestFailedException>(
             () => manager.WriteAsync(new TestState("next")));
@@ -79,7 +79,7 @@ public sealed class AzureStorageStateManagerTests
         {
             WriteException = exception
         };
-        var manager = new AzureStorageStateManager<TestState>(storage);
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
 
         var actual = await Assert.ThrowsAsync<RequestFailedException>(
             () => manager.WriteAsync(new TestState("next")));
@@ -97,7 +97,7 @@ public sealed class AzureStorageStateManagerTests
             WriteException = new RequestFailedException(503, "Server busy."),
             OnRead = state => state.State = new TestState("next")
         };
-        var manager = new AzureStorageStateManager<TestState>(storage);
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
 
         await manager.WriteAsync(new TestState("next"));
 
@@ -117,7 +117,7 @@ public sealed class AzureStorageStateManagerTests
                 innerException: null),
             OnRead = state => state.State = new TestState("next")
         };
-        var manager = new AzureStorageStateManager<TestState>(storage);
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
 
         await manager.WriteAsync(new TestState("next"));
 
@@ -137,7 +137,7 @@ public sealed class AzureStorageStateManagerTests
                 innerException: null),
             OnRead = state => state.State = new TestState("next")
         };
-        var manager = new AzureStorageStateManager<TestState>(storage);
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
 
         await manager.WriteAsync(new TestState("next"));
 
@@ -153,7 +153,7 @@ public sealed class AzureStorageStateManagerTests
             WriteException = new TimeoutException("storage timeout"),
             OnRead = state => state.State = new TestState("next")
         };
-        var manager = new AzureStorageStateManager<TestState>(storage);
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
 
         await manager.WriteAsync(new TestState("next"));
 
@@ -174,7 +174,7 @@ public sealed class AzureStorageStateManagerTests
         {
             WriteException = exception
         };
-        var manager = new AzureStorageStateManager<TestState>(storage);
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
 
         var actual = await Assert.ThrowsAsync<AggregateException>(
             () => manager.WriteAsync(new TestState("next")));
@@ -202,7 +202,7 @@ public sealed class AzureStorageStateManagerTests
                     innerException: null)),
             OnRead = state => state.State = new TestState("next")
         };
-        var manager = new AzureStorageStateManager<TestState>(storage);
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
 
         await manager.WriteAsync(new TestState("next"));
 
@@ -218,7 +218,7 @@ public sealed class AzureStorageStateManagerTests
         {
             ClearException = exception
         };
-        var manager = new AzureStorageStateManager<TestState>(storage);
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
 
         var actual = await Assert.ThrowsAsync<RequestFailedException>(
             () => manager.ClearAsync());
@@ -241,13 +241,13 @@ public sealed class AzureStorageStateManagerTests
                 state.RecordExists = false;
             }
         };
-        var manager = new AzureStorageStateManager<TestState>(storage);
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
 
         await manager.ClearAsync();
 
         Assert.Equal(1, storage.ReadCount);
         Assert.False(storage.RecordExists);
-        Assert.Null(manager.State);
+        Assert.Equal(new TestState("default"), manager.State);
     }
 
     private sealed record TestState(string Value);

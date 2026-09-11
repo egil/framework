@@ -233,7 +233,7 @@ public sealed class StreamManagerTestGrain(
 
     public override async Task OnActivateAsync(CancellationToken cancellationToken)
     {
-        streamManager = this.RegisterStreamManager(state.State.Tracker)
+        streamManager = this.RegisterStreamManager(() => state.State.Tracker)
             .ConfigureExplicitSubscription<string>(StreamManagerTestProviderNames.Explicit, StreamManagerTestNamespaces.ValueTask, HandleValueTaskAsync)
             .ConfigureExplicitSubscription<string>(StreamManagerTestProviderNames.Explicit, StreamManagerTestNamespaces.Task, HandleTaskAsync)
             .ConfigureExplicitSubscription<string>(StreamManagerTestProviderNames.Explicit, StreamManagerTestNamespaces.Failure, HandleFailureAsync)

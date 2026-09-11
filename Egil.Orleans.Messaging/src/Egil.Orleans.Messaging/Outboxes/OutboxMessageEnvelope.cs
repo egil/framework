@@ -4,15 +4,15 @@ namespace Egil.Orleans.Messaging.Outboxes;
 
 /// <summary>
 /// Wraps a user-defined message <typeparamref name="T"/> with its
-/// <see cref="OutboxSequenceToken"/>, forming the unit of storage and
-/// dispatch within an <see cref="Outbox{T}"/>.
+/// <see cref="OutboxMessageId"/>, forming the unit of storage and
+/// acknowledgment within an <see cref="Outbox{T}"/>.
 /// </summary>
 /// <remarks>
 /// <para>
 /// <b>Immutability:</b> Envelopes are immutable records. Retry diagnostics
 /// (attempt count, last exception) are <em>not</em> stored on the envelope —
 /// the <see cref="OutboxProcessor{TOutbox}"/> tracks attempts in-memory,
-/// keyed by <see cref="Token"/>. On grain reactivation, attempt counts
+/// keyed by stored item equality. On grain reactivation, attempt counts
 /// restart from zero.
 /// </para>
 /// <para>
@@ -45,28 +45,28 @@ public sealed record OutboxMessageEnvelope<T>
     [SetsRequiredMembers]
     public OutboxMessageEnvelope()
     {
-        Token = new OutboxSequenceToken();
+        Id = new OutboxMessageId(0, default, default);
         Message = default!;
     }
 
     /// <summary>
-    /// Creates an envelope for the given token and message payload.
+    /// Creates an envelope for the given stored identity and message payload.
     /// </summary>
     [SetsRequiredMembers]
-    public OutboxMessageEnvelope(OutboxSequenceToken token, T message)
+    public OutboxMessageEnvelope(OutboxMessageId id, T message)
     {
-        ArgumentNullException.ThrowIfNull(token);
+        ArgumentNullException.ThrowIfNull(id);
 
-        Token = token;
+        Id = id;
         Message = message;
     }
 
     /// <summary>
-    /// The sequence token identifying this message. Assigned by
+    /// The sender-free identity of this stored message. Assigned by
     /// <see cref="Outbox{T}.Add(T)"/> — never user-constructed.
     /// </summary>
     [Id(0)]
-    public required OutboxSequenceToken Token { get; init; }
+    public required OutboxMessageId Id { get; init; }
 
     /// <summary>
     /// The user-defined message payload.

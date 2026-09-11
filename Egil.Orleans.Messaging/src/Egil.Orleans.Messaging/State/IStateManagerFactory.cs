@@ -10,6 +10,6 @@ public interface IStateManagerFactory
     /// Creates an <see cref="IStateManager{T}"/> for the given
     /// <paramref name="storage"/> facet.
     /// </summary>
-    IStateManager<T> Create<T>(IPersistentState<T> storage)
+    IStateManager<T> Create<T>(IPersistentState<T> storage, Func<T> createInitialState, Action<T>? configureState = null)
         where T : class, IEquatable<T>;
 }

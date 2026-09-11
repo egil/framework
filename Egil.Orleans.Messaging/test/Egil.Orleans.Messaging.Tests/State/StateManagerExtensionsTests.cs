@@ -15,7 +15,7 @@ public sealed class StateManagerExtensionsTests
             provider,
             storageName,
             storage,
-            typeof(StateManagerExtensionsTests));
+            typeof(StateManagerExtensionsTests), static () => new TestState("default"));
 
         Assert.NotNull(manager);
         Assert.Equal(new TestState("initial"), manager.State);
@@ -32,7 +32,7 @@ public sealed class StateManagerExtensionsTests
                 provider,
                 "missing",
                 storage,
-                typeof(StateManagerExtensionsTests)));
+                typeof(StateManagerExtensionsTests), static () => new TestState("default")));
 
         Assert.Contains("missing", ex.Message);
         Assert.Contains(typeof(TestState).FullName!, ex.Message);
@@ -45,7 +45,7 @@ public sealed class StateManagerExtensionsTests
         var storage = new FakePersistentState(new TestState("initial"));
 
         var ex = Assert.Throws<ArgumentNullException>(() =>
-            StateManagerExtensions.RegisterStateManager<TestGrainBase, TestState>(null!, "state", storage));
+            StateManagerExtensions.RegisterStateManager<TestGrainBase, TestState>(null!, "state", storage, static () => new TestState("default")));
 
         Assert.Equal("grain", ex.ParamName);
     }
@@ -57,7 +57,7 @@ public sealed class StateManagerExtensionsTests
         var storage = new FakePersistentState(new TestState("initial"));
 
         var ex = Assert.Throws<ArgumentException>(() =>
-            grain.RegisterStateManager(" ", storage));
+            grain.RegisterStateManager(" ", storage, static () => new TestState("default")));
 
         Assert.Equal("storageName", ex.ParamName);
     }
@@ -68,7 +68,7 @@ public sealed class StateManagerExtensionsTests
         var grain = new FakeGrainBase();
 
         var ex = Assert.Throws<ArgumentNullException>(() =>
-            grain.RegisterStateManager<TestGrainBase, TestState>("state", null!));
+            grain.RegisterStateManager<TestGrainBase, TestState>("state", null!, static () => new TestState("default")));
 
         Assert.Equal("storage", ex.ParamName);
     }

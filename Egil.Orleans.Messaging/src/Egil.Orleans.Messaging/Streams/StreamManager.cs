@@ -15,7 +15,7 @@ namespace Egil.Orleans.Messaging.Streams;
 public sealed class StreamManager : IStreamManagerComponent
 {
     private readonly IGrainBase owner;
-    private readonly MessageTracker? trackerSnapshot;
+    private readonly Func<MessageTracker?>? getTracker;
     private readonly Func<string, IStreamProvider> getStreamProvider;
     private readonly Func<string, StreamId> getStreamId;
     private readonly ILogger logger;
@@ -26,13 +26,13 @@ public sealed class StreamManager : IStreamManagerComponent
 
     private StreamManager(
         IGrainBase owner,
-        MessageTracker? trackerSnapshot,
+        Func<MessageTracker?>? getTracker,
         Func<string, IStreamProvider> getStreamProvider,
         Func<string, StreamId> getStreamId,
         ILogger logger)
     {
         this.owner = owner;
-        this.trackerSnapshot = trackerSnapshot;
+        this.getTracker = getTracker;
         this.getStreamProvider = getStreamProvider;
         this.getStreamId = getStreamId;
         this.logger = logger;
@@ -43,7 +43,7 @@ public sealed class StreamManager : IStreamManagerComponent
     /// </summary>
     internal static StreamManager Create(
         IGrainBase owner,
-        MessageTracker? trackerSnapshot)
+        Func<MessageTracker?>? getTracker)
     {
         ArgumentNullException.ThrowIfNull(owner);
 
@@ -54,7 +54,7 @@ public sealed class StreamManager : IStreamManagerComponent
 
         var manager = Create(
             owner,
-            trackerSnapshot,
+            getTracker,
             services.GetRequiredKeyedService<IStreamProvider>,
             streamNamespace => CreateStreamId(streamNamespace, owner.GrainContext.GrainId),
             logger);
@@ -65,7 +65,7 @@ public sealed class StreamManager : IStreamManagerComponent
 
     internal static StreamManager Create(
         IGrainBase owner,
-        MessageTracker? trackerSnapshot,
+        Func<MessageTracker?>? getTracker,
         Func<string, IStreamProvider> getStreamProvider,
         Func<string, StreamId> getStreamId,
         ILogger logger)
@@ -75,7 +75,7 @@ public sealed class StreamManager : IStreamManagerComponent
         ArgumentNullException.ThrowIfNull(getStreamId);
         ArgumentNullException.ThrowIfNull(logger);
 
-        return new StreamManager(owner, trackerSnapshot, getStreamProvider, getStreamId, logger);
+        return new StreamManager(owner, getTracker, getStreamProvider, getStreamId, logger);
     }
 
     /// <summary>
@@ -436,6 +436,9 @@ public sealed class StreamManager : IStreamManagerComponent
             return null;
         }
 
+        // Resolve at subscription time: hydration or a later read can replace
+        // the tracker instance captured during grain construction.
+        var trackerSnapshot = getTracker?.Invoke();
         var cursor = string.IsNullOrWhiteSpace(streamProviderName)
             ? trackerSnapshot?.LatestStream(streamNamespace)
             : trackerSnapshot?.LatestStream(streamProviderName, streamNamespace);

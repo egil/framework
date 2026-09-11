@@ -16,7 +16,7 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// </para>
 /// <para>
 /// The converter serializes only the structural data needed to reconstruct
-/// the outbox (sender, epoch, sequence numbers, items) while keeping its
+/// the outbox (epoch, sequence numbers, items) while keeping its
 /// persisted representation encapsulated behind read-only properties.
 /// </para>
 /// </remarks>
@@ -63,7 +63,6 @@ internal sealed class OutboxJsonConverterFactory : JsonConverterFactory
                 throw new JsonException($"Expected outbox object, got '{reader.TokenType}'.");
             }
 
-            GrainId? sender = null;
             long latestSequenceNumber = 0;
             var hasLatestSequenceNumber = false;
             DateTimeOffset? epoch = null;
@@ -75,7 +74,6 @@ internal sealed class OutboxJsonConverterFactory : JsonConverterFactory
                 if (reader.TokenType is JsonTokenType.EndObject)
                 {
                     return new Outbox<T>(
-                        sender ?? throw new JsonException("Missing Sender."),
                         hasLatestSequenceNumber
                             ? latestSequenceNumber
                             : throw new JsonException("Missing LatestSequenceNumber."),
@@ -96,11 +94,6 @@ internal sealed class OutboxJsonConverterFactory : JsonConverterFactory
 
                 switch (propertyName)
                 {
-                    case nameof(Outbox<T>.Sender):
-                        sender = reader.TokenType is JsonTokenType.Null
-                            ? null
-                            : GrainIdJsonConverter.Instance.Read(ref reader, typeof(GrainId), options);
-                        break;
                     case nameof(Outbox<T>.LatestSequenceNumber):
                         latestSequenceNumber = reader.GetInt64();
                         hasLatestSequenceNumber = true;
@@ -129,8 +122,6 @@ internal sealed class OutboxJsonConverterFactory : JsonConverterFactory
             JsonSerializerOptions options)
         {
             writer.WriteStartObject();
-            writer.WritePropertyName(nameof(Outbox<T>.Sender));
-            GrainIdJsonConverter.Instance.Write(writer, value.Sender, options);
             writer.WriteNumber(nameof(Outbox<T>.LatestSequenceNumber), value.LatestSequenceNumber);
             writer.WritePropertyName(nameof(Outbox<T>.Epoch));
             if (value.Epoch is { } epoch)

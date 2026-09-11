@@ -10,6 +10,9 @@ only when a new constraint surfaces.
 Status legend: **Settled** = won't change without a new force; **Open** =
 still under design; **Deferred** = explicitly postponed past the spike.
 
+Constructor registration, absent-state defaults, and payload-level postmen follow
+[issue #179](https://github.com/egil/framework/issues/179). These are intentional beta breaking changes.
+
 ---
 
 ## 0. Scope & packaging
@@ -117,7 +120,7 @@ stale `storage.State` after a failed write.
 ```csharp
 public interface IStateManager<T> where T : class, IEquatable<T>
 {
-    T? State { get; }
+    T State { get; }
     Task ReadAsync();
     Task WriteAsync(T newState);
     Task ClearAsync();
@@ -147,28 +150,23 @@ Users pick one of two paths for `T`:
 
 See §3a for `VersionedState` and why the generic layer was removed.
 
-### Activation: state is auto-populated
+### Activation and absent state
 
-`IStateManager<T>` behaves like `IPersistentState<T>` from the grain's
-point of view: by the time `OnActivateAsync` runs, `State` already
-reflects what is durably stored. Grain code does **not** call `ReadAsync`
-during activation.
+Registration in the grain constructor returns a stable handle. At lifecycle stage
+`SetupState + 1`, after Orleans hydration and before `OnActivateAsync`, that handle
+creates the configured provider-specific manager. Even custom manager factories
+therefore see hydrated storage. Access before initialization throws clearly.
+Registration in `OnActivateAsync` remains supported and creates the manager immediately.
 
-`State` is nullable because storage can expose no value, including after a
-successful `ClearAsync`. The manager cannot construct an arbitrary `T` as a
-fallback. Grain code must initialize missing state or guard it before
-dereferencing.
+`State` is non-null and read-only. Activation and `ReadAsync` adopt the stored value
+when `RecordExists` is true; otherwise they invoke `createInitialState`, even if
+the provider created its own default. Successful `ClearAsync` exposes a fresh
+configured default. Defaults are never automatically written. An existing null
+record or a null factory result is an error.
 
-This is achieved by composition rather than reimplementation: the
-default `StateManager<T>` wraps an `IPersistentState<T>` facet that
-Orleans hydrates during the `SetupState` grain-lifecycle stage. The
-manager exposes `State` as a proxy onto that underlying storage, so it
-sees the hydrated value the moment Orleans's lifecycle hook fires —
-before `OnActivateAsync` is invoked.
-
-`ReadAsync` is retained for the rare case where the grain wants to
-force a re-read of authoritative state mid-activation (e.g. after a
-known external mutation). It is not required by the activation flow.
+The optional `configureState` callback restores runtime dependencies, such as the
+tracker's clock, on each adopted instance. It must not change business data or
+perform storage I/O. It applies after reads and recovery as well as initial hydration.
 
 ### `WriteAsync` semantics
 
@@ -178,54 +176,11 @@ derives from it, the manager stamps a fresh `Guid Version` before every
 write and uses that version for the recovery-path equality check;
 otherwise it falls back to `T.Equals(...)`.
 
-```csharp
-internal sealed class StateManager<T>(IPersistentState<T> storage) : IStateManager<T>
-    where T : class, IEquatable<T>
-{
-    public T? State => storage.State;
-
-    public Task ReadAsync() => storage.ReadStateAsync();
-
-    public async Task WriteAsync(T newState)
-    {
-        var previous = storage.State;
-
-        if (newState is VersionedState versioned)
-        {
-            versioned.Version = Guid.CreateVersion7();
-        }
-
-        storage.State = newState;
-
-        try
-        {
-            await storage.WriteStateAsync();
-        }
-        catch (Exception ex)
-        {
-            try { await storage.ReadStateAsync(); }
-            catch
-            {
-                storage.State = previous;
-                throw;
-            }
-
-            if (ex is not InconsistentStateException && IsEquivalent(storage.State, newState))
-            {
-                return; // write actually persisted; lost-response, swallow
-            }
-
-            throw;
-        }
-    }
-
-    private static bool IsEquivalent(T? persisted, T attempted) =>
-        persisted is not null
-        && (persisted is VersionedState pv && attempted is VersionedState av
-            ? pv.Version.Equals(av.Version)
-            : persisted.Equals(attempted));
-}
-```
+The manager retains a separate observable snapshot. It assigns the write candidate
+to storage, awaits persistence, then adopts the successful value. A recovery read
+adopts the server value (or an absent-record default) while retaining the refreshed
+ETag. Equivalence can confirm a lost response only when a persisted record exists;
+a reconstructed default must never be mistaken for proof that a write landed.
 
 Behaviour matrix:
 
@@ -234,7 +189,7 @@ Behaviour matrix:
 | Success                            | `State == newState`, returns                     |
 | Timeout, write actually persisted  | `State == newState`, returns (silent recovery)   |
 | Timeout, write did not persist     | `State == server's value`, throws original ex    |
-| Recovery read exposes `null`       | `State == null`, throws original ex              |
+| Recovery read finds no record     | `State == configured default`, throws original ex |
 | 5xx / transient                    | Same as timeout — re-read decides                |
 | `InconsistentStateException`       | `State == server's value`, **always rethrows**   |
 | Re-read also fails (double failure)| `storage.State` reverted, throws original ex     |
@@ -321,8 +276,8 @@ The wrapper was debated — recovery logic is stateless, could be an
 extension method on `IPersistentState<T>`. But the wrapper does a fourth
 thing extensions cannot: **it hides `IPersistentState<T>.State`**.
 
-`IStateManager<T>.State` exposes only the **committed** snapshot, or
-`null` when the storage provider exposes no value. During an in-flight write,
+`IStateManager<T>.State` exposes the loaded or **committed** snapshot, or
+the configured default for absent storage. During an in-flight write,
 `IPersistentState<T>.State` already holds the uncommitted value. Read
 methods marked `[AlwaysInterleave]` that access `storage.State` directly
 could observe uncommitted state — and if the write fails, they returned
@@ -335,40 +290,23 @@ Extension methods can't provide this fence because the grain still holds
 ### Grain wiring
 
 ```csharp
-// User injects IPersistentState<T> as normal, registers wrapper in activation.
-[PersistentState("state")] IPersistentState<MyState> storage;
-IStateManager<MyState> stateManager;
+private readonly IStateManager<MyState> stateManager;
 
-public override Task OnActivateAsync(CancellationToken ct)
+public MyGrain([PersistentState("state")] IPersistentState<MyState> storage, TimeProvider time)
 {
-    stateManager = this.RegisterStateManager("state", storage);
-    // ...
+    stateManager = this.RegisterStateManager("state", storage,
+        () => new MyState(),
+        state => state.Tracker.RegisterTimeProvider(time));
 }
 ```
 
-`RegisterStateManager()` is an extension method on `IGrainBase`. Internally:
+`RegisterStateManager(storageName, storage, createInitialState, configureState?)`
+requires `TState : class, IEquatable<TState>`. The two-argument convenience overload
+requires `new()` and creates `new TState()` only when needed.
 
-```csharp
-public static IStateManager<TState> RegisterStateManager<TGrain, TState>(
-    this TGrain grain,
-    string storageName,
-    IPersistentState<TState> storage)
-    where TGrain : IGrainBase
-    where TState : class, IEquatable<TState>
-```
-
-The silo must register a keyed `IStateManagerFactory<T>` for each storage
-name used by grains:
-
-```csharp
-siloBuilder.AddDefaultStateManager("state");
-```
-
-Provider-specific overrides can be supplied with `AddStateManagerFactory(...)`.
-The activation-time `RegisterStateManager(...)` call mirrors
-`RegisterStreamManager(...)` and `RegisterGrainTimer(...)`: the grain registers
-the runtime helper once during activation and uses the returned manager for
-all subsequent state reads and writes.
+Register a keyed `IStateManagerFactory` with `AddDefaultStateManager`,
+`AddAzureStorageStateManager`, or `AddStateManagerFactory`. Its `Create<T>` method
+receives storage, the default factory, and optional runtime configuration.
 
 ---
 
@@ -414,7 +352,7 @@ The collection behaves like `ImmutableArray<OutboxMessageEnvelope<T>>`
 — read-only iteration, indexer, value semantics, mutators return new
 instances — with three additions:
 
-- A baked-in `Sender` (grain id).
+- A sender-free stored `OutboxMessageId` for each item.
 - A monotonic `LatestSequenceNumber` that persists independently of the
   message array contents.
 - `Add` mutators that own sequence assignment and either sample system
@@ -422,80 +360,41 @@ instances — with three additions:
 
 ### Shape
 
+`OutboxMessageId` stores `(SequenceNumber, Timestamp, Epoch)`. The stored envelope
+contains `Id` and `Message`. The processor combines that ID with the owning grain's
+identity to construct the delivery `OutboxSequenceToken`; it never writes the sender
+back into the outbox. Tokens remain identical across retries and reactivation.
+
 ```csharp
-[GenerateSerializer]
-public sealed record OutboxSequenceToken(
-    [property: Id(0)] long SequenceNumber,
-    [property: Id(1)] GrainId Sender,
-    [property: Id(2)] DateTimeOffset Timestamp,
-    [property: Id(3)] DateTimeOffset Epoch);
+public sealed record OutboxMessageId(long SequenceNumber, DateTimeOffset Timestamp, DateTimeOffset Epoch);
+public sealed record OutboxMessageEnvelope<T>(OutboxMessageId Id, T Message);
 
-[GenerateSerializer]
-public sealed record OutboxMessageEnvelope<T>(
-    [property: Id(0)] OutboxSequenceToken Token,
-    [property: Id(1)] T Message);
-
-[GenerateSerializer]
-public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquatable<Outbox<T>>
-{
-    [Id(0)] private readonly GrainId sender;
-    [Id(1)] private readonly long latestSequenceNumber;
-    [Id(2)] private readonly ImmutableArray<OutboxMessageEnvelope<T>> items;
-    [Id(3)] private readonly DateTimeOffset? epoch;
-
-    internal Outbox(
-        GrainId sender,
-        long latestSequenceNumber,
-        ImmutableArray<OutboxMessageEnvelope<T>> items,
-        DateTimeOffset? epoch)
-    {
-        this.sender = sender;
-        this.latestSequenceNumber = latestSequenceNumber;
-        this.items = items;
-        this.epoch = epoch;
-    }
-
-    public static Outbox<T> Create(GrainId sender) =>
-        new(sender, latestSequenceNumber: 0, items: [], epoch: null);
-
-    public GrainId Sender => sender;
-    public long LatestSequenceNumber => latestSequenceNumber;
-    public DateTimeOffset? Epoch => epoch;
-    public int Count => items.Length;
-    public bool IsEmpty => items.IsDefaultOrEmpty;
-    public OutboxMessageEnvelope<T> this[int index] => items[index];
-
-    public IEnumerator<OutboxMessageEnvelope<T>> GetEnumerator()
-        => ((IEnumerable<OutboxMessageEnvelope<T>>)items).GetEnumerator();
-    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
-
-    public Outbox<T> Add(T message) { /* delegates with system UTC */ }
-    public Outbox<T> Add(T message, DateTimeOffset utcNow)
-        { /* increments seq, stamps epoch on first call */ }
-    public Outbox<T> Remove(OutboxSequenceToken token) { /* removes FIFO head if token matches */ }
-    public Outbox<T> RemoveRange(IEnumerable<OutboxSequenceToken> tokens) { /* removes matching FIFO prefix */ }
-    public Outbox<T> Clear() { /* removes all items, preserves LatestSequenceNumber + Epoch */ }
-
-    // O(1) sequence equality — see below.
-    public bool Equals(Outbox<T>? other) { /* metadata + first/last sequence check */ }
-    public override bool Equals(object? obj) => obj is Outbox<T> o && Equals(o);
-    public override int GetHashCode() { /* metadata + first/last sequence hash */ }
-}
+// Public collection operations; mutations return new immutable instances.
+Outbox<T>.Create();
+outbox.Add(message);
+outbox.Add(message, utcNow);
+outbox.Remove(id);          // Removes only a matching FIFO head.
+outbox.RemoveRange(ids);    // Removes matching IDs anywhere, preserving remaining order.
+outbox.Clear();             // Preserves sequence high-water mark and epoch.
 ```
+
+The actual types carry Orleans serialization metadata and JSON support. Each stored
+ID field is required in JSON so malformed data cannot silently acquire default
+sequence metadata. This beta changes the stored shape without a legacy migration.
 
 ### Epoch semantics
 
-- `Create(sender)` → `epoch = null`, `LatestSequenceNumber = 0`.
+- `Create()` → `epoch = null`, `LatestSequenceNumber = 0`.
 - First `Add()` → stamps `epoch = now`. Persisted with state.
 - Subsequent `Add()` → same epoch, incrementing sequence number.
 - `Clear()` → removes items, **preserves** `LatestSequenceNumber` and
   `Epoch`. This is the normal "postman drained successfully" path.
-- `Create(sender)` again → **resets both** epoch (to null) and sequence
+- `Create()` again → **resets both** epoch (to null) and sequence
   number (to 0). This is the nuclear option — the next `Add` starts a
   fresh epoch. Receivers see `token.Epoch > stored.Epoch` and accept.
 
 **`Clear()` is the normal path.** Grains should almost never call
-`Create(sender)` on an active outbox. `Create` is for construction-time
+`Create()` on an active outbox. `Create` is for construction-time
 initialisation and deliberate ops-level sequence-space resets.
 Document and warn.
 
@@ -513,21 +412,11 @@ The outbox can grow unbounded if postman targets are down. Mitigation:
 
 ### O(1) sequence equality
 
-Two `Outbox<T>` values are equal when
-`(Sender, LatestSequenceNumber, Epoch, Count, first sequence number, last sequence number)`
-matches. Constant-time regardless of `items.Length`.
-
-This relies on the outbox invariant that sequence numbers are assigned
-only by `Add` and pending items are removed only in FIFO order. Under
-that invariant, matching first and last sequence numbers with matching
-count identifies the same contiguous pending sequence window. Equality
-therefore stays independent of outbox depth and does not need a separate
-persisted fingerprint field.
-
-If two outboxes have the same sender, epoch, high-water mark, count, and
-sequence-window endpoints but different payloads, the outbox was used in
-a way that broke encapsulation/invariants. Equality does not attempt to
-detect that invalid state.
+Equality uses `(LatestSequenceNumber, Epoch, Count, first ID, last ID)`, including
+ID timestamps. It is a recovery fingerprint, not payload equality. Removal can
+leave gaps, so matching endpoints does not imply a contiguous sequence. See the
+source documentation for the existing removal-divergence and exact-timestamp-tie
+tradeoffs; this change preserves those semantics while removing sender identity.
 
 ### Why these choices
 
@@ -542,9 +431,8 @@ detect that invalid state.
   clock reference and require no post-deserialization registration.
 - **Lazy `Epoch`.** A grain that never sends doesn't burn a fresh epoch
   on storage.
-- **`Remove(token)` not `Remove(envelope)`.** Token is the identity, but
-  removal is constrained to the FIFO head to preserve the contiguous
-  pending-sequence invariant.
+- **`Remove(id)` and `RemoveRange(ids)`.** Single removal checks the FIFO head;
+  batch acknowledgment removes the successful stored IDs even across gaps.
 - **`LatestSequenceNumber` is a separate field.** After flush, items are
   empty; high-water mark persists independently.
 
@@ -584,7 +472,7 @@ User state:
 [GenerateSerializer]
 public sealed record MyState : VersionedState
 {
-    [Id(1)] public Outbox<MyEvent> Outbox { get; init; } = Outbox<MyEvent>.Create(sender);
+    [Id(1)] public Outbox<MyEvent> Outbox { get; init; } = Outbox<MyEvent>.Create();
     [Id(2)] public ImmutableArray<Something> Items { get; init; } = [];
 }
 ```
@@ -697,7 +585,7 @@ public sealed class MessageTracker
 
 ### Identity model (no OriginId)
 
-- Outbox identity: `OutboxSequenceToken.Sender` in the envelope.
+- Outbox identity: `OutboxSequenceToken.Sender` supplied by the processor at delivery.
   Payloads stay clean.
 - Stream identity: stream namespace, plus provider name when available.
   Stream keys are intentionally not part of `MessageTracker` state because
@@ -876,7 +764,7 @@ public static class StreamManagerExtensions
 {
     public static StreamManager RegisterStreamManager<TGrain>(
         this TGrain grain,
-        MessageTracker? trackerSnapshot = null)
+        Func<MessageTracker?>? getTracker = null)
         where TGrain : IGrainBase;
 }
 
@@ -897,7 +785,7 @@ custom identity which does not round-trip through `GrainId.TryParse`. Use the
 
 `RegisterStreamManager()` can be called without a `MessageTracker` when the
 grain does not persist stream high-water marks. In that mode the manager
-attaches handlers without supplying resume tokens. Pass the activation-time
+attaches handlers without supplying resume tokens. Pass an accessor for the hydrated
 tracker snapshot only when the grain wants `StreamManager` to resume from
 persisted cursors.
 
@@ -917,7 +805,7 @@ public override async Task OnActivateAsync(CancellationToken ct)
     var state = await stateManager.ReadAsync();
     state.Tracker.RegisterTimeProvider(timeProvider);
 
-    this.RegisterStreamManager(state.Tracker)
+    this.RegisterStreamManager(() => state.Tracker)
         .ConfigureImplicitSubscription("electricity-prices", HandlePriceTickAsync, LogStreamError)
         .ConfigureImplicitSubscription("tariff-events", HandleTariffChangedAsync, useTrackedResumeToken: false);
 }
@@ -952,7 +840,7 @@ public override async Task OnActivateAsync(CancellationToken ct)
     var state = await stateManager.ReadAsync();
     state.Tracker.RegisterTimeProvider(timeProvider);
 
-    streamManager = this.RegisterStreamManager(state.Tracker)
+    streamManager = this.RegisterStreamManager(() => state.Tracker)
         .ConfigureExplicitSubscription("StreamProvider", "tariff-events", HandleTariffChangedAsync);
 
     await streamManager.EnsureExplicitSubscriptionsAsync(ct);
@@ -975,7 +863,7 @@ the stream id. Use the `StreamId` overload when the target stream needs an
 application-owned identity or is not keyed by the receiving grain:
 
 ```csharp
-streamManager = this.RegisterStreamManager(state.Tracker)
+streamManager = this.RegisterStreamManager(() => state.Tracker)
     .ConfigureExplicitSubscription<PriceChanged>(
         "StreamProvider",
         StreamId.Create("tariff-events", customerId),
@@ -1277,8 +1165,8 @@ in the `Clever.PricingEngine` codebase.
 ### Postman dispatch
 
 The grain registers one or more postmen via `AddPostman<TSub>(...)`, each
-handling a subtype of `TOutbox`. Matching is first-registered-wins against
-the item's runtime type — order from most specific to least specific (like a
+handling a payload subtype of `TOutbox`. Matching is first-registered-wins against
+the payload's runtime type — order from most specific to least specific (like a
 `switch`).
 
 Postmen can be inline callbacks for local/simple cases, or keyed
@@ -1332,12 +1220,10 @@ public static class OutboxPostmanServiceCollectionExtensions
   with attempt count (in-memory, resets on reactivation) — the grain
   decides: leave item in state to retry, or remove to dead-letter after
   N attempts.
-- Pending items dispatch concurrently within a single drain. The processor
-  starts all matching postman calls, waits for all of them, then invokes
-  `AcknowledgePostedAsync` with successful items in original pending order
-  and `ReconcileFailedAsync` with failed items. This avoids head-of-line
-  blocking between independent postmen while keeping durable reconciliation
-  batched and ordered.
+- Different postmen dispatch concurrently. Each postman processes its matching
+  items sequentially and stops after a failure. Reconciliation receives original
+  stored envelopes, with acknowledgment containing only successful items; do not
+  assume a contiguous prefix or global ordering across groups.
 - Each item dispatches to exactly **one** postman (first-registered-wins).
   Items whose runtime type matches no postman → reported as failed with
   `NoPostmanRegisteredException`.
@@ -1474,17 +1360,17 @@ extension<TGrain>(TGrain grain) where TGrain : IOutboxGrain, IGrainBase
 public sealed class OutboxProcessorOptions<TOutbox> where TOutbox : notnull
 {
     /// Snapshot of pending items. Called once per post run from a grain turn.
-    public required Func<ImmutableArray<TOutbox>> PendingItems { get; init; }
+    public required Func<ImmutableArray<OutboxMessageEnvelope<TOutbox>>> PendingItems { get; init; }
 
     /// Acknowledges successfully posted items.
     /// Expected to remove those items from the durable outbox state.
-    public required Func<ImmutableArray<TOutbox>, CancellationToken, ValueTask>
+    public required Func<ImmutableArray<OutboxMessageEnvelope<TOutbox>>, CancellationToken, ValueTask>
         AcknowledgePostedAsync { get; init; }
 
     /// Failed items with exception and attempt count (in-memory, resets on
     /// reactivation). Grain decides: leave to retry, or remove to
     /// dead-letter after N attempts. If null, failed items retry silently.
-    public Func<ImmutableArray<(TOutbox Item, Exception Error, int Attempt)>,
+    public Func<ImmutableArray<(OutboxMessageEnvelope<TOutbox> Item, Exception Error, int Attempt)>,
         CancellationToken, ValueTask>? ReconcileFailedAsync { get; init; }
 
     /// Max time per post run. Set below grain's response timeout.
@@ -1539,6 +1425,14 @@ callbacks, not passive notifications:
 
 ### `OutboxProcessor<TOutbox>`
 
+`TOutbox` is the base payload type. All handler families operate on payloads;
+stored envelopes are confined to pending snapshots and reconciliation callbacks.
+Token-aware `AddPostman` overloads accept `(message, token)` or
+`(message, token, cancellationToken)`. Stream projections and selectors can receive
+`(message, token)`, and grain invocations can receive
+`(grain, message, token[, cancellationToken])`. These adapters retain the original
+stored item for acknowledgment. A covariant envelope interface is unnecessary.
+
 ```csharp
 public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     where TOutbox : notnull
@@ -1591,10 +1485,10 @@ internal interface IOutboxComponent
 
 ### Grain author experience
 
-Two obligations (both compiler-enforced):
+Two obligations (registration is checked at runtime):
 
 1. Implement `IOutboxGrain`.
-2. Call `RegisterOutboxProcessor(...)` in `OnActivateAsync`.
+2. Call `RegisterOutboxProcessor(...)` in the constructor or `OnActivateAsync`.
 
 No `ReceiveReminder` override needed (DIM handles it). No manual retry
 lifecycle. No telemetry wiring.
@@ -1860,7 +1754,7 @@ Dedicated tests for every type with `[GenerateSerializer]`:
 - Catches: missing `[Id]`, wrong `[Alias]`, `ImmutableArray<T>` edge
   cases, version-tolerance regressions, STJ converter bugs.
 
-Types covered: `Outbox<T>`, `OutboxMessageEnvelope<T>`,
+Types covered: `Outbox<T>`, `OutboxMessageId`, `OutboxMessageEnvelope<T>`,
 `MessageTracker`, `OutboxSequenceToken`, `StreamCursor`,
 `VersionedState` subtypes.
 

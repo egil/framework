@@ -2,14 +2,14 @@ namespace Egil.Orleans.Messaging.State;
 
 /// <summary>
 /// A thin wrapper around <see cref="IPersistentState{TState}"/> that guarantees
-/// the grain's observable <see cref="State"/> is never out of sync with what is
-/// durably persisted, even when <see cref="WriteAsync"/> fails ambiguously
+/// the grain's observable <see cref="State"/> exposes the loaded or committed
+/// snapshot (or a default for absent storage), even when <see cref="WriteAsync"/> fails ambiguously
 /// (timeout, network drop, server 5xx, ETag conflict).
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Committed-state fence:</b> <see cref="State"/> exposes only the last
-/// successfully written value. During an in-flight write, the underlying
+/// <b>Committed-state fence:</b> <see cref="State"/> exposes the loaded or last
+/// successfully written value, or a configured default for a missing record. During an in-flight write, the underlying
 /// <see cref="IPersistentState{TState}"/>.State already holds the uncommitted
 /// value. Methods marked <c>[AlwaysInterleave]</c> that read <see cref="State"/>
 /// through this interface are guaranteed to never observe uncommitted state.
@@ -18,7 +18,7 @@ namespace Egil.Orleans.Messaging.State;
 /// </para>
 /// <para>
 /// <b>Usage:</b> Inject <see cref="IPersistentState{TState}"/> as normal via
-/// <c>[PersistentState]</c>, then initialize it during <c>OnActivateAsync</c>:
+/// <c>[PersistentState]</c>, then register the manager in the grain constructor:
 /// <code>
 /// stateManager = this.RegisterStateManager("state", storage);
 /// </code>
@@ -77,21 +77,21 @@ public interface IStateManager<T>
     where T : class, IEquatable<T>
 {
     /// <summary>
-    /// Gets the last successfully committed state snapshot, or
-    /// <see langword="null"/> when the underlying persistent state contains
-    /// no value.
+    /// Gets the loaded or successfully written state, or a configured default
+    /// when no persisted record exists. Defaults are not automatically written.
     /// </summary>
     /// <remarks>
     /// Safe to read from <c>[AlwaysInterleave]</c> methods — returns only
-    /// committed values, never in-flight uncommitted state. This is the
+    /// loaded/committed values or missing-record defaults, never in-flight writes. This is the
     /// committed-state fence that justifies the wrapper over raw
     /// <see cref="IPersistentState{TState}"/>.
     /// </remarks>
-    T? State { get; }
+    T State { get; }
 
     /// <summary>
     /// Re-reads state from durable storage, replacing the current
-    /// <see cref="State"/> snapshot.
+    /// <see cref="State"/> snapshot. Missing records use the configured default
+    /// without writing it. Runtime configuration applies to the adopted instance.
     /// </summary>
     /// <remarks>
     /// Not required during activation — <see cref="IPersistentState{TState}"/>
@@ -133,7 +133,7 @@ public interface IStateManager<T>
 
     /// <summary>
     /// Clears the persisted state. On success, <see cref="State"/> reflects
-    /// the storage provider's cleared value and may be <see langword="null"/>.
+    /// a fresh configured default without writing that default to storage.
     /// </summary>
     /// <remarks>
     /// <para>

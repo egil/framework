@@ -15,8 +15,11 @@ public sealed class DefaultStateManager<T> : StateManagerBase<T>
     /// because general providers give no reliable signal that a write was
     /// rejected before persisting.
     /// </summary>
-    public DefaultStateManager(IPersistentState<T> storage)
-        : base(storage)
+    public DefaultStateManager(
+        IPersistentState<T> storage,
+        Func<T> createInitialState,
+        Action<T>? configureState = null)
+        : base(storage, createInitialState, configureState)
     {
     }
 

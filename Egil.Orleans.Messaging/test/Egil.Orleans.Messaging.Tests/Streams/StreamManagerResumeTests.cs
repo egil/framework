@@ -8,11 +8,26 @@ namespace Egil.Orleans.Messaging.Tests.Streams;
 public sealed class StreamManagerResumeTests
 {
     [Fact]
+    public async Task Subscription_uses_tracker_adopted_after_registration()
+    {
+        var stream = new FakeStream<string>("provider-a", StreamId.Create("orders", "one"));
+        var tracker = CreateTracker("provider-a", "orders", sequenceNumber: 1);
+        var manager = CreateManager(() => tracker, stream);
+        tracker = CreateTracker("provider-a", "orders", sequenceNumber: 9);
+
+        await manager
+            .ConfigureExplicitSubscription<string>("provider-a", "orders", static (_, _) => ValueTask.CompletedTask)
+            .EnsureExplicitSubscriptionsAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(new EventSequenceToken(9), stream.SubscribeToken);
+    }
+
+    [Fact]
     public async Task EnsureExplicitSubscriptionsAsync_uses_tracker_resume_token_when_creating_subscription()
     {
         var stream = new FakeStream<string>("provider-a", StreamId.Create("orders", "one"));
         var tracker = CreateTracker("provider-a", "orders", sequenceNumber: 7);
-        var manager = CreateManager(tracker, stream);
+        var manager = CreateManager(() => tracker, stream);
 
         await manager
             .ConfigureExplicitSubscription<string>("provider-a", "orders", static (_, _) => ValueTask.CompletedTask)
@@ -41,7 +56,7 @@ public sealed class StreamManagerResumeTests
     {
         var stream = new FakeStream<string>("provider-a", StreamId.Create("orders", "one"));
         var tracker = CreateTracker("provider-a", "orders", sequenceNumber: 7);
-        var manager = CreateManager(tracker, stream);
+        var manager = CreateManager(() => tracker, stream);
 
         await manager
             .ConfigureExplicitSubscription<string>(
@@ -80,7 +95,7 @@ public sealed class StreamManagerResumeTests
         var stream = new FakeStream<string>("provider-a", StreamId.Create("orders", "one"));
         stream.Handles.Add(handle);
         var tracker = CreateTracker("provider-a", "orders", sequenceNumber: 7);
-        var manager = CreateManager(tracker, stream);
+        var manager = CreateManager(() => tracker, stream);
 
         await manager
             .ConfigureExplicitSubscription<string>("provider-a", "orders", static (_, _) => ValueTask.CompletedTask)
@@ -98,7 +113,7 @@ public sealed class StreamManagerResumeTests
         var stream = new FakeStream<string>("provider-a", StreamId.Create("orders", "one"));
         stream.Handles.Add(handle);
         var tracker = CreateTracker("provider-a", "orders", sequenceNumber: 7);
-        var manager = CreateManager(tracker, stream);
+        var manager = CreateManager(() => tracker, stream);
 
         await manager
             .ConfigureExplicitSubscription<string>(
@@ -122,7 +137,7 @@ public sealed class StreamManagerResumeTests
             "provider-a",
             streamId,
             new FakeSubscriptionHandle<string>("provider-a", streamId));
-        var manager = CreateManager(tracker, new FakeStream<string>("provider-a", streamId));
+        var manager = CreateManager(() => tracker, new FakeStream<string>("provider-a", streamId));
 
         await ((IStreamManagerComponent)manager
             .ConfigureImplicitSubscription<string>("orders", static (_, _) => ValueTask.CompletedTask))
@@ -141,7 +156,7 @@ public sealed class StreamManagerResumeTests
             "provider-a",
             streamId,
             new FakeSubscriptionHandle<string>("provider-a", streamId));
-        var manager = CreateManager(tracker, new FakeStream<string>("provider-a", streamId));
+        var manager = CreateManager(() => tracker, new FakeStream<string>("provider-a", streamId));
 
         await ((IStreamManagerComponent)manager
             .ConfigureImplicitSubscription<string>(
@@ -172,7 +187,7 @@ public sealed class StreamManagerResumeTests
     }
 
     private static StreamManager CreateManager<TEvent>(
-        MessageTracker? tracker,
+        Func<MessageTracker?>? tracker,
         FakeStream<TEvent> stream)
     {
         var owner = new FakeGrainBase();

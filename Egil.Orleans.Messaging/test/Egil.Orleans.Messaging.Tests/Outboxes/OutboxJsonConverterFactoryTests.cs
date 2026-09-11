@@ -8,9 +8,8 @@ public sealed class OutboxJsonConverterFactoryTests
     [InlineData("first", "second")]
     public void JsonSerializer_round_trips_outbox_with_string_messages(string first, string second)
     {
-        var sender = GrainId.Create("test/sender", "one");
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
-        var outbox = Outbox<string>.Create(sender);
+        var outbox = Outbox<string>.Create();
         outbox = outbox.Add(first, now).Add(second, now);
 
         var json = JsonSerializer.Serialize(outbox);
@@ -23,11 +22,22 @@ public sealed class OutboxJsonConverterFactoryTests
     }
 
     [Fact]
+    public void Persisted_outbox_does_not_contain_sender_identity()
+    {
+        var outbox = Outbox<string>.Create()
+            .Add("message", new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero));
+
+        var json = JsonSerializer.Serialize(outbox);
+
+        Assert.DoesNotContain("Sender", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("test/sender", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void JsonSerializer_round_trips_outbox_with_complex_messages()
     {
-        var sender = GrainId.Create("test/sender", "one");
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
-        var outbox = Outbox<ComplexMessage>.Create(sender);
+        var outbox = Outbox<ComplexMessage>.Create();
         outbox = outbox.Add(new ComplexMessage(
             "order-17",
             42,
@@ -46,7 +56,7 @@ public sealed class OutboxJsonConverterFactoryTests
     }
 
     [Fact]
-    public void JsonSerializer_throws_json_exception_for_missing_sender()
+    public void JsonSerializer_reads_sender_free_empty_outbox()
     {
         var json = """
             {
@@ -56,8 +66,9 @@ public sealed class OutboxJsonConverterFactoryTests
             }
             """;
 
-        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<Outbox<string>>(json));
-        Assert.Equal("Missing Sender.", exception.Message);
+        var outbox = JsonSerializer.Deserialize<Outbox<string>>(json);
+        Assert.NotNull(outbox);
+        Assert.Empty(outbox);
     }
 
     [Fact]
@@ -65,7 +76,6 @@ public sealed class OutboxJsonConverterFactoryTests
     {
         var json = """
             {
-              "Sender": { "Type": "test/sender", "Key": "one" },
               "LatestSequenceNumber": 0,
               "Epoch": null
             }
@@ -80,7 +90,6 @@ public sealed class OutboxJsonConverterFactoryTests
     {
         var json = """
             {
-              "Sender": { "Type": "test/sender", "Key": "one" },
               "LatestSequenceNumber": 1,
               "Epoch": "2026-05-23T12:30:00+00:00",
               "Items": [ null ]
@@ -96,12 +105,11 @@ public sealed class OutboxJsonConverterFactoryTests
     {
         var json = """
             {
-              "Sender": { "Type": "test/sender", "Key": "one" },
               "LatestSequenceNumber": 1,
               "Epoch": "2026-05-23T12:30:00+00:00",
               "Items": [
                 {
-                  "Token": null,
+                  "Id": null,
                   "Message": "order-17"
                 }
               ]
@@ -109,33 +117,20 @@ public sealed class OutboxJsonConverterFactoryTests
             """;
 
         var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<Outbox<string>>(json));
-        Assert.Equal("Missing Token.", exception.Message);
+        Assert.Equal("Missing Id.", exception.Message);
     }
 
-    [Fact]
-    public void JsonSerializer_throws_json_exception_for_missing_item_token_sender()
+    [Theory]
+    [InlineData("SequenceNumber")]
+    [InlineData("Timestamp")]
+    [InlineData("Epoch")]
+    public void Missing_stored_identity_fields_are_rejected(string field)
     {
-        var json = """
-            {
-              "Sender": { "Type": "test/sender", "Key": "one" },
-              "LatestSequenceNumber": 1,
-              "Epoch": "2026-05-23T12:30:00+00:00",
-              "Items": [
-                {
-                  "Token": {
-                    "SequenceNumber": 1,
-                    "Sender": null,
-                    "Timestamp": "2026-05-23T12:30:00+00:00",
-                    "Epoch": "2026-05-23T12:30:00+00:00"
-                  },
-                  "Message": "order-17"
-                }
-              ]
-            }
-            """;
+        var outbox = Outbox<string>.Create().Add("message", DateTimeOffset.UnixEpoch);
+        var json = System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(outbox))!;
+        json["Items"]![0]!["Id"]!.AsObject().Remove(field);
 
-        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<Outbox<string>>(json));
-        Assert.Equal("Missing Token.Sender.", exception.Message);
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<Outbox<string>>(json.ToJsonString()));
     }
 
     private sealed record ComplexMessage(string OrderId, int Quantity, NestedMessage Route);

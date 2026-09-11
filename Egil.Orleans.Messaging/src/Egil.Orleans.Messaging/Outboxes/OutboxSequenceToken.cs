@@ -4,7 +4,7 @@ using Egil.Orleans.Messaging.Tracking;
 namespace Egil.Orleans.Messaging.Outboxes;
 
 /// <summary>
-/// Identifies a specific message within an <see cref="Outbox{T}"/>. Combines a
+/// Identifies a delivered message from an <see cref="Outbox{T}"/>. The processor combines a
 /// monotonic sequence number with the sender's identity and timing information
 /// to form a globally unique, totally ordered token per sender.
 /// </summary>
@@ -65,8 +65,8 @@ public sealed record OutboxSequenceToken
 
     /// <summary>
     /// Monotonically increasing sequence number within a single <see cref="Epoch"/>.
-    /// Assigned by <see cref="Outbox{T}.Add(T)"/> — callers cannot fabricate or choose
-    /// sequence numbers. Starts at 1 for each new epoch.
+    /// Assigned to the stored item by <see cref="Outbox{T}.Add(T)"/> and copied
+    /// by the processor into this delivery token. Starts at 1 for each new epoch.
     /// </summary>
     [Id(0)]
     public required long SequenceNumber { get; init; }

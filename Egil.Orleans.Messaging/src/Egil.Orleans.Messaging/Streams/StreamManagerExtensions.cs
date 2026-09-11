@@ -18,7 +18,7 @@ public static class StreamManagerExtensions
         /// </summary>
         /// <remarks>
         /// <para>
-        /// Call from <c>OnActivateAsync</c>, then chain
+        /// Call from the grain constructor, then chain
         /// <c>ConfigureImplicitSubscription</c> or
         /// <c>ConfigureExplicitSubscription</c> calls on the returned manager.
         /// </para>
@@ -27,25 +27,25 @@ public static class StreamManagerExtensions
         /// <code>
         /// public override async Task OnActivateAsync(CancellationToken ct)
         /// {
-        ///     streamManager = this.RegisterStreamManager(state.Tracker)
+        ///     streamManager = this.RegisterStreamManager(() => state.Tracker)
         ///         .ConfigureExplicitSubscription("StreamProvider", "electricity-prices", HandlePriceTickAsync);
         ///     await streamManager.EnsureExplicitSubscriptionsAsync(ct);
         /// }
         /// </code>
         /// </para>
         /// </remarks>
-        /// <param name="trackerSnapshot">
-        /// Optional snapshot of the grain's <see cref="MessageTracker"/> at
-        /// activation time. When provided, it is used to look up resume tokens.
+        /// <param name="getTracker">
+        /// Optional accessor for the grain's <see cref="MessageTracker"/> after
+        /// hydration. Evaluated when subscriptions look up resume tokens.
         /// Omit it when the grain does not persist stream tracking state.
         /// </param>
         /// <returns>
         /// The registered <see cref="StreamManager"/>. Store it in a grain field so
         /// configured subscriptions remain rooted for the activation lifetime.
         /// </returns>
-        public StreamManager RegisterStreamManager(MessageTracker? trackerSnapshot = null)
+        public StreamManager RegisterStreamManager(Func<MessageTracker?>? getTracker = null)
         {
-            return StreamManager.Create(grain, trackerSnapshot);
+            return StreamManager.Create(grain, getTracker);
         }
     }
 }

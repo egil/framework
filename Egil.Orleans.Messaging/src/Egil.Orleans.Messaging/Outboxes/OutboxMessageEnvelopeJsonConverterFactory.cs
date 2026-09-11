@@ -56,7 +56,7 @@ internal sealed class OutboxMessageEnvelopeJsonConverterFactory : JsonConverterF
                 throw new JsonException($"Expected outbox message envelope object, got '{reader.TokenType}'.");
             }
 
-            OutboxSequenceToken? token = null;
+            OutboxMessageId? token = null;
             T? message = default;
             var hasMessage = false;
             while (reader.Read())
@@ -64,7 +64,7 @@ internal sealed class OutboxMessageEnvelopeJsonConverterFactory : JsonConverterF
                 if (reader.TokenType is JsonTokenType.EndObject)
                 {
                     return new OutboxMessageEnvelope<T>(
-                        token ?? throw new JsonException("Missing Token."),
+                        token ?? throw new JsonException("Missing Id."),
                         hasMessage ? message! : throw new JsonException("Missing Message."));
                 }
 
@@ -81,16 +81,8 @@ internal sealed class OutboxMessageEnvelopeJsonConverterFactory : JsonConverterF
 
                 switch (propertyName)
                 {
-                    case nameof(OutboxMessageEnvelope<T>.Token):
-                        try
-                        {
-                            token = JsonSerializer.Deserialize<OutboxSequenceToken>(ref reader, options);
-                        }
-                        catch (JsonException exception) when (exception.Message == "Missing Sender.")
-                        {
-                            throw new JsonException("Missing Token.Sender.", exception);
-                        }
-
+                    case nameof(OutboxMessageEnvelope<T>.Id):
+                        token = JsonSerializer.Deserialize<OutboxMessageId>(ref reader, options);
                         break;
                     case nameof(OutboxMessageEnvelope<T>.Message):
                         message = reader.TokenType is JsonTokenType.Null
@@ -113,8 +105,8 @@ internal sealed class OutboxMessageEnvelopeJsonConverterFactory : JsonConverterF
             JsonSerializerOptions options)
         {
             writer.WriteStartObject();
-            writer.WritePropertyName(nameof(OutboxMessageEnvelope<T>.Token));
-            JsonSerializer.Serialize(writer, value.Token, options);
+            writer.WritePropertyName(nameof(OutboxMessageEnvelope<T>.Id));
+            JsonSerializer.Serialize(writer, value.Id, options);
             writer.WritePropertyName(nameof(OutboxMessageEnvelope<T>.Message));
             if (value.Message is null)
             {
