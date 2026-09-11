@@ -178,8 +178,8 @@ public OrderGrain([PersistentState("state", "Default")] IPersistentState<OrderSt
 }
 ```
 
-Postman handlers receive domain payloads. Overloads can also receive the
-`OutboxSequenceToken` and cancellation token when the destination needs delivery
+Postman handlers receive domain payloads. `AddPostmanWithToken` callbacks receive
+the payload and `OutboxSequenceToken`, with an optional cancellation token when the destination needs delivery
 identity or deduplication. The processor builds that token from the stored
 `OutboxMessageId` and its owning grain ID, preserving sequence, epoch and append
 timestamp across retries and reactivation. No sender identity is stored in the outbox.
@@ -443,7 +443,7 @@ The constructor-registration and payload-postman changes tracked in
 - Replace `Outbox<T>.Create(grainId)` with `Outbox<T>.Create()`.
 - Stored envelopes expose `Id` (`OutboxMessageId`); delivery tokens are supplied to handlers by the processor.
 - Use `OutboxProcessor<TPayload>` and `OutboxProcessorOptions<TPayload>`, not envelope generic arguments.
-- Register payload subtypes with `AddPostman`, `AddStreamPostman`, and `AddGrainPostman`.
+- Register payload subtypes with `AddPostman`, `AddStreamPostman`, and `AddGrainPostman`. Use `AddPostmanWithToken` for direct handlers needing delivery metadata; both `Task` and `ValueTask` handlers are supported.
 - Supply state factories for types without a public parameterless constructor. Custom `IStateManagerFactory` implementations receive the initial-state factory and runtime configuration callback.
 - Pass a tracker accessor to `RegisterStreamManager`, for example `() => state.State.Tracker`. It is evaluated when attaching/resuming subscriptions, after hydration, and observes later state replacement.
 
