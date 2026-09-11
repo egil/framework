@@ -74,6 +74,9 @@ internal sealed class OutboxJsonConverterFactory : JsonConverterFactory
             {
                 if (reader.TokenType is JsonTokenType.EndObject)
                 {
+                    // Never manufacture a revision during a read: it would prevent a
+                    // saved snapshot from matching the attempted write during recovery.
+                    // Missing identity requires migration rather than guessed equality.
                     return new Outbox<T>(
                         hasLatestSequenceNumber
                             ? latestSequenceNumber

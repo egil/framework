@@ -417,7 +417,8 @@ mutation that changes the outbox assign a fresh revision. No-op operations
 preserve the existing snapshot and revision. JSON and Orleans serialization
 preserve the revision; JSON requires it to be non-empty.
 
-Equality uses `(Revision, LatestSequenceNumber, Epoch, Count, first ID, last ID)`.
+Equality and hashing use only `Revision`; distinct snapshots with an empty
+revision cannot compare equal.
 It remains O(1) without scanning payloads. Two competing appends or removals
 have different revisions even when endpoint IDs and sequence metadata match.
 A deserialized copy of the saved snapshot retains its revision, allowing recovery
@@ -1649,7 +1650,7 @@ explicit `null` roots remain valid empty collections.
 
 `Outbox<T>` and `MessageTracker` are sealed classes with private
 backing fields. Exposing them via `[JsonInclude]` would leak internals
-and weaken the fingerprint invariant. Custom converters keep
+and allow malformed snapshot identity. Custom converters keep
 encapsulation intact and control the exact wire format.
 
 **`VersionedState` exception:** `Version` is a single `Guid` property

@@ -259,7 +259,7 @@ public abstract class StateManagerBase<T> : IStateManager<T>
     /// must never return <c>true</c> when the persisted state is missing data
     /// the attempted write contained, or recovery would adopt a foreign state
     /// and silently lose that data. <c>Outbox&lt;T&gt;.Equals</c> documents
-    /// how its persisted revision and O(1) fingerprint satisfy this contract.
+    /// how its persisted revision satisfies this contract in O(1).
     /// </remarks>
     private static bool IsEquivalent(T? persisted, T attempted)
     {
@@ -274,6 +274,9 @@ public abstract class StateManagerBase<T> : IStateManager<T>
             return persistedVersioned.Version == attemptedVersioned.Version;
         }
 
+        // Outbox equality uses its persisted snapshot revision. Matching sequence windows
+        // alone cannot prove persistence when competing appends share a timestamp. Other
+        // non-versioned state types must provide an equally reliable recovery comparison.
         return persisted.Equals(attempted);
     }
 

@@ -212,8 +212,8 @@ its own: items only leave durable state when the grain removes them in
 state write leaves them pending and at worst causes duplicate delivery, never
 loss. `Outbox<T>.Revision` is a persisted UUIDv7 that acts as an outbox-specific ETag.
 Each mutation creates a new revision; operations that change nothing preserve it.
-`Equals` compares the revision, sequence metadata, count, and first/last pending
-IDs in O(1), without scanning payloads. Competing snapshots remain distinct even
+`Equals` compares only the revision in O(1), without scanning payloads.
+`GetHashCode` also uses only the revision. Competing snapshots remain distinct even
 when their append timestamps match. Serialization preserves the revision so
 recovery can confirm a successful save whose response was lost. Revisions are
 compared for equality, not order, and do not change message IDs or delivery tokens.

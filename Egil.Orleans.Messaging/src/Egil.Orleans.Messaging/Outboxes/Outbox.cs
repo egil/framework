@@ -40,7 +40,7 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// Grains should almost never call <see cref="Create()"/> on an active outbox.
 /// </para>
 /// <para>
-/// <b>Equality:</b> Snapshot identity and sequence metadata are compared in O(1),
+/// <b>Equality:</b> Snapshot revisions are compared in O(1),
 /// without scanning payloads. Each changed snapshot receives a fresh UUIDv7
 /// <see cref="Revision"/>. Serialization preserves it, while no-op mutations
 /// return the existing snapshot. This permits recovery to confirm a saved
@@ -81,6 +81,13 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
     /// UUIDv7 identity of this snapshot, used as an outbox-specific ETag for recovery.
     /// Changes with each mutation and survives serialization. It is not a delivery token.
     /// </summary>
+    /// <remarks>
+    /// An ambiguous storage failure requires proof that the attempted snapshot was saved.
+    /// Sequence numbers and timestamps cannot provide that proof: competing activations
+    /// can append different payloads with identical IDs. A fresh revision distinguishes
+    /// those snapshots without comparing every payload. No-op operations return this
+    /// instance so they preserve its identity; deserialization restores the stored revision.
+    /// </remarks>
     [Id(4)] public Guid Revision { get; }
 
     /// <summary>
@@ -97,6 +104,9 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
         this.latestSequenceNumber = latestSequenceNumber;
         this.items = items;
         this.epoch = epoch;
+        // Restore the supplied identity instead of generating one here. Deserialization
+        // must preserve it so recovery recognizes a saved snapshot after a lost response.
+        // Creation and successful mutations explicitly supply a fresh UUIDv7 instead.
         Revision = revision;
     }
 
@@ -294,7 +304,7 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
     }
 
     /// <summary>
-    /// O(1) snapshot equality using the revision and sequence fingerprint.
+    /// O(1) snapshot equality using the persisted revision.
     /// </summary>
     /// <remarks>
     /// Every mutation assigns a fresh UUIDv7 revision. Recovery can therefore
@@ -303,38 +313,26 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
     /// so a successful write with a lost response can still be confirmed.
     /// Independently constructed snapshots are unequal even with identical payloads.
     /// Revisions are compared for equality, not order: clock order cannot prove persistence.
+    /// First/last IDs, count, and sequence metadata are unnecessary once revisions identify
+    /// snapshots. Those checks previously allowed different payloads with matching metadata
+    /// to appear equal, causing recovery to swallow an error for a write that did not land.
+    /// This contract assumes payloads are not changed in place after enqueueing: callers
+    /// must preserve the snapshot represented by the revision.
     /// </remarks>
     public bool Equals(Outbox<T>? other)
     {
+        // Keep equality reflexive, including for an instance loaded from older binary data.
+        // Distinct instances with a missing revision cannot establish persistence identity;
+        // rejecting them is safer than reporting a competing or unknown save as successful.
         return ReferenceEquals(this, other)
             || (other is not null
                 && Revision != Guid.Empty
-                && Revision == other.Revision
-                && latestSequenceNumber == other.latestSequenceNumber
-                && epoch == other.epoch
-                && items.Length == other.items.Length
-                && Equals(FirstToken, other.FirstToken)
-                && Equals(LastToken, other.LastToken));
+                && Revision == other.Revision);
     }
 
     /// <inheritdoc/>
     public override bool Equals(object? obj) => obj is Outbox<T> o && Equals(o);
 
     /// <inheritdoc/>
-    public override int GetHashCode()
-        => HashCode.Combine(
-            Revision,
-            latestSequenceNumber,
-            epoch,
-            items.Length,
-            FirstToken,
-            LastToken);
-
-    // Retain the sequence fingerprint as a consistency check alongside the
-    // revision. Timestamps alone cannot distinguish competing append histories.
-    private OutboxMessageId? FirstToken =>
-        items.IsDefaultOrEmpty ? null : items[0].Id;
-
-    private OutboxMessageId? LastToken =>
-        items.IsDefaultOrEmpty ? null : items[^1].Id;
+    public override int GetHashCode() => Revision.GetHashCode();
 }
