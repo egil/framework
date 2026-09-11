@@ -16,7 +16,7 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// </para>
 /// <para>
 /// The converter serializes only the structural data needed to reconstruct
-/// the outbox (epoch, sequence numbers, items) while keeping its
+/// the outbox (revision, epoch, sequence numbers, items) while keeping its
 /// persisted representation encapsulated behind read-only properties.
 /// </para>
 /// </remarks>
@@ -63,6 +63,7 @@ internal sealed class OutboxJsonConverterFactory : JsonConverterFactory
                 throw new JsonException($"Expected outbox object, got '{reader.TokenType}'.");
             }
 
+            Guid revision = Guid.Empty;
             long latestSequenceNumber = 0;
             var hasLatestSequenceNumber = false;
             DateTimeOffset? epoch = null;
@@ -78,7 +79,8 @@ internal sealed class OutboxJsonConverterFactory : JsonConverterFactory
                             ? latestSequenceNumber
                             : throw new JsonException("Missing LatestSequenceNumber."),
                         hasItems ? items : throw new JsonException("Missing Items."),
-                        epoch);
+                        epoch,
+                        revision != Guid.Empty ? revision : throw new JsonException("Missing or empty Revision."));
                 }
 
                 if (reader.TokenType is not JsonTokenType.PropertyName)
@@ -94,6 +96,9 @@ internal sealed class OutboxJsonConverterFactory : JsonConverterFactory
 
                 switch (propertyName)
                 {
+                    case nameof(Outbox<T>.Revision):
+                        revision = reader.GetGuid();
+                        break;
                     case nameof(Outbox<T>.LatestSequenceNumber):
                         latestSequenceNumber = reader.GetInt64();
                         hasLatestSequenceNumber = true;
@@ -122,6 +127,7 @@ internal sealed class OutboxJsonConverterFactory : JsonConverterFactory
             JsonSerializerOptions options)
         {
             writer.WriteStartObject();
+            writer.WriteString(nameof(Outbox<T>.Revision), value.Revision);
             writer.WriteNumber(nameof(Outbox<T>.LatestSequenceNumber), value.LatestSequenceNumber);
             writer.WritePropertyName(nameof(Outbox<T>.Epoch));
             if (value.Epoch is { } epoch)

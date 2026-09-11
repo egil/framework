@@ -40,18 +40,12 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// Grains should almost never call <see cref="Create()"/> on an active outbox.
 /// </para>
 /// <para>
-/// <b>Equality:</b> Two <see cref="Outbox{T}"/> instances are equal when
-/// sequence metadata, epoch, count, and the full first and last
-/// pending IDs are equal. Equality is O(1) and ignores message payloads —
-/// it is a fingerprint, not deep content equality. Within a single history
-/// lineage every mutation changes the fingerprint (<see cref="Add(T)"/> changes
-/// the last token, removals change the count or tokens), so dirty-check
-/// "skip write if unchanged" logic is safe. Outboxes from <em>divergent</em>
-/// histories (duplicate activations of the same grain) can compare equal when
-/// they diverged only by removals; treating them as interchangeable
-/// re-delivers already posted items but never loses pending ones. See
-/// <see cref="Equals(Outbox{T}?)"/> for the full contract before relying on
-/// equality for anything beyond dirty-checks or write recovery.
+/// <b>Equality:</b> Snapshot identity and sequence metadata are compared in O(1),
+/// without scanning payloads. Each changed snapshot receives a fresh UUIDv7
+/// <see cref="Revision"/>. Serialization preserves it, while no-op mutations
+/// return the existing snapshot. This permits recovery to confirm a saved
+/// snapshot without mistaking a competing append or removal for the same write.
+/// Independently constructed snapshots are unequal even with identical contents.
 /// </para>
 /// <para>
 /// <b>Unbounded growth risk:</b> If postman targets are down, the outbox grows
@@ -84,6 +78,12 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
     [Id(3)] private readonly DateTimeOffset? epoch;
 
     /// <summary>
+    /// UUIDv7 identity of this snapshot, used as an outbox-specific ETag for recovery.
+    /// Changes with each mutation and survives serialization. It is not a delivery token.
+    /// </summary>
+    [Id(4)] public Guid Revision { get; }
+
+    /// <summary>
     /// Internal constructor used by mutation methods to produce new instances.
     /// Not user-callable — use <see cref="Create()"/> to create the
     /// initial outbox, then <see cref="Add(T)"/> to append messages.
@@ -91,11 +91,13 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
     internal Outbox(
         long latestSequenceNumber,
         ImmutableArray<OutboxMessageEnvelope<T>> items,
-        DateTimeOffset? epoch)
+        DateTimeOffset? epoch,
+        Guid revision)
     {
         this.latestSequenceNumber = latestSequenceNumber;
         this.items = items;
         this.epoch = epoch;
+        Revision = revision;
     }
 
     /// <summary>
@@ -111,7 +113,7 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
     /// "postman drained" path.
     /// </remarks>
     public static Outbox<T> Create() =>
-        new(latestSequenceNumber: 0, items: [], epoch: null);
+        new(latestSequenceNumber: 0, items: [], epoch: null, revision: Guid.CreateVersion7());
 
     /// <summary>
     /// The highest sequence number ever assigned in this outbox, including
@@ -197,7 +199,8 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
         return new Outbox<T>(
             sequenceNumber,
             items.Add(new OutboxMessageEnvelope<T>(token, message)),
-            epoch);
+            epoch,
+            Guid.CreateVersion7());
     }
 
     /// <summary>
@@ -221,7 +224,8 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
         return new Outbox<T>(
             latestSequenceNumber,
             items.RemoveAt(0),
-            epoch);
+            epoch,
+            Guid.CreateVersion7());
     }
 
     /// <summary>
@@ -260,7 +264,8 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
         return new Outbox<T>(
             latestSequenceNumber,
             remaining,
-            epoch);
+            epoch,
+            Guid.CreateVersion7());
     }
 
     /// <summary>
@@ -284,56 +289,27 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
         return new Outbox<T>(
             latestSequenceNumber,
             [],
-            epoch);
+            epoch,
+            Guid.CreateVersion7());
     }
 
     /// <summary>
-    /// O(1) equality over the outbox identity and sequence fingerprint:
-    /// latest sequence number, epoch, count, and the full first and
-    /// last pending tokens (including their timestamps).
+    /// O(1) snapshot equality using the revision and sequence fingerprint.
     /// </summary>
     /// <remarks>
-    /// <para>
-    /// This equality is the contract the state-manager write recovery relies
-    /// on: after an ambiguous storage write (the call threw but the write may
-    /// have landed, e.g. a timeout or lost response), the state manager reads
-    /// the persisted state back and uses <c>Equals</c> to decide between
-    /// "lost response — the write landed, swallow the error" and "the write
-    /// did not land — rethrow so the caller retries". A false positive here
-    /// would make recovery adopt a foreign state and silently drop pending
-    /// messages, so the fingerprint must never compare equal for a history
-    /// that is missing items this instance added.
-    /// </para>
-    /// <para>
-    /// The fingerprint intentionally does not compare message payloads, to
-    /// avoid an O(n) scan on every recovery. It is still loss-safe because
-    /// items are only ever appended at the tail: two histories that diverged
-    /// by <em>adding</em> different messages — for example duplicate grain
-    /// activations of the same grain in two silos racing an ambiguous write —
-    /// always differ in count or in their highest pending token. The token
-    /// timestamp is stamped by the producing activation's clock, which also
-    /// distinguishes same-count races unless both activations produced the
-    /// exact same timestamp.
-    /// </para>
-    /// <para>
-    /// Note that direct optimistic-concurrency conflicts are not handled
-    /// here: when the storage provider reports an ETag conflict
-    /// (<c>InconsistentStateException</c>) the state manager rethrows it even
-    /// if the values happen to match, so this equality only decides the
-    /// ambiguous-outcome cases described above.
-    /// </para>
-    /// <para>
-    /// Accepted trade-off: histories that diverged only by <em>removals</em>
-    /// (or the exact-timestamp tie above) can still compare equal. Recovery
-    /// then at worst re-delivers an already posted item — duplicate delivery
-    /// is acceptable under the at-least-once contract, losing a pending
-    /// message is not.
-    /// </para>
+    /// Every mutation assigns a fresh UUIDv7 revision. Recovery can therefore
+    /// distinguish competing snapshots even when append timestamps, sequence
+    /// numbers, and endpoint IDs match. Serialization preserves the revision
+    /// so a successful write with a lost response can still be confirmed.
+    /// Independently constructed snapshots are unequal even with identical payloads.
+    /// Revisions are compared for equality, not order: clock order cannot prove persistence.
     /// </remarks>
     public bool Equals(Outbox<T>? other)
     {
         return ReferenceEquals(this, other)
             || (other is not null
+                && Revision != Guid.Empty
+                && Revision == other.Revision
                 && latestSequenceNumber == other.latestSequenceNumber
                 && epoch == other.epoch
                 && items.Length == other.items.Length
@@ -347,17 +323,15 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
     /// <inheritdoc/>
     public override int GetHashCode()
         => HashCode.Combine(
+            Revision,
             latestSequenceNumber,
             epoch,
             items.Length,
             FirstToken,
             LastToken);
 
-    // Full tokens (sequence number + epoch + timestamp) rather than bare
-    // sequence numbers: the timestamp comes from the producing activation's
-    // clock, so it disambiguates duplicate activations that appended different
-    // items yet reached the same sequence number. See Equals for the recovery
-    // contract this protects.
+    // Retain the sequence fingerprint as a consistency check alongside the
+    // revision. Timestamps alone cannot distinguish competing append histories.
     private OutboxMessageId? FirstToken =>
         items.IsDefaultOrEmpty ? null : items[0].Id;
 

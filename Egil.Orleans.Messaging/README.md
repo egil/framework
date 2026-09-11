@@ -210,9 +210,13 @@ with plain `IPersistentState<T>` writes, the pipeline stays at-least-once on
 its own: items only leave durable state when the grain removes them in
 `AcknowledgePostedAsync` after a successful post, so a failed or ambiguous
 state write leaves them pending and at worst causes duplicate delivery, never
-loss. Be aware that `Outbox<T>.Equals` is an O(1) fingerprint (sequence metadata, count, and first/last pending IDs), not deep payload
-equality — safe for dirty-checks and write recovery, but not a substitute for
-comparing message contents item by item.
+loss. `Outbox<T>.Revision` is a persisted UUIDv7 that acts as an outbox-specific ETag.
+Each mutation creates a new revision; operations that change nothing preserve it.
+`Equals` compares the revision, sequence metadata, count, and first/last pending
+IDs in O(1), without scanning payloads. Competing snapshots remain distinct even
+when their append timestamps match. Serialization preserves the revision so
+recovery can confirm a successful save whose response was lost. Revisions are
+compared for equality, not order, and do not change message IDs or delivery tokens.
 
 If a post run fails before reconciliation completes — for example when the
 run exceeds `ProcessingTimeout` or an acknowledgement callback throws — the
@@ -441,6 +445,7 @@ The constructor-registration and payload-postman changes tracked in
 [issue #179](https://github.com/egil/framework/issues/179) are breaking changes:
 
 - Replace `Outbox<T>.Create(grainId)` with `Outbox<T>.Create()`.
+- Outboxes persist a UUIDv7 `Revision`. JSON requires a non-empty revision; previous beta snapshots need migration or reset. Independently constructed snapshots no longer compare equal based on matching contents.
 - Stored envelopes expose `Id` (`OutboxMessageId`); delivery tokens are supplied to handlers by the processor.
 - Use `OutboxProcessor<TPayload>` and `OutboxProcessorOptions<TPayload>`, not envelope generic arguments.
 - Register payload subtypes with `AddPostman`, `AddStreamPostman`, and `AddGrainPostman`. Use `AddPostmanWithToken` for direct handlers needing delivery metadata; both `Task` and `ValueTask` handlers are supported.

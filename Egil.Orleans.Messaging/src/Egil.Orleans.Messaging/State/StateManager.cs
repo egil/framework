@@ -259,7 +259,7 @@ public abstract class StateManagerBase<T> : IStateManager<T>
     /// must never return <c>true</c> when the persisted state is missing data
     /// the attempted write contained, or recovery would adopt a foreign state
     /// and silently lose that data. <c>Outbox&lt;T&gt;.Equals</c> documents
-    /// how its O(1) fingerprint satisfies this contract.
+    /// how its persisted revision and O(1) fingerprint satisfy this contract.
     /// </remarks>
     private static bool IsEquivalent(T? persisted, T attempted)
     {
