@@ -410,13 +410,20 @@ The outbox can grow unbounded if postman targets are down. Mitigation:
 - **Documentation:** storage providers have entity size limits (e.g.
   Azure Table = 1MB). Document the risk of unbounded growth.
 
-### O(1) sequence equality
+### O(1) snapshot equality
 
-Equality uses `(LatestSequenceNumber, Epoch, Count, first ID, last ID)`, including
-ID timestamps. It is a recovery fingerprint, not payload equality. Removal can
-leave gaps, so matching endpoints does not imply a contiguous sequence. See the
-source documentation for the existing removal-divergence and exact-timestamp-tie
-tradeoffs; this change preserves those semantics while removing sender identity.
+`Revision` is a persisted UUIDv7, an outbox-specific ETag. `Create` and each
+mutation that changes the outbox assign a fresh revision. No-op operations
+preserve the existing snapshot and revision. JSON and Orleans serialization
+preserve the revision; JSON requires it to be non-empty.
+
+Equality uses `(Revision, LatestSequenceNumber, Epoch, Count, first ID, last ID)`.
+It remains O(1) without scanning payloads. Two competing appends or removals
+have different revisions even when endpoint IDs and sequence metadata match.
+A deserialized copy of the saved snapshot retains its revision, allowing recovery
+to confirm a successful write with a lost response. Independently constructed
+snapshots are unequal even when their contents match. Recovery uses revision
+equality, never revision ordering. Message IDs and delivery tokens are unchanged.
 
 ### Why these choices
 

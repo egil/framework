@@ -5,6 +5,53 @@ namespace Egil.Orleans.Messaging.Tests.Outboxes;
 public sealed class OutboxTests
 {
     [Fact]
+    public void Mutations_create_distinct_uuidv7_snapshot_revisions()
+    {
+        var initial = Outbox<string>.Create();
+        var appended = initial.Add("first", DateTimeOffset.UnixEpoch);
+        var removed = appended.Remove(appended[0].Id);
+        var batchRemoved = appended.RemoveRange([appended[0].Id]);
+        var cleared = appended.Clear();
+
+        Guid[] revisions = [initial.Revision, appended.Revision, removed.Revision, batchRemoved.Revision, cleared.Revision];
+        Assert.Equal(revisions.Length, revisions.Distinct().Count());
+        Assert.All(revisions, revision => Assert.Equal(7, revision.Version));
+    }
+
+    [Fact]
+    public void Operations_without_changes_preserve_the_snapshot_revision()
+    {
+        var empty = Outbox<string>.Create();
+        var pending = empty.Add("first", DateTimeOffset.UnixEpoch);
+        var foreignId = new OutboxMessageId(99, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch);
+
+        Assert.Equal(empty.Revision, empty.Clear().Revision);
+        Assert.Equal(empty.Revision, empty.Remove(foreignId).Revision);
+        Assert.Equal(pending.Revision, pending.Remove(foreignId).Revision);
+        Assert.Equal(pending.Revision, pending.RemoveRange([]).Revision);
+        Assert.Equal(pending.Revision, pending.RemoveRange([foreignId]).Revision);
+    }
+
+    [Fact]
+    public void Orleans_serialization_preserves_snapshot_identity_and_message_ids()
+    {
+        var outbox = Outbox<string>.Create().Add("first", DateTimeOffset.UnixEpoch);
+        var services = new ServiceCollection();
+        services.AddSerializer(builder => builder.AddAssembly(typeof(Outbox<>).Assembly));
+        using var serviceProvider = services.BuildServiceProvider();
+        var serializer = serviceProvider.GetRequiredService<Serializer>();
+
+        var loaded = serializer.Deserialize<Outbox<string>>(serializer.SerializeToArray(outbox));
+
+        Assert.NotNull(loaded);
+        Assert.Equal(outbox.Revision, loaded.Revision);
+        Assert.Equal(outbox, loaded);
+        Assert.Equal(outbox.GetHashCode(), loaded.GetHashCode());
+        Assert.Equal(outbox[0].Id, loaded[0].Id);
+        Assert.Equal("first", loaded[0].Message);
+    }
+
+    [Fact]
     public void Add_after_Orleans_deep_copy_uses_explicit_timestamp()
     {
         var epoch = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
@@ -16,6 +63,7 @@ public sealed class OutboxTests
         var copied = serviceProvider.GetRequiredService<DeepCopier>().Copy(outbox);
 
         Assert.NotNull(copied);
+        Assert.Equal(outbox.Revision, copied.Revision);
         var next = copied.Add("second", later);
 
         Assert.Equal(2, next.Count);
@@ -159,7 +207,7 @@ public sealed class OutboxTests
     }
 
     [Fact]
-    public void Equals_treats_matching_sequence_window_as_same_pending_items()
+    public void Competing_appends_are_distinct_despite_matching_sequence_windows()
     {
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
         var left = Outbox<string>.Create();
@@ -168,11 +216,11 @@ public sealed class OutboxTests
         left = left.Add("left", now).Add("middle-left", now).Add("last", now);
         right = right.Add("right", now).Add("middle-right", now).Add("last", now);
 
-        Assert.Equal(left, right);
+        Assert.NotEqual(left, right);
     }
 
     [Fact]
-    public void Equals_treats_removal_only_divergence_as_same_recovery_fingerprint()
+    public void Competing_removals_are_distinct_despite_matching_endpoints()
     {
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
         var baseline = Outbox<string>.Create()
@@ -186,12 +234,11 @@ public sealed class OutboxTests
 
         Assert.Equal([1L, 2L, 4L], left.Select(item => item.Id.SequenceNumber).ToArray());
         Assert.Equal([1L, 3L, 4L], right.Select(item => item.Id.SequenceNumber).ToArray());
-        Assert.Equal(left, right);
-        Assert.Equal(left.GetHashCode(), right.GetHashCode());
+        Assert.NotEqual(left, right);
     }
 
     [Fact]
-    public void Equals_returns_true_when_sequence_epoch_and_envelopes_match()
+    public void Independent_snapshots_are_distinct_even_with_identical_payloads()
     {
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
         var left = Outbox<string>.Create();
@@ -200,8 +247,7 @@ public sealed class OutboxTests
         left = left.Add("first", now).Add("second", now);
         right = right.Add("first", now).Add("second", now);
 
-        Assert.Equal(left, right);
-        Assert.Equal(left.GetHashCode(), right.GetHashCode());
+        Assert.NotEqual(left, right);
     }
 
     [Fact]

@@ -17,6 +17,7 @@ public sealed class OutboxJsonConverterFactoryTests
 
         Assert.NotNull(roundTripped);
         Assert.Equal(outbox, roundTripped);
+        Assert.Equal(outbox.Revision, roundTripped.Revision);
         Assert.Equal(first, roundTripped[0].Message);
         Assert.Equal(second, roundTripped[1].Message);
     }
@@ -49,6 +50,7 @@ public sealed class OutboxJsonConverterFactoryTests
 
         Assert.NotNull(roundTripped);
         Assert.Equal(outbox, roundTripped);
+        Assert.Equal(outbox.Revision, roundTripped.Revision);
         Assert.Equal("order-17", roundTripped[0].Message.OrderId);
         Assert.Equal(42, roundTripped[0].Message.Quantity);
         Assert.Equal("north", roundTripped[0].Message.Route.Name);
@@ -60,6 +62,7 @@ public sealed class OutboxJsonConverterFactoryTests
     {
         var json = """
             {
+              "Revision": "019931d0-0000-7000-8000-000000000001",
               "LatestSequenceNumber": 0,
               "Epoch": null,
               "Items": []
@@ -76,6 +79,7 @@ public sealed class OutboxJsonConverterFactoryTests
     {
         var json = """
             {
+              "Revision": "019931d0-0000-7000-8000-000000000001",
               "LatestSequenceNumber": 0,
               "Epoch": null
             }
@@ -131,6 +135,24 @@ public sealed class OutboxJsonConverterFactoryTests
         json["Items"]![0]!["Id"]!.AsObject().Remove(field);
 
         Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<Outbox<string>>(json.ToJsonString()));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Missing_or_empty_revision_cannot_prove_snapshot_identity(bool includeEmptyRevision)
+    {
+        var json = System.Text.Json.Nodes.JsonNode.Parse(
+            JsonSerializer.Serialize(Outbox<string>.Create()))!.AsObject();
+        json.Remove("Revision");
+        if (includeEmptyRevision)
+        {
+            json["Revision"] = Guid.Empty;
+        }
+
+        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<Outbox<string>>(json.ToJsonString()));
+
+        Assert.Equal("Missing or empty Revision.", exception.Message);
     }
 
     private sealed record ComplexMessage(string OrderId, int Quantity, NestedMessage Route);
