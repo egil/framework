@@ -14,8 +14,11 @@ public sealed class AzureStorageStateManager<T> : StateManagerBase<T>
     /// <summary>
     /// Creates a state manager around an Orleans Azure Storage-backed state facet.
     /// </summary>
-    public AzureStorageStateManager(IPersistentState<T> storage)
-        : base(storage)
+    public AzureStorageStateManager(
+        IPersistentState<T> storage,
+        Func<T> createInitialState,
+        Action<T>? configureState = null)
+        : base(storage, createInitialState, configureState)
     {
     }
 
@@ -40,11 +43,11 @@ public sealed class AzureStorageStateManager<T> : StateManagerBase<T>
 public sealed class AzureStorageStateManagerFactory : IStateManagerFactory
 {
     /// <inheritdoc/>
-    public IStateManager<T> Create<T>(IPersistentState<T> storage)
+    public IStateManager<T> Create<T>(IPersistentState<T> storage, Func<T> createInitialState, Action<T>? configureState = null)
         where T : class, IEquatable<T>
     {
         ArgumentNullException.ThrowIfNull(storage);
-        return new AzureStorageStateManager<T>(storage);
+        return new AzureStorageStateManager<T>(storage, createInitialState, configureState);
     }
 }
 

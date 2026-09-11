@@ -7,10 +7,9 @@ public sealed class OutboxTests
     [Fact]
     public void Add_after_Orleans_deep_copy_uses_explicit_timestamp()
     {
-        var sender = GrainId.Create("test/sender", "one");
         var epoch = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
         var later = epoch.AddMinutes(5);
-        var outbox = Outbox<string>.Create(sender).Add("first", epoch);
+        var outbox = Outbox<string>.Create().Add("first", epoch);
         var services = new ServiceCollection();
         services.AddSerializer(builder => builder.AddAssembly(typeof(Outbox<>).Assembly));
         using var serviceProvider = services.BuildServiceProvider();
@@ -22,15 +21,14 @@ public sealed class OutboxTests
         Assert.Equal(2, next.Count);
         Assert.Equal(2, next.LatestSequenceNumber);
         Assert.Equal("second", next[1].Message);
-        Assert.Equal(new OutboxSequenceToken(2, sender, later, epoch), next[1].Token);
+        Assert.Equal(new OutboxMessageId(2, later, epoch), next[1].Id);
     }
 
     [Fact]
-    public void Add_appends_message_with_next_sequence_sender_and_time()
+    public void Add_appends_message_with_next_sequence_and_time()
     {
-        var sender = GrainId.Create("test/sender", "one");
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
-        var outbox = Outbox<string>.Create(sender);
+        var outbox = Outbox<string>.Create();
 
         var next = outbox.Add("created", now);
 
@@ -39,30 +37,28 @@ public sealed class OutboxTests
         Assert.Equal(1, next.LatestSequenceNumber);
         Assert.Equal(now, next.Epoch);
         Assert.Equal("created", next[0].Message);
-        Assert.Equal(new OutboxSequenceToken(1, sender, now, now), next[0].Token);
+        Assert.Equal(new OutboxMessageId(1, now, now), next[0].Id);
     }
 
     [Fact]
     public void Add_normalizes_supplied_timestamp_to_UTC()
     {
-        var sender = GrainId.Create("test/sender", "one");
         var localNow = new DateTimeOffset(2026, 5, 23, 14, 30, 0, TimeSpan.FromHours(2));
         var utcNow = localNow.ToUniversalTime();
 
-        var next = Outbox<string>.Create(sender).Add("created", localNow);
+        var next = Outbox<string>.Create().Add("created", localNow);
 
         Assert.Equal(utcNow, next.Epoch);
-        Assert.Equal(utcNow, next[0].Token.Timestamp);
-        Assert.Equal(TimeSpan.Zero, next[0].Token.Timestamp.Offset);
+        Assert.Equal(utcNow, next[0].Id.Timestamp);
+        Assert.Equal(TimeSpan.Zero, next[0].Id.Timestamp.Offset);
     }
 
     [Fact]
     public void Add_preserves_epoch_and_increments_sequence_for_later_messages()
     {
-        var sender = GrainId.Create("test/sender", "one");
         var epoch = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
         var later = epoch.AddMinutes(5);
-        var outbox = Outbox<string>.Create(sender);
+        var outbox = Outbox<string>.Create();
 
         var next = outbox.Add("first", epoch);
         next = next.Add("second", later);
@@ -70,19 +66,18 @@ public sealed class OutboxTests
         Assert.Equal(2, next.Count);
         Assert.Equal(2, next.LatestSequenceNumber);
         Assert.Equal(epoch, next.Epoch);
-        Assert.Equal(new OutboxSequenceToken(1, sender, epoch, epoch), next[0].Token);
-        Assert.Equal(new OutboxSequenceToken(2, sender, later, epoch), next[1].Token);
+        Assert.Equal(new OutboxMessageId(1, epoch, epoch), next[0].Id);
+        Assert.Equal(new OutboxMessageId(2, later, epoch), next[1].Id);
     }
 
     [Fact]
     public void Remove_deletes_matching_sequence_and_preserves_sequence_metadata()
     {
-        var sender = GrainId.Create("test/sender", "one");
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
-        var outbox = Outbox<string>.Create(sender);
+        var outbox = Outbox<string>.Create();
         outbox = outbox.Add("first", now).Add("second", now);
 
-        var next = outbox.Remove(outbox[0].Token);
+        var next = outbox.Remove(outbox[0].Id);
 
         Assert.Single(next);
         Assert.Equal("second", next[0].Message);
@@ -91,14 +86,12 @@ public sealed class OutboxTests
     }
 
     [Fact]
-    public void Remove_ignores_token_from_different_sender_with_same_sequence()
+    public void Remove_ignores_token_from_different_epoch_with_same_sequence()
     {
-        var sender = GrainId.Create("test/sender", "one");
-        var otherSender = GrainId.Create("test/sender", "two");
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
-        var outbox = Outbox<string>.Create(sender);
+        var outbox = Outbox<string>.Create();
         outbox = outbox.Add("first", now);
-        var otherToken = new OutboxSequenceToken(1, otherSender, now, now);
+        var otherToken = new OutboxMessageId(1, now, now.AddDays(-1));
 
         var next = outbox.Remove(otherToken);
 
@@ -109,12 +102,11 @@ public sealed class OutboxTests
     [Fact]
     public void Remove_ignores_matching_token_that_is_not_fifo_head()
     {
-        var sender = GrainId.Create("test/sender", "one");
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
-        var outbox = Outbox<string>.Create(sender);
+        var outbox = Outbox<string>.Create();
         outbox = outbox.Add("first", now).Add("second", now);
 
-        var next = outbox.Remove(outbox[1].Token);
+        var next = outbox.Remove(outbox[1].Id);
 
         Assert.Same(outbox, next);
         Assert.Equal(2, next.Count);
@@ -123,13 +115,12 @@ public sealed class OutboxTests
     [Fact]
     public void RemoveRange_deletes_matching_fifo_prefix_and_ignores_missing_tokens()
     {
-        var sender = GrainId.Create("test/sender", "one");
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
-        var outbox = Outbox<string>.Create(sender);
+        var outbox = Outbox<string>.Create();
         outbox = outbox.Add("first", now).Add("second", now).Add("third", now);
-        var missing = new OutboxSequenceToken(99, sender, now, now);
+        var missing = new OutboxMessageId(99, now, now);
 
-        var next = outbox.RemoveRange([outbox[0].Token, outbox[1].Token, missing]);
+        var next = outbox.RemoveRange([outbox[0].Id, outbox[1].Id, missing]);
 
         Assert.Single(next);
         Assert.Equal("third", next[0].Message);
@@ -140,12 +131,11 @@ public sealed class OutboxTests
     [Fact]
     public void RemoveRange_removes_matching_tokens_after_gap_and_preserves_remaining_order()
     {
-        var sender = GrainId.Create("test/sender", "one");
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
-        var outbox = Outbox<string>.Create(sender);
+        var outbox = Outbox<string>.Create();
         outbox = outbox.Add("first", now).Add("second", now).Add("third", now);
 
-        var next = outbox.RemoveRange([outbox[0].Token, outbox[2].Token]);
+        var next = outbox.RemoveRange([outbox[0].Id, outbox[2].Id]);
 
         Assert.Single(next);
         Assert.Equal("second", next[0].Message);
@@ -154,10 +144,9 @@ public sealed class OutboxTests
     [Fact]
     public void Clear_removes_items_and_keeps_sequence_metadata_for_next_add()
     {
-        var sender = GrainId.Create("test/sender", "one");
         var epoch = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
         var later = epoch.AddMinutes(5);
-        var outbox = Outbox<string>.Create(sender);
+        var outbox = Outbox<string>.Create();
         outbox = outbox.Add("first", epoch).Add("second", epoch);
 
         var cleared = outbox.Clear();
@@ -166,16 +155,15 @@ public sealed class OutboxTests
         Assert.Empty(cleared);
         Assert.Equal(2, cleared.LatestSequenceNumber);
         Assert.Equal(epoch, cleared.Epoch);
-        Assert.Equal(new OutboxSequenceToken(3, sender, later, epoch), next[0].Token);
+        Assert.Equal(new OutboxMessageId(3, later, epoch), next[0].Id);
     }
 
     [Fact]
     public void Equals_treats_matching_sequence_window_as_same_pending_items()
     {
-        var sender = GrainId.Create("test/sender", "one");
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
-        var left = Outbox<string>.Create(sender);
-        var right = Outbox<string>.Create(sender);
+        var left = Outbox<string>.Create();
+        var right = Outbox<string>.Create();
 
         left = left.Add("left", now).Add("middle-left", now).Add("last", now);
         right = right.Add("right", now).Add("middle-right", now).Add("last", now);
@@ -186,30 +174,28 @@ public sealed class OutboxTests
     [Fact]
     public void Equals_treats_removal_only_divergence_as_same_recovery_fingerprint()
     {
-        var sender = GrainId.Create("test/sender", "one");
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
-        var baseline = Outbox<string>.Create(sender)
+        var baseline = Outbox<string>.Create()
             .Add("first", now)
             .Add("second", now)
             .Add("third", now)
             .Add("fourth", now);
 
-        var left = baseline.RemoveRange([baseline[2].Token]);
-        var right = baseline.RemoveRange([baseline[1].Token]);
+        var left = baseline.RemoveRange([baseline[2].Id]);
+        var right = baseline.RemoveRange([baseline[1].Id]);
 
-        Assert.Equal([1L, 2L, 4L], left.Select(item => item.Token.SequenceNumber).ToArray());
-        Assert.Equal([1L, 3L, 4L], right.Select(item => item.Token.SequenceNumber).ToArray());
+        Assert.Equal([1L, 2L, 4L], left.Select(item => item.Id.SequenceNumber).ToArray());
+        Assert.Equal([1L, 3L, 4L], right.Select(item => item.Id.SequenceNumber).ToArray());
         Assert.Equal(left, right);
         Assert.Equal(left.GetHashCode(), right.GetHashCode());
     }
 
     [Fact]
-    public void Equals_returns_true_when_sender_sequence_epoch_and_envelopes_match()
+    public void Equals_returns_true_when_sequence_epoch_and_envelopes_match()
     {
-        var sender = GrainId.Create("test/sender", "one");
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
-        var left = Outbox<string>.Create(sender);
-        var right = Outbox<string>.Create(sender);
+        var left = Outbox<string>.Create();
+        var right = Outbox<string>.Create();
 
         left = left.Add("first", now).Add("second", now);
         right = right.Add("first", now).Add("second", now);
@@ -221,10 +207,9 @@ public sealed class OutboxTests
     [Fact]
     public void Equals_returns_false_when_sequence_metadata_differs()
     {
-        var sender = GrainId.Create("test/sender", "one");
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
-        var left = Outbox<string>.Create(sender);
-        var right = Outbox<string>.Create(sender);
+        var left = Outbox<string>.Create();
+        var right = Outbox<string>.Create();
 
         left = left.Add("first", now).Add("second", now);
         right = right.Add("first", now).Add("second", now).Add("third", now);
@@ -235,10 +220,9 @@ public sealed class OutboxTests
     [Fact]
     public void Equals_returns_false_when_diverged_tail_items_have_different_timestamps()
     {
-        var sender = GrainId.Create("test/sender", "one");
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
-        var left = Outbox<string>.Create(sender);
-        var right = Outbox<string>.Create(sender);
+        var left = Outbox<string>.Create();
+        var right = Outbox<string>.Create();
 
         // Shared history establishes the same epoch and head token, then two
         // duplicate activations each append their own message at the same

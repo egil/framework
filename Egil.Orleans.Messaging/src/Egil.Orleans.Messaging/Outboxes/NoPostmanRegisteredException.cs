@@ -2,7 +2,7 @@ namespace Egil.Orleans.Messaging.Outboxes;
 
 /// <summary>
 /// Thrown (internally, via <see cref="OutboxProcessorOptions{TOutbox}.ReconcileFailedAsync"/>)
-/// when an outbox item's runtime type does not match any registered postman.
+/// when an outbox payload's runtime type does not match any registered postman.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -15,7 +15,7 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// <b>Common cause:</b> A new subtype of the outbox base type was added but no
 /// corresponding <see cref="OutboxProcessor{TOutbox}.AddPostman{TSub}(Func{TSub, ValueTask})"/>
 /// call was registered. Fix by adding the missing postman registration in
-/// <c>OnActivateAsync</c>.
+/// the grain constructor or <c>OnActivateAsync</c>.
 /// </para>
 /// <para>
 /// <b>Postman ordering:</b> Postmen are matched first-registered-wins. If a

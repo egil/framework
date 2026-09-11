@@ -15,7 +15,7 @@ public static class OutboxProcessorExtensions
     {
         /// <summary>
         /// Creates and attaches an <see cref="OutboxProcessor{TOutbox}"/> to the
-        /// grain. Call in <c>OnActivateAsync</c> and chain
+        /// grain. Call in its constructor or <c>OnActivateAsync</c> and chain
         /// <see cref="OutboxProcessor{TOutbox}.AddPostman{TSub}(Func{TSub, ValueTask})"/>
         /// calls on the result.
         /// </summary>
@@ -34,17 +34,15 @@ public static class OutboxProcessorExtensions
         /// <para>
         /// <b>Usage:</b>
         /// <code>
-        /// public override async Task OnActivateAsync(CancellationToken ct)
+        /// public MyGrain()
         /// {
         ///     outboxProcessor = this.RegisterOutboxProcessor(new OutboxProcessorOptions&lt;IMyEvent&gt;
         ///     {
-        ///         PendingItems = () => (stateManager.State
-        ///             ?? throw new InvalidOperationException("State is not initialized.")).Outbox
-        ///             .Select(e => e.Message).ToImmutableArray(),
+        ///         PendingItems = () => stateManager.State.Outbox.ToImmutableArray(),
         ///         AcknowledgePostedAsync = async (items, ct) =>
         ///         {
         ///             // remove exactly the delivered items (match items or their
-        ///             // tokens, never positions) and persist
+        ///             // stored IDs, never positions) and persist
         ///         },
         ///         ReconcileFailedAsync = async (failures, ct) =>
         ///         {
@@ -57,7 +55,7 @@ public static class OutboxProcessorExtensions
         /// </code>
         /// </para>
         /// </remarks>
-        /// <typeparam name="TOutbox">The base type of outbox items.</typeparam>
+        /// <typeparam name="TOutbox">The base payload type of outbox messages.</typeparam>
         /// <param name="options">Processor configuration.</param>
         /// <returns>
         /// The processor instance. Chain <c>AddPostman</c> calls on it, then store

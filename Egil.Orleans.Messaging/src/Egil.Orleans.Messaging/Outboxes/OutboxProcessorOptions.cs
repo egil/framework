@@ -8,7 +8,7 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// retry work.
 /// </summary>
 /// <typeparam name="TOutbox">
-/// The base type of outbox items. Must match the type parameter of the
+/// The base payload type of outbox messages. Must match the type parameter of the
 /// <see cref="OutboxProcessor{TOutbox}"/> this options instance configures.
 /// </typeparam>
 public sealed class OutboxProcessorOptions<TOutbox>
@@ -18,7 +18,7 @@ public sealed class OutboxProcessorOptions<TOutbox>
     /// Snapshot of pending items. Called once before each post run and again
     /// after reconciliation to decide whether retry work remains.
     /// </summary>
-    public required Func<ImmutableArray<TOutbox>> PendingItems { get; init; }
+    public required Func<ImmutableArray<OutboxMessageEnvelope<TOutbox>>> PendingItems { get; init; }
 
     /// <summary>
     /// Called with items that were successfully dispatched by their postmen.
@@ -31,12 +31,11 @@ public sealed class OutboxProcessorOptions<TOutbox>
     /// <see cref="PendingItems"/> snapshot: different postmen dispatch their
     /// groups concurrently, and an item without a matching postman fails in
     /// place while later items can still succeed. Remove the received items
-    /// themselves (for example by their <c>OutboxSequenceToken</c> when
-    /// <typeparamref name="TOutbox"/> is <c>OutboxMessageEnvelope&lt;T&gt;</c>),
+    /// by their <see cref="OutboxMessageEnvelope{T}.Id"/>,
     /// never by position or count — positional removal can drop a failed,
     /// undelivered item and lose it.
     /// </remarks>
-    public required Func<ImmutableArray<TOutbox>, CancellationToken, ValueTask> AcknowledgePostedAsync { get; init; }
+    public required Func<ImmutableArray<OutboxMessageEnvelope<TOutbox>>, CancellationToken, ValueTask> AcknowledgePostedAsync { get; init; }
 
     /// <summary>
     /// Called with items that failed dispatch, along with the exception and
@@ -52,7 +51,7 @@ public sealed class OutboxProcessorOptions<TOutbox>
     /// survive activation restarts (max attempts before dead-letter, etc.)
     /// should persist their own counters on the items or grain state.
     /// </remarks>
-    public Func<ImmutableArray<(TOutbox Item, Exception Error, int Attempt)>, CancellationToken, ValueTask>? ReconcileFailedAsync { get; init; }
+    public Func<ImmutableArray<(OutboxMessageEnvelope<TOutbox> Item, Exception Error, int Attempt)>, CancellationToken, ValueTask>? ReconcileFailedAsync { get; init; }
 
     /// <summary>
     /// Maximum time per post run. Default: 20 seconds.

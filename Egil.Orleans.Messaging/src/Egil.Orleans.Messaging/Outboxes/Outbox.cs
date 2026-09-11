@@ -20,7 +20,7 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// </para>
 /// <para>
 /// <b>Sequence ownership:</b> Only <see cref="Add(T)"/> assigns sequence numbers.
-/// Callers supply the payload; the outbox stamps <see cref="OutboxSequenceToken"/>
+/// Callers supply the payload; the outbox stamps <see cref="OutboxMessageId"/>
 /// with a monotonically increasing <see cref="LatestSequenceNumber"/> and the
 /// current <see cref="Epoch"/>. This is a hard invariant — there is no public
 /// constructor that accepts a pre-built sequence number.
@@ -28,7 +28,7 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// <para>
 /// <b>Epoch semantics:</b>
 /// <list type="bullet">
-/// <item><see cref="Create(GrainId)"/> → <c>Epoch = null</c>,
+/// <item><see cref="Create()"/> → <c>Epoch = null</c>,
 /// <c>LatestSequenceNumber = 0</c>. Use at construction time or for deliberate
 /// ops-level sequence-space resets.</item>
 /// <item>First <see cref="Add(T)"/> → stamps <c>Epoch = now</c>. Persisted with state.</item>
@@ -37,12 +37,12 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// <see cref="LatestSequenceNumber"/> and <see cref="Epoch"/>. This is the normal
 /// "postman drained successfully" path.</item>
 /// </list>
-/// Grains should almost never call <see cref="Create(GrainId)"/> on an active outbox.
+/// Grains should almost never call <see cref="Create()"/> on an active outbox.
 /// </para>
 /// <para>
 /// <b>Equality:</b> Two <see cref="Outbox{T}"/> instances are equal when
-/// sender, sequence metadata, epoch, count, and the full first and last
-/// pending tokens are equal. Equality is O(1) and ignores message payloads —
+/// sequence metadata, epoch, count, and the full first and last
+/// pending IDs are equal. Equality is O(1) and ignores message payloads —
 /// it is a fingerprint, not deep content equality. Within a single history
 /// lineage every mutation changes the fingerprint (<see cref="Add(T)"/> changes
 /// the last token, removals change the count or tokens), so dirty-check
@@ -79,30 +79,27 @@ namespace Egil.Orleans.Messaging.Outboxes;
 [JsonConverter(typeof(OutboxJsonConverterFactory))]
 public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquatable<Outbox<T>>
 {
-    [Id(0)] private readonly GrainId sender;
     [Id(1)] private readonly long latestSequenceNumber;
     [Id(2)] private readonly ImmutableArray<OutboxMessageEnvelope<T>> items;
     [Id(3)] private readonly DateTimeOffset? epoch;
 
     /// <summary>
     /// Internal constructor used by mutation methods to produce new instances.
-    /// Not user-callable — use <see cref="Create(GrainId)"/> to create the
+    /// Not user-callable — use <see cref="Create()"/> to create the
     /// initial outbox, then <see cref="Add(T)"/> to append messages.
     /// </summary>
     internal Outbox(
-        GrainId sender,
         long latestSequenceNumber,
         ImmutableArray<OutboxMessageEnvelope<T>> items,
         DateTimeOffset? epoch)
     {
-        this.sender = sender;
         this.latestSequenceNumber = latestSequenceNumber;
         this.items = items;
         this.epoch = epoch;
     }
 
     /// <summary>
-    /// Creates a fresh, empty outbox for the given <paramref name="sender"/>.
+    /// Creates a fresh, empty outbox without an owning grain identity.
     /// <see cref="Epoch"/> is <c>null</c> and <see cref="LatestSequenceNumber"/>
     /// is <c>0</c>. The next <see cref="Add(T)"/> stamps a new epoch.
     /// </summary>
@@ -113,18 +110,8 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
     /// and accept unconditionally. Prefer <see cref="Clear"/> for the normal
     /// "postman drained" path.
     /// </remarks>
-    /// <param name="sender">
-    /// The <see cref="GrainId"/> of the grain that owns this outbox. Baked
-    /// into every <see cref="OutboxSequenceToken"/> produced by <see cref="Add(T)"/>.
-    /// </param>
-    public static Outbox<T> Create(GrainId sender) =>
-        new(sender, latestSequenceNumber: 0, items: [], epoch: null);
-
-    /// <summary>
-    /// The <see cref="GrainId"/> of the grain that owns this outbox. Baked
-    /// into every <see cref="OutboxSequenceToken"/>.
-    /// </summary>
-    public GrainId Sender => sender;
+    public static Outbox<T> Create() =>
+        new(latestSequenceNumber: 0, items: [], epoch: null);
 
     /// <summary>
     /// The highest sequence number ever assigned in this outbox, including
@@ -135,7 +122,7 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
 
     /// <summary>
     /// The epoch marker stamped on the first <see cref="Add(T)"/> call. <c>null</c>
-    /// only for a freshly constructed (<see cref="Create(GrainId)"/>) outbox that
+    /// only for a freshly constructed (<see cref="Create()"/>) outbox that
     /// has never had an item added.
     /// </summary>
     public DateTimeOffset? Epoch => epoch;
@@ -206,9 +193,8 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
         utcNow = utcNow.ToUniversalTime();
         var epoch = this.epoch ?? utcNow;
         var sequenceNumber = latestSequenceNumber + 1;
-        var token = new OutboxSequenceToken(sequenceNumber, sender, utcNow, epoch);
+        var token = new OutboxMessageId(sequenceNumber, utcNow, epoch);
         return new Outbox<T>(
-            sender,
             sequenceNumber,
             items.Add(new OutboxMessageEnvelope<T>(token, message)),
             epoch);
@@ -218,22 +204,21 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
     /// Removes the message identified by <paramref name="token"/> from the outbox.
     /// </summary>
     /// <remarks>
-    /// Matches the full <see cref="OutboxSequenceToken"/> identity against the
+    /// Matches the full <see cref="OutboxMessageId"/> identity against the
     /// first pending item. If the token is not the FIFO head, returns the same
     /// instance unchanged. Does <b>not</b> affect
     /// <see cref="LatestSequenceNumber"/> or <see cref="Epoch"/>.
     /// </remarks>
     /// <param name="token">The token of the message to remove.</param>
     /// <returns>A new outbox without the specified message.</returns>
-    public Outbox<T> Remove(OutboxSequenceToken token)
+    public Outbox<T> Remove(OutboxMessageId token)
     {
-        if (items.IsDefaultOrEmpty || items[0].Token != token)
+        if (items.IsDefaultOrEmpty || items[0].Id != token)
         {
             return this;
         }
 
         return new Outbox<T>(
-            sender,
             latestSequenceNumber,
             items.RemoveAt(0),
             epoch);
@@ -249,7 +234,7 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
     /// </remarks>
     /// <param name="tokens">The tokens of the messages to remove.</param>
     /// <returns>A new outbox without the specified messages.</returns>
-    public Outbox<T> RemoveRange(IEnumerable<OutboxSequenceToken> tokens)
+    public Outbox<T> RemoveRange(IEnumerable<OutboxMessageId> tokens)
     {
         var tokenSet = tokens.ToHashSet();
         if (tokenSet.Count == 0)
@@ -260,7 +245,7 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
         var remainingBuilder = ImmutableArray.CreateBuilder<OutboxMessageEnvelope<T>>(items.Length);
         foreach (var item in items)
         {
-            if (!tokenSet.Contains(item.Token))
+            if (!tokenSet.Contains(item.Id))
             {
                 remainingBuilder.Add(item);
             }
@@ -273,7 +258,6 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
 
         var remaining = remainingBuilder.ToImmutable();
         return new Outbox<T>(
-            sender,
             latestSequenceNumber,
             remaining,
             epoch);
@@ -298,7 +282,6 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
         }
 
         return new Outbox<T>(
-            sender,
             latestSequenceNumber,
             [],
             epoch);
@@ -306,7 +289,7 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
 
     /// <summary>
     /// O(1) equality over the outbox identity and sequence fingerprint:
-    /// sender, latest sequence number, epoch, count, and the full first and
+    /// latest sequence number, epoch, count, and the full first and
     /// last pending tokens (including their timestamps).
     /// </summary>
     /// <remarks>
@@ -351,7 +334,6 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
     {
         return ReferenceEquals(this, other)
             || (other is not null
-                && sender.Equals(other.sender)
                 && latestSequenceNumber == other.latestSequenceNumber
                 && epoch == other.epoch
                 && items.Length == other.items.Length
@@ -365,7 +347,6 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
     /// <inheritdoc/>
     public override int GetHashCode()
         => HashCode.Combine(
-            sender,
             latestSequenceNumber,
             epoch,
             items.Length,
@@ -377,9 +358,9 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
     // clock, so it disambiguates duplicate activations that appended different
     // items yet reached the same sequence number. See Equals for the recovery
     // contract this protects.
-    private OutboxSequenceToken? FirstToken =>
-        items.IsDefaultOrEmpty ? null : items[0].Token;
+    private OutboxMessageId? FirstToken =>
+        items.IsDefaultOrEmpty ? null : items[0].Id;
 
-    private OutboxSequenceToken? LastToken =>
-        items.IsDefaultOrEmpty ? null : items[^1].Token;
+    private OutboxMessageId? LastToken =>
+        items.IsDefaultOrEmpty ? null : items[^1].Id;
 }

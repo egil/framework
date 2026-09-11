@@ -39,9 +39,8 @@ public sealed class OutboxMessageEnvelopeJsonConverterFactoryTests
     [Fact]
     public void JsonSerializer_round_trips_outbox_message_envelope_without_custom_options()
     {
-        var sender = GrainId.Create("test/sender", "one");
         var now = new DateTimeOffset(2026, 5, 24, 18, 0, 0, TimeSpan.Zero);
-        var token = new OutboxSequenceToken(11, sender, now, now.AddMinutes(-1));
+        var token = new OutboxMessageId(11, now, now.AddMinutes(-1));
         var envelope = new OutboxMessageEnvelope<string>(token, "hello");
 
         var json = JsonSerializer.Serialize(envelope);

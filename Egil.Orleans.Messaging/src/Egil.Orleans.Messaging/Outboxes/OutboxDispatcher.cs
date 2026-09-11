@@ -8,7 +8,8 @@ internal sealed class OutboxDispatcher<TOutbox>(
     OutboxPostmanRegistry<TOutbox> postmen,
     ILogger logger,
     string grainType,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    Func<TOutbox, Type> getMessageType)
     where TOutbox : notnull
 {
     public async Task<ImmutableArray<OutboxDispatchResult<TOutbox>>> DispatchAsync(
@@ -98,7 +99,7 @@ internal sealed class OutboxDispatcher<TOutbox>(
 
     private OutboxDispatchResult<TOutbox> DispatchMissingPostman(TOutbox item)
     {
-        var itemType = item.GetType();
+        var itemType = getMessageType(item);
         var error = new NoPostmanRegisteredException(itemType);
         logger.LogWarning(
             error,
@@ -127,7 +128,7 @@ internal sealed class OutboxDispatcher<TOutbox>(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            var itemType = item.GetType();
+            var itemType = getMessageType(item);
             logger.LogError(
                 ex,
                 "Outbox postman failed for item type {OutboxItemType} on grain {GrainType}.",

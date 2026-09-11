@@ -491,13 +491,13 @@ public sealed class OutboxProcessorReentrantPostGrain(
     [PersistentState("state", "Default")] IPersistentState<OutboxProcessorSourceState> state)
     : Grain, IOutboxProcessorReentrantPostGrain, IOutboxGrain
 {
-    private OutboxProcessor<OutboxMessageEnvelope<OutboxProcessorTestEvent>>? processor;
+    private OutboxProcessor<OutboxProcessorTestEvent>? processor;
     private string? followUpValue;
 
     public override async Task OnActivateAsync(CancellationToken cancellationToken)
     {
         processor = this.RegisterOutboxProcessor(CreateOptions())
-            .AddPostman<OutboxMessageEnvelope<OutboxProcessorTestEvent>>(PostAndRequestAnotherDrainAsync);
+            .AddPostman<OutboxProcessorTestEvent>(PostAndRequestAnotherDrainAsync);
 
         await base.OnActivateAsync(cancellationToken);
     }
@@ -515,7 +515,7 @@ public sealed class OutboxProcessorReentrantPostGrain(
     public Task<OutboxProcessorSourceState> GetStateAsync() => Task.FromResult(state.State);
 
     private async Task PostAndRequestAnotherDrainAsync(
-        OutboxMessageEnvelope<OutboxProcessorTestEvent> envelope,
+        OutboxProcessorTestEvent envelope,
         CancellationToken cancellationToken)
     {
         if (followUpValue is null)
@@ -529,7 +529,7 @@ public sealed class OutboxProcessorReentrantPostGrain(
         await processor!.PostAsync(cancellationToken);
     }
 
-    private OutboxProcessorOptions<OutboxMessageEnvelope<OutboxProcessorTestEvent>> CreateOptions() => new()
+    private OutboxProcessorOptions<OutboxProcessorTestEvent> CreateOptions() => new()
     {
         PendingItems = () => state.State.Outbox?.ToImmutableArray() ?? [],
         AcknowledgePostedAsync = AcknowledgePostedAsync,
@@ -544,7 +544,7 @@ public sealed class OutboxProcessorReentrantPostGrain(
         var outbox = EnsureOutbox();
         foreach (var item in items)
         {
-            outbox = outbox.Remove(item.Token);
+            outbox = outbox.Remove(item.Id);
         }
 
         state.State.Outbox = outbox;
@@ -558,7 +558,7 @@ public sealed class OutboxProcessorReentrantPostGrain(
         ValueTask.CompletedTask;
 
     private Outbox<OutboxProcessorTestEvent> EnsureOutbox() =>
-        state.State.Outbox ??= Outbox<OutboxProcessorTestEvent>.Create(GrainContext.GrainId);
+        state.State.Outbox ??= Outbox<OutboxProcessorTestEvent>.Create();
 }
 
 [global::Orleans.Concurrency.Reentrant]
@@ -566,18 +566,18 @@ public sealed class OutboxProcessorConcurrentManualPostGrain(
     [PersistentState("state", "Default")] IPersistentState<OutboxProcessorSourceState> state)
     : Grain, IOutboxProcessorConcurrentManualPostGrain, IOutboxGrain
 {
-    private OutboxProcessor<OutboxMessageEnvelope<OutboxProcessorTestEvent>>? processor;
+    private OutboxProcessor<OutboxProcessorTestEvent>? processor;
 
     public override async Task OnActivateAsync(CancellationToken cancellationToken)
     {
-        processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxMessageEnvelope<OutboxProcessorTestEvent>>
+        processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorTestEvent>
         {
             PendingItems = () => state.State.Outbox?.ToImmutableArray() ?? [],
             AcknowledgePostedAsync = AcknowledgePostedAsync,
             ReconcileFailedAsync = ReconcileFailedAsync,
             RetryDelay = TimeSpan.FromMilliseconds(100)
         })
-        .AddPostman<OutboxMessageEnvelope<OutboxProcessorTestEvent>>(PostWithGateAsync);
+        .AddPostman<OutboxProcessorTestEvent>(PostWithGateAsync);
 
         await base.OnActivateAsync(cancellationToken);
     }
@@ -601,10 +601,10 @@ public sealed class OutboxProcessorConcurrentManualPostGrain(
     }
 
     private async Task PostWithGateAsync(
-        OutboxMessageEnvelope<OutboxProcessorTestEvent> envelope,
+        OutboxProcessorTestEvent envelope,
         CancellationToken cancellationToken)
     {
-        if (envelope.Message.Value != "first")
+        if (envelope.Value != "first")
         {
             return;
         }
@@ -621,7 +621,7 @@ public sealed class OutboxProcessorConcurrentManualPostGrain(
         var outbox = EnsureOutbox();
         foreach (var item in items)
         {
-            outbox = outbox.Remove(item.Token);
+            outbox = outbox.Remove(item.Id);
         }
 
         state.State.Outbox = outbox;
@@ -635,26 +635,26 @@ public sealed class OutboxProcessorConcurrentManualPostGrain(
         ValueTask.CompletedTask;
 
     private Outbox<OutboxProcessorTestEvent> EnsureOutbox() =>
-        state.State.Outbox ??= Outbox<OutboxProcessorTestEvent>.Create(GrainContext.GrainId);
+        state.State.Outbox ??= Outbox<OutboxProcessorTestEvent>.Create();
 }
 
 public sealed class OutboxProcessorRetryPendingGrain(
     [PersistentState("state", "Default")] IPersistentState<OutboxProcessorSourceState> state)
     : Grain, IOutboxProcessorRetryPendingGrain, IOutboxGrain
 {
-    private OutboxProcessor<OutboxMessageEnvelope<OutboxProcessorTestEvent>>? processor;
+    private OutboxProcessor<OutboxProcessorTestEvent>? processor;
     private bool failPosting = true;
 
     public override async Task OnActivateAsync(CancellationToken cancellationToken)
     {
-        processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxMessageEnvelope<OutboxProcessorTestEvent>>
+        processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorTestEvent>
         {
             PendingItems = () => state.State.Outbox?.ToImmutableArray() ?? [],
             AcknowledgePostedAsync = AcknowledgePostedAsync,
             ReconcileFailedAsync = ReconcileFailedAsync,
             RetryDelay = TimeSpan.FromMinutes(2)
         })
-        .AddPostman<OutboxMessageEnvelope<OutboxProcessorTestEvent>>(PostItemAsync);
+        .AddPostman<OutboxProcessorTestEvent>(PostItemAsync);
 
         await base.OnActivateAsync(cancellationToken);
     }
@@ -686,7 +686,7 @@ public sealed class OutboxProcessorRetryPendingGrain(
 
     public Task<OutboxProcessorSourceState> GetStateAsync() => Task.FromResult(state.State);
 
-    private ValueTask PostItemAsync(OutboxMessageEnvelope<OutboxProcessorTestEvent> _) =>
+    private ValueTask PostItemAsync(OutboxProcessorTestEvent _) =>
         failPosting
             ? new ValueTask(Task.FromException(new InvalidOperationException("Keep pending for retry.")))
             : ValueTask.CompletedTask;
@@ -698,7 +698,7 @@ public sealed class OutboxProcessorRetryPendingGrain(
         var outbox = EnsureOutbox();
         foreach (var item in items)
         {
-            outbox = outbox.Remove(item.Token);
+            outbox = outbox.Remove(item.Id);
         }
 
         state.State.Outbox = outbox;
@@ -716,25 +716,25 @@ public sealed class OutboxProcessorRetryPendingGrain(
     }
 
     private Outbox<OutboxProcessorTestEvent> EnsureOutbox() =>
-        state.State.Outbox ??= Outbox<OutboxProcessorTestEvent>.Create(GrainContext.GrainId);
+        state.State.Outbox ??= Outbox<OutboxProcessorTestEvent>.Create();
 }
 
 public sealed class OutboxProcessorReminderCoverageGrain(
     [PersistentState("state", "Default")] IPersistentState<OutboxProcessorSourceState> state)
     : Grain, IOutboxProcessorReminderCoverageGrain, IOutboxGrain
 {
-    private OutboxProcessor<OutboxMessageEnvelope<OutboxProcessorTestEvent>>? processor;
+    private OutboxProcessor<OutboxProcessorTestEvent>? processor;
 
     public override async Task OnActivateAsync(CancellationToken cancellationToken)
     {
-        processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxMessageEnvelope<OutboxProcessorTestEvent>>
+        processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorTestEvent>
         {
             PendingItems = () => state.State.Outbox?.ToImmutableArray() ?? [],
             AcknowledgePostedAsync = AcknowledgePostedAsync,
             ReconcileFailedAsync = ReconcileFailedAsync,
             RetryDelay = TimeSpan.FromMinutes(2)
         })
-        .AddPostman<OutboxMessageEnvelope<OutboxProcessorTestEvent>>(static _ => ValueTask.CompletedTask);
+        .AddPostman<OutboxProcessorTestEvent>(static _ => ValueTask.CompletedTask);
 
         await base.OnActivateAsync(cancellationToken);
     }
@@ -763,7 +763,7 @@ public sealed class OutboxProcessorReminderCoverageGrain(
         var outbox = EnsureOutbox();
         foreach (var item in items)
         {
-            outbox = outbox.Remove(item.Token);
+            outbox = outbox.Remove(item.Id);
         }
 
         state.State.Outbox = outbox;
@@ -777,7 +777,7 @@ public sealed class OutboxProcessorReminderCoverageGrain(
         ValueTask.CompletedTask;
 
     private Outbox<OutboxProcessorTestEvent> EnsureOutbox() =>
-        state.State.Outbox ??= Outbox<OutboxProcessorTestEvent>.Create(GrainContext.GrainId);
+        state.State.Outbox ??= Outbox<OutboxProcessorTestEvent>.Create();
 }
 
 public sealed class OutboxProcessorValidationCoverageGrain(
@@ -801,12 +801,12 @@ public sealed class OutboxProcessorValidationCoverageGrain(
     public async Task<OutboxProcessorSourceState> PostPendingThenDefaultAfterAcknowledgeAsync()
     {
         var pending = Outbox<OutboxProcessorTestEvent>
-            .Create(GrainContext.GrainId)
+            .Create()
             .Add(new OutboxProcessorTestEvent("default-after-ack"))
             .ToImmutableArray();
         var returnDefault = false;
 
-        var processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxMessageEnvelope<OutboxProcessorTestEvent>>
+        var processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorTestEvent>
         {
             PendingItems = () => returnDefault ? default : pending,
             AcknowledgePostedAsync = (items, _) =>
@@ -818,7 +818,7 @@ public sealed class OutboxProcessorValidationCoverageGrain(
             ReconcileFailedAsync = ReconcileFailedAsync,
             RetryDelay = TimeSpan.FromMilliseconds(100)
         })
-        .AddPostman<OutboxMessageEnvelope<OutboxProcessorTestEvent>>(static _ => ValueTask.CompletedTask);
+        .AddPostman<OutboxProcessorTestEvent>(static _ => ValueTask.CompletedTask);
 
         await processor.PostAsync();
         return state.State;
@@ -847,7 +847,7 @@ public sealed class OutboxProcessorValidationCoverageGrain(
         try
         {
             _ = this.RegisterOutboxProcessor(CreateOptions(() => []))
-                .AddStreamPostman<OutboxMessageEnvelope<OutboxProcessorTestEvent>>(
+                .AddStreamPostman<OutboxProcessorTestEvent>(
                     OutboxProcessorTestProviderNames.Events,
                     null!);
             return Task.FromResult<string?>(null);
@@ -890,7 +890,7 @@ public sealed class OutboxProcessorValidationCoverageGrain(
 
     public async Task<string?> RegisterSecondProcessorAndReceiveFirstReminderAsync()
     {
-        var firstProcessor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxMessageEnvelope<OutboxProcessorTestEvent>>
+        var firstProcessor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorTestEvent>
         {
             PendingItems = () =>
             {
@@ -921,7 +921,7 @@ public sealed class OutboxProcessorValidationCoverageGrain(
 
     public Task<OutboxProcessorSourceState> GetStateAsync() => Task.FromResult(state.State);
 
-    private OutboxProcessorOptions<OutboxMessageEnvelope<OutboxProcessorTestEvent>> CreateOptions(
+    private OutboxProcessorOptions<OutboxProcessorTestEvent> CreateOptions(
         Func<ImmutableArray<OutboxMessageEnvelope<OutboxProcessorTestEvent>>> pendingItems,
         TimeSpan? processingTimeout = null,
         TimeSpan? retryDelay = null) => new()
@@ -954,12 +954,12 @@ public sealed class OutboxProcessorReconciliationSchedulingGrain(
     [PersistentState("state", "Default")] IPersistentState<OutboxProcessorSourceState> state)
     : Grain, IOutboxProcessorReconciliationSchedulingGrain, IOutboxGrain
 {
-    private OutboxProcessor<OutboxMessageEnvelope<OutboxProcessorTestEvent>>? processor;
+    private OutboxProcessor<OutboxProcessorTestEvent>? processor;
     private ImmutableArray<string> writes = [];
 
     public async Task PublishInBackgroundAsync(string value, bool interleaveReconciliation)
     {
-        processor ??= this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxMessageEnvelope<OutboxProcessorTestEvent>>
+        processor ??= this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorTestEvent>
         {
             PendingItems = () => state.State.Outbox?.ToImmutableArray() ?? [],
             AcknowledgePostedAsync = AcknowledgePostedAsync,
@@ -967,7 +967,7 @@ public sealed class OutboxProcessorReconciliationSchedulingGrain(
             RetryDelay = TimeSpan.FromMilliseconds(100),
             InterleaveReconciliationCallbacks = interleaveReconciliation
         })
-        .AddPostman<OutboxMessageEnvelope<OutboxProcessorTestEvent>>(PostWithGateAsync);
+        .AddPostman<OutboxProcessorTestEvent>(PostWithGateAsync);
 
         state.State.Outbox = EnsureOutbox().Add(new OutboxProcessorTestEvent(value));
         await state.WriteStateAsync();
@@ -998,7 +998,7 @@ public sealed class OutboxProcessorReconciliationSchedulingGrain(
         Task.FromResult(new OutboxProcessorSchedulingState(state.State.AcknowledgedCount, writes));
 
     private async Task PostWithGateAsync(
-        OutboxMessageEnvelope<OutboxProcessorTestEvent> envelope,
+        OutboxProcessorTestEvent envelope,
         CancellationToken cancellationToken)
     {
         var gate = OutboxProcessorSchedulingGate.For(this.GetPrimaryKey());
@@ -1017,7 +1017,7 @@ public sealed class OutboxProcessorReconciliationSchedulingGrain(
         var outbox = EnsureOutbox();
         foreach (var item in items)
         {
-            outbox = outbox.Remove(item.Token);
+            outbox = outbox.Remove(item.Id);
         }
 
         state.State.Outbox = outbox;
@@ -1032,5 +1032,5 @@ public sealed class OutboxProcessorReconciliationSchedulingGrain(
         ValueTask.CompletedTask;
 
     private Outbox<OutboxProcessorTestEvent> EnsureOutbox() =>
-        state.State.Outbox ??= Outbox<OutboxProcessorTestEvent>.Create(GrainContext.GrainId);
+        state.State.Outbox ??= Outbox<OutboxProcessorTestEvent>.Create();
 }

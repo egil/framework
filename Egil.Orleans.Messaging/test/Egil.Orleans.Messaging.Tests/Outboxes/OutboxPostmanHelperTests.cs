@@ -134,7 +134,7 @@ public sealed class OutboxProcessorStreamPostmanGrain(
     [PersistentState("state", "Default")] IPersistentState<OutboxProcessorSourceState> state)
     : Grain, IOutboxProcessorStreamPostmanGrain, IOutboxGrain
 {
-    private OutboxProcessor<OutboxMessageEnvelope<OutboxProcessorTestEvent>>? processor;
+    private OutboxProcessor<OutboxProcessorTestEvent>? processor;
 
     public override async Task OnActivateAsync(CancellationToken cancellationToken)
     {
@@ -145,9 +145,10 @@ public sealed class OutboxProcessorStreamPostmanGrain(
             sink.GetGrainId());
 
         processor = this.RegisterOutboxProcessor(CreateOptions())
-            .AddStreamPostman<OutboxMessageEnvelope<OutboxProcessorTestEvent>>(
+            .AddStreamPostman<OutboxProcessorTestEvent, DeliveredOutboxEvent>(
                 OutboxProcessorTestProviderNames.Events,
-                _ => streamId);
+                _ => streamId,
+                static (message, token) => new DeliveredOutboxEvent(message, token));
 
         await base.OnActivateAsync(cancellationToken);
     }
@@ -162,7 +163,7 @@ public sealed class OutboxProcessorStreamPostmanGrain(
 
     public Task<OutboxProcessorSourceState> GetStateAsync() => Task.FromResult(state.State);
 
-    private OutboxProcessorOptions<OutboxMessageEnvelope<OutboxProcessorTestEvent>> CreateOptions() => new()
+    private OutboxProcessorOptions<OutboxProcessorTestEvent> CreateOptions() => new()
     {
         PendingItems = () => state.State.Outbox?.ToImmutableArray() ?? [],
         AcknowledgePostedAsync = AcknowledgePostedAsync,
@@ -177,7 +178,7 @@ public sealed class OutboxProcessorStreamPostmanGrain(
         var outbox = EnsureOutbox();
         foreach (var item in items)
         {
-            outbox = outbox.Remove(item.Token);
+            outbox = outbox.Remove(item.Id);
         }
 
         state.State.Outbox = outbox;
@@ -192,7 +193,7 @@ public sealed class OutboxProcessorStreamPostmanGrain(
         var outbox = EnsureOutbox();
         foreach (var failure in failures)
         {
-            outbox = outbox.Remove(failure.Item.Token);
+            outbox = outbox.Remove(failure.Item.Id);
             state.State.LastFailureType = failure.Error.GetType().Name;
         }
 
@@ -202,14 +203,14 @@ public sealed class OutboxProcessorStreamPostmanGrain(
     }
 
     private Outbox<OutboxProcessorTestEvent> EnsureOutbox() =>
-        state.State.Outbox ??= Outbox<OutboxProcessorTestEvent>.Create(GrainContext.GrainId);
+        state.State.Outbox ??= Outbox<OutboxProcessorTestEvent>.Create();
 }
 
 public sealed class OutboxProcessorProjectedStreamPostmanGrain(
     [PersistentState("state", "Default")] IPersistentState<OutboxProcessorSourceState> state)
     : Grain, IOutboxProcessorProjectedStreamPostmanGrain, IOutboxGrain
 {
-    private OutboxProcessor<OutboxMessageEnvelope<OutboxProcessorTestEvent>>? processor;
+    private OutboxProcessor<OutboxProcessorTestEvent>? processor;
 
     public override async Task OnActivateAsync(CancellationToken cancellationToken)
     {
@@ -220,10 +221,10 @@ public sealed class OutboxProcessorProjectedStreamPostmanGrain(
             sink.GetGrainId());
 
         processor = this.RegisterOutboxProcessor(CreateOptions())
-            .AddStreamPostman<OutboxMessageEnvelope<OutboxProcessorTestEvent>, OutboxProcessorTestEvent>(
+            .AddStreamPostman<OutboxProcessorTestEvent, OutboxProcessorTestEvent>(
                 OutboxProcessorTestProviderNames.Events,
                 _ => streamId,
-                envelope => envelope.Message);
+                message => message);
 
         await base.OnActivateAsync(cancellationToken);
     }
@@ -238,7 +239,7 @@ public sealed class OutboxProcessorProjectedStreamPostmanGrain(
 
     public Task<OutboxProcessorSourceState> GetStateAsync() => Task.FromResult(state.State);
 
-    private OutboxProcessorOptions<OutboxMessageEnvelope<OutboxProcessorTestEvent>> CreateOptions() => new()
+    private OutboxProcessorOptions<OutboxProcessorTestEvent> CreateOptions() => new()
     {
         PendingItems = () => state.State.Outbox?.ToImmutableArray() ?? [],
         AcknowledgePostedAsync = AcknowledgePostedAsync,
@@ -253,7 +254,7 @@ public sealed class OutboxProcessorProjectedStreamPostmanGrain(
         var outbox = EnsureOutbox();
         foreach (var item in items)
         {
-            outbox = outbox.Remove(item.Token);
+            outbox = outbox.Remove(item.Id);
         }
 
         state.State.Outbox = outbox;
@@ -268,7 +269,7 @@ public sealed class OutboxProcessorProjectedStreamPostmanGrain(
         var outbox = EnsureOutbox();
         foreach (var failure in failures)
         {
-            outbox = outbox.Remove(failure.Item.Token);
+            outbox = outbox.Remove(failure.Item.Id);
             state.State.LastFailureType = failure.Error.GetType().Name;
         }
 
@@ -278,7 +279,7 @@ public sealed class OutboxProcessorProjectedStreamPostmanGrain(
     }
 
     private Outbox<OutboxProcessorTestEvent> EnsureOutbox() =>
-        state.State.Outbox ??= Outbox<OutboxProcessorTestEvent>.Create(GrainContext.GrainId);
+        state.State.Outbox ??= Outbox<OutboxProcessorTestEvent>.Create();
 }
 
 public sealed class OutboxProcessorProjectedSinkGrain(
@@ -289,7 +290,7 @@ public sealed class OutboxProcessorProjectedSinkGrain(
 
     public override async Task OnActivateAsync(CancellationToken cancellationToken)
     {
-        streamManager = this.RegisterStreamManager(state.State.Tracker)
+        streamManager = this.RegisterStreamManager(() => state.State.Tracker)
             .ConfigureExplicitSubscription<OutboxProcessorTestEvent>(
                 OutboxProcessorTestProviderNames.Events,
                 OutboxProcessorTestNamespaces.Events,
@@ -322,16 +323,16 @@ public sealed class OutboxProcessorGrainPostmanSourceGrain(
     [PersistentState("state", "Default")] IPersistentState<OutboxProcessorSourceState> state)
     : Grain, IOutboxProcessorGrainPostmanSourceGrain, IOutboxGrain
 {
-    private OutboxProcessor<OutboxMessageEnvelope<OutboxProcessorTestEvent>>? processor;
+    private OutboxProcessor<OutboxProcessorTestEvent>? processor;
 
     public override async Task OnActivateAsync(CancellationToken cancellationToken)
     {
         EnsureOutbox();
 
         processor = this.RegisterOutboxProcessor(CreateOptions())
-            .AddGrainPostman<OutboxMessageEnvelope<OutboxProcessorTestEvent>, IOutboxProcessorGrainPostmanTargetGrain>(
+            .AddGrainPostman<OutboxProcessorTestEvent, IOutboxProcessorGrainPostmanTargetGrain>(
                 (_, grainFactory) => grainFactory.GetGrain<IOutboxProcessorGrainPostmanTargetGrain>(this.GetPrimaryKey()),
-                (target, envelope) => target.ReceiveAsync(envelope.Message.Value));
+                (target, message) => target.ReceiveAsync(message.Value));
 
         await base.OnActivateAsync(cancellationToken);
     }
@@ -346,7 +347,7 @@ public sealed class OutboxProcessorGrainPostmanSourceGrain(
 
     public Task<OutboxProcessorSourceState> GetStateAsync() => Task.FromResult(state.State);
 
-    private OutboxProcessorOptions<OutboxMessageEnvelope<OutboxProcessorTestEvent>> CreateOptions() => new()
+    private OutboxProcessorOptions<OutboxProcessorTestEvent> CreateOptions() => new()
     {
         PendingItems = () => state.State.Outbox?.ToImmutableArray() ?? [],
         AcknowledgePostedAsync = AcknowledgePostedAsync,
@@ -361,7 +362,7 @@ public sealed class OutboxProcessorGrainPostmanSourceGrain(
         var outbox = EnsureOutbox();
         foreach (var item in items)
         {
-            outbox = outbox.Remove(item.Token);
+            outbox = outbox.Remove(item.Id);
         }
 
         state.State.Outbox = outbox;
@@ -376,7 +377,7 @@ public sealed class OutboxProcessorGrainPostmanSourceGrain(
         var outbox = EnsureOutbox();
         foreach (var failure in failures)
         {
-            outbox = outbox.Remove(failure.Item.Token);
+            outbox = outbox.Remove(failure.Item.Id);
             state.State.LastFailureType = failure.Error.GetType().Name;
         }
 
@@ -386,7 +387,7 @@ public sealed class OutboxProcessorGrainPostmanSourceGrain(
     }
 
     private Outbox<OutboxProcessorTestEvent> EnsureOutbox() =>
-        state.State.Outbox ??= Outbox<OutboxProcessorTestEvent>.Create(GrainContext.GrainId);
+        state.State.Outbox ??= Outbox<OutboxProcessorTestEvent>.Create();
 }
 
 public sealed class OutboxProcessorGrainPostmanTargetGrain(

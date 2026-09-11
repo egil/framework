@@ -11,8 +11,8 @@ namespace Egil.Orleans.Messaging.State;
 /// <remarks>
 /// <para>
 /// <b>Committed-state fence:</b> <see cref="State"/> returns the last
-/// committed value, including <see langword="null"/> when no state value
-/// exists. During <see cref="WriteAsync"/>, the underlying
+/// committed value, or the configured default when no record exists. During
+/// <see cref="WriteAsync"/>, the underlying
 /// <see cref="IPersistentState{T}"/>.State is mutated, but the caller's view
 /// is updated only after the write succeeds. On failure, the recovery path
 /// re-reads from storage to determine whether the write actually landed.
@@ -73,22 +73,32 @@ public abstract class StateManagerBase<T> : IStateManager<T>
     where T : class, IEquatable<T>
 {
     private readonly IPersistentState<T> storage;
-    private T? state;
+    private readonly Func<T> createInitialState;
+    private readonly Action<T>? configureState;
+    private T state;
 
     /// <summary>
     /// Initializes the manager over the grain's persistent state facet,
     /// adopting the currently loaded <c>IPersistentState&lt;T&gt;.State</c>
     /// as the committed snapshot.
     /// </summary>
-    protected StateManagerBase(IPersistentState<T> storage)
+    protected StateManagerBase(
+        IPersistentState<T> storage,
+        Func<T> createInitialState,
+        Action<T>? configureState = null)
     {
         ArgumentNullException.ThrowIfNull(storage);
+        ArgumentNullException.ThrowIfNull(createInitialState);
         this.storage = storage;
-        state = storage.State;
+        this.createInitialState = createInitialState;
+        this.configureState = configureState;
+        state = ResolveLoadedState();
+        configureState?.Invoke(state);
+        storage.State = state;
     }
 
     /// <inheritdoc/>
-    public T? State
+    public T State
     {
         get => state;
     }
@@ -97,7 +107,7 @@ public abstract class StateManagerBase<T> : IStateManager<T>
     public async Task ReadAsync()
     {
         await storage.ReadStateAsync();
-        state = storage.State;
+        Adopt(ResolveLoadedState());
     }
 
     /// <inheritdoc/>
@@ -117,7 +127,7 @@ public abstract class StateManagerBase<T> : IStateManager<T>
         try
         {
             await storage.WriteStateAsync();
-            state = storage.State;
+            Adopt(storage.State);
             return;
         }
         catch (Exception ex)
@@ -139,9 +149,9 @@ public abstract class StateManagerBase<T> : IStateManager<T>
                 await storage.ReadStateAsync();
                 T? persisted = storage.State;
                 recoveryReadSucceeded = true;
-                state = persisted;
+                Adopt(ResolveLoadedState());
 
-                if (ex is not InconsistentStateException && IsEquivalent(persisted, newState))
+                if (ex is not InconsistentStateException && storage.RecordExists && IsEquivalent(persisted, newState))
                 {
                     // Lost-response case: write landed, but acknowledgement failed.
                     // The committed fence already reflects the persisted value.
@@ -174,7 +184,7 @@ public abstract class StateManagerBase<T> : IStateManager<T>
         try
         {
             await storage.ClearStateAsync();
-            state = storage.State;
+            Adopt(CreateInitialState());
             return;
         }
         catch (Exception ex)
@@ -196,7 +206,7 @@ public abstract class StateManagerBase<T> : IStateManager<T>
                 // local state should represent "cleared" or the previous value.
                 await storage.ReadStateAsync();
                 recoveryReadSucceeded = true;
-                state = storage.State;
+                Adopt(ResolveLoadedState());
 
                 // A missing record confirms an ambiguous clear, but it cannot
                 // hide a real concurrency conflict caused by another writer.
@@ -267,11 +277,26 @@ public abstract class StateManagerBase<T> : IStateManager<T>
         return persisted.Equals(attempted);
     }
 
-    private void RestoreState(T? previousState)
+    private T ResolveLoadedState() => storage.RecordExists
+        ? storage.State ?? throw new InvalidOperationException("An existing state record contained null.")
+        : CreateInitialState();
+
+    private T CreateInitialState() => createInitialState()
+        ?? throw new InvalidOperationException("The initial state factory returned null.");
+
+    private void Adopt(T value)
+    {
+        // Runtime dependencies belong to the newly adopted instance. Configuring
+        // a previous snapshot would lose them after deserialization or recovery.
+        configureState?.Invoke(value);
+        storage.State = value;
+        state = value;
+    }
+
+    private void RestoreState(T previousState)
     {
         state = previousState;
 
-        // Orleans annotates State as non-null even though clearing reference state can make it null.
-        storage.State = previousState!;
+        storage.State = previousState;
     }
 }

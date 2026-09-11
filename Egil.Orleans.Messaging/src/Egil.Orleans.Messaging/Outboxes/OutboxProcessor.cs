@@ -1,6 +1,4 @@
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Orleans.Streams;
 
 namespace Egil.Orleans.Messaging.Outboxes;
 
@@ -33,9 +31,9 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     private readonly IGrainFactory grainFactory;
     private readonly OutboxProcessorOptions<TOutbox> options;
     private readonly object drainGate = new();
-    private readonly OutboxPostmanRegistry<TOutbox> postmen = new();
-    private readonly OutboxDispatcher<TOutbox> dispatcher;
-    private readonly OutboxReconciler<TOutbox> reconciler;
+    private readonly OutboxPostmanRegistry<OutboxMessageEnvelope<TOutbox>> postmen = new();
+    private readonly OutboxDispatcher<OutboxMessageEnvelope<TOutbox>> dispatcher;
+    private readonly OutboxReconciler<OutboxMessageEnvelope<TOutbox>> reconciler;
     private readonly ILogger logger;
     private readonly string grainType;
     private readonly string reminderName;
@@ -43,7 +41,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     private IGrainTimer? reconciliationTimer;
     private IGrainReminder? reminder;
     private bool checkedForExistingReminder;
-    private OutboxReconciliationBatch<TOutbox>? pendingReconciliation;
+    private OutboxReconciliationBatch<OutboxMessageEnvelope<TOutbox>>? pendingReconciliation;
     private TaskCompletionSource? activeDrain;
     private bool drainRequested;
 
@@ -75,125 +73,14 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         this.logger = logger;
         grainType = owner.GetType().Name;
         reminderName = ReminderPrefix + typeof(TOutbox).FullName;
-        dispatcher = new OutboxDispatcher<TOutbox>(postmen, logger, grainType, options.TimeProvider);
-        reconciler = new OutboxReconciler<TOutbox>(
+        dispatcher = new OutboxDispatcher<OutboxMessageEnvelope<TOutbox>>(postmen, logger, grainType, options.TimeProvider,
+            static item => item.Message is { } message ? message.GetType() : typeof(TOutbox));
+        reconciler = new OutboxReconciler<OutboxMessageEnvelope<TOutbox>>(
             options.AcknowledgePostedAsync,
             options.ReconcileFailedAsync);
     }
 
     internal string ReminderName => reminderName;
-
-    /// <summary>
-    /// Registers a postman that handles items of type <typeparamref name="TSub"/>.
-    /// </summary>
-    /// <remarks>
-    /// Postman matching is first-match-wins, like a switch statement. Register
-    /// more specific message types before base interfaces or catch-all types.
-    /// Each outbox item is dispatched to at most one postman.
-    /// </remarks>
-    public OutboxProcessor<TOutbox> AddPostman<TSub>(
-        Func<TSub, ValueTask> postman) where TSub : TOutbox
-    {
-        ArgumentNullException.ThrowIfNull(postman);
-        postmen.Add<TSub>((item, _) => postman(item));
-        return this;
-    }
-
-    /// <inheritdoc cref="AddPostman{TSub}(Func{TSub, ValueTask})"/>
-    public OutboxProcessor<TOutbox> AddPostman<TSub>(
-        Func<TSub, Task> postman) where TSub : TOutbox
-    {
-        ArgumentNullException.ThrowIfNull(postman);
-        postmen.Add<TSub>((item, _) => new ValueTask(postman(item)));
-        return this;
-    }
-
-    /// <inheritdoc cref="AddPostman{TSub}(Func{TSub, ValueTask})"/>
-    public OutboxProcessor<TOutbox> AddPostman<TSub>(
-        Func<TSub, CancellationToken, Task> postman) where TSub : TOutbox
-    {
-        ArgumentNullException.ThrowIfNull(postman);
-        postmen.Add<TSub>((item, cancellationToken) => new ValueTask(postman(item, cancellationToken)));
-        return this;
-    }
-
-    /// <inheritdoc cref="AddPostman{TSub}(Func{TSub, ValueTask})"/>
-    public OutboxProcessor<TOutbox> AddPostman<TSub>(
-        Func<TSub, IGrainFactory, CancellationToken, ValueTask> postman) where TSub : TOutbox
-    {
-        ArgumentNullException.ThrowIfNull(postman);
-        postmen.Add<TSub>((item, cancellationToken) => postman(item, grainFactory, cancellationToken));
-        return this;
-    }
-
-    /// <summary>
-    /// Registers a keyed <see cref="IPostman{TMessage}"/> service that handles
-    /// items of type <typeparamref name="TSub"/>.
-    /// </summary>
-    public OutboxProcessor<TOutbox> AddPostman<TSub>(string postmanName)
-        where TSub : TOutbox
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(postmanName);
-
-        var postman = owner.GrainContext.ActivationServices
-            .GetRequiredKeyedService<IPostman<TSub>>(postmanName);
-
-        postmen.Add<TSub>(postman.PostAsync);
-        return this;
-    }
-
-    /// <summary>
-    /// Registers a postman that publishes each item to an Orleans stream.
-    /// </summary>
-    public OutboxProcessor<TOutbox> AddStreamPostman<TSub>(
-        string streamProviderName,
-        Func<TSub, StreamId> streamId)
-        where TSub : TOutbox =>
-        AddStreamPostman<TSub, TSub>(
-            streamProviderName,
-            streamId,
-            static message => message);
-
-    /// <summary>
-    /// Registers a postman that projects each item and publishes the projected
-    /// event to an Orleans stream.
-    /// </summary>
-    public OutboxProcessor<TOutbox> AddStreamPostman<TSub, TEvent>(
-        string streamProviderName,
-        Func<TSub, StreamId> streamId,
-        Func<TSub, TEvent> project)
-        where TSub : TOutbox
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(streamProviderName);
-        ArgumentNullException.ThrowIfNull(streamId);
-        ArgumentNullException.ThrowIfNull(project);
-
-        var streamProvider = owner.GrainContext.ActivationServices
-            .GetRequiredKeyedService<IStreamProvider>(streamProviderName);
-
-        postmen.Add<TSub>((message, _) =>
-        {
-            var stream = streamProvider.GetStream<TEvent>(streamId(message));
-            return new ValueTask(stream.OnNextAsync(project(message)));
-        });
-        return this;
-    }
-
-    /// <summary>
-    /// Registers a postman that resolves a grain for each item and invokes it.
-    /// </summary>
-    public OutboxProcessor<TOutbox> AddGrainPostman<TSub, TGrain>(
-        Func<TSub, IGrainFactory, TGrain> resolveGrain,
-        Func<TGrain, TSub, Task> call)
-        where TSub : TOutbox
-        where TGrain : IGrain
-    {
-        ArgumentNullException.ThrowIfNull(resolveGrain);
-        ArgumentNullException.ThrowIfNull(call);
-
-        postmen.Add<TSub>((message, _) => new ValueTask(call(resolveGrain(message, grainFactory), message)));
-        return this;
-    }
 
     /// <summary>
     /// Posts one pending snapshot by dispatching each item to its matching
@@ -441,7 +328,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         }
     }
 
-    private async Task<OutboxReconciliationBatch<TOutbox>> ProcessPendingItemsAsync(
+    private async Task<OutboxReconciliationBatch<OutboxMessageEnvelope<TOutbox>>> ProcessPendingItemsAsync(
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -463,7 +350,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     }
 
     private async Task ReconcileAsync(
-        OutboxReconciliationBatch<TOutbox> reconciliation,
+        OutboxReconciliationBatch<OutboxMessageEnvelope<TOutbox>> reconciliation,
         CancellationToken cancellationToken)
     {
         await reconciler.ReconcileAsync(reconciliation, cancellationToken);

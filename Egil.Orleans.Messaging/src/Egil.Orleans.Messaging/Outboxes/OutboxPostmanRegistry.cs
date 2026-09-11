@@ -5,13 +5,12 @@ internal sealed class OutboxPostmanRegistry<TOutbox>
 {
     private readonly List<OutboxPostmanRegistration<TOutbox>> postmen = [];
 
-    public void Add<TSub>(Func<TSub, CancellationToken, ValueTask> postman)
-        where TSub : TOutbox
+    public void Add(
+        Type messageType,
+        Func<TOutbox, bool> matches,
+        Func<TOutbox, CancellationToken, ValueTask> postman)
     {
-        postmen.Add(new OutboxPostmanRegistration<TOutbox>(
-            item => item is TSub,
-            (item, cancellationToken) => postman((TSub)item, cancellationToken),
-            typeof(TSub)));
+        postmen.Add(new OutboxPostmanRegistration<TOutbox>(matches, postman, messageType));
     }
 
     public OutboxPostmanRegistration<TOutbox>? Find(TOutbox item)

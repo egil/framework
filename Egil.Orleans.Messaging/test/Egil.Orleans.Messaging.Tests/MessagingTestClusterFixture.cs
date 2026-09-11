@@ -28,12 +28,18 @@ public sealed class MessagingTestClusterFixture : IAsyncLifetime, IGrainActivity
         builder.ConfigureSilo((_, siloBuilder) =>
         {
             siloBuilder.AddMemoryGrainStorage("Default");
+            // Exercise the toolbox's supported STJ storage format across reactivation.
+            siloBuilder.AddMemoryGrainStorage("Payload", options => options.GrainStorageSerializer =
+                new global::Orleans.Storage.SystemTextJsonGrainStorageSerializer(
+                    Microsoft.Extensions.Options.Options.Create(new global::Orleans.Serialization.SystemTextJsonGrainStorageSerializerOptions())));
             siloBuilder.AddMemoryGrainStorage("PubSubStore");
             siloBuilder.UseInMemoryReminderService();
 
             AddStreamProviders(siloBuilder);
             siloBuilder.ConfigureServices(services =>
             {
+                services.AddDefaultStateManager("Default");
+                services.AddDefaultStateManager("Payload");
                 services.AddSingleton(TimeProvider);
                 services
                     .AddOutboxPostman<KeyedOutboxProcessorSuccessPostman>(OutboxProcessorTestPostmanNames.Success)
@@ -41,6 +47,8 @@ public sealed class MessagingTestClusterFixture : IAsyncLifetime, IGrainActivity
                     .AddOutboxPostman<KeyedOutboxProcessorDelayingPostman>(OutboxProcessorTestPostmanNames.Delay);
             });
 
+            // Keep Payload undecorated: the current observer rekeys provider factories,
+            // which would bypass this provider's named serializer configuration.
             siloBuilder.AddGrainActivityCollector(Collector)
                 .CollectStorageActivityFrom("Default");
         });

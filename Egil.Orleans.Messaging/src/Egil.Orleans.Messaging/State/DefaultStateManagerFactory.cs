@@ -6,10 +6,10 @@ namespace Egil.Orleans.Messaging.State;
 public sealed class DefaultStateManagerFactory : IStateManagerFactory
 {
     /// <inheritdoc/>
-    public IStateManager<T> Create<T>(IPersistentState<T> storage)
+    public IStateManager<T> Create<T>(IPersistentState<T> storage, Func<T> createInitialState, Action<T>? configureState = null)
         where T : class, IEquatable<T>
     {
         ArgumentNullException.ThrowIfNull(storage);
-        return new DefaultStateManager<T>(storage);
+        return new DefaultStateManager<T>(storage, createInitialState, configureState);
     }
 }
