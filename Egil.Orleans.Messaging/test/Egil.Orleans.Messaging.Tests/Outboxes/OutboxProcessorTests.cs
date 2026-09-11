@@ -495,7 +495,7 @@ public sealed class OutboxProcessorSourceGrain(
             ReconcileFailedAsync = ReconcileFailedAsync,
             RetryDelay = TimeSpan.FromMilliseconds(100)
         })
-        .AddPostman<OutboxProcessorTestEvent>(PublishEnvelopeAsync);
+        .AddPostmanWithToken<OutboxProcessorTestEvent>(PublishEnvelopeAsync);
 
         await base.OnActivateAsync(cancellationToken);
     }

@@ -1427,8 +1427,10 @@ callbacks, not passive notifications:
 
 `TOutbox` is the base payload type. All handler families operate on payloads;
 stored envelopes are confined to pending snapshots and reconciliation callbacks.
-Token-aware `AddPostman` overloads accept `(message, token)` or
-`(message, token, cancellationToken)`. Stream projections and selectors can receive
+Token-aware `AddPostmanWithToken` overloads accept `(message, token)` or
+`(message, token, cancellationToken)`, returning either `Task` or `ValueTask`.
+The separate method name keeps unused lambda parameters unambiguous with
+cancellation-aware and grain-factory callbacks. Stream projections and selectors can receive
 `(message, token)`, and grain invocations can receive
 `(grain, message, token[, cancellationToken])`. These adapters retain the original
 stored item for acknowledgment. A covariant envelope interface is unnecessary.

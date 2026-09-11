@@ -127,20 +127,20 @@ public sealed class PayloadSourceGrain : Grain, IPayloadSourceGrain, IOutboxGrai
             AcknowledgePostedAsync = AcknowledgeAsync,
             RetryDelay = TimeSpan.FromMinutes(10)
         })
-        .AddPostman<LocalPayload>((message, token, cancellationToken) =>
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            return GrainFactory.GetGrain<IPayloadSinkGrain>(message.Target)
-                .ReceiveAsync(new(message.Value, token));
-        })
+        .AddPostmanWithToken<LocalPayload>(DeliverLocalAsync)
         .AddStreamPostman<StreamPayload, PayloadDelivery>(OutboxProcessorTestProviderNames.Events,
             message => StreamManager.CreateStreamId("payload-postmen", GrainFactory.GetGrain<IPayloadSinkGrain>(message.Target).GetGrainId()),
             static (message, token) => new(message.Value, token))
         .AddGrainPostman<GrainPayload, IPayloadSinkGrain>(
             static (message, grains) => grains.GetGrain<IPayloadSinkGrain>(message.Target),
             static (grain, message, token) => grain.ReceiveAsync(new(message.Value, token)))
-        .AddPostman<IPayloadEvent>(static _ => ValueTask.FromException(new InvalidOperationException("A specific payload handler should win.")));
+        .AddPostman<IPayloadEvent>(static (message, _) => Task.FromException(new InvalidOperationException($"Unexpected payload: {message.Value}")))
+        .AddPostman<IPayloadEvent>(static (message, _, cancellationToken) => ValueTask.FromException(new InvalidOperationException($"Unexpected payload: {message.Value}, cancellation: {cancellationToken.IsCancellationRequested}")));
     }
+
+    private ValueTask DeliverLocalAsync(LocalPayload message, OutboxSequenceToken token) =>
+        new(GrainFactory.GetGrain<IPayloadSinkGrain>(message.Target)
+            .ReceiveAsync(new(message.Value, token)));
 
     public async Task PublishAsync(Guid target, bool failAcknowledgment)
     {

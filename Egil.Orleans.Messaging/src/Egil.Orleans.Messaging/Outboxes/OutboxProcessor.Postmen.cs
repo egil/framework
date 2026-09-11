@@ -118,23 +118,31 @@ public sealed partial class OutboxProcessor<TOutbox>
     }
 
     /// <summary>Registers a payload handler that also receives the stable delivery token.</summary>
-    public OutboxProcessor<TOutbox> AddPostman<TSub>(Func<TSub, OutboxSequenceToken, Task> postman)
+    public OutboxProcessor<TOutbox> AddPostmanWithToken<TSub>(Func<TSub, OutboxSequenceToken, Task> postman)
         where TSub : TOutbox
     {
         ArgumentNullException.ThrowIfNull(postman);
-        return AddPostman<TSub>((message, token, _) => new ValueTask(postman(message, token)));
+        return AddPostmanWithToken<TSub>((message, token, _) => new ValueTask(postman(message, token)));
     }
 
-    /// <summary>Registers a cancellable payload handler with its stable delivery token.</summary>
-    public OutboxProcessor<TOutbox> AddPostman<TSub>(Func<TSub, OutboxSequenceToken, CancellationToken, Task> postman)
+    /// <summary>Registers a ValueTask payload handler that also receives the stable delivery token.</summary>
+    public OutboxProcessor<TOutbox> AddPostmanWithToken<TSub>(Func<TSub, OutboxSequenceToken, ValueTask> postman)
         where TSub : TOutbox
     {
         ArgumentNullException.ThrowIfNull(postman);
-        return AddPostman<TSub>((message, token, cancellationToken) => new ValueTask(postman(message, token, cancellationToken)));
+        return AddPostmanWithToken<TSub>((message, token, _) => postman(message, token));
     }
 
     /// <summary>Registers a cancellable payload handler with its stable delivery token.</summary>
-    public OutboxProcessor<TOutbox> AddPostman<TSub>(Func<TSub, OutboxSequenceToken, CancellationToken, ValueTask> postman)
+    public OutboxProcessor<TOutbox> AddPostmanWithToken<TSub>(Func<TSub, OutboxSequenceToken, CancellationToken, Task> postman)
+        where TSub : TOutbox
+    {
+        ArgumentNullException.ThrowIfNull(postman);
+        return AddPostmanWithToken<TSub>((message, token, cancellationToken) => new ValueTask(postman(message, token, cancellationToken)));
+    }
+
+    /// <summary>Registers a cancellable payload handler with its stable delivery token.</summary>
+    public OutboxProcessor<TOutbox> AddPostmanWithToken<TSub>(Func<TSub, OutboxSequenceToken, CancellationToken, ValueTask> postman)
         where TSub : TOutbox
     {
         ArgumentNullException.ThrowIfNull(postman);
@@ -167,7 +175,7 @@ public sealed partial class OutboxProcessor<TOutbox>
         ArgumentNullException.ThrowIfNull(project);
         var streamProvider = owner.GrainContext.ActivationServices
             .GetRequiredKeyedService<IStreamProvider>(streamProviderName);
-        return AddPostman<TSub>((message, token, cancellationToken) =>
+        return AddPostmanWithToken<TSub>((message, token, cancellationToken) =>
         {
             cancellationToken.ThrowIfCancellationRequested();
             return new ValueTask(streamProvider.GetStream<TEvent>(streamId(message, token))
@@ -196,7 +204,7 @@ public sealed partial class OutboxProcessor<TOutbox>
     {
         ArgumentNullException.ThrowIfNull(resolveGrain);
         ArgumentNullException.ThrowIfNull(call);
-        return AddPostman<TSub>((message, token, cancellationToken) =>
+        return AddPostmanWithToken<TSub>((message, token, cancellationToken) =>
             call(resolveGrain(message, grainFactory), message, token, cancellationToken));
     }
 
