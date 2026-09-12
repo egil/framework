@@ -93,8 +93,8 @@ public abstract class StateManagerBase<T> : IStateManager<T>
         this.createInitialState = createInitialState;
         this.configureState = configureState;
         state = ResolveLoadedState();
-        configureState?.Invoke(state);
         storage.State = state;
+        configureState?.Invoke(state);
     }
 
     /// <inheritdoc/>
@@ -127,8 +127,6 @@ public abstract class StateManagerBase<T> : IStateManager<T>
         try
         {
             await storage.WriteStateAsync();
-            Adopt(storage.State);
-            return;
         }
         catch (Exception ex)
         {
@@ -141,31 +139,18 @@ public abstract class StateManagerBase<T> : IStateManager<T>
                 throw;
             }
 
-            var recoveryReadSucceeded = false;
-            try
+            if (!await TryReadForRecoveryAsync(previousState))
             {
-                // Unknown outcome: write may have persisted despite the exception.
-                // Read back from storage to distinguish "lost response" from "real failure."
-                await storage.ReadStateAsync();
-                T? persisted = storage.State;
-                recoveryReadSucceeded = true;
-                Adopt(ResolveLoadedState());
-
-                if (ex is not InconsistentStateException && storage.RecordExists && IsEquivalent(persisted, newState))
-                {
-                    // Lost-response case: write landed, but acknowledgement failed.
-                    // The committed fence already reflects the persisted value.
-                    return;
-                }
+                throw;
             }
-            catch
+
+            // The read succeeded. Validation and user configuration are not storage
+            // failures: let them propagate instead of hiding them behind the write error.
+            T? persisted = storage.State;
+            Adopt(ResolveLoadedState());
+            if (ex is not InconsistentStateException && storage.RecordExists && IsEquivalent(persisted, newState))
             {
-                if (!recoveryReadSucceeded)
-                {
-                    // A failed read yields no trustworthy durable value. Restore
-                    // the pre-write snapshot; the original write error is rethrown below.
-                    RestoreState(previousState);
-                }
+                return;
             }
 
             // A mismatch proves the write did not land. A concurrency conflict
@@ -173,65 +158,63 @@ public abstract class StateManagerBase<T> : IStateManager<T>
             // succeeds, keep the server value paired with its refreshed ETag.
             throw;
         }
+
+        // The write is complete. A callback failure must not trigger another storage
+        // read or be mistaken for a lost response and silently retried.
+        Adopt(storage.State);
     }
 
     /// <inheritdoc/>
     public async Task ClearAsync()
     {
         var previousState = state;
-        var recoveryReadSucceeded = false;
-
         try
         {
             await storage.ClearStateAsync();
-            Adopt(CreateInitialState());
-            return;
         }
         catch (Exception ex)
         {
-            var failureKind = ClassifyClearFailure(ex);
-            if (failureKind is StorageFailureKind.DidNotPersist)
+            if (ClassifyClearFailure(ex) is StorageFailureKind.DidNotPersist)
             {
-                // The provider proved the clear was rejected before it could
-                // persist, so the in-memory view must stay at the pre-clear
-                // state and the original error should be surfaced.
                 RestoreState(previousState);
                 throw;
             }
 
-            try
+            if (!await TryReadForRecoveryAsync(previousState))
             {
-                // Ambiguous failures may have persisted even though the caller
-                // observed an exception. Read back before deciding whether the
-                // local state should represent "cleared" or the previous value.
-                await storage.ReadStateAsync();
-                recoveryReadSucceeded = true;
-                Adopt(ResolveLoadedState());
-
-                // A missing record confirms an ambiguous clear, but it cannot
-                // hide a real concurrency conflict caused by another writer.
-                if (ex is not InconsistentStateException && !storage.RecordExists)
-                {
-                    return;
-                }
-            }
-            catch
-            {
-                // Preserve the original clear exception. A recovery-read
-                // failure tells us nothing useful about whether the clear
-                // landed, so surfacing the original write-path error is the
-                // least surprising failure for the caller.
+                throw;
             }
 
-            if (!recoveryReadSucceeded)
+            // Once storage has returned a record (or confirmed its absence), state
+            // validation and configuration failures belong to the caller, not recovery.
+            Adopt(ResolveLoadedState());
+            if (ex is not InconsistentStateException && !storage.RecordExists)
             {
-                // Without read-back confirmation, keep the local activation
-                // conservative. The next successful read/write can reconcile
-                // against storage.
-                RestoreState(previousState);
+                return;
             }
 
             throw;
+        }
+
+        // Clearing storage and constructing/configuring its replacement are distinct
+        // operations. A bad factory or callback cannot turn a successful clear into
+        // an ambiguous storage failure or cause configuration to be retried.
+        Adopt(CreateInitialState());
+    }
+
+    private async Task<bool> TryReadForRecoveryAsync(T previousState)
+    {
+        try
+        {
+            await storage.ReadStateAsync();
+            return true;
+        }
+        catch
+        {
+            // Only a failed storage read leaves durability unknown. Restore the local
+            // snapshot and let the caller rethrow the original write/clear exception.
+            RestoreState(previousState);
+            return false;
         }
     }
 
@@ -289,11 +272,12 @@ public abstract class StateManagerBase<T> : IStateManager<T>
 
     private void Adopt(T value)
     {
-        // Runtime dependencies belong to the newly adopted instance. Configuring
-        // a previous snapshot would lose them after deserialization or recovery.
-        configureState?.Invoke(value);
+        // Publish the new snapshot before invoking caller code: a callback may read
+        // the manager or raw facet as well as its argument. If configuration fails,
+        // keep the adopted durable snapshot visible and report the callback failure.
         storage.State = value;
         state = value;
+        configureState?.Invoke(value);
     }
 
     private void RestoreState(T previousState)

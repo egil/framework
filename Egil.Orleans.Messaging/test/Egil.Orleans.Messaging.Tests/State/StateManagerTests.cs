@@ -425,6 +425,113 @@ public sealed class StateManagerTests
         Assert.Same(next, manager.State);
     }
 
+    [Theory]
+    [InlineData("read")]
+    [InlineData("write")]
+    [InlineData("clear")]
+    [InlineData("write-recovery")]
+    [InlineData("clear-recovery")]
+    public async Task Configuration_observes_the_adopted_snapshot(string operation)
+    {
+        var storage = new FakePersistentState(new TestState("initial"));
+        DefaultStateManager<TestState>? manager = null;
+        TestState? observedManager = null;
+        TestState? observedStorage = null;
+        TestState? configured = null;
+        manager = new DefaultStateManager<TestState>(storage, static () => new("default"), value =>
+        {
+            configured = value;
+            observedManager = manager?.State;
+            observedStorage = storage.State;
+        });
+        storage.OnRead = loaded => loaded.State = new("loaded");
+        storage.WriteException = operation == "write-recovery" ? new TimeoutException() : null;
+        storage.ClearException = operation == "clear-recovery" ? new TimeoutException() : null;
+
+        _ = await Record.ExceptionAsync(() => operation switch
+        {
+            "read" => manager.ReadAsync(),
+            "write" or "write-recovery" => manager.WriteAsync(new("next")),
+            _ => manager.ClearAsync()
+        });
+
+        Assert.Same(configured, observedManager);
+        Assert.Same(configured, observedStorage);
+        Assert.Same(configured, manager.State);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Configuration_failure_after_successful_storage_is_not_retried_or_hidden(bool clear)
+    {
+        var storage = new FakePersistentState(new TestState("initial"));
+        var failure = new InvalidOperationException("runtime configuration failed");
+        var failNextConfiguration = false;
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), _ =>
+        {
+            if (failNextConfiguration)
+            {
+                failNextConfiguration = false;
+                throw failure;
+            }
+        });
+        failNextConfiguration = true;
+        var recoveryReads = 0;
+        storage.OnRead = _ => recoveryReads++;
+
+        var error = await Record.ExceptionAsync(() => clear ? manager.ClearAsync() : manager.WriteAsync(new("next")));
+
+        Assert.Same(failure, error);
+        Assert.Equal(clear ? "default" : "next", manager.State.Value);
+        Assert.Equal(0, recoveryReads);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task Invalid_state_after_recovery_read_is_reported_as_validation_failure(bool clear, bool recordExists)
+    {
+        var storage = new FakePersistentState(new TestState("initial"))
+        {
+            WriteException = new TimeoutException("write failed"),
+            ClearException = new TimeoutException("clear failed"),
+            OnRead = loaded => { loaded.State = null!; loaded.RecordExists = recordExists; }
+        };
+        var manager = new DefaultStateManager<TestState>(storage, static () => null!);
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => clear ? manager.ClearAsync() : manager.WriteAsync(new("next")));
+
+        Assert.Contains(recordExists ? "existing state record" : "factory returned null", error.Message);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Configuration_failure_after_recovery_is_reported_and_keeps_loaded_state(bool clear)
+    {
+        var loaded = new TestState("loaded");
+        var storage = new FakePersistentState(new TestState("initial"))
+        {
+            WriteException = new TimeoutException(),
+            ClearException = new TimeoutException(),
+            OnRead = state => state.State = loaded
+        };
+        var failure = new InvalidOperationException("runtime configuration failed");
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), value =>
+        {
+            if (ReferenceEquals(value, loaded)) throw failure;
+        });
+
+        var error = await Record.ExceptionAsync(() => clear ? manager.ClearAsync() : manager.WriteAsync(new("next")));
+
+        Assert.Same(failure, error);
+        Assert.Same(loaded, manager.State);
+        Assert.Same(loaded, storage.State);
+    }
+
     private sealed record TestState(string Value);
 
     private sealed record VersionedTestState(string Value) : VersionedState, IEquatable<VersionedTestState>;
