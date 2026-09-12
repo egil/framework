@@ -495,7 +495,7 @@ public sealed class OutboxProcessorSourceGrain(
             ReconcileFailedAsync = ReconcileFailedAsync,
             RetryDelay = TimeSpan.FromMilliseconds(100)
         })
-        .AddPostmanWithToken<OutboxProcessorTestEvent>(PublishEnvelopeAsync);
+        .AddPostman<OutboxProcessorTestEvent>(async (message, token, cancellationToken) => await PublishEnvelopeAsync(message, token, cancellationToken));
 
         await base.OnActivateAsync(cancellationToken);
     }
@@ -970,7 +970,7 @@ public sealed class OutboxProcessorTimeoutRetryGrain(
             TimeProvider = timeProvider,
             RetryDelay = TimeSpan.FromMilliseconds(100)
         })
-        .AddPostman<OutboxProcessorTestEvent>(FirstAttemptBlocksAsync);
+        .AddPostman<OutboxProcessorTestEvent>(async (message, _, cancellationToken) => await FirstAttemptBlocksAsync(message, cancellationToken));
 
         await base.OnActivateAsync(cancellationToken);
     }
@@ -1045,7 +1045,7 @@ public sealed class OutboxProcessorConcurrentPostmanGrain(
             ReconcileFailedAsync = ReconcileFailedAsync,
             RetryDelay = TimeSpan.FromMilliseconds(100)
         })
-        .AddPostman<OutboxProcessorTestEvent>(PostWithGateAndTrackConcurrencyAsync);
+        .AddPostman<OutboxProcessorTestEvent>(async (message, _, cancellationToken) => await PostWithGateAndTrackConcurrencyAsync(message, cancellationToken));
 
         await base.OnActivateAsync(cancellationToken);
     }
@@ -1147,8 +1147,8 @@ public sealed class OutboxProcessorOrderedPostmanGrain
             ReconcileFailedAsync = ReconcileFailedAsync,
             RetryDelay = TimeSpan.FromMinutes(10)
         })
-        .AddPostman<OutboxProcessorPrimaryMessage>(PostPrimaryAsync)
-        .AddPostman<OutboxProcessorSecondaryMessage>(PostSecondaryAsync);
+        .AddPostman<OutboxProcessorPrimaryMessage>(async (message, _, cancellationToken) => await PostPrimaryAsync(message, cancellationToken))
+        .AddPostman<OutboxProcessorSecondaryMessage>(async (message, _, cancellationToken) => await PostSecondaryAsync(message, cancellationToken));
 
         await base.OnActivateAsync(cancellationToken);
     }
