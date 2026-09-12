@@ -169,7 +169,7 @@ public sealed class OutboxProcessorStreamPostmanGrain(
 
     private OutboxProcessorOptions<OutboxProcessorTestEvent> CreateOptions() => new()
     {
-        PendingItems = () => state.State.Outbox?.ToImmutableArray() ?? [],
+        PendingItems = () => state.State.Outbox ?? [],
         AcknowledgePostedAsync = AcknowledgePostedAsync,
         ReconcileFailedAsync = ReconcileFailedAsync,
         RetryDelay = TimeSpan.FromMilliseconds(100)
@@ -263,7 +263,7 @@ public sealed class OutboxProcessorProjectedStreamPostmanGrain(
 
     private OutboxProcessorOptions<OutboxProcessorTestEvent> CreateOptions() => new()
     {
-        PendingItems = () => state.State.Outbox?.ToImmutableArray() ?? [],
+        PendingItems = () => state.State.Outbox ?? [],
         AcknowledgePostedAsync = AcknowledgePostedAsync,
         ReconcileFailedAsync = ReconcileFailedAsync,
         RetryDelay = TimeSpan.FromMilliseconds(100)
@@ -371,7 +371,7 @@ public sealed class OutboxProcessorGrainPostmanSourceGrain(
 
     private OutboxProcessorOptions<OutboxProcessorTestEvent> CreateOptions() => new()
     {
-        PendingItems = () => state.State.Outbox?.ToImmutableArray() ?? [],
+        PendingItems = () => state.State.Outbox ?? [],
         AcknowledgePostedAsync = AcknowledgePostedAsync,
         ReconcileFailedAsync = ReconcileFailedAsync,
         RetryDelay = TimeSpan.FromMilliseconds(100)

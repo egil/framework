@@ -9,8 +9,8 @@ public sealed class OutboxTests
     {
         var initial = Outbox<string>.Create();
         var appended = initial.Add("first", DateTimeOffset.UnixEpoch);
-        var removed = appended.Remove(appended[0].Id);
-        var batchRemoved = appended.RemoveRange([appended[0].Id]);
+        var removed = appended.Remove(appended.Envelopes[0].Id);
+        var batchRemoved = appended.RemoveRange([appended.Envelopes[0].Id]);
         var cleared = appended.Clear();
 
         Guid[] revisions = [initial.Revision, appended.Revision, removed.Revision, batchRemoved.Revision, cleared.Revision];
@@ -28,7 +28,7 @@ public sealed class OutboxTests
         Assert.Equal(empty.Revision, empty.Clear().Revision);
         Assert.Equal(empty.Revision, empty.Remove(foreignId).Revision);
         Assert.Equal(pending.Revision, pending.Remove(foreignId).Revision);
-        Assert.Equal(pending.Revision, pending.RemoveRange([]).Revision);
+        Assert.Equal(pending.Revision, pending.RemoveRange(Array.Empty<OutboxMessageId>()).Revision);
         Assert.Equal(pending.Revision, pending.RemoveRange([foreignId]).Revision);
     }
 
@@ -47,8 +47,8 @@ public sealed class OutboxTests
         Assert.Equal(outbox.Revision, loaded.Revision);
         Assert.Equal(outbox, loaded);
         Assert.Equal(outbox.GetHashCode(), loaded.GetHashCode());
-        Assert.Equal(outbox[0].Id, loaded[0].Id);
-        Assert.Equal("first", loaded[0].Message);
+        Assert.Equal(outbox.Envelopes[0].Id, loaded.Envelopes[0].Id);
+        Assert.Equal("first", loaded[0]);
     }
 
     [Fact]
@@ -68,8 +68,8 @@ public sealed class OutboxTests
 
         Assert.Equal(2, next.Count);
         Assert.Equal(2, next.LatestSequenceNumber);
-        Assert.Equal("second", next[1].Message);
-        Assert.Equal(new OutboxMessageId(2, later, epoch), next[1].Id);
+        Assert.Equal("second", next[1]);
+        Assert.Equal(new OutboxMessageId(2, later, epoch), next.Envelopes[1].Id);
     }
 
     [Fact]
@@ -84,8 +84,8 @@ public sealed class OutboxTests
         Assert.Single(next);
         Assert.Equal(1, next.LatestSequenceNumber);
         Assert.Equal(now, next.Epoch);
-        Assert.Equal("created", next[0].Message);
-        Assert.Equal(new OutboxMessageId(1, now, now), next[0].Id);
+        Assert.Equal("created", next[0]);
+        Assert.Equal(new OutboxMessageId(1, now, now), next.Envelopes[0].Id);
     }
 
     [Fact]
@@ -97,8 +97,8 @@ public sealed class OutboxTests
         var next = Outbox<string>.Create().Add("created", localNow);
 
         Assert.Equal(utcNow, next.Epoch);
-        Assert.Equal(utcNow, next[0].Id.Timestamp);
-        Assert.Equal(TimeSpan.Zero, next[0].Id.Timestamp.Offset);
+        Assert.Equal(utcNow, next.Envelopes[0].Id.Timestamp);
+        Assert.Equal(TimeSpan.Zero, next.Envelopes[0].Id.Timestamp.Offset);
     }
 
     [Fact]
@@ -114,8 +114,8 @@ public sealed class OutboxTests
         Assert.Equal(2, next.Count);
         Assert.Equal(2, next.LatestSequenceNumber);
         Assert.Equal(epoch, next.Epoch);
-        Assert.Equal(new OutboxMessageId(1, epoch, epoch), next[0].Id);
-        Assert.Equal(new OutboxMessageId(2, later, epoch), next[1].Id);
+        Assert.Equal(new OutboxMessageId(1, epoch, epoch), next.Envelopes[0].Id);
+        Assert.Equal(new OutboxMessageId(2, later, epoch), next.Envelopes[1].Id);
     }
 
     [Fact]
@@ -125,10 +125,10 @@ public sealed class OutboxTests
         var outbox = Outbox<string>.Create();
         outbox = outbox.Add("first", now).Add("second", now);
 
-        var next = outbox.Remove(outbox[0].Id);
+        var next = outbox.Remove(outbox.Envelopes[0].Id);
 
         Assert.Single(next);
-        Assert.Equal("second", next[0].Message);
+        Assert.Equal("second", next[0]);
         Assert.Equal(2, next.LatestSequenceNumber);
         Assert.Equal(now, next.Epoch);
     }
@@ -154,7 +154,7 @@ public sealed class OutboxTests
         var outbox = Outbox<string>.Create();
         outbox = outbox.Add("first", now).Add("second", now);
 
-        var next = outbox.Remove(outbox[1].Id);
+        var next = outbox.Remove(outbox.Envelopes[1].Id);
 
         Assert.Same(outbox, next);
         Assert.Equal(2, next.Count);
@@ -168,10 +168,10 @@ public sealed class OutboxTests
         outbox = outbox.Add("first", now).Add("second", now).Add("third", now);
         var missing = new OutboxMessageId(99, now, now);
 
-        var next = outbox.RemoveRange([outbox[0].Id, outbox[1].Id, missing]);
+        var next = outbox.RemoveRange([outbox.Envelopes[0].Id, outbox.Envelopes[1].Id, missing]);
 
         Assert.Single(next);
-        Assert.Equal("third", next[0].Message);
+        Assert.Equal("third", next[0]);
         Assert.Equal(3, next.LatestSequenceNumber);
         Assert.Equal(now, next.Epoch);
     }
@@ -183,10 +183,10 @@ public sealed class OutboxTests
         var outbox = Outbox<string>.Create();
         outbox = outbox.Add("first", now).Add("second", now).Add("third", now);
 
-        var next = outbox.RemoveRange([outbox[0].Id, outbox[2].Id]);
+        var next = outbox.RemoveRange([outbox.Envelopes[0].Id, outbox.Envelopes[2].Id]);
 
         Assert.Single(next);
-        Assert.Equal("second", next[0].Message);
+        Assert.Equal("second", next[0]);
     }
 
     [Fact]
@@ -203,7 +203,7 @@ public sealed class OutboxTests
         Assert.Empty(cleared);
         Assert.Equal(2, cleared.LatestSequenceNumber);
         Assert.Equal(epoch, cleared.Epoch);
-        Assert.Equal(new OutboxMessageId(3, later, epoch), next[0].Id);
+        Assert.Equal(new OutboxMessageId(3, later, epoch), next.Envelopes[0].Id);
     }
 
     [Fact]
@@ -229,11 +229,11 @@ public sealed class OutboxTests
             .Add("third", now)
             .Add("fourth", now);
 
-        var left = baseline.RemoveRange([baseline[2].Id]);
-        var right = baseline.RemoveRange([baseline[1].Id]);
+        var left = baseline.RemoveRange([baseline.Envelopes[2].Id]);
+        var right = baseline.RemoveRange([baseline.Envelopes[1].Id]);
 
-        Assert.Equal([1L, 2L, 4L], left.Select(item => item.Id.SequenceNumber).ToArray());
-        Assert.Equal([1L, 3L, 4L], right.Select(item => item.Id.SequenceNumber).ToArray());
+        Assert.Equal([1L, 2L, 4L], left.Envelopes.Select(item => item.Id.SequenceNumber).ToArray());
+        Assert.Equal([1L, 3L, 4L], right.Envelopes.Select(item => item.Id.SequenceNumber).ToArray());
         Assert.NotEqual(left, right);
     }
 
