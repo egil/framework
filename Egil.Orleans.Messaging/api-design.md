@@ -167,6 +167,14 @@ record or a null factory result is an error.
 The optional `configureState` callback restores runtime dependencies, such as the
 tracker's clock, on each adopted instance. It must not change business data or
 perform storage I/O. It applies after reads and recovery as well as initial hydration.
+The manager and raw storage facet adopt the new snapshot before configuration.
+If configuration fails, that snapshot stays visible and the callback exception
+propagates. Configuration after a successful write/clear runs outside storage
+recovery, so a callback failure never causes an extra recovery read or silent retry.
+After successful recovery reads, state validation, default factories, and configuration
+also run outside the storage-read catch. Their errors propagate rather than being
+replaced by the original write/clear exception. Failed recovery reads still restore
+the previous local snapshot and preserve the original storage error.
 
 ### `WriteAsync` semantics
 
@@ -1444,7 +1452,10 @@ This compiler support requires C# 13 or newer. Older compilers need explicit
 delegate or lambda return types for otherwise ambiguous lambdas. Grain factories are captured or supplied through the resolver
 of `AddGrainPostman`; the second direct-callback argument is always a delivery token.
 
-Stream projections and selectors remain synchronous and can receive `(message, token)`.
+Stream projections and selectors remain synchronous and independently choose
+`(message)` or `(message, token)`. Token-aware routing also supports forwarding the
+original payload without an identity projection. Direct and grouped registration
+provide the same combinations.
 Grain invocations take `(grain, message)`, `(grain, message, token)`, or
 `(grain, message, token, cancellationToken)` with the same Task/ValueTask overload
 priority.
@@ -1484,9 +1495,18 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         string streamProviderName,
         Func<TSub, StreamId> streamId)
         where TSub : TOutbox;
+    public OutboxProcessor<TOutbox> AddStreamPostman<TSub>(
+        string streamProviderName,
+        Func<TSub, OutboxSequenceToken, StreamId> streamId)
+        where TSub : TOutbox;
     public OutboxProcessor<TOutbox> AddStreamPostman<TSub, TEvent>(
         string streamProviderName,
         Func<TSub, StreamId> streamId,
+        Func<TSub, TEvent> project)
+        where TSub : TOutbox;
+    public OutboxProcessor<TOutbox> AddStreamPostman<TSub, TEvent>(
+        string streamProviderName,
+        Func<TSub, OutboxSequenceToken, StreamId> streamId,
         Func<TSub, TEvent> project)
         where TSub : TOutbox;
     public OutboxStreamProviderBuilder<TOutbox> ForStreamProvider(string streamProviderName);

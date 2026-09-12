@@ -18,7 +18,7 @@ public static class StreamManagerExtensions
         /// </summary>
         /// <remarks>
         /// <para>
-        /// Call from the grain constructor, then chain
+        /// Call from the grain constructor or OnActivateAsync, then chain
         /// <c>ConfigureImplicitSubscription</c> or
         /// <c>ConfigureExplicitSubscription</c> calls on the returned manager.
         /// </para>
