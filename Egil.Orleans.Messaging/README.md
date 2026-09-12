@@ -173,14 +173,17 @@ public OrderGrain([PersistentState("state", "Default")] IPersistentState<OrderSt
             });
         }
     })
-    .AddPostman<OrderSubmitted>(PublishSubmittedAsync)
-    .AddPostman<OrderCancelled>(PublishCancelledAsync);
+    .AddPostman<OrderSubmitted>(async message => await PublishSubmittedAsync(message))
+    .AddPostman<OrderCancelled>(async message => await PublishCancelledAsync(message));
 }
 ```
 
-Postman handlers receive domain payloads. `AddPostmanWithToken` callbacks receive
-the payload and `OutboxSequenceToken`, with an optional cancellation token when the destination needs delivery
-identity or deduplication. The processor builds that token from the stored
+`AddPostman` callbacks take `(message)`, `(message, token)`, or
+`(message, token, cancellationToken)`. All return `ValueTask`; ordinary async
+lambdas work without casts. Wrap an existing `Task` method in an async lambda,
+as above. The second argument is always the delivery `OutboxSequenceToken`,
+and cancellation is always third. Capture a grain factory when needed, or use
+`AddGrainPostman` to resolve the destination. The processor builds that token from the stored
 `OutboxMessageId` and its owning grain ID, preserving sequence, epoch and append
 timestamp across retries and reactivation. No sender identity is stored in the outbox.
 
@@ -276,7 +279,7 @@ outboxProcessor = this.RegisterOutboxProcessor(options)
 outboxProcessor = this.RegisterOutboxProcessor(options)
     .AddGrainPostman<OrderSubmitted, IOrderProjectionGrain>(
         (message, grainFactory) => grainFactory.GetGrain<IOrderProjectionGrain>(message.OrderId),
-        (grain, message) => grain.ApplyAsync(message));
+        async (grain, message) => await grain.ApplyAsync(message));
 ```
 
 Token-aware stream projections and grain calls also operate on payloads:
@@ -289,12 +292,14 @@ outboxProcessor
         (message, token) => new SubmittedDelivery(message, token))
     .AddGrainPostman<OrderCancelled, IOrderProjectionGrain>(
         (message, grains) => grains.GetGrain<IOrderProjectionGrain>(message.OrderId),
-        (grain, message, token) => grain.ApplyAsync(message, token));
+        async (grain, message, token) => await grain.ApplyAsync(message, token));
 ```
 
 The projection creates an application-owned transport contract, not a stored outbox
 envelope. Stream selection also has a token-aware overload. Cancellable grain
-invocations can receive `(grain, message, token, cancellationToken)`.
+invocations can receive `(grain, message, token, cancellationToken)`. All grain
+invocation callbacks return `ValueTask`; stream selectors and projections remain
+synchronous, with optional token arguments.
 
 ## Receiver Dedup
 
@@ -448,7 +453,7 @@ The constructor-registration and payload-postman changes tracked in
 - Outboxes persist a UUIDv7 `Revision`. JSON requires a non-empty revision; previous beta snapshots need migration or reset. Independently constructed snapshots no longer compare equal based on matching contents.
 - Stored envelopes expose `Id` (`OutboxMessageId`); delivery tokens are supplied to handlers by the processor.
 - Use `OutboxProcessor<TPayload>` and `OutboxProcessorOptions<TPayload>`, not envelope generic arguments.
-- Register payload subtypes with `AddPostman`, `AddStreamPostman`, and `AddGrainPostman`. Use `AddPostmanWithToken` for direct handlers needing delivery metadata; both `Task` and `ValueTask` handlers are supported.
+- Register payload subtypes with `AddPostman`, `AddStreamPostman`, and `AddGrainPostman`. Direct `AddPostman` callbacks take one, two, or three arguments and return `ValueTask`. Grain callbacks also return `ValueTask`. Replace `AddPostmanWithToken` with `AddPostman`; move cancellation to the third argument and capture a grain factory rather than receiving it as a callback argument.
 - Supply state factories for types without a public parameterless constructor. Custom `IStateManagerFactory` implementations receive the initial-state factory and runtime configuration callback.
 - Pass a tracker accessor to `RegisterStreamManager`, for example `() => state.State.Tracker`. It is evaluated when attaching/resuming subscriptions, after hydration, and observes later state replacement.
 

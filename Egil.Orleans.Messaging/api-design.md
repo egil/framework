@@ -1435,12 +1435,17 @@ callbacks, not passive notifications:
 
 `TOutbox` is the base payload type. All handler families operate on payloads;
 stored envelopes are confined to pending snapshots and reconciliation callbacks.
-Token-aware `AddPostmanWithToken` overloads accept `(message, token)` or
-`(message, token, cancellationToken)`, returning either `Task` or `ValueTask`.
-The separate method name keeps unused lambda parameters unambiguous with
-cancellation-aware and grain-factory callbacks. Stream projections and selectors can receive
-`(message, token)`, and grain invocations can receive
-`(grain, message, token[, cancellationToken])`. These adapters retain the original
+`AddPostman` callbacks take `(message)`, `(message, token)`, or
+`(message, token, cancellationToken)`, returning `ValueTask` in all cases.
+Argument count selects the overload. There are no competing `Task` overloads,
+so ordinary async lambdas are unambiguous. Existing `Task` methods can be awaited
+inside a lambda. Grain factories are captured or supplied through the resolver
+of `AddGrainPostman`; the second direct-callback argument is always a delivery token.
+
+Stream projections and selectors remain synchronous and can receive `(message, token)`.
+Grain invocations take `(grain, message)`, `(grain, message, token)`, or
+`(grain, message, token, cancellationToken)` and return `ValueTask`.
+These adapters retain the original
 stored item for acknowledgment. A covariant envelope interface is unnecessary.
 
 ```csharp
@@ -1450,11 +1455,9 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     public OutboxProcessor<TOutbox> AddPostman<TSub>(
         Func<TSub, ValueTask> postman) where TSub : TOutbox;
     public OutboxProcessor<TOutbox> AddPostman<TSub>(
-        Func<TSub, Task> postman) where TSub : TOutbox;
+        Func<TSub, OutboxSequenceToken, ValueTask> postman) where TSub : TOutbox;
     public OutboxProcessor<TOutbox> AddPostman<TSub>(
-        Func<TSub, CancellationToken, Task> postman) where TSub : TOutbox;
-    public OutboxProcessor<TOutbox> AddPostman<TSub>(
-        Func<TSub, IGrainFactory, CancellationToken, ValueTask> postman)
+        Func<TSub, OutboxSequenceToken, CancellationToken, ValueTask> postman)
         where TSub : TOutbox;
     public OutboxProcessor<TOutbox> AddPostman<TSub>(
         string postmanName) where TSub : TOutbox;
@@ -1469,7 +1472,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         where TSub : TOutbox;
     public OutboxProcessor<TOutbox> AddGrainPostman<TSub, TGrain>(
         Func<TSub, IGrainFactory, TGrain> resolveGrain,
-        Func<TGrain, TSub, Task> call)
+        Func<TGrain, TSub, ValueTask> call)
         where TSub : TOutbox
         where TGrain : IGrain;
 

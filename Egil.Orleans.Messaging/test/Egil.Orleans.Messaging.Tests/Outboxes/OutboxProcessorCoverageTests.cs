@@ -497,7 +497,7 @@ public sealed class OutboxProcessorReentrantPostGrain(
     public override async Task OnActivateAsync(CancellationToken cancellationToken)
     {
         processor = this.RegisterOutboxProcessor(CreateOptions())
-            .AddPostman<OutboxProcessorTestEvent>(PostAndRequestAnotherDrainAsync);
+            .AddPostman<OutboxProcessorTestEvent>(async (message, _, cancellationToken) => await PostAndRequestAnotherDrainAsync(message, cancellationToken));
 
         await base.OnActivateAsync(cancellationToken);
     }
@@ -577,7 +577,7 @@ public sealed class OutboxProcessorConcurrentManualPostGrain(
             ReconcileFailedAsync = ReconcileFailedAsync,
             RetryDelay = TimeSpan.FromMilliseconds(100)
         })
-        .AddPostman<OutboxProcessorTestEvent>(PostWithGateAsync);
+        .AddPostman<OutboxProcessorTestEvent>(async (message, _, cancellationToken) => await PostWithGateAsync(message, cancellationToken));
 
         await base.OnActivateAsync(cancellationToken);
     }
@@ -967,7 +967,7 @@ public sealed class OutboxProcessorReconciliationSchedulingGrain(
             RetryDelay = TimeSpan.FromMilliseconds(100),
             InterleaveReconciliationCallbacks = interleaveReconciliation
         })
-        .AddPostman<OutboxProcessorTestEvent>(PostWithGateAsync);
+        .AddPostman<OutboxProcessorTestEvent>(async (message, _, cancellationToken) => await PostWithGateAsync(message, cancellationToken));
 
         state.State.Outbox = EnsureOutbox().Add(new OutboxProcessorTestEvent(value));
         await state.WriteStateAsync();

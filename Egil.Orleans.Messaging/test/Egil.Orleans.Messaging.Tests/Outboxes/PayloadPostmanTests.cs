@@ -127,16 +127,23 @@ public sealed class PayloadSourceGrain : Grain, IPayloadSourceGrain, IOutboxGrai
             AcknowledgePostedAsync = AcknowledgeAsync,
             RetryDelay = TimeSpan.FromMinutes(10)
         })
-        .AddPostmanWithToken<LocalPayload>(DeliverLocalAsync)
+        .AddPostman<LocalPayload>(async (message, token) => await DeliverLocalAsync(message, token))
         .AddStreamPostman<StreamPayload, PayloadDelivery>(OutboxProcessorTestProviderNames.Events,
             message => StreamManager.CreateStreamId("payload-postmen", GrainFactory.GetGrain<IPayloadSinkGrain>(message.Target).GetGrainId()),
             static (message, token) => new(message.Value, token))
         .AddGrainPostman<GrainPayload, IPayloadSinkGrain>(
             static (message, grains) => grains.GetGrain<IPayloadSinkGrain>(message.Target),
-            static (grain, message, token) => grain.ReceiveAsync(new(message.Value, token)))
-        .AddPostman<IPayloadEvent>(static (message, _) => Task.FromException(new InvalidOperationException($"Unexpected payload: {message.Value}")))
-        .AddPostman<IPayloadEvent>(static (message, _, cancellationToken) => ValueTask.FromException(new InvalidOperationException($"Unexpected payload: {message.Value}, cancellation: {cancellationToken.IsCancellationRequested}")));
+            static async (grain, message, token) => await grain.ReceiveAsync(new(message.Value, token)))
+        .AddPostman<IPayloadEvent>(static async message => await RejectUnexpectedPayloadAsync(message))
+        .AddPostman<IPayloadEvent>(static async (message, _, cancellationToken) =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await RejectUnexpectedPayloadAsync(message);
+        });
     }
+
+    private static ValueTask RejectUnexpectedPayloadAsync(IPayloadEvent message) =>
+        ValueTask.FromException(new InvalidOperationException($"Unexpected payload: {message.Value}"));
 
     private ValueTask DeliverLocalAsync(LocalPayload message, OutboxSequenceToken token) =>
         new(GrainFactory.GetGrain<IPayloadSinkGrain>(message.Target)
