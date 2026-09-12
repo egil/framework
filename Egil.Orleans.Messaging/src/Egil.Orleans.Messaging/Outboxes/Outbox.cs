@@ -214,19 +214,19 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
     }
 
     /// <summary>
-    /// Removes the message identified by <paramref name="token"/> from the outbox.
+    /// Removes the message identified by <paramref name="id"/> from the outbox.
     /// </summary>
     /// <remarks>
     /// Matches the full <see cref="OutboxMessageId"/> identity against the
-    /// first pending item. If the token is not the FIFO head, returns the same
+    /// first pending item. If the id is not the FIFO head, returns the same
     /// instance unchanged. Does <b>not</b> affect
     /// <see cref="LatestSequenceNumber"/> or <see cref="Epoch"/>.
     /// </remarks>
-    /// <param name="token">The token of the message to remove.</param>
+    /// <param name="id">The stored ID of the message to remove.</param>
     /// <returns>A new outbox without the specified message.</returns>
-    public Outbox<T> Remove(OutboxMessageId token)
+    public Outbox<T> Remove(OutboxMessageId id)
     {
-        if (items.IsDefaultOrEmpty || items[0].Id != token)
+        if (items.IsDefaultOrEmpty || items[0].Id != id)
         {
             return this;
         }
@@ -239,19 +239,19 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
     }
 
     /// <summary>
-    /// Batch-removes messages identified by <paramref name="tokens"/>.
+    /// Batch-removes messages identified by <paramref name="ids"/>.
     /// </summary>
     /// <remarks>
-    /// Removes all pending messages whose tokens appear in
-    /// <paramref name="tokens"/> and preserves the original order of messages
-    /// that remain pending. Tokens not found in the outbox are silently ignored.
+    /// Removes all pending messages whose ids appear in
+    /// <paramref name="ids"/> and preserves the original order of messages
+    /// that remain pending. IDs not found in the outbox are silently ignored.
     /// </remarks>
-    /// <param name="tokens">The tokens of the messages to remove.</param>
+    /// <param name="ids">The stored IDs of the messages to remove.</param>
     /// <returns>A new outbox without the specified messages.</returns>
-    public Outbox<T> RemoveRange(IEnumerable<OutboxMessageId> tokens)
+    public Outbox<T> RemoveRange(IEnumerable<OutboxMessageId> ids)
     {
-        var tokenSet = tokens.ToHashSet();
-        if (tokenSet.Count == 0)
+        var idSet = ids.ToHashSet();
+        if (idSet.Count == 0)
         {
             return this;
         }
@@ -259,7 +259,7 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
         var remainingBuilder = ImmutableArray.CreateBuilder<OutboxMessageEnvelope<T>>(items.Length);
         foreach (var item in items)
         {
-            if (!tokenSet.Contains(item.Id))
+            if (!idSet.Contains(item.Id))
             {
                 remainingBuilder.Add(item);
             }
