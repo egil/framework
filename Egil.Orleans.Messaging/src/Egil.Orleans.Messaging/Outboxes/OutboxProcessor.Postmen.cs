@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Microsoft.Extensions.DependencyInjection;
 using Orleans.Streams;
 
@@ -14,10 +15,12 @@ public sealed partial class OutboxProcessor<TOutbox>
     /// Each outbox item is dispatched to at most one postman.
     /// Callbacks take the payload, optionally followed by its delivery token and
     /// cancellation token. Argument count selects the overload, even for unused
-    /// lambda parameters. All callbacks return ValueTask: adding equivalent Task
-    /// overloads would make ordinary async lambdas ambiguous. Wrap an existing
-    /// Task-returning method in an async lambda when registering it.
+    /// lambda parameters. Task and ValueTask callbacks are both supported. With C# 13
+    /// or newer, overload priority prefers ValueTask for ordinary async lambdas,
+    /// while Task-returning method groups and expressions use the Task adapters.
+    /// Older compilers require an explicitly typed delegate or lambda return type.
     /// </remarks>
+    [OverloadResolutionPriority(1)]
     public OutboxProcessor<TOutbox> AddPostman<TSub>(
         Func<TSub, ValueTask> postman) where TSub : TOutbox
     {
@@ -27,6 +30,7 @@ public sealed partial class OutboxProcessor<TOutbox>
     }
 
     /// <summary>Registers a ValueTask payload handler that also receives the stable delivery token.</summary>
+    [OverloadResolutionPriority(1)]
     public OutboxProcessor<TOutbox> AddPostman<TSub>(Func<TSub, OutboxSequenceToken, ValueTask> postman)
         where TSub : TOutbox
     {
@@ -35,6 +39,7 @@ public sealed partial class OutboxProcessor<TOutbox>
     }
 
     /// <summary>Registers a cancellable payload handler with its stable delivery token.</summary>
+    [OverloadResolutionPriority(1)]
     public OutboxProcessor<TOutbox> AddPostman<TSub>(Func<TSub, OutboxSequenceToken, CancellationToken, ValueTask> postman)
         where TSub : TOutbox
     {
@@ -43,6 +48,45 @@ public sealed partial class OutboxProcessor<TOutbox>
             (item, cancellationToken) => postman((TSub)item.Message,
                 item.Id.ForSender(owner.GrainContext.GrainId), cancellationToken));
         return this;
+    }
+
+    // Priority is applied to the ValueTask overloads, not these adapters. C# first
+    // filters applicable candidates, so Task method groups still reach these methods.
+    // When an async lambda fits both return types, priority selects ValueTask instead.
+    // https://learn.microsoft.com/dotnet/csharp/language-reference/proposals/csharp-13.0/overload-resolution-priority
+    /// <summary>Registers a Task payload handler.</summary>
+    public OutboxProcessor<TOutbox> AddPostman<TSub>(Func<TSub, Task> postman)
+        where TSub : TOutbox
+    {
+        ArgumentNullException.ThrowIfNull(postman);
+        return AddPostman<TSub>(message => new ValueTask(postman(message)));
+    }
+
+    /// <summary>Registers a Task payload handler with its delivery token.</summary>
+    public OutboxProcessor<TOutbox> AddPostman<TSub>(Func<TSub, OutboxSequenceToken, Task> postman)
+        where TSub : TOutbox
+    {
+        ArgumentNullException.ThrowIfNull(postman);
+        return AddPostman<TSub>((message, token) => new ValueTask(postman(message, token)));
+    }
+
+    /// <summary>Registers a cancellable Task payload handler with its delivery token.</summary>
+    public OutboxProcessor<TOutbox> AddPostman<TSub>(Func<TSub, OutboxSequenceToken, CancellationToken, Task> postman)
+        where TSub : TOutbox
+    {
+        ArgumentNullException.ThrowIfNull(postman);
+        return AddPostman<TSub>((message, token, cancellationToken) => new ValueTask(postman(message, token, cancellationToken)));
+    }
+
+    /// <summary>Selects an existing stream provider for a group of postman registrations.</summary>
+    /// <remarks>
+    /// This does not install an Orleans provider or create another processor. Each
+    /// nested registration immediately joins this processor's first-match registry.
+    /// </remarks>
+    public OutboxStreamProviderBuilder<TOutbox> ForStreamProvider(string streamProviderName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(streamProviderName);
+        return new(this, streamProviderName);
     }
 
     /// <summary>
@@ -102,10 +146,12 @@ public sealed partial class OutboxProcessor<TOutbox>
     /// Registers a postman that resolves a grain for each item and invokes it.
     /// </summary>
     /// <remarks>
-    /// Like AddPostman, grain invocation callbacks have one ValueTask return shape.
-    /// Additional arguments supply the delivery token and then cancellation. Await
-    /// Task-returning grain methods inside an async lambda to avoid return-type overloads.
+    /// Like AddPostman, grain invocation callbacks support Task and ValueTask.
+    /// Additional arguments supply the delivery token and then cancellation.
+    /// ValueTask overload priority keeps ordinary async lambdas unambiguous on C# 13+;
+    /// Task-returning grain methods can also be registered directly.
     /// </remarks>
+    [OverloadResolutionPriority(1)]
     public OutboxProcessor<TOutbox> AddGrainPostman<TSub, TGrain>(
         Func<TSub, IGrainFactory, TGrain> resolveGrain,
         Func<TGrain, TSub, ValueTask> call)
@@ -151,6 +197,7 @@ public sealed partial class OutboxProcessor<TOutbox>
     }
 
     /// <summary>Registers a grain invocation that can forward the delivery token for deduplication.</summary>
+    [OverloadResolutionPriority(1)]
     public OutboxProcessor<TOutbox> AddGrainPostman<TSub, TGrain>(
         Func<TSub, IGrainFactory, TGrain> resolveGrain,
         Func<TGrain, TSub, OutboxSequenceToken, ValueTask> call)
@@ -163,6 +210,7 @@ public sealed partial class OutboxProcessor<TOutbox>
     }
 
     /// <summary>Registers a cancellable grain invocation with payload and delivery token.</summary>
+    [OverloadResolutionPriority(1)]
     public OutboxProcessor<TOutbox> AddGrainPostman<TSub, TGrain>(
         Func<TSub, IGrainFactory, TGrain> resolveGrain,
         Func<TGrain, TSub, OutboxSequenceToken, CancellationToken, ValueTask> call)
@@ -173,6 +221,42 @@ public sealed partial class OutboxProcessor<TOutbox>
         ArgumentNullException.ThrowIfNull(call);
         return AddPostman<TSub>((message, token, cancellationToken) =>
             call(resolveGrain(message, grainFactory), message, token, cancellationToken));
+    }
+
+    /// <summary>Registers a Task grain invocation for each payload.</summary>
+    public OutboxProcessor<TOutbox> AddGrainPostman<TSub, TGrain>(
+        Func<TSub, IGrainFactory, TGrain> resolveGrain,
+        Func<TGrain, TSub, Task> call)
+        where TSub : TOutbox
+        where TGrain : IGrain
+    {
+        ArgumentNullException.ThrowIfNull(call);
+        return AddGrainPostman<TSub, TGrain>(resolveGrain,
+            (grain, message) => new ValueTask(call(grain, message)));
+    }
+
+    /// <summary>Registers a Task grain invocation with its delivery token.</summary>
+    public OutboxProcessor<TOutbox> AddGrainPostman<TSub, TGrain>(
+        Func<TSub, IGrainFactory, TGrain> resolveGrain,
+        Func<TGrain, TSub, OutboxSequenceToken, Task> call)
+        where TSub : TOutbox
+        where TGrain : IGrain
+    {
+        ArgumentNullException.ThrowIfNull(call);
+        return AddGrainPostman<TSub, TGrain>(resolveGrain,
+            (grain, message, token) => new ValueTask(call(grain, message, token)));
+    }
+
+    /// <summary>Registers a cancellable Task grain invocation with its delivery token.</summary>
+    public OutboxProcessor<TOutbox> AddGrainPostman<TSub, TGrain>(
+        Func<TSub, IGrainFactory, TGrain> resolveGrain,
+        Func<TGrain, TSub, OutboxSequenceToken, CancellationToken, Task> call)
+        where TSub : TOutbox
+        where TGrain : IGrain
+    {
+        ArgumentNullException.ThrowIfNull(call);
+        return AddGrainPostman<TSub, TGrain>(resolveGrain,
+            (grain, message, token, cancellationToken) => new ValueTask(call(grain, message, token, cancellationToken)));
     }
 
     private void AddPayloadPostman<TSub>(Func<TSub, CancellationToken, ValueTask> postman)

@@ -1436,15 +1436,24 @@ callbacks, not passive notifications:
 `TOutbox` is the base payload type. All handler families operate on payloads;
 stored envelopes are confined to pending snapshots and reconciliation callbacks.
 `AddPostman` callbacks take `(message)`, `(message, token)`, or
-`(message, token, cancellationToken)`, returning `ValueTask` in all cases.
-Argument count selects the overload. There are no competing `Task` overloads,
-so ordinary async lambdas are unambiguous. Existing `Task` methods can be awaited
-inside a lambda. Grain factories are captured or supplied through the resolver
+`(message, token, cancellationToken)`, with both `Task` and `ValueTask` overloads.
+Argument count selects the parameter shape. `OverloadResolutionPriority(1)` on
+each ValueTask overload selects it when an ordinary async lambda fits both return
+types; Task method groups and expressions remain applicable to the Task adapter.
+This compiler support requires C# 13 or newer. Older compilers need explicit
+delegate or lambda return types for otherwise ambiguous lambdas. Grain factories are captured or supplied through the resolver
 of `AddGrainPostman`; the second direct-callback argument is always a delivery token.
 
 Stream projections and selectors remain synchronous and can receive `(message, token)`.
 Grain invocations take `(grain, message)`, `(grain, message, token)`, or
-`(grain, message, token, cancellationToken)` and return `ValueTask`.
+`(grain, message, token, cancellationToken)` with the same Task/ValueTask overload
+priority.
+`ForStreamProvider(name)` returns an `OutboxStreamProviderBuilder<TOutbox>` with
+chainable `AddStreamPostman` overloads matching the direct registrations, except
+that the provider name is supplied once. Registration forwards immediately to the
+original processor; there is no separate dispatch registry, acknowledgment state,
+or retry lifecycle. Provider configuration is still performed in Orleans setup.
+
 These adapters retain the original
 stored item for acknowledgment. A covariant envelope interface is unnecessary.
 
@@ -1452,12 +1461,22 @@ stored item for acknowledgment. A covariant envelope interface is unnecessary.
 public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     where TOutbox : notnull
 {
+    [OverloadResolutionPriority(1)]
     public OutboxProcessor<TOutbox> AddPostman<TSub>(
         Func<TSub, ValueTask> postman) where TSub : TOutbox;
     public OutboxProcessor<TOutbox> AddPostman<TSub>(
+        Func<TSub, Task> postman) where TSub : TOutbox;
+    [OverloadResolutionPriority(1)]
+    public OutboxProcessor<TOutbox> AddPostman<TSub>(
         Func<TSub, OutboxSequenceToken, ValueTask> postman) where TSub : TOutbox;
     public OutboxProcessor<TOutbox> AddPostman<TSub>(
+        Func<TSub, OutboxSequenceToken, Task> postman) where TSub : TOutbox;
+    [OverloadResolutionPriority(1)]
+    public OutboxProcessor<TOutbox> AddPostman<TSub>(
         Func<TSub, OutboxSequenceToken, CancellationToken, ValueTask> postman)
+        where TSub : TOutbox;
+    public OutboxProcessor<TOutbox> AddPostman<TSub>(
+        Func<TSub, OutboxSequenceToken, CancellationToken, Task> postman)
         where TSub : TOutbox;
     public OutboxProcessor<TOutbox> AddPostman<TSub>(
         string postmanName) where TSub : TOutbox;
@@ -1470,6 +1489,8 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         Func<TSub, StreamId> streamId,
         Func<TSub, TEvent> project)
         where TSub : TOutbox;
+    public OutboxStreamProviderBuilder<TOutbox> ForStreamProvider(string streamProviderName);
+    [OverloadResolutionPriority(1)]
     public OutboxProcessor<TOutbox> AddGrainPostman<TSub, TGrain>(
         Func<TSub, IGrainFactory, TGrain> resolveGrain,
         Func<TGrain, TSub, ValueTask> call)
