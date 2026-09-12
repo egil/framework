@@ -26,6 +26,24 @@ public sealed class OutboxStreamProviderBuilder<TOutbox> where TOutbox : notnull
         return this;
     }
 
+    /// <summary>Publishes original payloads to streams selected using their delivery tokens.</summary>
+    public OutboxStreamProviderBuilder<TOutbox> AddStreamPostman<TSub>(
+        Func<TSub, OutboxSequenceToken, StreamId> streamId)
+        where TSub : TOutbox
+    {
+        processor.AddStreamPostman(streamProviderName, streamId);
+        return this;
+    }
+
+    /// <summary>Uses delivery tokens for routing while projecting only the payload.</summary>
+    public OutboxStreamProviderBuilder<TOutbox> AddStreamPostman<TSub, TEvent>(
+        Func<TSub, OutboxSequenceToken, StreamId> streamId, Func<TSub, TEvent> project)
+        where TSub : TOutbox
+    {
+        processor.AddStreamPostman(streamProviderName, streamId, project);
+        return this;
+    }
+
     /// <summary>Projects matching payloads and publishes them to their selected streams.</summary>
     public OutboxStreamProviderBuilder<TOutbox> AddStreamPostman<TSub, TEvent>(
         Func<TSub, StreamId> streamId, Func<TSub, TEvent> project)
