@@ -332,7 +332,7 @@ public sealed class OutboxProcessorGrainPostmanSourceGrain(
         processor = this.RegisterOutboxProcessor(CreateOptions())
             .AddGrainPostman<OutboxProcessorTestEvent, IOutboxProcessorGrainPostmanTargetGrain>(
                 (_, grainFactory) => grainFactory.GetGrain<IOutboxProcessorGrainPostmanTargetGrain>(this.GetPrimaryKey()),
-                async (target, message) => await target.ReceiveAsync(message.Value));
+                (target, message) => target.ReceiveAsync(message.Value));
 
         await base.OnActivateAsync(cancellationToken);
     }

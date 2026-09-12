@@ -41,10 +41,10 @@ public sealed class PayloadPostmanTests(MessagingTestClusterFixture fixture)
         await fixture.WaitForAssertionAsync(sink, async () =>
         {
             var deliveries = await sink.GetDeliveriesAsync();
-            Assert.Equal(["grain", "local", "stream"], deliveries.Select(item => item.Value).Order().ToArray());
+            Assert.Equal(["grain", "local", "stream", "stream-two"], deliveries.Select(item => item.Value).Order().ToArray());
             Assert.All(deliveries, item => Assert.Equal(source.GetGrainId(), item.Token.Sender));
             Assert.All(deliveries, item => Assert.Equal(fixture.TimeProvider.GetUtcNow(), item.Token.Timestamp));
-            Assert.Equal([1L, 2L, 3L], deliveries.Select(item => item.Token.SequenceNumber).Order().ToArray());
+            Assert.Equal([1L, 2L, 3L, 4L], deliveries.Select(item => item.Token.SequenceNumber).Order().ToArray());
         }, ct: TestContext.Current.CancellationToken);
         Assert.Equal(0, await source.PendingCountAsync());
     }
@@ -58,7 +58,7 @@ public sealed class PayloadPostmanTests(MessagingTestClusterFixture fixture)
         await sink.EnsureActiveAsync();
         await source.PublishAsync(key, failAcknowledgment: true);
         await fixture.WaitForAssertionAsync(sink, async () =>
-            Assert.Equal(3, (await sink.GetDeliveriesAsync()).Length), ct: TestContext.Current.CancellationToken);
+            Assert.Equal(4, (await sink.GetDeliveriesAsync()).Length), ct: TestContext.Current.CancellationToken);
         var first = await sink.GetDeliveriesAsync();
 
         await source.RetryAsync();
@@ -66,7 +66,7 @@ public sealed class PayloadPostmanTests(MessagingTestClusterFixture fixture)
         await fixture.WaitForAssertionAsync(sink, async () =>
         {
             var deliveries = await sink.GetDeliveriesAsync();
-            Assert.Equal(6, deliveries.Length);
+            Assert.Equal(8, deliveries.Length);
             Assert.All(first, item => Assert.Equal(2, deliveries.Count(delivery => delivery == item)));
         }, ct: TestContext.Current.CancellationToken);
         Assert.Equal(0, await source.PendingCountAsync());
@@ -76,6 +76,7 @@ public sealed class PayloadPostmanTests(MessagingTestClusterFixture fixture)
 [JsonPolymorphic]
 [JsonDerivedType(typeof(LocalPayload), "local")]
 [JsonDerivedType(typeof(StreamPayload), "stream")]
+[JsonDerivedType(typeof(SecondStreamPayload), "stream-two")]
 [JsonDerivedType(typeof(GrainPayload), "grain")]
 public interface IPayloadEvent
 {
@@ -88,6 +89,9 @@ public sealed record LocalPayload([property: Id(0)] Guid Target, [property: Id(1
 
 [GenerateSerializer]
 public sealed record StreamPayload([property: Id(0)] Guid Target, [property: Id(1)] string Value) : IPayloadEvent;
+
+[GenerateSerializer]
+public sealed record SecondStreamPayload([property: Id(0)] Guid Target, [property: Id(1)] string Value) : IPayloadEvent;
 
 [GenerateSerializer]
 public sealed record GrainPayload([property: Id(0)] Guid Target, [property: Id(1)] string Value) : IPayloadEvent;
@@ -127,14 +131,22 @@ public sealed class PayloadSourceGrain : Grain, IPayloadSourceGrain, IOutboxGrai
             AcknowledgePostedAsync = AcknowledgeAsync,
             RetryDelay = TimeSpan.FromMinutes(10)
         })
-        .AddPostman<LocalPayload>(async (message, token) => await DeliverLocalAsync(message, token))
-        .AddStreamPostman<StreamPayload, PayloadDelivery>(OutboxProcessorTestProviderNames.Events,
-            message => StreamManager.CreateStreamId("payload-postmen", GrainFactory.GetGrain<IPayloadSinkGrain>(message.Target).GetGrainId()),
-            static (message, token) => new(message.Value, token))
+        .AddPostman<LocalPayload>(DeliverLocalAsync)
         .AddGrainPostman<GrainPayload, IPayloadSinkGrain>(
             static (message, grains) => grains.GetGrain<IPayloadSinkGrain>(message.Target),
-            static async (grain, message, token) => await grain.ReceiveAsync(new(message.Value, token)))
+            static (grain, message, token) => grain.ReceiveAsync(new(message.Value, token)));
+
+        processor.ForStreamProvider(OutboxProcessorTestProviderNames.Events)
+            .AddStreamPostman<StreamPayload, PayloadDelivery>(
+                message => StreamManager.CreateStreamId("payload-postmen", GrainFactory.GetGrain<IPayloadSinkGrain>(message.Target).GetGrainId()),
+                static (message, token) => new(message.Value, token))
+            .AddStreamPostman<SecondStreamPayload, PayloadDelivery>(
+                (message, _) => StreamManager.CreateStreamId("payload-postmen", GrainFactory.GetGrain<IPayloadSinkGrain>(message.Target).GetGrainId()),
+                static (message, token) => new(message.Value, token));
+
+        processor
         .AddPostman<IPayloadEvent>(static async message => await RejectUnexpectedPayloadAsync(message))
+        .AddPostman<IPayloadEvent>(static async (message, _) => await RejectUnexpectedPayloadAsync(message))
         .AddPostman<IPayloadEvent>(static async (message, _, cancellationToken) =>
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -145,9 +157,9 @@ public sealed class PayloadSourceGrain : Grain, IPayloadSourceGrain, IOutboxGrai
     private static ValueTask RejectUnexpectedPayloadAsync(IPayloadEvent message) =>
         ValueTask.FromException(new InvalidOperationException($"Unexpected payload: {message.Value}"));
 
-    private ValueTask DeliverLocalAsync(LocalPayload message, OutboxSequenceToken token) =>
-        new(GrainFactory.GetGrain<IPayloadSinkGrain>(message.Target)
-            .ReceiveAsync(new(message.Value, token)));
+    private Task DeliverLocalAsync(LocalPayload message, OutboxSequenceToken token) =>
+        GrainFactory.GetGrain<IPayloadSinkGrain>(message.Target)
+            .ReceiveAsync(new(message.Value, token));
 
     public async Task PublishAsync(Guid target, bool failAcknowledgment)
     {
@@ -159,6 +171,7 @@ public sealed class PayloadSourceGrain : Grain, IPayloadSourceGrain, IOutboxGrai
                 .Add(new LocalPayload(target, "local"), now)
                 .Add(new StreamPayload(target, "stream"), now)
                 .Add(new GrainPayload(target, "grain"), now)
+                .Add(new SecondStreamPayload(target, "stream-two"), now)
         });
         try
         {

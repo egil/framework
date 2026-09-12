@@ -179,9 +179,11 @@ public OrderGrain([PersistentState("state", "Default")] IPersistentState<OrderSt
 ```
 
 `AddPostman` callbacks take `(message)`, `(message, token)`, or
-`(message, token, cancellationToken)`. All return `ValueTask`; ordinary async
-lambdas work without casts. Wrap an existing `Task` method in an async lambda,
-as above. The second argument is always the delivery `OutboxSequenceToken`,
+`(message, token, cancellationToken)`. Both `Task` and `ValueTask` handlers work
+without adapters. On C# 13 or newer, overload priority selects `ValueTask` for
+ordinary async lambdas; Task-returning method groups and expressions select the
+Task overload. Older compilers need an explicitly typed delegate or lambda return
+type when a lambda could fit both. See [overload priority](https://learn.microsoft.com/dotnet/csharp/language-reference/proposals/csharp-13.0/overload-resolution-priority). The second argument is always the delivery `OutboxSequenceToken`,
 and cancellation is always third. Capture a grain factory when needed, or use
 `AddGrainPostman` to resolve the destination. The processor builds that token from the stored
 `OutboxMessageId` and its owning grain ID, preserving sequence, epoch and append
@@ -297,9 +299,25 @@ outboxProcessor
 
 The projection creates an application-owned transport contract, not a stored outbox
 envelope. Stream selection also has a token-aware overload. Cancellable grain
-invocations can receive `(grain, message, token, cancellationToken)`. All grain
-invocation callbacks return `ValueTask`; stream selectors and projections remain
+invocations can receive `(grain, message, token, cancellationToken)`. Grain
+invocation callbacks support both `Task` and `ValueTask`, with the same priority; stream selectors and projections remain
 synchronous, with optional token arguments.
+
+Group registrations that use the same configured provider:
+
+```csharp
+processor.ForStreamProvider("events")
+    .AddStreamPostman<OrderSubmitted>(
+        message => StreamId.Create("submitted-orders", message.OrderId))
+    .AddStreamPostman<OrderCancelled>(
+        message => StreamId.Create("cancelled-orders", message.OrderId));
+```
+
+The group supports the same projections and token-aware selectors as direct
+`AddStreamPostman` calls. Each call registers immediately on the original
+processor, so registration order remains first-match-wins across both forms.
+`ForStreamProvider` selects an existing Orleans provider; it does not install one.
+Continue unrelated registrations through the original `processor` variable.
 
 ## Receiver Dedup
 
@@ -453,7 +471,7 @@ The constructor-registration and payload-postman changes tracked in
 - Outboxes persist a UUIDv7 `Revision`. JSON requires a non-empty revision; previous beta snapshots need migration or reset. Independently constructed snapshots no longer compare equal based on matching contents.
 - Stored envelopes expose `Id` (`OutboxMessageId`); delivery tokens are supplied to handlers by the processor.
 - Use `OutboxProcessor<TPayload>` and `OutboxProcessorOptions<TPayload>`, not envelope generic arguments.
-- Register payload subtypes with `AddPostman`, `AddStreamPostman`, and `AddGrainPostman`. Direct `AddPostman` callbacks take one, two, or three arguments and return `ValueTask`. Grain callbacks also return `ValueTask`. Replace `AddPostmanWithToken` with `AddPostman`; move cancellation to the third argument and capture a grain factory rather than receiving it as a callback argument.
+- Register payload subtypes with `AddPostman`, `AddStreamPostman`, and `AddGrainPostman`. Direct `AddPostman` callbacks take one, two, or three arguments. Direct and grain callbacks accept both `Task` and `ValueTask`, preferring `ValueTask` for async lambdas on C# 13+. Replace `AddPostmanWithToken` with `AddPostman`; move cancellation to the third argument and capture a grain factory rather than receiving it as a callback argument.
 - Supply state factories for types without a public parameterless constructor. Custom `IStateManagerFactory` implementations receive the initial-state factory and runtime configuration callback.
 - Pass a tracker accessor to `RegisterStreamManager`, for example `() => state.State.Tracker`. It is evaluated when attaching/resuming subscriptions, after hydration, and observes later state replacement.
 
