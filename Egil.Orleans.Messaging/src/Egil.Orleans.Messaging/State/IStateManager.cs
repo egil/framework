@@ -149,6 +149,14 @@ public interface IStateManager<T>
     /// though this method throws. If recovery also fails, <see cref="State"/>
     /// reverts to its pre-clear value.
     /// </para>
+    /// <para>
+    /// Storage is cleared before the default-state factory runs. The factory must
+    /// return a valid, non-null state. If it throws or returns null, the exception
+    /// propagates and the completed deletion is not undone. No usable-state guarantee
+    /// applies after this factory contract violation: State may still reference the
+    /// previous snapshot, which must not be treated as the current persisted state.
+    /// A null result is rejected with an InvalidOperationException for diagnosis.
+    /// </para>
     /// </remarks>
     Task ClearAsync();
 }

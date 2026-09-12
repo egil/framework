@@ -119,6 +119,14 @@ visible. A successful storage operation is not retried because configuration fai
 After a successful recovery read, invalid state and factory/configuration failures
 are reported directly; only a failed storage read preserves the original storage error.
 
+
+`ClearAsync` deletes storage before calling the default-state factory. The factory
+must return a valid, non-null state. If it throws or returns null, the error
+propagates and the deletion remains completed. A null result is rejected with
+`InvalidOperationException` as a diagnostic. After this factory contract violation,
+the manager has no guaranteed usable state: `State` may still reference the previous
+snapshot and must not be treated as the current persisted state.
+
 State types must be reference types and implement `IEquatable<T>`. For
 non-trivial state graphs, inherit from `VersionedState` so the recovery path
 compares a library-stamped version rather than relying on structural

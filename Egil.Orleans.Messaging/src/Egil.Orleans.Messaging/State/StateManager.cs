@@ -199,6 +199,10 @@ public abstract class StateManagerBase<T> : IStateManager<T>
         // Clearing storage and constructing/configuring its replacement are distinct
         // operations. A bad factory or callback cannot turn a successful clear into
         // an ambiguous storage failure or cause configuration to be retried.
+        // The clear intentionally happens first: factory failure does not undo the
+        // requested deletion. A valid, non-null default is the caller's contract;
+        // if it is violated, no usable-state guarantee applies to this manager.
+        // In particular, its previous snapshot must not be treated as persisted data.
         Adopt(CreateInitialState());
     }
 
