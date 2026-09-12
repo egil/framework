@@ -38,7 +38,7 @@ public static class OutboxProcessorExtensions
         /// {
         ///     outboxProcessor = this.RegisterOutboxProcessor(new OutboxProcessorOptions&lt;IMyEvent&gt;
         ///     {
-        ///         PendingItems = () => stateManager.State.Outbox.ToImmutableArray(),
+        ///         PendingItems = () => stateManager.State.Outbox,
         ///         AcknowledgePostedAsync = async (items, ct) =>
         ///         {
         ///             // remove exactly the delivered items (match items or their

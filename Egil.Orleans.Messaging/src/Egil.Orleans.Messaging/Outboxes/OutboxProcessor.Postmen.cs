@@ -89,6 +89,20 @@ public sealed partial class OutboxProcessor<TOutbox>
         return new(this, streamProviderName);
     }
 
+    /// <summary>Configures stream postmen for a provider and returns this processor for further registrations.</summary>
+    /// <remarks>
+    /// Configuration runs synchronously. Registrations take effect immediately in callback order;
+    /// if configuration throws, registrations already made remain on this processor.
+    /// </remarks>
+    public OutboxProcessor<TOutbox> ForStreamProvider(
+        string streamProviderName, Action<OutboxStreamProviderBuilder<TOutbox>> configure)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(streamProviderName);
+        ArgumentNullException.ThrowIfNull(configure);
+        configure(ForStreamProvider(streamProviderName));
+        return this;
+    }
+
     /// <summary>
     /// Registers a keyed <see cref="IPostman{TMessage}"/> service that handles
     /// items of type <typeparamref name="TSub"/>.

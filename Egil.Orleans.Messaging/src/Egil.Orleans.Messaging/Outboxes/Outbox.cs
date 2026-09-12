@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Immutable;
+using System.Runtime.CompilerServices;
 using System.Text.Json.Serialization;
 
 namespace Egil.Orleans.Messaging.Outboxes;
@@ -14,12 +15,12 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// <para>
 /// <b>Immutable-collection semantics:</b> Behaves like
 /// <see cref="ImmutableArray{T}"/> — read-only iteration, indexer access,
-/// mutators (<see cref="Add(T)"/>, <see cref="Remove"/>, <see cref="RemoveRange"/>,
+/// mutators (<see cref="Add(T)"/>, <see cref="Remove(OutboxMessageId)"/>, <see cref="RemoveRange(IEnumerable{OutboxMessageId})"/>,
 /// <see cref="Clear"/>) return <em>new</em> instances. The original is never
 /// modified. Assign the return value back to the state property and write.
 /// </para>
 /// <para>
-/// <b>Sequence ownership:</b> Only <see cref="Add(T)"/> assigns sequence numbers.
+/// <b>Sequence ownership:</b> <see cref="Add(T)"/>, <see cref="AddRange(IEnumerable{T})"/>, and collection expressions assign sequence numbers.
 /// Callers supply the payload; the outbox stamps <see cref="OutboxMessageId"/>
 /// with a monotonically increasing <see cref="LatestSequenceNumber"/> and the
 /// current <see cref="Epoch"/>. This is a hard invariant — there is no public
@@ -71,7 +72,8 @@ namespace Egil.Orleans.Messaging.Outboxes;
 [GenerateSerializer]
 [Alias("egil.orleans.messaging.Outbox`1")]
 [JsonConverter(typeof(OutboxJsonConverterFactory))]
-public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquatable<Outbox<T>>
+[CollectionBuilder(typeof(Outbox), nameof(Outbox.Create))]
+public sealed class Outbox<T> : IReadOnlyList<T>, IEquatable<Outbox<T>>
 {
     [Id(1)] private readonly long latestSequenceNumber;
     [Id(2)] private readonly ImmutableArray<OutboxMessageEnvelope<T>> items;
@@ -149,12 +151,26 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
     /// </summary>
     public bool IsEmpty => items.IsDefaultOrEmpty;
 
-    /// <summary>Gets the envelope at the specified index.</summary>
-    public OutboxMessageEnvelope<T> this[int index] => items[index];
+    /// <summary>Gets the payload at the specified index.</summary>
+    public T this[int index] => items[index].Message;
+
+    /// <summary>Gets the immutable snapshot of payloads and their assigned message IDs.</summary>
+    /// <remarks>
+    /// Acknowledgement callbacks return entries from this view. Pass them to
+    /// <see cref="RemoveRange(IEnumerable{OutboxMessageEnvelope{T}})"/> to remove
+    /// specific queued occurrences, even when payloads are equal. The array is
+    /// shared without copying; payload objects must not be mutated after enqueueing.
+    /// </remarks>
+    public ImmutableArray<OutboxMessageEnvelope<T>> Envelopes => items;
 
     /// <inheritdoc/>
-    public IEnumerator<OutboxMessageEnvelope<T>> GetEnumerator()
-        => ((IEnumerable<OutboxMessageEnvelope<T>>)items).GetEnumerator();
+    public IEnumerator<T> GetEnumerator()
+    {
+        foreach (var item in items)
+        {
+            yield return item.Message;
+        }
+    }
 
     /// <inheritdoc/>
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
@@ -211,6 +227,60 @@ public sealed class Outbox<T> : IReadOnlyList<OutboxMessageEnvelope<T>>, IEquata
             items.Add(new OutboxMessageEnvelope<T>(token, message)),
             epoch,
             Guid.CreateVersion7());
+    }
+
+    /// <summary>Appends payloads in enumeration order using one system UTC timestamp for the batch.</summary>
+    /// <remarks>
+    /// Preserves existing IDs and sequence history. An empty batch returns this
+    /// snapshot unchanged. Inputs are enumerated once and the backing array is built once.
+    /// </remarks>
+    public Outbox<T> AddRange(IEnumerable<T> messages) =>
+        AddRange(messages, TimeProvider.System.GetUtcNow());
+
+    /// <summary>Appends payloads with consecutive IDs using the supplied timestamp for the batch.</summary>
+    /// <remarks>Normalizes the timestamp to UTC. The first nonempty batch establishes the epoch.</remarks>
+    public Outbox<T> AddRange(IEnumerable<T> messages, DateTimeOffset utcNow)
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+        using var enumerator = messages.GetEnumerator();
+        if (!enumerator.MoveNext())
+        {
+            return this;
+        }
+
+        utcNow = utcNow.ToUniversalTime();
+        var batchEpoch = epoch ?? utcNow;
+        var sequenceNumber = latestSequenceNumber;
+        var count = messages is IReadOnlyCollection<T> collection
+            ? collection.Count
+            : messages.TryGetNonEnumeratedCount(out var knownCount) ? knownCount : 0;
+        var capacity = checked(items.Length + count);
+        var builder = ImmutableArray.CreateBuilder<OutboxMessageEnvelope<T>>(capacity);
+        builder.AddRange(items);
+        do
+        {
+            var id = new OutboxMessageId(++sequenceNumber, utcNow, batchEpoch);
+            builder.Add(new(id, enumerator.Current));
+        }
+        while (enumerator.MoveNext());
+
+        return new(sequenceNumber, builder.DrainToImmutable(), batchEpoch, Guid.CreateVersion7());
+    }
+
+    /// <summary>Removes the supplied queued occurrence if it is the FIFO head.</summary>
+    /// <remarks>Matches the message ID, not payload equality; a non-head item leaves the snapshot unchanged.</remarks>
+    public Outbox<T> Remove(OutboxMessageEnvelope<T> item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        return Remove(item.Id);
+    }
+
+    /// <summary>Removes the supplied queued occurrences by ID, preserving the order of remaining items.</summary>
+    /// <remarks>Supports noncontiguous acknowledgement batches. Missing IDs are ignored.</remarks>
+    public Outbox<T> RemoveRange(IEnumerable<OutboxMessageEnvelope<T>> items)
+    {
+        ArgumentNullException.ThrowIfNull(items);
+        return RemoveRange(items.Select(item => item.Id));
     }
 
     /// <summary>

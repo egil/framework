@@ -15,10 +15,10 @@ public sealed class OutboxProcessorOptions<TOutbox>
     where TOutbox : notnull
 {
     /// <summary>
-    /// Snapshot of pending items. Called once before each post run and again
+    /// Non-null immutable outbox snapshot. Called once before each post run and again
     /// after reconciliation to decide whether retry work remains.
     /// </summary>
-    public required Func<ImmutableArray<OutboxMessageEnvelope<TOutbox>>> PendingItems { get; init; }
+    public required Func<Outbox<TOutbox>> PendingItems { get; init; }
 
     /// <summary>
     /// Called with items that were successfully dispatched by their postmen.

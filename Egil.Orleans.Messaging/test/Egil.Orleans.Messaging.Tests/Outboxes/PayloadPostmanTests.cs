@@ -22,9 +22,9 @@ public sealed class PayloadPostmanTests(MessagingTestClusterFixture fixture)
         var loaded = JsonSerializer.Deserialize<Outbox<IPayloadEvent>>(json);
 
         Assert.NotNull(loaded);
-        Assert.Equal(outbox[0].Id, loaded[0].Id);
-        Assert.Equal(outbox[0].Message, Assert.IsType<LocalPayload>(loaded[0].Message));
-        Assert.Equal(outbox[1].Message, Assert.IsType<StreamPayload>(loaded[1].Message));
+        Assert.Equal(outbox.Envelopes[0].Id, loaded.Envelopes[0].Id);
+        Assert.Equal(outbox[0], Assert.IsType<LocalPayload>(loaded[0]));
+        Assert.Equal(outbox[1], Assert.IsType<StreamPayload>(loaded[1]));
         Assert.DoesNotContain("Sender", json, StringComparison.Ordinal);
     }
 
@@ -127,7 +127,7 @@ public sealed class PayloadSourceGrain : Grain, IPayloadSourceGrain, IOutboxGrai
         manager = this.RegisterStateManager("Payload", storage);
         processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<IPayloadEvent>
         {
-            PendingItems = () => manager.State.Outbox.ToImmutableArray(),
+            PendingItems = () => manager.State.Outbox,
             AcknowledgePostedAsync = AcknowledgeAsync,
             RetryDelay = TimeSpan.FromMinutes(10)
         })
@@ -136,15 +136,13 @@ public sealed class PayloadSourceGrain : Grain, IPayloadSourceGrain, IOutboxGrai
             static (message, grains) => grains.GetGrain<IPayloadSinkGrain>(message.Target),
             static (grain, message, token) => grain.ReceiveAsync(new(message.Value, token)));
 
-        processor.ForStreamProvider(OutboxProcessorTestProviderNames.Events)
+        processor.ForStreamProvider(OutboxProcessorTestProviderNames.Events, provider => provider
             .AddStreamPostman<StreamPayload, PayloadDelivery>(
                 message => StreamManager.CreateStreamId("payload-postmen", GrainFactory.GetGrain<IPayloadSinkGrain>(message.Target).GetGrainId()),
                 static (message, token) => new(message.Value, token))
             .AddStreamPostman<SecondStreamPayload, PayloadDelivery>(
                 (message, _) => StreamManager.CreateStreamId("payload-postmen", GrainFactory.GetGrain<IPayloadSinkGrain>(message.Target).GetGrainId()),
-                static (message, token) => new(message.Value, token));
-
-        processor
+                static (message, token) => new(message.Value, token)))
         .AddPostman<IPayloadEvent>(static async message => await RejectUnexpectedPayloadAsync(message))
         .AddPostman<IPayloadEvent>(static async (message, _) => await RejectUnexpectedPayloadAsync(message))
         .AddPostman<IPayloadEvent>(static async (message, _, cancellationToken) =>
@@ -195,7 +193,7 @@ public sealed class PayloadSourceGrain : Grain, IPayloadSourceGrain, IOutboxGrai
             throw new InvalidOperationException("The delivery landed but acknowledgment could not persist.");
         }
 
-        await manager.WriteAsync(manager.State with { Outbox = manager.State.Outbox.RemoveRange(items.Select(item => item.Id)) });
+        await manager.WriteAsync(manager.State with { Outbox = manager.State.Outbox.RemoveRange(items) });
     }
 }
 

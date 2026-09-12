@@ -16,7 +16,7 @@ public sealed class OutboxRecoveryProofTests
 
         var error = await Record.ExceptionAsync(() => manager.WriteAsync(attempted));
 
-        Assert.DoesNotContain(manager.State, item => item.Message == "attempted message");
+        Assert.DoesNotContain(manager.State, item => item == "attempted message");
         Assert.IsType<TimeoutException>(error);
     }
 
@@ -32,7 +32,7 @@ public sealed class OutboxRecoveryProofTests
 
         await manager.WriteAsync(attempted);
 
-        Assert.Equal("saved message", Assert.Single(manager.State).Message);
+        Assert.Equal("saved message", Assert.Single(manager.State));
         Assert.Equal(attempted, manager.State);
     }
 

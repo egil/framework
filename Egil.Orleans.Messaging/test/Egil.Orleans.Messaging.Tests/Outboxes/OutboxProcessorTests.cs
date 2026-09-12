@@ -490,7 +490,7 @@ public sealed class OutboxProcessorSourceGrain(
 
         processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorTestEvent>
         {
-            PendingItems = () => state.State.Outbox?.ToImmutableArray() ?? [],
+            PendingItems = () => state.State.Outbox ?? [],
             AcknowledgePostedAsync = AcknowledgePostedAsync,
             ReconcileFailedAsync = ReconcileFailedAsync,
             RetryDelay = TimeSpan.FromMilliseconds(100)
@@ -576,7 +576,7 @@ public sealed class OutboxProcessorNoPostmanGrain(
 
         processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorTestEvent>
         {
-            PendingItems = () => state.State.Outbox?.ToImmutableArray() ?? [],
+            PendingItems = () => state.State.Outbox ?? [],
             AcknowledgePostedAsync = AcknowledgePostedAsync,
             ReconcileFailedAsync = ReconcileFailedAsync,
             RetryDelay = TimeSpan.FromMilliseconds(100)
@@ -634,7 +634,7 @@ public sealed class OutboxProcessorFailingPostmanGrain(
 
         processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorTestEvent>
         {
-            PendingItems = () => state.State.Outbox?.ToImmutableArray() ?? [],
+            PendingItems = () => state.State.Outbox ?? [],
             AcknowledgePostedAsync = AcknowledgePostedAsync,
             ReconcileFailedAsync = ReconcileFailedAsync,
             RetryDelay = TimeSpan.FromMilliseconds(100)
@@ -698,7 +698,7 @@ public sealed class OutboxProcessorKeyedPostmanGrain(
 
         processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorTestEvent>
         {
-            PendingItems = () => state.State.Outbox?.ToImmutableArray() ?? [],
+            PendingItems = () => state.State.Outbox ?? [],
             AcknowledgePostedAsync = AcknowledgePostedAsync,
             ReconcileFailedAsync = ReconcileFailedAsync,
             RetryDelay = TimeSpan.FromMilliseconds(100)
@@ -767,7 +767,7 @@ public sealed class OutboxProcessorKeyedFailingPostmanGrain(
 
         processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorTestEvent>
         {
-            PendingItems = () => state.State.Outbox?.ToImmutableArray() ?? [],
+            PendingItems = () => state.State.Outbox ?? [],
             AcknowledgePostedAsync = AcknowledgePostedAsync,
             ReconcileFailedAsync = ReconcileFailedAsync,
             RetryDelay = TimeSpan.FromMilliseconds(100)
@@ -827,7 +827,7 @@ public sealed class OutboxProcessorKeyedCancellationPostmanGrain(
 
         processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorTestEvent>
         {
-            PendingItems = () => state.State.Outbox?.ToImmutableArray() ?? [],
+            PendingItems = () => state.State.Outbox ?? [],
             AcknowledgePostedAsync = AcknowledgePostedAsync,
             ReconcileFailedAsync = ReconcileFailedAsync,
             ProcessingTimeout = TimeSpan.FromHours(2),
@@ -895,7 +895,7 @@ public sealed class OutboxProcessorKeyedTimeoutPostmanGrain(
 
         processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorTestEvent>
         {
-            PendingItems = () => state.State.Outbox?.ToImmutableArray() ?? [],
+            PendingItems = () => state.State.Outbox ?? [],
             AcknowledgePostedAsync = AcknowledgePostedAsync,
             ReconcileFailedAsync = ReconcileFailedAsync,
             ProcessingTimeout = TimeSpan.FromHours(1),
@@ -963,7 +963,7 @@ public sealed class OutboxProcessorTimeoutRetryGrain(
 
         processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorTestEvent>
         {
-            PendingItems = () => state.State.Outbox?.ToImmutableArray() ?? [],
+            PendingItems = () => state.State.Outbox ?? [],
             AcknowledgePostedAsync = AcknowledgePostedAsync,
             ReconcileFailedAsync = (_, _) => ValueTask.CompletedTask,
             ProcessingTimeout = TimeSpan.FromHours(1),
@@ -1040,7 +1040,7 @@ public sealed class OutboxProcessorConcurrentPostmanGrain(
 
         processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorTestEvent>
         {
-            PendingItems = () => state.State.Outbox?.ToImmutableArray() ?? [],
+            PendingItems = () => state.State.Outbox ?? [],
             AcknowledgePostedAsync = AcknowledgePostedAsync,
             ReconcileFailedAsync = ReconcileFailedAsync,
             RetryDelay = TimeSpan.FromMilliseconds(100)
@@ -1131,7 +1131,7 @@ public sealed class OutboxProcessorOrderedPostmanGrain
     : Grain, IOutboxProcessorOrderedPostmanGrain, IOutboxGrain
 {
     private OutboxProcessor<OutboxProcessorOrderedMessage>? processor;
-    private ImmutableArray<OutboxMessageEnvelope<OutboxProcessorOrderedMessage>> pending = [];
+    private Outbox<OutboxProcessorOrderedMessage> pending = [];
     private ImmutableArray<string> postedValues = [];
     private ImmutableArray<string> failedValues = [];
     private ImmutableArray<string> attemptedValues = [];
@@ -1159,8 +1159,7 @@ public sealed class OutboxProcessorOrderedPostmanGrain
     {
         pending = Outbox<OutboxProcessorOrderedMessage>.Create()
             .Add(new OutboxProcessorPrimaryMessage(primary))
-            .Add(new OutboxProcessorSecondaryMessage(secondary))
-            .ToImmutableArray();
+            .Add(new OutboxProcessorSecondaryMessage(secondary));
 
         await processor!.PostAsync();
         return CreateState();
@@ -1174,8 +1173,7 @@ public sealed class OutboxProcessorOrderedPostmanGrain
         pending = Outbox<OutboxProcessorOrderedMessage>.Create()
             .Add(new OutboxProcessorPrimaryMessage(failingPrimary))
             .Add(new OutboxProcessorSecondaryMessage(secondary))
-            .Add(new OutboxProcessorPrimaryMessage(blockedPrimary))
-            .ToImmutableArray();
+            .Add(new OutboxProcessorPrimaryMessage(blockedPrimary));
 
         await processor!.PostAsync();
         return CreateState();
@@ -1224,7 +1222,7 @@ public sealed class OutboxProcessorOrderedPostmanGrain
     {
         foreach (var item in items)
         {
-            pending = pending.Remove(item);
+            pending = pending.RemoveRange(new[] { item });
             postedValues = postedValues.Add(item.Message.Value);
         }
 
@@ -1247,7 +1245,7 @@ public sealed class OutboxProcessorOrderedPostmanGrain
         new(
             postedValues,
             failedValues,
-            pending.Select(static item => item.Message.Value).ToImmutableArray(),
+            pending.Select(static item => item.Value).ToImmutableArray(),
             attemptedValues,
             maxConcurrentPostmen);
 }

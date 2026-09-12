@@ -18,8 +18,8 @@ public sealed class OutboxJsonConverterFactoryTests
         Assert.NotNull(roundTripped);
         Assert.Equal(outbox, roundTripped);
         Assert.Equal(outbox.Revision, roundTripped.Revision);
-        Assert.Equal(first, roundTripped[0].Message);
-        Assert.Equal(second, roundTripped[1].Message);
+        Assert.Equal(first, roundTripped[0]);
+        Assert.Equal(second, roundTripped[1]);
     }
 
     [Fact]
@@ -51,10 +51,10 @@ public sealed class OutboxJsonConverterFactoryTests
         Assert.NotNull(roundTripped);
         Assert.Equal(outbox, roundTripped);
         Assert.Equal(outbox.Revision, roundTripped.Revision);
-        Assert.Equal("order-17", roundTripped[0].Message.OrderId);
-        Assert.Equal(42, roundTripped[0].Message.Quantity);
-        Assert.Equal("north", roundTripped[0].Message.Route.Name);
-        Assert.True(roundTripped[0].Message.Route.IsExpress);
+        Assert.Equal("order-17", roundTripped[0].OrderId);
+        Assert.Equal(42, roundTripped[0].Quantity);
+        Assert.Equal("north", roundTripped[0].Route.Name);
+        Assert.True(roundTripped[0].Route.IsExpress);
     }
 
     [Fact]
