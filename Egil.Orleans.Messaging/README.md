@@ -112,7 +112,12 @@ state = this.RegisterStateManager("state", storage,
 ```
 
 This callback configures runtime dependencies; it must not change business data
-or perform storage I/O. It is deferred during constructor registration.
+or perform storage I/O. It is deferred during constructor registration. The manager
+and raw storage facet expose the adopted snapshot before the callback runs. If the
+callback fails, its exception reaches the caller and the adopted snapshot remains
+visible. A successful storage operation is not retried because configuration failed.
+After a successful recovery read, invalid state and factory/configuration failures
+are reported directly; only a failed storage read preserves the original storage error.
 
 State types must be reference types and implement `IEquatable<T>`. For
 non-trivial state graphs, inherit from `VersionedState` so the recovery path
@@ -319,6 +324,23 @@ processor, so registration order remains first-match-wins across both forms.
 `ForStreamProvider` selects an existing Orleans provider; it does not install one.
 Continue unrelated registrations through the original `processor` variable.
 
+Routing and projection choose their token arguments independently. Both direct
+and grouped registration support token-aware routing with no projection:
+
+```csharp
+processor.AddStreamPostman<OrderSubmitted>("events",
+    (message, token) => StreamId.Create("orders-by-sender", token.Sender.ToString()));
+```
+
+Or use a projection that only needs the payload:
+
+```csharp
+processor.ForStreamProvider("events")
+    .AddStreamPostman<OrderCancelled, CancelledDelivery>(
+        (message, token) => StreamId.Create("cancelled-by-sender", token.Sender.ToString()),
+        message => new CancelledDelivery(message.OrderId));
+```
+
 ## Receiver Dedup
 
 `MessageTracker` accepts a message only when its stream token, stream cursor, or outbox token advances the stored high-water mark:
@@ -341,7 +363,11 @@ The tracker can also evict old sender or stream entries when your retention poli
 
 ## Streams
 
-Use `StreamManager` to configure stream subscriptions from `OnActivateAsync`. Pass a tracker snapshot when you want persisted resume tokens, or omit it when the grain does not track stream positions:
+Register `StreamManager` in the grain constructor or `OnActivateAsync` and configure
+its subscriptions. Supply a tracker accessor for persisted resume tokens, or omit
+it when the grain does not track stream positions. The accessor runs when attaching
+or resuming subscriptions, after hydration, and returns the current tracker after
+state replacement. Attach explicit subscriptions from `OnActivateAsync`:
 
 ```csharp
 streamManager = this.RegisterStreamManager(() => state.State.Tracker)
@@ -389,7 +415,7 @@ stream ids. Recreate existing durable subscriptions and update publishers
 together, or preserve the previous id through the explicit `StreamId` overload.
 
 Tracked resume tokens are a per-subscription choice. The default is to pass
-the previous token when a tracker snapshot is supplied. Opt out when a
+the previous token when the tracker accessor returns a tracked cursor. Opt out when a
 subscription should attach without a resume token:
 
 ```csharp
