@@ -142,8 +142,7 @@ public sealed record OrderState : VersionedState
 {
     [Id(0)] public string? Name { get; init; }
 
-    [Id(1)] public Outbox<IOrderEvent> Outbox { get; init; } =
-        Outbox<IOrderEvent>.Create();
+    [Id(1)] public Outbox<IOrderEvent> Outbox { get; init; } = [];
 }
 
 public async Task SubmitAsync()
@@ -157,6 +156,34 @@ public async Task SubmitAsync()
     await outboxProcessor.PostInBackgroundAsync();
 }
 ```
+
+`Outbox<T>` implements `IReadOnlyList<T>`: indexing, enumeration, LINQ, and
+collection expressions use payloads. `Envelopes` exposes the same snapshot as an
+`ImmutableArray<OutboxMessageEnvelope<T>>`, including the assigned message IDs,
+without copying. Collection structure is immutable; do not mutate payload objects
+after enqueueing.
+
+```csharp
+Outbox<IOrderEvent> pending = [new OrderSubmitted()];
+var extended = pending.AddRange(new IOrderEvent[] { new OrderCancelled() });
+var queued = extended.Envelopes[0];
+var acknowledged = extended.Remove(queued);
+```
+
+`[]`, `[message]`, and `[.. pending, message]` construct **fresh history** with a
+fresh revision and consecutive IDs starting at one. Spreading copies payloads,
+not IDs, epoch, or the prior sequence high-water mark. Use `Add` / `AddRange` to
+extend existing history, and `Clear` to drain it while preserving that history.
+`AddRange(messages)` uses one system UTC timestamp for the batch; its overload
+`AddRange(messages, utcNow)` accepts an explicit batch timestamp. An empty batch
+returns the same snapshot. Batch inputs are enumerated once and buffered together.
+
+`Remove(envelope)` and `Remove(id)` remove only a matching FIFO head.
+`RemoveRange(envelopes)` and `RemoveRange(ids)` remove matching occurrences
+anywhere, preserving remaining order and sequence history. Use the batch overload
+for processor acknowledgements, which may contain gaps. For an empty removal
+batch, supply a typed collection: bare `RemoveRange([])` is ambiguous between the
+two overloads.
 
 `Add(message)` uses system UTC. When a grain uses an injected clock, sample it
 at the call site and pass the instant with
@@ -176,13 +203,13 @@ public OrderGrain([PersistentState("state", "Default")] IPersistentState<OrderSt
     state = this.RegisterStateManager("state", storage);
     outboxProcessor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<IOrderEvent>
     {
-        PendingItems = () => [.. state.State.Outbox],
+        PendingItems = () => state.State.Outbox,
         AcknowledgePostedAsync = async (items, ct) =>
         {
             ct.ThrowIfCancellationRequested();
             await state.WriteAsync(state.State with
             {
-                Outbox = state.State.Outbox.RemoveRange(items.Select(item => item.Id))
+                Outbox = state.State.Outbox.RemoveRange(items)
             });
         }
     })
@@ -205,7 +232,7 @@ timestamp across retries and reactivation. No sender identity is stored in the o
 `PendingItems`, `AcknowledgePostedAsync`, and `ReconcileFailedAsync` use the original
 stored `OutboxMessageEnvelope<T>` values. Acknowledgment receives exactly the
 successfully delivered items, which need not be a contiguous prefix. Remove them
-by `item.Id` using `RemoveRange`; never remove by position or count. Equal payloads
+by passing the envelopes directly to `RemoveRange`; never remove by position or count. Equal payloads
 can represent different messages and retain distinct stored IDs.
 
 `IOutboxGrain` forwards reminder ticks to the single attached processor.
@@ -319,18 +346,20 @@ synchronous, with optional token arguments.
 Group registrations that use the same configured provider:
 
 ```csharp
-processor.ForStreamProvider("events")
+processor.ForStreamProvider("events", provider => provider
     .AddStreamPostman<OrderSubmitted>(
         message => StreamId.Create("submitted-orders", message.OrderId))
     .AddStreamPostman<OrderCancelled>(
-        message => StreamId.Create("cancelled-orders", message.OrderId));
+        message => StreamId.Create("cancelled-orders", message.OrderId)));
 ```
 
 The group supports the same projections and token-aware selectors as direct
 `AddStreamPostman` calls. Each call registers immediately on the original
 processor, so registration order remains first-match-wins across both forms.
 `ForStreamProvider` selects an existing Orleans provider; it does not install one.
-Continue unrelated registrations through the original `processor` variable.
+The callback overload returns the original processor, so additional postmen can
+be chained after the group. Configuration is synchronous; registrations already
+made remain if the callback throws. The builder-returning overload is also available.
 
 Routing and projection choose their token arguments independently. Both direct
 and grouped registration support token-aware routing with no projection:
@@ -348,6 +377,16 @@ processor.ForStreamProvider("events")
         (message, token) => StreamId.Create("cancelled-by-sender", token.Sender.ToString()),
         message => new CancelledDelivery(message.OrderId));
 ```
+
+### Migrating existing outbox callers
+
+- Indexing and enumeration now return payloads. Use `outbox.Envelopes` where code
+  previously read `.Id` or `.Message` from outbox entries.
+- `PendingItems` now returns a non-null `Outbox<T>` directly. Replace array
+  conversions with `() => state.Outbox`; return `[]` for a fresh empty snapshot,
+  not `default` or `null` (null is rejected with `InvalidOperationException`).
+- Acknowledgement and failure callbacks still receive envelopes. Existing ID-based
+  removal remains supported. The persisted JSON and Orleans field layout is unchanged.
 
 ## Receiver Dedup
 

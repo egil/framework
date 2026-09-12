@@ -364,9 +364,10 @@ business-state change that produced it.
 (handed off to a postman successfully). It lives as a property on the
 grain's state record for atomic writes.
 
-The collection behaves like `ImmutableArray<OutboxMessageEnvelope<T>>`
-— read-only iteration, indexer, value semantics, mutators return new
-instances — with three additions:
+The collection implements `IReadOnlyList<T>` over payloads, with read-only
+iteration and indexing. Mutations return new snapshots; equality compares their
+persisted revisions rather than payload contents. `Envelopes` exposes the
+immutable array of assigned message IDs and payloads. The outbox also provides:
 
 - A sender-free stored `OutboxMessageId` for each item.
 - A monotonic `LatestSequenceNumber` that persists independently of the
@@ -386,9 +387,15 @@ public sealed record OutboxMessageId(long SequenceNumber, DateTimeOffset Timesta
 public sealed record OutboxMessageEnvelope<T>(OutboxMessageId Id, T Message);
 
 // Public collection operations; mutations return new immutable instances.
+Outbox<T> fresh = [];
 Outbox<T>.Create();
 outbox.Add(message);
 outbox.Add(message, utcNow);
+outbox.AddRange(messages);
+outbox.AddRange(messages, utcNow);
+ImmutableArray<OutboxMessageEnvelope<T>> envelopes = outbox.Envelopes;
+outbox.Remove(envelope);
+outbox.RemoveRange(envelopes);
 outbox.Remove(id);          // Removes only a matching FIFO head.
 outbox.RemoveRange(ids);    // Removes matching IDs anywhere, preserving remaining order.
 outbox.Clear();             // Preserves sequence high-water mark and epoch.
@@ -397,6 +404,13 @@ outbox.Clear();             // Preserves sequence high-water mark and epoch.
 The actual types carry Orleans serialization metadata and JSON support. Each stored
 ID field is required in JSON so malformed data cannot silently acquire default
 sequence metadata. This beta changes the stored shape without a legacy migration.
+
+The public collection implements `IReadOnlyList<T>` over payloads. `Envelopes`
+returns the existing immutable envelope array for inspection and acknowledgement.
+Collection expressions enqueue payloads in fresh history, including spreads;
+`AddRange` extends existing history with one timestamp per batch and one new
+snapshot revision. Empty batches return the original instance. Neither operation
+mutates payload objects or existing snapshots.
 
 ### Epoch semantics
 
@@ -445,7 +459,7 @@ equality, never revision ordering. Message IDs and delivery tokens are unchanged
 ### Why these choices
 
 - **Sealed class, not record.** No `with`, no synthesized copy
-  constructor. Mutation through four method families only, preserving
+  constructor. Mutation through controlled collection operations, preserving
   sequence and epoch invariants.
 - **`Add(T payload)` not `Add(envelope)`.** Outbox owns sequence
   assignment. Callers cannot fabricate sequence numbers.
@@ -1384,7 +1398,7 @@ extension<TGrain>(TGrain grain) where TGrain : IOutboxGrain, IGrainBase
 public sealed class OutboxProcessorOptions<TOutbox> where TOutbox : notnull
 {
     /// Snapshot of pending items. Called once per post run from a grain turn.
-    public required Func<ImmutableArray<OutboxMessageEnvelope<TOutbox>>> PendingItems { get; init; }
+    public required Func<Outbox<TOutbox>> PendingItems { get; init; }
 
     /// Acknowledges successfully posted items.
     /// Expected to remove those items from the durable outbox state.
@@ -1450,7 +1464,7 @@ callbacks, not passive notifications:
 ### `OutboxProcessor<TOutbox>`
 
 `TOutbox` is the base payload type. All handler families operate on payloads;
-stored envelopes are confined to pending snapshots and reconciliation callbacks.
+stored envelopes are available through `Outbox<T>.Envelopes` and reconciliation callbacks.
 `AddPostman` callbacks take `(message)`, `(message, token)`, or
 `(message, token, cancellationToken)`, with both `Task` and `ValueTask` overloads.
 Argument count selects the parameter shape. `OverloadResolutionPriority(1)` on
@@ -1467,7 +1481,9 @@ provide the same combinations.
 Grain invocations take `(grain, message)`, `(grain, message, token)`, or
 `(grain, message, token, cancellationToken)` with the same Task/ValueTask overload
 priority.
-`ForStreamProvider(name)` returns an `OutboxStreamProviderBuilder<TOutbox>` with
+`ForStreamProvider(name, configure)` invokes synchronous configuration and returns the
+original processor. Registrations are immediate and preserve first-match order,
+including if the callback subsequently throws. `ForStreamProvider(name)` returns an `OutboxStreamProviderBuilder<TOutbox>` with
 chainable `AddStreamPostman` overloads matching the direct registrations, except
 that the provider name is supplied once. Registration forwards immediately to the
 original processor; there is no separate dispatch registry, acknowledgment state,
@@ -1518,6 +1534,8 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         Func<TSub, TEvent> project)
         where TSub : TOutbox;
     public OutboxStreamProviderBuilder<TOutbox> ForStreamProvider(string streamProviderName);
+    public OutboxProcessor<TOutbox> ForStreamProvider(
+        string streamProviderName, Action<OutboxStreamProviderBuilder<TOutbox>> configure);
     [OverloadResolutionPriority(1)]
     public OutboxProcessor<TOutbox> AddGrainPostman<TSub, TGrain>(
         Func<TSub, IGrainFactory, TGrain> resolveGrain,
