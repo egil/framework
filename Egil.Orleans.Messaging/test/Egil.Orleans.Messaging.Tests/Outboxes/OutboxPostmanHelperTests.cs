@@ -35,12 +35,16 @@ public sealed class OutboxPostmanHelperTests(MessagingTestClusterFixture fixture
             ct: TestContext.Current.CancellationToken);
     }
 
-    [Fact]
-    public async Task Projected_stream_postman_delivers_projected_event_and_acknowledges()
+    [Theory]
+    [InlineData("direct-original", "projected-stream-helper")]
+    [InlineData("direct-projection", "projected:projected-stream-helper")]
+    [InlineData("grouped-original", "projected-stream-helper")]
+    [InlineData("grouped-projection", "projected:projected-stream-helper")]
+    public async Task Token_routing_supports_original_and_projected_payloads(string routingMode, string expectedValue)
     {
         var grainKey = Guid.NewGuid();
         var sink = fixture.GrainFactory.GetGrain<IOutboxProcessorProjectedSinkGrain>(grainKey);
-        var source = fixture.GrainFactory.GetGrain<IOutboxProcessorProjectedStreamPostmanGrain>(grainKey);
+        var source = fixture.GrainFactory.GetGrain<IOutboxProcessorProjectedStreamPostmanGrain>(grainKey, routingMode);
         await sink.EnsureActiveAsync();
 
         await source.PublishInBackgroundAsync("projected-stream-helper");
@@ -50,7 +54,7 @@ public sealed class OutboxPostmanHelperTests(MessagingTestClusterFixture fixture
             async () =>
             {
                 var sinkState = await sink.GetStateAsync();
-                Assert.Contains("projected-stream-helper", sinkState.ReceivedValues);
+                Assert.Contains(expectedValue, sinkState.ReceivedValues);
             },
             ct: TestContext.Current.CancellationToken);
 
@@ -102,7 +106,7 @@ public interface IOutboxProcessorStreamPostmanGrain : IGrainWithGuidKey
     Task<OutboxProcessorSourceState> GetStateAsync();
 }
 
-public interface IOutboxProcessorProjectedStreamPostmanGrain : IGrainWithGuidKey
+public interface IOutboxProcessorProjectedStreamPostmanGrain : IGrainWithGuidCompoundKey
 {
     Task PublishInBackgroundAsync(string value);
 
@@ -215,16 +219,34 @@ public sealed class OutboxProcessorProjectedStreamPostmanGrain(
     public override async Task OnActivateAsync(CancellationToken cancellationToken)
     {
         EnsureOutbox();
-        var sink = GrainFactory.GetGrain<IOutboxProcessorProjectedSinkGrain>(this.GetPrimaryKey());
+        var key = this.GetPrimaryKey(out var routingMode);
+        var sink = GrainFactory.GetGrain<IOutboxProcessorProjectedSinkGrain>(key);
         var streamId = StreamManager.CreateStreamId(
             OutboxProcessorTestNamespaces.Events,
             sink.GetGrainId());
 
-        processor = this.RegisterOutboxProcessor(CreateOptions())
-            .AddStreamPostman<OutboxProcessorTestEvent, OutboxProcessorTestEvent>(
-                OutboxProcessorTestProviderNames.Events,
-                _ => streamId,
-                message => message);
+        processor = this.RegisterOutboxProcessor(CreateOptions());
+        StreamId SelectStream(OutboxProcessorTestEvent _, OutboxSequenceToken token) =>
+            token.Sender == this.GetGrainId() ? streamId : throw new InvalidOperationException("Wrong delivery sender.");
+        static OutboxProcessorTestEvent Project(OutboxProcessorTestEvent message) => new($"projected:{message.Value}");
+
+        switch (routingMode)
+        {
+            case "direct-original":
+                processor.AddStreamPostman<OutboxProcessorTestEvent>(OutboxProcessorTestProviderNames.Events, SelectStream);
+                break;
+            case "direct-projection":
+                processor.AddStreamPostman<OutboxProcessorTestEvent, OutboxProcessorTestEvent>(OutboxProcessorTestProviderNames.Events, SelectStream, Project);
+                break;
+            case "grouped-original":
+                processor.ForStreamProvider(OutboxProcessorTestProviderNames.Events).AddStreamPostman<OutboxProcessorTestEvent>(SelectStream);
+                break;
+            case "grouped-projection":
+                processor.ForStreamProvider(OutboxProcessorTestProviderNames.Events).AddStreamPostman<OutboxProcessorTestEvent, OutboxProcessorTestEvent>(SelectStream, Project);
+                break;
+            default:
+                throw new InvalidOperationException($"Unknown routing mode: {routingMode}");
+        }
 
         await base.OnActivateAsync(cancellationToken);
     }

@@ -849,7 +849,7 @@ public sealed class OutboxProcessorValidationCoverageGrain(
             _ = this.RegisterOutboxProcessor(CreateOptions(() => []))
                 .AddStreamPostman<OutboxProcessorTestEvent>(
                     OutboxProcessorTestProviderNames.Events,
-                    null!);
+                    (Func<OutboxProcessorTestEvent, StreamId>)null!);
             return Task.FromResult<string?>(null);
         }
         catch (ArgumentNullException ex)

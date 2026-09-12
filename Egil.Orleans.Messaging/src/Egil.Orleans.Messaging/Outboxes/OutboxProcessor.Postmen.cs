@@ -117,6 +117,26 @@ public sealed partial class OutboxProcessor<TOutbox>
             streamId,
             static message => message);
 
+    /// <summary>Publishes the original payload to a stream selected using its delivery token.</summary>
+    public OutboxProcessor<TOutbox> AddStreamPostman<TSub>(
+        string streamProviderName,
+        Func<TSub, OutboxSequenceToken, StreamId> streamId)
+        where TSub : TOutbox =>
+        AddStreamPostman<TSub, TSub>(streamProviderName, streamId, static message => message);
+
+    /// <summary>Uses the delivery token for routing while projecting only the payload.</summary>
+    public OutboxProcessor<TOutbox> AddStreamPostman<TSub, TEvent>(
+        string streamProviderName,
+        Func<TSub, OutboxSequenceToken, StreamId> streamId,
+        Func<TSub, TEvent> project)
+        where TSub : TOutbox
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        // Routing metadata and the event contract are independent. Reuse the token-aware
+        // delivery path without requiring callers to add an unused projection parameter.
+        return AddStreamPostman<TSub, TEvent>(streamProviderName, streamId, (message, _) => project(message));
+    }
+
     /// <summary>
     /// Registers a postman that projects each item and publishes the projected
     /// event to an Orleans stream.
