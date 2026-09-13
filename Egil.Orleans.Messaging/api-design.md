@@ -580,17 +580,17 @@ public sealed class MessageTracker
 
     public void RegisterTimeProvider(TimeProvider time) => this.time = time;
 
-    public bool ProcessMessage(StreamCursor cursor, out MessageTracker next);
-    public bool ProcessMessage(
+    public bool TryAcceptMessage(StreamCursor cursor, out MessageTracker next);
+    public bool TryAcceptMessage(
         string streamNamespace,
         StreamSequenceToken? token,
         out MessageTracker next);
-    public bool ProcessMessage(
+    public bool TryAcceptMessage(
         string streamProviderName,
         string streamNamespace,
         StreamSequenceToken? token,
         out MessageTracker next);
-    public bool ProcessMessage(OutboxSequenceToken token, out MessageTracker next);
+    public bool TryAcceptMessage(OutboxSequenceToken token, out MessageTracker next);
 
     public StreamCursor? LatestStream(string streamNamespace);
     public StreamCursor? LatestStream(string streamProviderName, string streamNamespace);
@@ -631,7 +631,7 @@ public sealed class MessageTracker
   Stream keys are intentionally not part of `MessageTracker` state because
   the tracker is scoped to one grain activation's durable state.
 
-### `ProcessMessage(StreamCursor)` and stream token semantics
+### `TryAcceptMessage(StreamCursor)` and stream token semantics
 
 Users can pass either a `StreamCursor` or the raw Orleans
 `StreamSequenceToken` plus stream namespace. Provider-qualified overloads are
@@ -651,7 +651,7 @@ It returns `null` both when no stream is tracked and when the tracked cursor
 has a null token; callers that need to distinguish those cases should use
 `LatestStream(...)`.
 
-### `ProcessMessage(OutboxSequenceToken)` semantics
+### `TryAcceptMessage(OutboxSequenceToken)` semantics
 
 | Prior entry | Comparison                                   | Decision | Effect                   |
 | ----------- | -------------------------------------------- | -------- | ------------------------ |
@@ -1818,7 +1818,7 @@ specific behavior:
 - **Outbox drain grain** — exercises `Outbox<T>` Add/Remove/Clear,
   epoch reset, `OutboxProcessor` timer/reminder lifecycle, postman
   dispatch + error callback with attempt count.
-- **Dedup grain** — exercises `MessageTracker.ProcessMessage` for both
+- **Dedup grain** — exercises `MessageTracker.TryAcceptMessage` for both
   stream cursors and outbox tokens, epoch-aware acceptance, eviction.
 - **Interleaved-read grain** — exercises `[AlwaysInterleave]` reads
   seeing only committed state while a write is in-flight.
