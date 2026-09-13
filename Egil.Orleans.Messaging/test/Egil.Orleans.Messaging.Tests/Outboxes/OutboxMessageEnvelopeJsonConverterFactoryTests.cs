@@ -6,6 +6,32 @@ namespace Egil.Orleans.Messaging.Tests.Outboxes;
 public sealed class OutboxMessageEnvelopeJsonConverterFactoryTests
 {
     [Fact]
+    public void Persisted_envelope_must_distinguish_missing_payload_from_explicit_null()
+    {
+        const string missingProperty = "Message";
+        var envelope = new OutboxMessageEnvelope<string>(new(1, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch), "payload");
+        var json = System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(envelope))!.AsObject();
+        json.Remove(missingProperty);
+
+        var error = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<OutboxMessageEnvelope<string>>(json.ToJsonString()));
+
+        Assert.Contains(missingProperty, error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Explicit_null_payload_round_trips_and_unknown_nested_metadata_is_ignored()
+    {
+        var id = new OutboxMessageId(1, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch);
+        var envelope = new OutboxMessageEnvelope<string?>(id, null);
+        var json = System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(envelope))!.AsObject();
+        json["FutureMetadata"] = System.Text.Json.Nodes.JsonNode.Parse("""{"nested":[1,{"Id":"unrelated"}]}""");
+
+        var loaded = JsonSerializer.Deserialize<OutboxMessageEnvelope<string?>>(json.ToJsonString());
+
+        Assert.Equal(envelope, loaded);
+    }
+
+    [Fact]
     public void OutboxMessageEnvelope_is_decorated_with_converter_factory()
     {
         var attribute = typeof(OutboxMessageEnvelope<string>)

@@ -5,6 +5,33 @@ namespace Egil.Orleans.Messaging.Tests.Outboxes;
 
 public sealed class OutboxSequenceTokenJsonConverterTests
 {
+    [Theory]
+    [InlineData("SequenceNumber")]
+    [InlineData("Timestamp")]
+    [InlineData("Epoch")]
+    public void Delivery_identity_cannot_be_reconstructed_with_missing_fields(string missingProperty)
+    {
+        var token = new OutboxSequenceToken(0, GrainId.Create("test/sender", "one"), DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch);
+        var json = System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(token))!.AsObject();
+        json.Remove(missingProperty);
+
+        var error = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<OutboxSequenceToken>(json.ToJsonString()));
+
+        Assert.Contains(missingProperty, error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Null_sender_cannot_be_used_as_a_delivery_identity()
+    {
+        var token = new OutboxSequenceToken(1, GrainId.Create("test/sender", "one"), DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch);
+        var json = System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(token))!.AsObject();
+        json["Sender"] = null;
+
+        var error = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<OutboxSequenceToken>(json.ToJsonString()));
+
+        Assert.Contains("Sender", error.Message, StringComparison.Ordinal);
+    }
+
     public static TheoryData<string> InvalidKnownPropertyJson => new()
     {
         { """{"SequenceNumber":"7"}""" },
