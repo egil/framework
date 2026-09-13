@@ -5,6 +5,30 @@ namespace Egil.Orleans.Messaging.Tests.Outboxes;
 public sealed class OutboxJsonConverterFactoryTests
 {
     [Theory]
+    [InlineData("null")]
+    [InlineData("{}")]
+    public void Invalid_items_cannot_become_an_empty_outbox(string items)
+    {
+        var json = System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(Outbox<string>.Create()))!.AsObject();
+        json["Items"] = System.Text.Json.Nodes.JsonNode.Parse(items);
+
+        var error = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<Outbox<string>>(json.ToJsonString()));
+
+        Assert.Contains("Items", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Missing_sequence_history_is_rejected()
+    {
+        var json = System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(Outbox<string>.Create()))!.AsObject();
+        json.Remove("LatestSequenceNumber");
+
+        var error = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<Outbox<string>>(json.ToJsonString()));
+
+        Assert.Contains("LatestSequenceNumber", error.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData("first", "second")]
     public void JsonSerializer_round_trips_outbox_with_string_messages(string first, string second)
     {
