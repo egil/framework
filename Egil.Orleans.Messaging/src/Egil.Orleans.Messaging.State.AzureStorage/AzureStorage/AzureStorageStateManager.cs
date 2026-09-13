@@ -76,7 +76,9 @@ internal static class AzureStorageFailureClassifier
             foreach (var inner in aggregateException.Flatten().InnerExceptions)
             {
                 var innerKind = TryClassify(inner);
-                if (innerKind is StorageFailureKind.UnknownOutcome)
+                // An unclassified inner failure (for example a transport timeout) is
+                // also uncertain. A rejected retry cannot prove an earlier attempt failed.
+                if (innerKind is null or StorageFailureKind.UnknownOutcome)
                 {
                     return StorageFailureKind.UnknownOutcome;
                 }
