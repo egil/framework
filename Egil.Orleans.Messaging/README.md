@@ -80,10 +80,22 @@ public sealed class OrderGrain : Grain, IOrderGrain
         state = this.RegisterStateManager("state", storage, () => new OrderState());
     }
 
-    public Task RenameAsync(string name) =>
-        state.WriteAsync(state.State with { Name = name });
+    public Task RenameAsync(string name, CancellationToken cancellationToken) =>
+        state.WriteAsync(state.State with { Name = name }, cancellationToken);
 }
 ```
+
+`ReadAsync`, `WriteAsync`, and `ClearAsync` accept an optional `CancellationToken`,
+which is forwarded to storage and any recovery read. Cancellation is cooperative:
+the provider decides whether it can interrupt in-flight work. Existing calls may omit the token; custom
+`IStateManager<T>` implementations must update their method signatures. An already canceled
+token prevents storage access and write-version stamping.
+
+Cancellation after a write or clear starts does not establish whether it persisted.
+If recovery is also canceled, the manager retains its previous visible snapshot
+and rethrows the original operation exception. Re-read with a fresh token before
+another mutation to refresh the state and ETag. A provider-confirmed success is
+adopted even if cancellation was requested concurrently.
 
 The overload without a factory requires `TState : new()`. Constructor registration
 returns immediately, but the provider-specific manager and default state are
@@ -145,15 +157,15 @@ public sealed record OrderState : VersionedState
     [Id(1)] public Outbox<IOrderEvent> Outbox { get; init; } = [];
 }
 
-public async Task SubmitAsync()
+public async Task SubmitAsync(CancellationToken cancellationToken)
 {
     var next = state.State with
     {
         Outbox = state.State.Outbox.Add(new OrderSubmitted())
     };
 
-    await state.WriteAsync(next);
-    await outboxProcessor.PostInBackgroundAsync();
+    await state.WriteAsync(next, cancellationToken);
+    await outboxProcessor.PostInBackgroundAsync(cancellationToken);
 }
 ```
 
@@ -206,11 +218,10 @@ public OrderGrain([PersistentState("state", "Default")] IPersistentState<OrderSt
         OutboxAccessor = () => state.State.Outbox,
         AcknowledgePostedAsync = async (items, ct) =>
         {
-            ct.ThrowIfCancellationRequested();
             await state.WriteAsync(state.State with
             {
                 Outbox = state.State.Outbox.RemoveRange(items)
-            });
+            }, ct);
         }
     })
     .AddPostman<OrderSubmitted>(async message => await PublishSubmittedAsync(message))

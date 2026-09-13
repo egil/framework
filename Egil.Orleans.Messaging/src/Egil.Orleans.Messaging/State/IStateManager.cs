@@ -17,6 +17,16 @@ namespace Egil.Orleans.Messaging.State;
 /// rather than extension methods on <see cref="IPersistentState{TState}"/>.
 /// </para>
 /// <para>
+/// <b>Cancellation:</b> Operations forward the token to storage, including recovery
+/// reads. Cancellation is cooperative and depends on provider support. An already
+/// canceled token prevents storage access and write-version stamping. Once a write
+/// or clear starts, cancellation does not prove that it failed to persist. If recovery
+/// is canceled, the previous visible snapshot is retained and the original operation
+/// exception is rethrown. Call <see cref="ReadAsync"/> with a fresh token before the
+/// next mutation to refresh state and ETag. A provider-confirmed success is adopted
+/// even if cancellation was requested concurrently.
+/// </para>
+/// <para>
 /// <b>Usage:</b> Inject <see cref="IPersistentState{TState}"/> as normal via
 /// <c>[PersistentState]</c>, then register the manager in the grain constructor:
 /// <code>
@@ -99,7 +109,8 @@ public interface IStateManager<T>
     /// needs to force a re-read mid-activation (e.g., after a known external
     /// mutation or to recover from a double-failure scenario).
     /// </remarks>
-    Task ReadAsync();
+    /// <param name="cancellationToken">The cancellation token for the storage operation.</param>
+    Task ReadAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Atomically writes <paramref name="newState"/> to durable storage.
@@ -129,7 +140,8 @@ public interface IStateManager<T>
     /// </para>
     /// </remarks>
     /// <param name="newState">The new state value to persist.</param>
-    Task WriteAsync(T newState);
+    /// <param name="cancellationToken">The cancellation token for the storage operation and recovery read.</param>
+    Task WriteAsync(T newState, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Clears the persisted state. On success, <see cref="State"/> reflects
@@ -158,5 +170,6 @@ public interface IStateManager<T>
     /// A null result is rejected with an InvalidOperationException for diagnosis.
     /// </para>
     /// </remarks>
-    Task ClearAsync();
+    /// <param name="cancellationToken">The cancellation token for the storage operation and recovery read.</param>
+    Task ClearAsync(CancellationToken cancellationToken = default);
 }

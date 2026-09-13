@@ -35,7 +35,7 @@ public sealed class StateManagerTests
         var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
         storage.State = new TestState("fresh");
 
-        await manager.ReadAsync();
+        await manager.ReadAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(new TestState("fresh"), manager.State);
     }
@@ -53,7 +53,7 @@ public sealed class StateManagerTests
         };
         var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
 
-        await manager.ReadAsync();
+        await manager.ReadAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(new TestState("default"), manager.State);
         Assert.Equal(0, storage.WriteCount);
@@ -67,7 +67,7 @@ public sealed class StateManagerTests
         var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
         var next = new TestState("next");
 
-        await manager.WriteAsync(next);
+        await manager.WriteAsync(next, TestContext.Current.CancellationToken);
 
         Assert.Equal(next, manager.State);
         Assert.Equal(next, storage.State);
@@ -84,7 +84,7 @@ public sealed class StateManagerTests
         var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
         var next = new TestState("next");
 
-        await manager.WriteAsync(next);
+        await manager.WriteAsync(next, TestContext.Current.CancellationToken);
 
         Assert.Equal(next, manager.State);
     }
@@ -105,7 +105,7 @@ public sealed class StateManagerTests
         };
         var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
 
-        var ex = await Assert.ThrowsAsync<TimeoutException>(() => manager.WriteAsync(new TestState("next")));
+        var ex = await Assert.ThrowsAsync<TimeoutException>(() => manager.WriteAsync(new TestState("next"), TestContext.Current.CancellationToken));
 
         Assert.Same(writeException, ex);
         Assert.Equal(persisted, manager.State);
@@ -131,7 +131,7 @@ public sealed class StateManagerTests
         var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
 
         var ex = await Assert.ThrowsAsync<InconsistentStateException>(
-            () => manager.WriteAsync(attempted));
+            () => manager.WriteAsync(attempted, TestContext.Current.CancellationToken));
 
         Assert.Same(writeException, ex);
         Assert.Equal(persisted, manager.State);
@@ -156,7 +156,7 @@ public sealed class StateManagerTests
         var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
 
         var ex = await Assert.ThrowsAsync<InconsistentStateException>(
-            () => manager.WriteAsync(attempted));
+            () => manager.WriteAsync(attempted, TestContext.Current.CancellationToken));
 
         Assert.Same(writeException, ex);
         Assert.Equal(new TestState("next"), manager.State);
@@ -174,7 +174,7 @@ public sealed class StateManagerTests
         };
         var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
 
-        var ex = await Assert.ThrowsAsync<TimeoutException>(() => manager.WriteAsync(new TestState("next")));
+        var ex = await Assert.ThrowsAsync<TimeoutException>(() => manager.WriteAsync(new TestState("next"), TestContext.Current.CancellationToken));
 
         Assert.Same(writeException, ex);
         Assert.Equal(new TestState("initial"), manager.State);
@@ -193,7 +193,7 @@ public sealed class StateManagerTests
         var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
 
         var ex = await Assert.ThrowsAsync<InconsistentStateException>(
-            () => manager.WriteAsync(new TestState("next")));
+            () => manager.WriteAsync(new TestState("next"), TestContext.Current.CancellationToken));
 
         Assert.Same(writeException, ex);
         Assert.Same(initial, manager.State);
@@ -208,7 +208,7 @@ public sealed class StateManagerTests
         var manager = new DefaultStateManager<VersionedTestState>(storage, static () => new("default"));
         var next = new VersionedTestState("next") { Version = Guid.Empty };
 
-        await manager.WriteAsync(next);
+        await manager.WriteAsync(next, TestContext.Current.CancellationToken);
 
         Assert.NotEqual(Guid.Empty, next.Version);
         Assert.Equal(next.Version, manager.State!.Version);
@@ -220,7 +220,7 @@ public sealed class StateManagerTests
         var storage = new FakePersistentState(new TestState("initial"));
         var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
 
-        await manager.ClearAsync();
+        await manager.ClearAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(new TestState("default"), manager.State);
         Assert.Equal(0, storage.WriteCount);
@@ -234,8 +234,8 @@ public sealed class StateManagerTests
         var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
         var next = new TestState("next");
 
-        await manager.ClearAsync();
-        await manager.WriteAsync(next);
+        await manager.ClearAsync(TestContext.Current.CancellationToken);
+        await manager.WriteAsync(next, TestContext.Current.CancellationToken);
 
         Assert.Equal(next, manager.State);
         Assert.Equal(next, storage.State);
@@ -247,7 +247,7 @@ public sealed class StateManagerTests
         var writeException = new TimeoutException("write timeout");
         var storage = new FakePersistentState(new TestState("initial"));
         var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
-        await manager.ClearAsync();
+        await manager.ClearAsync(TestContext.Current.CancellationToken);
         storage.WriteException = writeException;
         storage.OnRead = state =>
         {
@@ -256,7 +256,7 @@ public sealed class StateManagerTests
         };
 
         var ex = await Assert.ThrowsAsync<TimeoutException>(
-            () => manager.WriteAsync(new TestState("next")));
+            () => manager.WriteAsync(new TestState("next"), TestContext.Current.CancellationToken));
 
         Assert.Same(writeException, ex);
         Assert.Equal(new TestState("default"), manager.State);
@@ -278,7 +278,7 @@ public sealed class StateManagerTests
         };
         var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
 
-        await manager.ClearAsync();
+        await manager.ClearAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(new TestState("default"), manager.State);
         Assert.Equal(0, storage.WriteCount);
@@ -302,7 +302,7 @@ public sealed class StateManagerTests
         };
         var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
 
-        var ex = await Assert.ThrowsAsync<TimeoutException>(() => manager.ClearAsync());
+        var ex = await Assert.ThrowsAsync<TimeoutException>(() => manager.ClearAsync(TestContext.Current.CancellationToken));
 
         Assert.Same(clearException, ex);
         Assert.Same(persisted, manager.State);
@@ -325,7 +325,7 @@ public sealed class StateManagerTests
         };
         var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
 
-        var ex = await Assert.ThrowsAsync<InconsistentStateException>(() => manager.ClearAsync());
+        var ex = await Assert.ThrowsAsync<InconsistentStateException>(() => manager.ClearAsync(TestContext.Current.CancellationToken));
 
         Assert.Same(clearException, ex);
         Assert.Equal(new TestState("default"), manager.State);
@@ -344,7 +344,7 @@ public sealed class StateManagerTests
         };
         var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
 
-        var ex = await Assert.ThrowsAsync<TimeoutException>(() => manager.ClearAsync());
+        var ex = await Assert.ThrowsAsync<TimeoutException>(() => manager.ClearAsync(TestContext.Current.CancellationToken));
 
         Assert.Same(clearException, ex);
         Assert.Equal(new TestState("initial"), manager.State);
@@ -361,7 +361,7 @@ public sealed class StateManagerTests
         };
         var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
 
-        var error = await Assert.ThrowsAsync<TimeoutException>(() => manager.WriteAsync(new("default")));
+        var error = await Assert.ThrowsAsync<TimeoutException>(() => manager.WriteAsync(new("default"), TestContext.Current.CancellationToken));
 
         Assert.Same(failure, error);
         Assert.Equal(new TestState("default"), manager.State);
@@ -377,8 +377,8 @@ public sealed class StateManagerTests
         var storage = new FakePersistentState(initial) { OnRead = state => state.State = loaded };
         var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), configured.Add);
 
-        await manager.ReadAsync();
-        await manager.ClearAsync();
+        await manager.ReadAsync(TestContext.Current.CancellationToken);
+        await manager.ClearAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal([initial, loaded, new TestState("default")], configured);
         Assert.Same(configured[2], manager.State);
@@ -416,7 +416,7 @@ public sealed class StateManagerTests
         var storage = new FakePersistentState(previous) { WriteCompletion = completion.Task };
         var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
 
-        var write = manager.WriteAsync(next);
+        var write = manager.WriteAsync(next, TestContext.Current.CancellationToken);
 
         Assert.Same(previous, manager.State);
         Assert.Same(next, storage.State);
@@ -450,9 +450,9 @@ public sealed class StateManagerTests
 
         _ = await Record.ExceptionAsync(() => operation switch
         {
-            "read" => manager.ReadAsync(),
-            "write" or "write-recovery" => manager.WriteAsync(new("next")),
-            _ => manager.ClearAsync()
+            "read" => manager.ReadAsync(TestContext.Current.CancellationToken),
+            "write" or "write-recovery" => manager.WriteAsync(new("next"), TestContext.Current.CancellationToken),
+            _ => manager.ClearAsync(TestContext.Current.CancellationToken)
         });
 
         Assert.Same(configured, observedManager);
@@ -480,7 +480,7 @@ public sealed class StateManagerTests
         var recoveryReads = 0;
         storage.OnRead = _ => recoveryReads++;
 
-        var error = await Record.ExceptionAsync(() => clear ? manager.ClearAsync() : manager.WriteAsync(new("next")));
+        var error = await Record.ExceptionAsync(() => clear ? manager.ClearAsync(TestContext.Current.CancellationToken) : manager.WriteAsync(new("next"), TestContext.Current.CancellationToken));
 
         Assert.Same(failure, error);
         Assert.Equal(clear ? "default" : "next", manager.State.Value);
@@ -502,7 +502,7 @@ public sealed class StateManagerTests
         };
         var manager = new DefaultStateManager<TestState>(storage, static () => null!);
 
-        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => clear ? manager.ClearAsync() : manager.WriteAsync(new("next")));
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => clear ? manager.ClearAsync(TestContext.Current.CancellationToken) : manager.WriteAsync(new("next"), TestContext.Current.CancellationToken));
 
         Assert.Contains(recordExists ? "existing state record" : "factory returned null", error.Message);
     }
@@ -525,7 +525,7 @@ public sealed class StateManagerTests
             if (ReferenceEquals(value, loaded)) throw failure;
         });
 
-        var error = await Record.ExceptionAsync(() => clear ? manager.ClearAsync() : manager.WriteAsync(new("next")));
+        var error = await Record.ExceptionAsync(() => clear ? manager.ClearAsync(TestContext.Current.CancellationToken) : manager.WriteAsync(new("next"), TestContext.Current.CancellationToken));
 
         Assert.Same(failure, error);
         Assert.Same(loaded, manager.State);
