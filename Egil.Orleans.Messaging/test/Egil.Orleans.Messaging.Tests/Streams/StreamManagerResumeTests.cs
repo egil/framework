@@ -31,10 +31,10 @@ public sealed class StreamManagerResumeTests
     public async Task Legacy_position_resumes_subscription_unless_provider_has_its_own_position(bool hasProviderPosition, long expectedSequence)
     {
         var tracker = new MessageTracker();
-        tracker.ProcessMessage(new StreamCursor("orders", new EventSequenceToken(7)), out tracker);
+        tracker.TryAcceptMessage(new StreamCursor("orders", new EventSequenceToken(7)), out tracker);
         if (hasProviderPosition)
         {
-            tracker.ProcessMessage(new StreamCursor("orders", new EventSequenceToken(9), "provider-a"), out tracker);
+            tracker.TryAcceptMessage(new StreamCursor("orders", new EventSequenceToken(9), "provider-a"), out tracker);
         }
         var stream = new FakeStream<string>("provider-a", StreamId.Create("orders", "one"));
         var manager = CreateManager(() => tracker, stream);
@@ -244,7 +244,7 @@ public sealed class StreamManagerResumeTests
         long sequenceNumber)
     {
         var tracker = new MessageTracker();
-        tracker.ProcessMessage(
+        tracker.TryAcceptMessage(
             new StreamCursor(
                 streamNamespace,
                 new EventSequenceToken(sequenceNumber),

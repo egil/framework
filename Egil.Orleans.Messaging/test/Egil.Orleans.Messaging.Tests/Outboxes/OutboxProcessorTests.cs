@@ -1309,7 +1309,7 @@ public sealed class OutboxProcessorSinkGrain(
         DeliveredOutboxEvent envelope,
         StreamCursor cursor)
     {
-        if (!state.State.Tracker.ProcessMessage(envelope.Token, out var next))
+        if (!state.State.Tracker.TryAcceptMessage(envelope.Token, out var next))
         {
             return;
         }

@@ -28,7 +28,7 @@ public sealed class MessageTrackerJsonConverterTests
         var streamId = StreamId.Create("orders", token.GetType().Name);
         var tracker = new MessageTracker();
         tracker.RegisterTimeProvider(new ManualTimeProvider(now));
-        tracker.ProcessMessage(new StreamCursor("orders", token), out tracker);
+        tracker.TryAcceptMessage(new StreamCursor("orders", token), out tracker);
 
         var json = JsonSerializer.Serialize(tracker);
         var roundTripped = JsonSerializer.Deserialize<MessageTracker>(json);
@@ -47,7 +47,7 @@ public sealed class MessageTrackerJsonConverterTests
         var sender = GrainId.Create("test/sender", "one");
         var tracker = new MessageTracker();
         tracker.RegisterTimeProvider(new ManualTimeProvider(now));
-        tracker.ProcessMessage(new OutboxSequenceToken(sequenceNumber, sender, now, now), out tracker);
+        tracker.TryAcceptMessage(new OutboxSequenceToken(sequenceNumber, sender, now, now), out tracker);
 
         var json = JsonSerializer.Serialize(tracker);
         var roundTripped = JsonSerializer.Deserialize<MessageTracker>(json);
@@ -66,7 +66,7 @@ public sealed class MessageTrackerJsonConverterTests
         var streamId = StreamId.Create("orders", "unsupported");
         var tracker = new MessageTracker();
         tracker.RegisterTimeProvider(new ManualTimeProvider(now));
-        tracker.ProcessMessage(new StreamCursor("orders", new UnsupportedSequenceToken(1, 0)), out tracker);
+        tracker.TryAcceptMessage(new StreamCursor("orders", new UnsupportedSequenceToken(1, 0)), out tracker);
 
         Assert.Throws<NotSupportedException>(() => JsonSerializer.Serialize(tracker));
     }
@@ -183,10 +183,10 @@ public sealed class MessageTrackerJsonConverterTests
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
         var tracker = new MessageTracker();
         tracker.RegisterTimeProvider(new ManualTimeProvider(now));
-        tracker.ProcessMessage(
+        tracker.TryAcceptMessage(
             new StreamCursor("orders", new EventSequenceToken(7, 1), "provider-a"),
             out tracker);
-        tracker.ProcessMessage(
+        tracker.TryAcceptMessage(
             new OutboxSequenceToken(
                 42,
                 GrainId.Create("test/sender", "one"),

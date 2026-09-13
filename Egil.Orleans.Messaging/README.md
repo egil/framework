@@ -405,7 +405,7 @@ processor.ForStreamProvider("events")
 `MessageTracker` accepts a message only when its stream token, stream cursor, or outbox token advances the stored high-water mark:
 
 ```csharp
-if (!state.State.Tracker.ProcessMessage("prices", token, out var tracker))
+if (!state.State.Tracker.TryAcceptMessage("prices", token, out var tracker))
 {
     return;
 }
@@ -435,7 +435,7 @@ streamManager = this.RegisterStreamManager(() => state.State.Tracker)
         "prices",
         async (message, cursor) =>
         {
-            if (!state.State.Tracker.ProcessMessage(cursor, out var tracker))
+            if (!state.State.Tracker.TryAcceptMessage(cursor, out var tracker))
             {
                 return;
             }
@@ -548,6 +548,11 @@ guaranteed; use a System.Text.Json serializer or the Orleans binary serializer.
 This package is messaging infrastructure, not an event-sourcing or CQRS framework. It wraps Orleans state, outbox dispatch, receiver deduplication, and stream subscription management while leaving domain modeling, read models, transport targets, and operational policy to the application.
 
 ## Beta API changes
+
+Replace `MessageTracker.ProcessMessage(...)` with `TryAcceptMessage(...)` for all
+stream and outbox overloads. It returns the acceptance decision and the next
+tracker; it does not execute the message handler or persist the tracker. Tokenless
+stream messages are accepted without advancing tracking state.
 
 The constructor-registration and payload-postman changes tracked in
 [issue #179](https://github.com/egil/framework/issues/179) are breaking changes:

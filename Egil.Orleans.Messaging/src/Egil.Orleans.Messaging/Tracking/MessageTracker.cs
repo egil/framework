@@ -27,7 +27,7 @@ namespace Egil.Orleans.Messaging.Tracking;
 /// prevents <c>with { ... }</c> expressions that could bypass invariants.
 /// </para>
 /// <para>
-/// <b>ProcessMessage semantics (streams):</b>
+/// <b>TryAcceptMessage semantics (streams):</b>
 /// <list type="bullet">
 /// <item><c>cursor.Token is null</c> → Accept, no tracking update.</item>
 /// <item>No prior entry → Accept, insert <c>(LastPosition = cursor, Received = now)</c>.</item>
@@ -36,7 +36,7 @@ namespace Egil.Orleans.Messaging.Tracking;
 /// </list>
 /// </para>
 /// <para>
-/// <b>ProcessMessage semantics (outbox):</b>
+/// <b>TryAcceptMessage semantics (outbox):</b>
 /// <list type="bullet">
 /// <item>No prior entry → Accept, insert.</item>
 /// <item><c>token.Epoch &gt; stored.Epoch</c> → Accept (sender reset), replace entry.</item>
@@ -109,10 +109,11 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
     /// <param name="cursor">The stream cursor to evaluate.</param>
     /// <param name="next">
     /// When accepted, a new <see cref="MessageTracker"/> with the updated
-    /// position. When rejected, equals <c>this</c>.
+    /// position. Tokenless messages are accepted without advancing the position
+    /// and return <c>this</c>. Rejected messages also return <c>this</c>.
     /// </param>
-    /// <returns><c>true</c> if accepted (new message); <c>false</c> if duplicate.</returns>
-    public bool ProcessMessage(StreamCursor cursor, out MessageTracker next)
+    /// <returns><c>true</c> if accepted, including tokenless messages; <c>false</c> if duplicate or stale.</returns>
+    public bool TryAcceptMessage(StreamCursor cursor, out MessageTracker next)
     {
         var now = time.GetUtcNow();
         if (cursor.Token is null)
@@ -150,17 +151,18 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
     /// <param name="token">The stream sequence token to evaluate.</param>
     /// <param name="next">
     /// When accepted, a new <see cref="MessageTracker"/> with the updated
-    /// position. When rejected, equals <c>this</c>.
+    /// position. Tokenless messages are accepted without advancing the position
+    /// and return <c>this</c>. Rejected messages also return <c>this</c>.
     /// </param>
-    /// <returns><c>true</c> if accepted (new message); <c>false</c> if duplicate.</returns>
-    public bool ProcessMessage(
+    /// <returns><c>true</c> if accepted, including tokenless messages; <c>false</c> if duplicate or stale.</returns>
+    public bool TryAcceptMessage(
         string streamNamespace,
         StreamSequenceToken? token,
         out MessageTracker next)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(streamNamespace);
 
-        return ProcessMessage(new StreamCursor(streamNamespace, token), out next);
+        return TryAcceptMessage(new StreamCursor(streamNamespace, token), out next);
     }
 
     /// <summary>
@@ -173,10 +175,11 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
     /// <param name="token">The stream sequence token to evaluate.</param>
     /// <param name="next">
     /// When accepted, a new <see cref="MessageTracker"/> with the updated
-    /// position. When rejected, equals <c>this</c>.
+    /// position. Tokenless messages are accepted without advancing the position
+    /// and return <c>this</c>. Rejected messages also return <c>this</c>.
     /// </param>
-    /// <returns><c>true</c> if accepted (new message); <c>false</c> if duplicate.</returns>
-    public bool ProcessMessage(
+    /// <returns><c>true</c> if accepted, including tokenless messages; <c>false</c> if duplicate or stale.</returns>
+    public bool TryAcceptMessage(
         string streamProviderName,
         string streamNamespace,
         StreamSequenceToken? token,
@@ -185,7 +188,7 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
         ArgumentException.ThrowIfNullOrWhiteSpace(streamProviderName);
         ArgumentException.ThrowIfNullOrWhiteSpace(streamNamespace);
 
-        return ProcessMessage(new StreamCursor(streamNamespace, token, streamProviderName), out next);
+        return TryAcceptMessage(new StreamCursor(streamNamespace, token, streamProviderName), out next);
     }
 
     /// <summary>
@@ -199,7 +202,7 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
     /// position. When rejected, equals <c>this</c>.
     /// </param>
     /// <returns><c>true</c> if accepted; <c>false</c> if duplicate or stale.</returns>
-    public bool ProcessMessage(OutboxSequenceToken token, out MessageTracker next)
+    public bool TryAcceptMessage(OutboxSequenceToken token, out MessageTracker next)
     {
         var now = time.GetUtcNow();
 

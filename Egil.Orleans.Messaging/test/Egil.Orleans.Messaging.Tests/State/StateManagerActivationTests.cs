@@ -128,7 +128,7 @@ public sealed class StateManagerActivationGrain : Grain, IStateManagerActivation
         await manager.ReadAsync();
         var now = time.GetUtcNow();
         var sender = GrainContext.GrainId;
-        manager.State.Tracker.ProcessMessage(new OutboxSequenceToken(1, sender, now, now), out var tracked);
+        manager.State.Tracker.TryAcceptMessage(new OutboxSequenceToken(1, sender, now, now), out var tracked);
         return tracked.Evict(sender, now.AddSeconds(1)).LatestOutbox(sender) is null;
     }
 

@@ -42,8 +42,8 @@ public sealed class MessageTrackerTelemetryTests
         var future = clock.GetUtcNow().AddMinutes(5);
 
         var accepted = streamMessage
-            ? tracker.ProcessMessage(new StreamCursor(source, new DiagnosticToken(null, future)), out _)
-            : tracker.ProcessMessage(new OutboxSequenceToken(1, GrainId.Create(source, "one"), future, future), out _);
+            ? tracker.TryAcceptMessage(new StreamCursor(source, new DiagnosticToken(null, future)), out _)
+            : tracker.TryAcceptMessage(new OutboxSequenceToken(1, GrainId.Create(source, "one"), future, future), out _);
 
         Assert.True(accepted);
         Assert.Equal(0d, Assert.Single(measurements));

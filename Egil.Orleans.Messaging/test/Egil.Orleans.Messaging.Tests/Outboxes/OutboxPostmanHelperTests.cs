@@ -330,7 +330,7 @@ public sealed class OutboxProcessorProjectedSinkGrain(
         OutboxProcessorTestEvent message,
         StreamCursor cursor)
     {
-        if (!state.State.Tracker.ProcessMessage(cursor.StreamNamespace, cursor.Token, out var next))
+        if (!state.State.Tracker.TryAcceptMessage(cursor.StreamNamespace, cursor.Token, out var next))
         {
             return;
         }
