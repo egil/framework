@@ -121,11 +121,23 @@ stale `storage.State` after a failed write.
 public interface IStateManager<T> where T : class, IEquatable<T>
 {
     T State { get; }
-    Task ReadAsync();
-    Task WriteAsync(T newState);
-    Task ClearAsync();
+    Task ReadAsync(CancellationToken cancellationToken = default);
+    Task WriteAsync(T newState, CancellationToken cancellationToken = default);
+    Task ClearAsync(CancellationToken cancellationToken = default);
 }
 ```
+
+Tokens are forwarded through constructor-registered managers to storage operations
+and recovery reads. Cancellation is cooperative and depends on provider support.
+An already canceled token prevents storage access and write-version stamping.
+Cancellation after a write or clear starts does not prove whether it persisted.
+If recovery is also canceled, the manager retains the previous visible snapshot
+and rethrows the original operation exception. Re-read with a fresh token before
+another mutation to refresh state and ETag. Provider-confirmed successes are
+adopted even if cancellation arrives concurrently.
+
+Custom `IStateManager<T>` implementations must add these parameters. Existing
+callers can omit the optional tokens after recompilation.
 
 Constraints on `T`:
 
