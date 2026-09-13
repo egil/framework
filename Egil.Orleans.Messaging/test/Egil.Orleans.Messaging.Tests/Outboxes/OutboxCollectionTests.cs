@@ -6,6 +6,41 @@ namespace Egil.Orleans.Messaging.Tests.Outboxes;
 public sealed class OutboxCollectionTests
 {
     [Fact]
+    public void Appending_an_outbox_to_itself_reenqueues_payloads_without_changing_original_ids()
+    {
+        Outbox<string> original = ["same", "other"];
+        var originalEnvelopes = original.Envelopes;
+
+        var appended = original.AddRange(original, DateTimeOffset.UnixEpoch);
+
+        Assert.Equal(["same", "other", "same", "other"], appended.ToArray());
+        Assert.Equal(originalEnvelopes, appended.Envelopes.Take(2));
+        Assert.Equal([1L, 2L, 3L, 4L], appended.Envelopes.Select(item => item.Id.SequenceNumber));
+        Assert.Equal(2, original.Count);
+    }
+
+    [Fact]
+    public void Batch_input_failure_leaves_the_original_snapshot_and_history_usable()
+    {
+        Outbox<string> original = ["original"];
+        var revision = original.Revision;
+
+        Assert.Throws<InvalidOperationException>(() => original.AddRange(FailingBatch()));
+        var next = original.Add("next");
+
+        Assert.Equal(revision, original.Revision);
+        Assert.Equal(["original"], original.ToArray());
+        Assert.Equal(["original", "next"], next.ToArray());
+        Assert.Equal(2, next.LatestSequenceNumber);
+    }
+
+    private static IEnumerable<string> FailingBatch()
+    {
+        yield return "partial";
+        throw new InvalidOperationException("Input could not be fully read.");
+    }
+
+    [Fact]
     public void Collection_expressions_enqueue_payloads_with_fresh_history()
     {
         Outbox<string> empty = [];

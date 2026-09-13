@@ -10,6 +10,26 @@ public sealed class PayloadPostmanTests(MessagingTestClusterFixture fixture)
     : IClassFixture<MessagingTestClusterFixture>
 {
     [Fact]
+    public async Task Provider_configuration_failure_keeps_earlier_registrations_ahead_of_later_handlers()
+    {
+        var key = Guid.NewGuid();
+        var source = fixture.GrainFactory.GetGrain<IPartialProviderConfigurationGrain>(key);
+        var sink = fixture.GrainFactory.GetGrain<IPayloadSinkGrain>(key);
+        await sink.EnsureActiveAsync();
+
+        var result = await source.PublishAsync(key);
+
+        Assert.Equal("configuration failed", result.Error);
+        Assert.Equal(0, result.Pending);
+        Assert.Equal(0, result.FallbackCalls);
+        await fixture.WaitForAssertionAsync(sink, async () =>
+        {
+            var deliveries = await sink.GetDeliveriesAsync();
+            Assert.Equal("registered-before-failure", Assert.Single(deliveries).Value);
+        }, ct: TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
     public void Polymorphic_payloads_round_trip_with_stored_identity()
     {
         var target = Guid.NewGuid();
@@ -228,4 +248,50 @@ public sealed class PayloadSinkGrain : Grain, IPayloadSinkGrain
     }
 
     public Task<ImmutableArray<PayloadDelivery>> GetDeliveriesAsync() => Task.FromResult(deliveries);
+}
+
+public interface IPartialProviderConfigurationGrain : IGrainWithGuidKey
+{
+    Task<(string? Error, int Pending, int FallbackCalls)> PublishAsync(Guid target);
+}
+
+public sealed class PartialProviderConfigurationGrain : Grain, IPartialProviderConfigurationGrain, IOutboxGrain
+{
+    public async Task<(string? Error, int Pending, int FallbackCalls)> PublishAsync(Guid target)
+    {
+        Outbox<IPayloadEvent> outbox = [new StreamPayload(target, "registered-before-failure")];
+        var fallbackCalls = 0;
+        string? error = null;
+        var processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<IPayloadEvent>
+        {
+            OutboxAccessor = () => outbox,
+            AcknowledgePostedAsync = (items, _) =>
+            {
+                outbox = outbox.RemoveRange(items);
+                return ValueTask.CompletedTask;
+            }
+        });
+        try
+        {
+            processor.ForStreamProvider(OutboxProcessorTestProviderNames.Events, provider =>
+            {
+                provider.AddStreamPostman<StreamPayload, PayloadDelivery>(
+                    message => StreamManager.CreateStreamId("payload-postmen", GrainFactory.GetGrain<IPayloadSinkGrain>(message.Target).GetGrainId()),
+                    static (message, token) => new(message.Value, token));
+                throw new InvalidOperationException("configuration failed");
+            });
+        }
+        catch (InvalidOperationException exception)
+        {
+            error = exception.Message;
+        }
+
+        processor.AddPostman<IPayloadEvent>(_ =>
+        {
+            fallbackCalls++;
+            return ValueTask.CompletedTask;
+        });
+        await processor.PostAsync();
+        return (error, outbox.Count, fallbackCalls);
+    }
 }

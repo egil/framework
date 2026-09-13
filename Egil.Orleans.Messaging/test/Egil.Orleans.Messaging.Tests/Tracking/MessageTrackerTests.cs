@@ -6,6 +6,63 @@ namespace Egil.Orleans.Messaging.Tests.Tracking;
 public sealed class MessageTrackerTests
 {
     [Fact]
+    public void Eviction_removes_only_expired_sources_and_preserves_recent_deduplication()
+    {
+        var now = DateTimeOffset.UnixEpoch;
+        var time = new ManualTimeProvider(now);
+        var oldSender = GrainId.Create("sender", "old");
+        var recentSender = GrainId.Create("sender", "recent");
+        var oldToken = new OutboxSequenceToken(1, oldSender, now, now);
+        var recentToken = new OutboxSequenceToken(1, recentSender, now, now);
+        var tracker = new MessageTracker();
+        tracker.RegisterTimeProvider(time);
+        tracker.ProcessMessage(oldToken, out tracker);
+        tracker.ProcessMessage("old", new EventSequenceToken(1), out tracker);
+        time.Advance(TimeSpan.FromMinutes(1));
+        tracker.ProcessMessage(recentToken, out tracker);
+        tracker.ProcessMessage("recent", new EventSequenceToken(2), out tracker);
+
+        var evicted = tracker.Evict(now);
+
+        Assert.True(evicted.ProcessMessage(oldToken, out _));
+        Assert.False(evicted.ProcessMessage(recentToken, out _));
+        Assert.True(evicted.ProcessMessage("old", new EventSequenceToken(1), out _));
+        Assert.False(evicted.ProcessMessage("recent", new EventSequenceToken(2), out _));
+        Assert.False(tracker.ProcessMessage(oldToken, out _));
+        var prunedAgain = evicted.Evict(now).EvictStreams(now).EvictOutboxes(now).Evict(oldSender, now);
+        Assert.False(prunedAgain.ProcessMessage(recentToken, out _));
+        Assert.False(prunedAgain.ProcessMessage("recent", new EventSequenceToken(2), out _));
+    }
+
+    [Fact]
+    public void Duplicate_delivery_does_not_extend_the_deduplication_retention_window()
+    {
+        var now = DateTimeOffset.UnixEpoch;
+        var time = new ManualTimeProvider(now);
+        var token = new OutboxSequenceToken(1, GrainId.Create("sender", "one"), now, now);
+        var tracker = new MessageTracker();
+        tracker.RegisterTimeProvider(time);
+        tracker.ProcessMessage(token, out tracker);
+        time.Advance(TimeSpan.FromHours(1));
+
+        Assert.False(tracker.ProcessMessage(token, out var duplicate));
+        var evicted = duplicate.Evict(now);
+
+        Assert.True(evicted.ProcessMessage(token, out _));
+    }
+
+    [Fact]
+    public void Provider_lookup_does_not_reuse_another_providers_position()
+    {
+        var tracker = new MessageTracker();
+        tracker.ProcessMessage("provider-a", "orders", new EventSequenceToken(9), out tracker);
+
+        Assert.Null(tracker.LatestStream("provider-b", "orders"));
+        Assert.True(tracker.ProcessMessage("provider-b", "orders", new EventSequenceToken(1), out var next));
+        Assert.False(next.ProcessMessage("provider-a", "orders", new EventSequenceToken(9), out _));
+    }
+
+    [Fact]
     public void ProcessMessage_accepts_first_stream_cursor_and_tracks_latest_position()
     {
         var streamId = StreamId.Create("orders", "one");
