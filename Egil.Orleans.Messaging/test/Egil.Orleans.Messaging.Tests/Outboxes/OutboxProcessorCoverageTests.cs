@@ -139,7 +139,7 @@ public sealed class OutboxProcessorCoverageTests(MessagingTestClusterFixture fix
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => grain.PostNullOutboxAsync());
 
-        Assert.Contains("PendingItems must return a non-null outbox snapshot", error.Message, StringComparison.Ordinal);
+        Assert.Contains("OutboxAccessor must return a non-null outbox snapshot", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -543,7 +543,7 @@ public sealed class OutboxProcessorReentrantPostGrain(
 
     private OutboxProcessorOptions<OutboxProcessorTestEvent> CreateOptions() => new()
     {
-        PendingItems = () => state.State.Outbox ?? [],
+        OutboxAccessor = () => state.State.Outbox ?? [],
         AcknowledgePostedAsync = AcknowledgePostedAsync,
         ReconcileFailedAsync = ReconcileFailedAsync,
         RetryDelay = TimeSpan.FromMilliseconds(100)
@@ -584,7 +584,7 @@ public sealed class OutboxProcessorConcurrentManualPostGrain(
     {
         processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorTestEvent>
         {
-            PendingItems = () => state.State.Outbox ?? [],
+            OutboxAccessor = () => state.State.Outbox ?? [],
             AcknowledgePostedAsync = AcknowledgePostedAsync,
             ReconcileFailedAsync = ReconcileFailedAsync,
             RetryDelay = TimeSpan.FromMilliseconds(100)
@@ -661,7 +661,7 @@ public sealed class OutboxProcessorRetryPendingGrain(
     {
         processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorTestEvent>
         {
-            PendingItems = () => state.State.Outbox ?? [],
+            OutboxAccessor = () => state.State.Outbox ?? [],
             AcknowledgePostedAsync = AcknowledgePostedAsync,
             ReconcileFailedAsync = ReconcileFailedAsync,
             RetryDelay = TimeSpan.FromMinutes(2)
@@ -741,7 +741,7 @@ public sealed class OutboxProcessorReminderCoverageGrain(
     {
         processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorTestEvent>
         {
-            PendingItems = () => state.State.Outbox ?? [],
+            OutboxAccessor = () => state.State.Outbox ?? [],
             AcknowledgePostedAsync = AcknowledgePostedAsync,
             ReconcileFailedAsync = ReconcileFailedAsync,
             RetryDelay = TimeSpan.FromMinutes(2)
@@ -825,7 +825,7 @@ public sealed class OutboxProcessorValidationCoverageGrain(
 
         var processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorTestEvent>
         {
-            PendingItems = () => returnEmpty ? [] : pending,
+            OutboxAccessor = () => returnEmpty ? [] : pending,
             AcknowledgePostedAsync = (items, _) =>
             {
                 state.State.AcknowledgedCount += items.Length;
@@ -909,7 +909,7 @@ public sealed class OutboxProcessorValidationCoverageGrain(
     {
         var firstProcessor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorTestEvent>
         {
-            PendingItems = () =>
+            OutboxAccessor = () =>
             {
                 state.State.FirstProcessorReminderCount++;
                 return [];
@@ -923,7 +923,7 @@ public sealed class OutboxProcessorValidationCoverageGrain(
         {
             _ = this.RegisterOutboxProcessor(new OutboxProcessorOptions<string>
             {
-                PendingItems = static () => [],
+                OutboxAccessor = static () => [],
                 AcknowledgePostedAsync = static (_, _) => ValueTask.CompletedTask
             });
         }
@@ -939,11 +939,11 @@ public sealed class OutboxProcessorValidationCoverageGrain(
     public Task<OutboxProcessorSourceState> GetStateAsync() => Task.FromResult(state.State);
 
     private OutboxProcessorOptions<OutboxProcessorTestEvent> CreateOptions(
-        Func<Outbox<OutboxProcessorTestEvent>> pendingItems,
+        Func<Outbox<OutboxProcessorTestEvent>> outboxAccessor,
         TimeSpan? processingTimeout = null,
         TimeSpan? retryDelay = null) => new()
         {
-            PendingItems = pendingItems,
+            OutboxAccessor = outboxAccessor,
             AcknowledgePostedAsync = AcknowledgePostedAsync,
             ReconcileFailedAsync = ReconcileFailedAsync,
             ProcessingTimeout = processingTimeout ?? TimeSpan.FromSeconds(20),
@@ -978,7 +978,7 @@ public sealed class OutboxProcessorReconciliationSchedulingGrain(
     {
         processor ??= this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorTestEvent>
         {
-            PendingItems = () => state.State.Outbox ?? [],
+            OutboxAccessor = () => state.State.Outbox ?? [],
             AcknowledgePostedAsync = AcknowledgePostedAsync,
             ReconcileFailedAsync = ReconcileFailedAsync,
             RetryDelay = TimeSpan.FromMilliseconds(100),

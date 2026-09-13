@@ -15,10 +15,10 @@ public sealed class OutboxProcessorOptions<TOutbox>
     where TOutbox : notnull
 {
     /// <summary>
-    /// Non-null immutable outbox snapshot. Called once before each post run and again
-    /// after reconciliation to decide whether retry work remains.
+    /// Returns the current non-null immutable outbox snapshot. Evaluated before dispatch
+    /// and again during reconciliation and retry scheduling.
     /// </summary>
-    public required Func<Outbox<TOutbox>> PendingItems { get; init; }
+    public required Func<Outbox<TOutbox>> OutboxAccessor { get; init; }
 
     /// <summary>
     /// Called with items that were successfully dispatched by their postmen.
@@ -28,7 +28,7 @@ public sealed class OutboxProcessorOptions<TOutbox>
     /// <remarks>
     /// The batch contains exactly the items that posted successfully and is
     /// <em>not necessarily a contiguous prefix</em> of the
-    /// <see cref="PendingItems"/> snapshot: different postmen dispatch their
+    /// <see cref="OutboxAccessor"/> snapshot: different postmen dispatch their
     /// groups concurrently, and an item without a matching postman fails in
     /// place while later items can still succeed. Remove the received items
     /// by their <see cref="OutboxMessageEnvelope{T}.Id"/>,
@@ -85,7 +85,7 @@ public sealed class OutboxProcessorOptions<TOutbox>
     /// <see cref="AcknowledgePostedAsync"/> and
     /// <see cref="ReconcileFailedAsync"/> use
     /// <see cref="InterleaveReconciliationCallbacks"/>. Snapshot reads from
-    /// <see cref="PendingItems"/> can also happen after a background delivery
+    /// <see cref="OutboxAccessor"/> can also happen after a background delivery
     /// pass to decide whether retry work remains.
     /// </remarks>
     public bool Interleave { get; init; } = true;

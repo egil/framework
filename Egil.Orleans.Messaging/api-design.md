@@ -403,7 +403,9 @@ outbox.Clear();             // Preserves sequence high-water mark and epoch.
 
 The actual types carry Orleans serialization metadata and JSON support. Each stored
 ID field is required in JSON so malformed data cannot silently acquire default
-sequence metadata. This beta changes the stored shape without a legacy migration.
+sequence metadata. The earlier sender-free ID and revision changes changed the
+stored shape without a legacy migration. Payload-first enumeration and the
+OutboxAccessor rename do not change that persisted representation.
 
 The public collection implements `IReadOnlyList<T>` over payloads. `Envelopes`
 returns the existing immutable envelope array for inspection and acknowledgement.
@@ -1292,14 +1294,14 @@ sequenceDiagram
     participant Reconcile as "Non-interleaving reconciliation turn"
 
     Grain->>Dispatch: "PostInBackgroundAsync schedules dispatch"
-    Dispatch->>Grain: "PendingItems() snapshot"
+    Dispatch->>Grain: "OutboxAccessor() snapshot"
     Dispatch->>Postmen: "Dispatch all pending items concurrently"
     Note over Dispatch,Grain: "Other grain calls may run while postmen await"
     Postmen-->>Dispatch: "Success/failure results"
     Dispatch->>Reconcile: "Enqueue reconciliation"
     Reconcile->>Grain: "AcknowledgePostedAsync / ReconcileFailedAsync"
     Note over Reconcile,Grain: "Must not interleave with normal writes"
-    Reconcile->>Grain: "PendingItems() and retry/reminder update"
+    Reconcile->>Grain: "OutboxAccessor() and retry/reminder update"
 ```
 
 Orleans has two relevant scheduling layers:
@@ -1327,7 +1329,7 @@ The two technically valid ways to get the diagram above are:
    time-based.
 2. Move pending/acknowledge/reconcile callbacks onto an outbox grain interface
    and have the processor call the owning grain through its self-reference.
-   Those methods are then ordinary Orleans grain calls. `PendingItems` should
+   Those methods are then ordinary Orleans grain calls. `OutboxAccessor` should
    not be `[ReadOnly]` if it must wait behind writes; `[ReadOnly]` only
    interleaves with other read-only calls, not arbitrary writes.
 
@@ -1397,8 +1399,9 @@ extension<TGrain>(TGrain grain) where TGrain : IOutboxGrain, IGrainBase
 ```csharp
 public sealed class OutboxProcessorOptions<TOutbox> where TOutbox : notnull
 {
-    /// Snapshot of pending items. Called once per post run from a grain turn.
-    public required Func<Outbox<TOutbox>> PendingItems { get; init; }
+    /// Returns the current immutable outbox snapshot. Evaluated before dispatch
+    /// and again during reconciliation and retry scheduling.
+    public required Func<Outbox<TOutbox>> OutboxAccessor { get; init; }
 
     /// Acknowledges successfully posted items.
     /// Expected to remove those items from the durable outbox state.
@@ -1441,23 +1444,22 @@ processing-timeout behavior, and pass `timeProvider.GetUtcNow()` to
 `Outbox.Add(message, utcNow)` when appending. The processor does not own the
 persisted outbox or re-inject transient services into it.
 
-Naming note: `PendingItems` intentionally names the role of the callback
-rather than an imperative method (`GetPending`). `OutboxAccessor` was
-considered, but it is less precise because the processor does not need
-general outbox access, only a pending-item snapshot.
+Naming note: `OutboxAccessor` describes a callback that reads the current immutable
+outbox snapshot. The processor evaluates it again as reconciliation and retry
+scheduling proceed, because state writes can replace the outbox instance.
 
 `AcknowledgePostedAsync` and `ReconcileFailedAsync` are reconciliation
 callbacks, not passive notifications:
 
 - `AcknowledgePostedAsync` is expected to remove successfully posted items
   from the durable outbox and persist that change. If acknowledged items
-  still appear in `PendingItems` after the callback returns, the processor
+  still appear in `OutboxAccessor` after the callback returns, the processor
   treats them as pending and they may be posted again.
 - `ReconcileFailedAsync` is the grain's policy hook for failed items. The
   grain may leave them in the outbox for retry, remove them, move them to
   dead-letter state, or make any other durable state change. If null, failed
   items are left pending and retried silently.
-- After either callback returns, the processor reads `PendingItems` again
+- After either callback returns, the processor reads `OutboxAccessor` again
   before scheduling retry/reminder work. The latest pending snapshot is the
   source of truth.
 
@@ -1591,9 +1593,9 @@ public async Task ReceiveReminder(string name, TickStatus status)
 - **Callback-based, not DI service.** Grain controls dispatch logic,
   can pass its own state to the postman. DI service adds indirection
   without clear benefit.
-- **`PendingItems`, not `GetPending`.** The option is a callback consumed
-  by the processor, not a method users call. The name describes the data
-  supplied to the processor and avoids implying ad-hoc outbox operations.
+- **`OutboxAccessor`.** The callback reads the current immutable outbox,
+  including after state replacement. It is not a captured, fixed collection
+  of pending items.
 - **First-registered-wins postman matching.** Simple dispatch model.
   The metaphor is a switch statement: the first matching case handles the
   item. Order most-specific first. Unmatched items →
