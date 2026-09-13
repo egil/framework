@@ -127,7 +127,7 @@ public sealed class PayloadSourceGrain : Grain, IPayloadSourceGrain, IOutboxGrai
         manager = this.RegisterStateManager("Payload", storage);
         processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<IPayloadEvent>
         {
-            PendingItems = () => manager.State.Outbox,
+            OutboxAccessor = () => manager.State.Outbox,
             AcknowledgePostedAsync = AcknowledgeAsync,
             RetryDelay = TimeSpan.FromMinutes(10)
         })

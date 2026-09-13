@@ -14,7 +14,7 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// <remarks>
 /// Matching remains first-match-wins across registered postmen. During a post
 /// run, each postman receives its matching items sequentially in the order
-/// returned by <see cref="OutboxProcessorOptions{TOutbox}.PendingItems"/>. A
+/// returned by <see cref="OutboxProcessorOptions{TOutbox}.OutboxAccessor"/>. A
 /// failure stops that postman's sequence so later matching items remain
 /// pending until the owning grain removes or reconciles the failed item.
 /// Different postmen are dispatched concurrently.
@@ -330,7 +330,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     }
 
     private ImmutableArray<OutboxMessageEnvelope<TOutbox>> GetPendingItems() =>
-        (options.PendingItems() ?? throw new InvalidOperationException("PendingItems must return a non-null outbox snapshot.")).Envelopes;
+        (options.OutboxAccessor() ?? throw new InvalidOperationException("OutboxAccessor must return a non-null outbox snapshot.")).Envelopes;
 
     private async Task<OutboxReconciliationBatch<OutboxMessageEnvelope<TOutbox>>> ProcessPendingItemsAsync(
         CancellationToken cancellationToken)

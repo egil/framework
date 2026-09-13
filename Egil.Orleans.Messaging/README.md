@@ -203,7 +203,7 @@ public OrderGrain([PersistentState("state", "Default")] IPersistentState<OrderSt
     state = this.RegisterStateManager("state", storage);
     outboxProcessor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<IOrderEvent>
     {
-        PendingItems = () => state.State.Outbox,
+        OutboxAccessor = () => state.State.Outbox,
         AcknowledgePostedAsync = async (items, ct) =>
         {
             ct.ThrowIfCancellationRequested();
@@ -229,7 +229,8 @@ and cancellation is always third. Capture a grain factory when needed, or use
 `OutboxMessageId` and its owning grain ID, preserving sequence, epoch and append
 timestamp across retries and reactivation. No sender identity is stored in the outbox.
 
-`PendingItems`, `AcknowledgePostedAsync`, and `ReconcileFailedAsync` use the original
+`OutboxAccessor` returns the current `Outbox<T>` snapshot.
+`AcknowledgePostedAsync` and `ReconcileFailedAsync` receive its original
 stored `OutboxMessageEnvelope<T>` values. Acknowledgment receives exactly the
 successfully delivered items, which need not be a contiguous prefix. Remove them
 by passing the envelopes directly to `RemoveRange`; never remove by position or count. Equal payloads
@@ -382,7 +383,7 @@ processor.ForStreamProvider("events")
 
 - Indexing and enumeration now return payloads. Use `outbox.Envelopes` where code
   previously read `.Id` or `.Message` from outbox entries.
-- `PendingItems` now returns a non-null `Outbox<T>` directly. Replace array
+- Rename `PendingItems` to `OutboxAccessor`, which returns a non-null `Outbox<T>` directly. Replace array
   conversions with `() => state.Outbox`; return `[]` for a fresh empty snapshot,
   not `default` or `null` (null is rejected with `InvalidOperationException`).
 - Acknowledgement and failure callbacks still receive envelopes. Existing ID-based
@@ -548,4 +549,7 @@ The constructor-registration and payload-postman changes tracked in
 - Supply state factories for types without a public parameterless constructor. Custom `IStateManagerFactory` implementations receive the initial-state factory and runtime configuration callback.
 - Pass a tracker accessor to `RegisterStreamManager`, for example `() => state.State.Tracker`. It is evaluated when attaching/resuming subscriptions, after hydration, and observes later state replacement.
 
-The stored outbox JSON shape changes. Migration of earlier beta data is not provided.
+The earlier sender-free message-ID and revision changes described above changed
+the stored JSON shape; migration of snapshots predating those changes is not
+provided. The payload-first collection and OutboxAccessor changes preserve that
+existing sender-free, revision-bearing JSON and Orleans layout.
