@@ -7,6 +7,44 @@ namespace Egil.Orleans.Messaging.Tests.Streams;
 
 public sealed class StreamManagerResumeTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Distinct_explicit_subscription_sources_can_be_configured(bool explicitId)
+    {
+        var stream = new FakeStream<string>("provider-a", StreamId.Create("orders", "one"));
+        var manager = CreateManager(null, stream);
+        Func<string, string, StreamManager> configure = explicitId
+            ? (provider, name) => manager.ConfigureExplicitSubscription<string>(provider, StreamId.Create(name, "one"), static (_, _) => ValueTask.CompletedTask)
+            : (provider, name) => manager.ConfigureExplicitSubscription<string>(provider, name, static (_, _) => ValueTask.CompletedTask);
+        configure("provider-a", "orders");
+
+        configure("provider-b", "orders");
+        var configured = configure("provider-a", "other");
+
+        Assert.Same(manager, configured);
+    }
+
+    [Theory]
+    [InlineData(false, 7)]
+    [InlineData(true, 9)]
+    public async Task Legacy_position_resumes_subscription_unless_provider_has_its_own_position(bool hasProviderPosition, long expectedSequence)
+    {
+        var tracker = new MessageTracker();
+        tracker.ProcessMessage(new StreamCursor("orders", new EventSequenceToken(7)), out tracker);
+        if (hasProviderPosition)
+        {
+            tracker.ProcessMessage(new StreamCursor("orders", new EventSequenceToken(9), "provider-a"), out tracker);
+        }
+        var stream = new FakeStream<string>("provider-a", StreamId.Create("orders", "one"));
+        var manager = CreateManager(() => tracker, stream);
+
+        await manager.ConfigureExplicitSubscription<string>("provider-a", "orders", static (_, _) => ValueTask.CompletedTask)
+            .EnsureExplicitSubscriptionsAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(new EventSequenceToken(expectedSequence), stream.SubscribeToken);
+    }
+
     [Fact]
     public async Task Subscription_uses_tracker_adopted_after_registration()
     {
@@ -186,11 +224,12 @@ public sealed class StreamManagerResumeTests
         Assert.Contains("provider-a", exception.Message);
     }
 
-    private static StreamManager CreateManager<TEvent>(
+    internal static StreamManager CreateManager<TEvent>(
         Func<MessageTracker?>? tracker,
-        FakeStream<TEvent> stream)
+        FakeStream<TEvent> stream,
+        IGrainBase? owner = null)
     {
-        var owner = new FakeGrainBase();
+        owner ??= new FakeGrainBase();
         return StreamManager.Create(
             owner,
             tracker,
@@ -233,11 +272,13 @@ public sealed class StreamManagerResumeTests
         }
     }
 
-    private sealed class FakeStream<T>(
+    internal sealed class FakeStream<T>(
         string providerName,
         StreamId streamId) : IAsyncStream<T>
     {
         public List<StreamSubscriptionHandle<T>> Handles { get; } = [];
+
+        private IAsyncObserver<T>? observer;
 
         public int SubscribeCount { get; private set; }
 
@@ -264,6 +305,7 @@ public sealed class StreamManagerResumeTests
             StreamSequenceToken? token,
             string? filterData = null)
         {
+            this.observer = observer;
             SubscribeCount++;
             SubscribeToken = token;
             var handle = new FakeSubscriptionHandle<T>(providerName, streamId);
@@ -272,7 +314,8 @@ public sealed class StreamManagerResumeTests
             return Task.FromResult<StreamSubscriptionHandle<T>>(handle);
         }
 
-        public Task OnNextAsync(T item, StreamSequenceToken? token = null) => Task.CompletedTask;
+        public Task OnNextAsync(T item, StreamSequenceToken? token = null) =>
+            (observer ?? throw new InvalidOperationException("No subscriber attached.")).OnNextAsync(item, token);
 
         public Task OnNextBatchAsync(IEnumerable<T> batch, StreamSequenceToken? token = null) => Task.CompletedTask;
 
@@ -316,10 +359,15 @@ public sealed class StreamManagerResumeTests
         }
     }
 
-    private sealed class FakeSubscriptionHandle<T>(
+    internal sealed class FakeSubscriptionHandle<T>(
         string providerName,
         StreamId streamId) : StreamSubscriptionHandle<T>
     {
+        private IAsyncObserver<T>? observer;
+
+        public Task DeliverAsync(T item) =>
+            (observer ?? throw new InvalidOperationException("No subscriber attached.")).OnNextAsync(item);
+
         public int ResumeCount { get; private set; }
 
         public StreamSequenceToken? ResumeToken { get; private set; }
@@ -336,6 +384,7 @@ public sealed class StreamManagerResumeTests
             IAsyncObserver<T> observer,
             StreamSequenceToken? token)
         {
+            this.observer = observer;
             ResumeCount++;
             ResumeToken = token;
             return Task.FromResult<StreamSubscriptionHandle<T>>(this);
@@ -354,7 +403,7 @@ public sealed class StreamManagerResumeTests
             other?.HandleId == HandleId;
     }
 
-    private sealed class FakeStreamSubscriptionHandleFactory(
+    internal sealed class FakeStreamSubscriptionHandleFactory(
         string providerName,
         StreamId streamId,
         FakeSubscriptionHandle<string> stringHandle) : IStreamSubscriptionHandleFactory

@@ -7,6 +7,44 @@ namespace Egil.Orleans.Messaging.Tests.Streams;
 
 public sealed class StreamCursorJsonConverterTests
 {
+    [Theory]
+    [InlineData("event-sequence", "1.5")]
+    [InlineData("event-sequence", "2147483648")]
+    [InlineData("event-sequence", "\"1\"")]
+    [InlineData("event-sequence-v2", "1.5")]
+    [InlineData("event-sequence-v2", "2147483648")]
+    [InlineData("event-sequence-v2", "\"1\"")]
+    public void Invalid_event_index_cannot_change_stream_position(string kind, string index)
+    {
+        var json = $$"""{"StreamNamespace":"orders","Token":{"Kind":"{{kind}}","Payload":{"SequenceNumber":7,"EventIndex":{{index}} } } }""";
+
+        var error = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<StreamCursor>(json));
+
+        Assert.Contains("EventIndex", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Legacy_null_provider_preserves_stream_position()
+    {
+        var json = """{"StreamNamespace":"orders","ProviderName":null,"Token":{"Kind":"event-sequence","Payload":{"SequenceNumber":7,"EventIndex":2}}}""";
+
+        var cursor = JsonSerializer.Deserialize<StreamCursor>(json);
+
+        Assert.Equal(new StreamCursor("orders", new EventSequenceToken(7, 2)), cursor);
+    }
+
+    [Theory]
+    [InlineData("42")]
+    [InlineData("{}")]
+    public void Invalid_provider_metadata_is_rejected(string provider)
+    {
+        var json = $$"""{"StreamNamespace":"orders","ProviderName":{{provider}},"Token":null}""";
+
+        var error = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<StreamCursor>(json));
+
+        Assert.Contains("ProviderName", error.Message, StringComparison.Ordinal);
+    }
+
     public static TheoryData<string, string> InvalidCursorJson => new()
     {
         { """{"Token":null}""", "StreamNamespace" },
