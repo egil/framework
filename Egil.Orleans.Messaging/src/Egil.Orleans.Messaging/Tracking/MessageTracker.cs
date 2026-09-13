@@ -104,7 +104,8 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
 
     /// <summary>
     /// Evaluates a stream message for acceptance. Returns <c>true</c> if the
-    /// <paramref name="cursor"/> advances past the stored high-water mark.
+    /// <paramref name="cursor"/> has no token or advances past the stored high-water mark.
+    /// Tokenless messages leave tracking state unchanged.
     /// </summary>
     /// <param name="cursor">The stream cursor to evaluate.</param>
     /// <param name="next">
@@ -144,8 +145,8 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
 
     /// <summary>
     /// Evaluates a stream message for acceptance. Returns <c>true</c> if the
-    /// <paramref name="token"/> advances past the stored high-water mark for
-    /// <paramref name="streamNamespace"/>.
+    /// <paramref name="token"/> is null or advances past the stored high-water mark for
+    /// <paramref name="streamNamespace"/>. Tokenless messages leave tracking state unchanged.
     /// </summary>
     /// <param name="streamNamespace">The Orleans stream namespace within the grain.</param>
     /// <param name="token">The stream sequence token to evaluate.</param>
@@ -167,8 +168,8 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
 
     /// <summary>
     /// Evaluates a provider-qualified stream message for acceptance. Returns
-    /// <c>true</c> if the <paramref name="token"/> advances past the stored
-    /// high-water mark for the provider and namespace.
+    /// <c>true</c> if the <paramref name="token"/> is null or advances past the stored
+    /// high-water mark for the provider and namespace. Tokenless messages leave tracking state unchanged.
     /// </summary>
     /// <param name="streamProviderName">The Orleans stream provider name.</param>
     /// <param name="streamNamespace">The Orleans stream namespace within the grain.</param>
