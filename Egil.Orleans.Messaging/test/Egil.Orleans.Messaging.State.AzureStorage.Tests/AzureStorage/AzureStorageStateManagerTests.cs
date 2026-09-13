@@ -17,7 +17,7 @@ public sealed class AzureStorageStateManagerTests
         var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
 
         var actual = await Assert.ThrowsAsync<RequestFailedException>(
-            () => manager.WriteAsync(new TestState("next")));
+            () => manager.WriteAsync(new TestState("next"), TestContext.Current.CancellationToken));
 
         Assert.Same(exception, actual);
         Assert.Equal(0, storage.ReadCount);
@@ -38,7 +38,7 @@ public sealed class AzureStorageStateManagerTests
         var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
 
         var actual = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => manager.WriteAsync(new TestState("next")));
+            () => manager.WriteAsync(new TestState("next"), TestContext.Current.CancellationToken));
 
         Assert.Same(exception, actual);
         Assert.Equal(0, storage.ReadCount);
@@ -60,7 +60,7 @@ public sealed class AzureStorageStateManagerTests
         var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
 
         var actual = await Assert.ThrowsAsync<RequestFailedException>(
-            () => manager.WriteAsync(new TestState("next")));
+            () => manager.WriteAsync(new TestState("next"), TestContext.Current.CancellationToken));
 
         Assert.Same(exception, actual);
         Assert.Equal(0, storage.ReadCount);
@@ -82,7 +82,7 @@ public sealed class AzureStorageStateManagerTests
         var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
 
         var actual = await Assert.ThrowsAsync<RequestFailedException>(
-            () => manager.WriteAsync(new TestState("next")));
+            () => manager.WriteAsync(new TestState("next"), TestContext.Current.CancellationToken));
 
         Assert.Same(exception, actual);
         Assert.Equal(0, storage.ReadCount);
@@ -99,7 +99,7 @@ public sealed class AzureStorageStateManagerTests
         };
         var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
 
-        await manager.WriteAsync(new TestState("next"));
+        await manager.WriteAsync(new TestState("next"), TestContext.Current.CancellationToken);
 
         Assert.Equal(1, storage.ReadCount);
         Assert.Equal(new TestState("next"), manager.State);
@@ -119,7 +119,7 @@ public sealed class AzureStorageStateManagerTests
         };
         var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
 
-        await manager.WriteAsync(new TestState("next"));
+        await manager.WriteAsync(new TestState("next"), TestContext.Current.CancellationToken);
 
         Assert.Equal(1, storage.ReadCount);
         Assert.Equal(new TestState("next"), manager.State);
@@ -139,7 +139,7 @@ public sealed class AzureStorageStateManagerTests
         };
         var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
 
-        await manager.WriteAsync(new TestState("next"));
+        await manager.WriteAsync(new TestState("next"), TestContext.Current.CancellationToken);
 
         Assert.Equal(1, storage.ReadCount);
         Assert.Equal(new TestState("next"), manager.State);
@@ -155,7 +155,7 @@ public sealed class AzureStorageStateManagerTests
         };
         var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
 
-        await manager.WriteAsync(new TestState("next"));
+        await manager.WriteAsync(new TestState("next"), TestContext.Current.CancellationToken);
 
         Assert.Equal(1, storage.ReadCount);
         Assert.Equal(new TestState("next"), manager.State);
@@ -177,7 +177,7 @@ public sealed class AzureStorageStateManagerTests
         var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
 
         var actual = await Assert.ThrowsAsync<AggregateException>(
-            () => manager.WriteAsync(new TestState("next")));
+            () => manager.WriteAsync(new TestState("next"), TestContext.Current.CancellationToken));
 
         Assert.Same(exception, actual);
         Assert.Equal(0, storage.ReadCount);
@@ -204,7 +204,7 @@ public sealed class AzureStorageStateManagerTests
         };
         var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
 
-        await manager.WriteAsync(new TestState("next"));
+        await manager.WriteAsync(new TestState("next"), TestContext.Current.CancellationToken);
 
         Assert.Equal(1, storage.ReadCount);
         Assert.Equal(new TestState("next"), manager.State);
@@ -221,7 +221,7 @@ public sealed class AzureStorageStateManagerTests
         var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
 
         var actual = await Assert.ThrowsAsync<RequestFailedException>(
-            () => manager.ClearAsync());
+            () => manager.ClearAsync(TestContext.Current.CancellationToken));
 
         Assert.Same(exception, actual);
         Assert.Equal(0, storage.ReadCount);
@@ -243,7 +243,7 @@ public sealed class AzureStorageStateManagerTests
         };
         var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
 
-        await manager.ClearAsync();
+        await manager.ClearAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(1, storage.ReadCount);
         Assert.False(storage.RecordExists);
@@ -263,7 +263,7 @@ public sealed class AzureStorageStateManagerTests
         };
         var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
 
-        await manager.WriteAsync(attempted);
+        await manager.WriteAsync(attempted, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, storage.ReadCount);
         Assert.Same(attempted, manager.State);
@@ -280,7 +280,7 @@ public sealed class AzureStorageStateManagerTests
         };
         var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
 
-        await manager.WriteAsync(attempted);
+        await manager.WriteAsync(attempted, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, storage.ReadCount);
         Assert.Same(attempted, manager.State);
@@ -299,7 +299,7 @@ public sealed class AzureStorageStateManagerTests
         };
         var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
 
-        await manager.WriteAsync(attempted);
+        await manager.WriteAsync(attempted, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, storage.ReadCount);
         Assert.Same(attempted, manager.State);

@@ -104,16 +104,18 @@ public abstract class StateManagerBase<T> : IStateManager<T>
     }
 
     /// <inheritdoc/>
-    public async Task ReadAsync()
+    public async Task ReadAsync(CancellationToken cancellationToken = default)
     {
-        await storage.ReadStateAsync();
+        cancellationToken.ThrowIfCancellationRequested();
+        await storage.ReadStateAsync(cancellationToken);
         Adopt(ResolveLoadedState());
     }
 
     /// <inheritdoc/>
-    public async Task WriteAsync(T newState)
+    public async Task WriteAsync(T newState, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(newState);
+        cancellationToken.ThrowIfCancellationRequested();
 
         var previousState = state;
 
@@ -126,7 +128,7 @@ public abstract class StateManagerBase<T> : IStateManager<T>
 
         try
         {
-            await storage.WriteStateAsync();
+            await storage.WriteStateAsync(cancellationToken);
         }
         catch (Exception ex)
         {
@@ -139,7 +141,7 @@ public abstract class StateManagerBase<T> : IStateManager<T>
                 throw;
             }
 
-            if (!await TryReadForRecoveryAsync(previousState))
+            if (!await TryReadForRecoveryAsync(previousState, cancellationToken))
             {
                 throw;
             }
@@ -165,12 +167,13 @@ public abstract class StateManagerBase<T> : IStateManager<T>
     }
 
     /// <inheritdoc/>
-    public async Task ClearAsync()
+    public async Task ClearAsync(CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var previousState = state;
         try
         {
-            await storage.ClearStateAsync();
+            await storage.ClearStateAsync(cancellationToken);
         }
         catch (Exception ex)
         {
@@ -180,7 +183,7 @@ public abstract class StateManagerBase<T> : IStateManager<T>
                 throw;
             }
 
-            if (!await TryReadForRecoveryAsync(previousState))
+            if (!await TryReadForRecoveryAsync(previousState, cancellationToken))
             {
                 throw;
             }
@@ -206,11 +209,14 @@ public abstract class StateManagerBase<T> : IStateManager<T>
         Adopt(CreateInitialState());
     }
 
-    private async Task<bool> TryReadForRecoveryAsync(T previousState)
+    private async Task<bool> TryReadForRecoveryAsync(T previousState, CancellationToken cancellationToken)
     {
         try
         {
-            await storage.ReadStateAsync();
+            // Cancellation cannot prove whether the mutation landed. If recovery
+            // is canceled too, retain the previous fence and the original failure.
+            cancellationToken.ThrowIfCancellationRequested();
+            await storage.ReadStateAsync(cancellationToken);
             return true;
         }
         catch
