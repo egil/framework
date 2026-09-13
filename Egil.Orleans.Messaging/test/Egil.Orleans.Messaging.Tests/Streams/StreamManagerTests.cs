@@ -318,7 +318,7 @@ public sealed class StreamManagerTestGrain(
 
     private void TrackStreamCursor(StreamCursor cursor)
     {
-        if (state.State.Tracker.ProcessMessage(cursor, out var next))
+        if (state.State.Tracker.TryAcceptMessage(cursor, out var next))
         {
             state.State.Tracker = next;
         }
@@ -360,7 +360,7 @@ public sealed class ImplicitStreamManagerTestGrain(
 
     private async ValueTask HandleImplicitAsync(string item, StreamCursor cursor)
     {
-        state.State.Tracker.ProcessMessage(cursor, out var tracker);
+        state.State.Tracker.TryAcceptMessage(cursor, out var tracker);
         state.State.Tracker = tracker;
         state.State.Value = item;
         state.State.DeliveryCount++;

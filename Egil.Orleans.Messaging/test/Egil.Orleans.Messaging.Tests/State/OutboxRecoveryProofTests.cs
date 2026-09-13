@@ -14,9 +14,9 @@ public sealed class OutboxRecoveryProofTests
         var storage = new AmbiguousOutboxStorage(initial, competing);
         var manager = new DefaultStateManager<Outbox<string>>(storage, Outbox<string>.Create);
 
-        var error = await Record.ExceptionAsync(() => manager.WriteAsync(attempted));
+        var error = await Record.ExceptionAsync(() => manager.WriteAsync(attempted, TestContext.Current.CancellationToken));
 
-        Assert.DoesNotContain(manager.State, item => item.Message == "attempted message");
+        Assert.DoesNotContain(manager.State, item => item == "attempted message");
         Assert.IsType<TimeoutException>(error);
     }
 
@@ -30,9 +30,9 @@ public sealed class OutboxRecoveryProofTests
         var storage = new AmbiguousOutboxStorage(initial, durable);
         var manager = new DefaultStateManager<Outbox<string>>(storage, Outbox<string>.Create);
 
-        await manager.WriteAsync(attempted);
+        await manager.WriteAsync(attempted, TestContext.Current.CancellationToken);
 
-        Assert.Equal("saved message", Assert.Single(manager.State).Message);
+        Assert.Equal("saved message", Assert.Single(manager.State));
         Assert.Equal(attempted, manager.State);
     }
 

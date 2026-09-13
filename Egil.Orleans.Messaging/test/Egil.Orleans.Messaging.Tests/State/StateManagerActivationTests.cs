@@ -5,6 +5,21 @@ namespace Egil.Orleans.Messaging.Tests.State;
 public sealed class StateManagerActivationTests(MessagingTestClusterFixture fixture)
     : IClassFixture<MessagingTestClusterFixture>
 {
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task Constructor_registered_manager_forwards_cancellation(int operation)
+    {
+        var grain = fixture.GrainFactory.GetGrain<IStateManagerActivationGrain>(Guid.NewGuid());
+
+        Assert.True(await grain.CancelOperationAsync(operation));
+
+        var state = await grain.InspectAsync();
+        Assert.Equal("default", state.Value);
+        Assert.False(state.RecordExists);
+    }
+
     [Fact]
     public async Task Runtime_clock_configuration_reaches_the_tracker_replaced_by_a_read()
     {
@@ -47,6 +62,7 @@ public sealed class StateManagerActivationTests(MessagingTestClusterFixture fixt
 
 public interface IStateManagerActivationGrain : IGrainWithGuidKey
 {
+    Task<bool> CancelOperationAsync(int operation);
     Task<ActivationStateObservation> InspectAsync();
     Task SaveAndDeactivateAsync(string value);
     Task<bool> UsesConfiguredClockAfterReadAsync();
@@ -112,8 +128,29 @@ public sealed class StateManagerActivationGrain : Grain, IStateManagerActivation
         await manager.ReadAsync();
         var now = time.GetUtcNow();
         var sender = GrainContext.GrainId;
-        manager.State.Tracker.ProcessMessage(new OutboxSequenceToken(1, sender, now, now), out var tracked);
+        manager.State.Tracker.TryAcceptMessage(new OutboxSequenceToken(1, sender, now, now), out var tracked);
         return tracked.Evict(sender, now.AddSeconds(1)).LatestOutbox(sender) is null;
+    }
+
+    public async Task<bool> CancelOperationAsync(int operation)
+    {
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+        try
+        {
+            await (operation switch
+            {
+                0 => manager.ReadAsync(cancellation.Token),
+                1 => manager.WriteAsync(manager.State with { Value = "canceled" }, cancellation.Token),
+                2 => manager.ClearAsync(cancellation.Token),
+                _ => throw new ArgumentOutOfRangeException(nameof(operation))
+            });
+            return false;
+        }
+        catch (OperationCanceledException)
+        {
+            return true;
+        }
     }
 
     public async Task SaveAndDeactivateAsync(string value)

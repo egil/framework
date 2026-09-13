@@ -76,7 +76,7 @@ public sealed class EnrichedEventHubSequenceTokenJsonConverterTests
             new EnrichedEventHubSequenceTokenJsonConverter());
         var token = CreateToken();
         var tracker = new MessageTracker();
-        tracker.ProcessMessage(new StreamCursor("orders", token), out tracker);
+        tracker.TryAcceptMessage(new StreamCursor("orders", token), out tracker);
 
         var json = JsonSerializer.Serialize(tracker);
         var roundTripped = JsonSerializer.Deserialize<MessageTracker>(json);

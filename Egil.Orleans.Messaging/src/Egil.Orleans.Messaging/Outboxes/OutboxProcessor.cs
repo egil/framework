@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Microsoft.Extensions.Logging;
 
 namespace Egil.Orleans.Messaging.Outboxes;
@@ -13,7 +14,7 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// <remarks>
 /// Matching remains first-match-wins across registered postmen. During a post
 /// run, each postman receives its matching items sequentially in the order
-/// returned by <see cref="OutboxProcessorOptions{TOutbox}.PendingItems"/>. A
+/// returned by <see cref="OutboxProcessorOptions{TOutbox}.OutboxAccessor"/>. A
 /// failure stops that postman's sequence so later matching items remain
 /// pending until the owning grain removes or reconciles the failed item.
 /// Different postmen are dispatched concurrently.
@@ -134,7 +135,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     public async ValueTask PostInBackgroundAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (options.PendingItems().IsDefaultOrEmpty)
+        if (GetPendingItems().IsDefaultOrEmpty)
         {
             await DisableRetryAsync();
             return;
@@ -328,11 +329,14 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         }
     }
 
+    private ImmutableArray<OutboxMessageEnvelope<TOutbox>> GetPendingItems() =>
+        (options.OutboxAccessor() ?? throw new InvalidOperationException("OutboxAccessor must return a non-null outbox snapshot.")).Envelopes;
+
     private async Task<OutboxReconciliationBatch<OutboxMessageEnvelope<TOutbox>>> ProcessPendingItemsAsync(
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var pending = options.PendingItems();
+        var pending = GetPendingItems();
         MessagingTelemetry.RecordOutboxDepth(grainType, pending.IsDefault ? 0 : pending.Length);
 
         if (pending.IsDefaultOrEmpty)
@@ -359,7 +363,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
 
     private async Task ReconcileRetryStateAsync()
     {
-        var pending = options.PendingItems();
+        var pending = GetPendingItems();
         MessagingTelemetry.RecordOutboxDepth(grainType, pending.IsDefault ? 0 : pending.Length);
 
         // Items the grain removed without a successful post (dead-lettered or
@@ -385,7 +389,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         }
 
         drainRequested = false;
-        if (options.PendingItems().IsDefaultOrEmpty)
+        if (GetPendingItems().IsDefaultOrEmpty)
         {
             await DisableRetryAsync();
             return;
@@ -398,7 +402,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     {
         try
         {
-            if (options.PendingItems().IsDefaultOrEmpty)
+            if (GetPendingItems().IsDefaultOrEmpty)
             {
                 return;
             }

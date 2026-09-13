@@ -133,11 +133,21 @@ public sealed class OutboxProcessorCoverageTests(MessagingTestClusterFixture fix
     }
 
     [Fact]
-    public async Task PostAsync_with_default_pending_snapshot_disables_retry()
+    public async Task Null_outbox_snapshot_is_rejected_with_a_clear_error()
     {
         var grain = fixture.GrainFactory.GetGrain<IOutboxProcessorValidationCoverageGrain>(Guid.NewGuid());
 
-        var state = await grain.PostDefaultPendingAsync();
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => grain.PostNullOutboxAsync());
+
+        Assert.Contains("OutboxAccessor must return a non-null outbox snapshot", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PostAsync_with_empty_outbox_snapshot_disables_retry()
+    {
+        var grain = fixture.GrainFactory.GetGrain<IOutboxProcessorValidationCoverageGrain>(Guid.NewGuid());
+
+        var state = await grain.PostEmptyOutboxAsync();
 
         Assert.Equal(0, state.AcknowledgedCount);
         Assert.Equal(0, state.FailedCount);
@@ -145,11 +155,11 @@ public sealed class OutboxProcessorCoverageTests(MessagingTestClusterFixture fix
     }
 
     [Fact]
-    public async Task PostAsync_with_default_pending_snapshot_after_acknowledgement_disables_retry()
+    public async Task PostAsync_with_empty_outbox_snapshot_after_acknowledgement_disables_retry()
     {
         var grain = fixture.GrainFactory.GetGrain<IOutboxProcessorValidationCoverageGrain>(Guid.NewGuid());
 
-        var state = await grain.PostPendingThenDefaultAfterAcknowledgeAsync();
+        var state = await grain.PostPendingThenEmptyAfterAcknowledgeAsync();
 
         Assert.Equal(1, state.AcknowledgedCount);
         Assert.Null(state.Outbox);
@@ -414,9 +424,11 @@ public interface IOutboxProcessorValidationCoverageGrain : IGrainWithGuidKey
 {
     Task<OutboxProcessorSourceState> PostEmptyPendingInBackgroundAsync();
 
-    Task<OutboxProcessorSourceState> PostDefaultPendingAsync();
+    Task PostNullOutboxAsync();
 
-    Task<OutboxProcessorSourceState> PostPendingThenDefaultAfterAcknowledgeAsync();
+    Task<OutboxProcessorSourceState> PostEmptyOutboxAsync();
+
+    Task<OutboxProcessorSourceState> PostPendingThenEmptyAfterAcknowledgeAsync();
 
     Task<string?> PostInBackgroundWithCanceledTokenAsync();
 
@@ -531,7 +543,7 @@ public sealed class OutboxProcessorReentrantPostGrain(
 
     private OutboxProcessorOptions<OutboxProcessorTestEvent> CreateOptions() => new()
     {
-        PendingItems = () => state.State.Outbox?.ToImmutableArray() ?? [],
+        OutboxAccessor = () => state.State.Outbox ?? [],
         AcknowledgePostedAsync = AcknowledgePostedAsync,
         ReconcileFailedAsync = ReconcileFailedAsync,
         RetryDelay = TimeSpan.FromMilliseconds(100)
@@ -572,7 +584,7 @@ public sealed class OutboxProcessorConcurrentManualPostGrain(
     {
         processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorTestEvent>
         {
-            PendingItems = () => state.State.Outbox?.ToImmutableArray() ?? [],
+            OutboxAccessor = () => state.State.Outbox ?? [],
             AcknowledgePostedAsync = AcknowledgePostedAsync,
             ReconcileFailedAsync = ReconcileFailedAsync,
             RetryDelay = TimeSpan.FromMilliseconds(100)
@@ -649,7 +661,7 @@ public sealed class OutboxProcessorRetryPendingGrain(
     {
         processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorTestEvent>
         {
-            PendingItems = () => state.State.Outbox?.ToImmutableArray() ?? [],
+            OutboxAccessor = () => state.State.Outbox ?? [],
             AcknowledgePostedAsync = AcknowledgePostedAsync,
             ReconcileFailedAsync = ReconcileFailedAsync,
             RetryDelay = TimeSpan.FromMinutes(2)
@@ -729,7 +741,7 @@ public sealed class OutboxProcessorReminderCoverageGrain(
     {
         processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorTestEvent>
         {
-            PendingItems = () => state.State.Outbox?.ToImmutableArray() ?? [],
+            OutboxAccessor = () => state.State.Outbox ?? [],
             AcknowledgePostedAsync = AcknowledgePostedAsync,
             ReconcileFailedAsync = ReconcileFailedAsync,
             RetryDelay = TimeSpan.FromMinutes(2)
@@ -791,28 +803,33 @@ public sealed class OutboxProcessorValidationCoverageGrain(
         return state.State;
     }
 
-    public async Task<OutboxProcessorSourceState> PostDefaultPendingAsync()
+    public async Task PostNullOutboxAsync()
     {
-        var processor = this.RegisterOutboxProcessor(CreateOptions(static () => default));
+        var processor = this.RegisterOutboxProcessor(CreateOptions(static () => null!));
+        await processor.PostAsync();
+    }
+
+    public async Task<OutboxProcessorSourceState> PostEmptyOutboxAsync()
+    {
+        var processor = this.RegisterOutboxProcessor(CreateOptions(static () => []));
         await processor.PostAsync();
         return state.State;
     }
 
-    public async Task<OutboxProcessorSourceState> PostPendingThenDefaultAfterAcknowledgeAsync()
+    public async Task<OutboxProcessorSourceState> PostPendingThenEmptyAfterAcknowledgeAsync()
     {
         var pending = Outbox<OutboxProcessorTestEvent>
             .Create()
-            .Add(new OutboxProcessorTestEvent("default-after-ack"))
-            .ToImmutableArray();
-        var returnDefault = false;
+            .Add(new OutboxProcessorTestEvent("empty-after-ack"));
+        var returnEmpty = false;
 
         var processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorTestEvent>
         {
-            PendingItems = () => returnDefault ? default : pending,
+            OutboxAccessor = () => returnEmpty ? [] : pending,
             AcknowledgePostedAsync = (items, _) =>
             {
                 state.State.AcknowledgedCount += items.Length;
-                returnDefault = true;
+                returnEmpty = true;
                 return ValueTask.CompletedTask;
             },
             ReconcileFailedAsync = ReconcileFailedAsync,
@@ -892,7 +909,7 @@ public sealed class OutboxProcessorValidationCoverageGrain(
     {
         var firstProcessor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorTestEvent>
         {
-            PendingItems = () =>
+            OutboxAccessor = () =>
             {
                 state.State.FirstProcessorReminderCount++;
                 return [];
@@ -906,7 +923,7 @@ public sealed class OutboxProcessorValidationCoverageGrain(
         {
             _ = this.RegisterOutboxProcessor(new OutboxProcessorOptions<string>
             {
-                PendingItems = static () => [],
+                OutboxAccessor = static () => [],
                 AcknowledgePostedAsync = static (_, _) => ValueTask.CompletedTask
             });
         }
@@ -922,11 +939,11 @@ public sealed class OutboxProcessorValidationCoverageGrain(
     public Task<OutboxProcessorSourceState> GetStateAsync() => Task.FromResult(state.State);
 
     private OutboxProcessorOptions<OutboxProcessorTestEvent> CreateOptions(
-        Func<ImmutableArray<OutboxMessageEnvelope<OutboxProcessorTestEvent>>> pendingItems,
+        Func<Outbox<OutboxProcessorTestEvent>> outboxAccessor,
         TimeSpan? processingTimeout = null,
         TimeSpan? retryDelay = null) => new()
         {
-            PendingItems = pendingItems,
+            OutboxAccessor = outboxAccessor,
             AcknowledgePostedAsync = AcknowledgePostedAsync,
             ReconcileFailedAsync = ReconcileFailedAsync,
             ProcessingTimeout = processingTimeout ?? TimeSpan.FromSeconds(20),
@@ -961,7 +978,7 @@ public sealed class OutboxProcessorReconciliationSchedulingGrain(
     {
         processor ??= this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorTestEvent>
         {
-            PendingItems = () => state.State.Outbox?.ToImmutableArray() ?? [],
+            OutboxAccessor = () => state.State.Outbox ?? [],
             AcknowledgePostedAsync = AcknowledgePostedAsync,
             ReconcileFailedAsync = ReconcileFailedAsync,
             RetryDelay = TimeSpan.FromMilliseconds(100),

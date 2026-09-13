@@ -6,7 +6,64 @@ namespace Egil.Orleans.Messaging.Tests.Tracking;
 public sealed class MessageTrackerTests
 {
     [Fact]
-    public void ProcessMessage_accepts_first_stream_cursor_and_tracks_latest_position()
+    public void Eviction_removes_only_expired_sources_and_preserves_recent_deduplication()
+    {
+        var now = DateTimeOffset.UnixEpoch;
+        var time = new ManualTimeProvider(now);
+        var oldSender = GrainId.Create("sender", "old");
+        var recentSender = GrainId.Create("sender", "recent");
+        var oldToken = new OutboxSequenceToken(1, oldSender, now, now);
+        var recentToken = new OutboxSequenceToken(1, recentSender, now, now);
+        var tracker = new MessageTracker();
+        tracker.RegisterTimeProvider(time);
+        tracker.TryAcceptMessage(oldToken, out tracker);
+        tracker.TryAcceptMessage("old", new EventSequenceToken(1), out tracker);
+        time.Advance(TimeSpan.FromMinutes(1));
+        tracker.TryAcceptMessage(recentToken, out tracker);
+        tracker.TryAcceptMessage("recent", new EventSequenceToken(2), out tracker);
+
+        var evicted = tracker.Evict(now);
+
+        Assert.True(evicted.TryAcceptMessage(oldToken, out _));
+        Assert.False(evicted.TryAcceptMessage(recentToken, out _));
+        Assert.True(evicted.TryAcceptMessage("old", new EventSequenceToken(1), out _));
+        Assert.False(evicted.TryAcceptMessage("recent", new EventSequenceToken(2), out _));
+        Assert.False(tracker.TryAcceptMessage(oldToken, out _));
+        var prunedAgain = evicted.Evict(now).EvictStreams(now).EvictOutboxes(now).Evict(oldSender, now);
+        Assert.False(prunedAgain.TryAcceptMessage(recentToken, out _));
+        Assert.False(prunedAgain.TryAcceptMessage("recent", new EventSequenceToken(2), out _));
+    }
+
+    [Fact]
+    public void Duplicate_delivery_does_not_extend_the_deduplication_retention_window()
+    {
+        var now = DateTimeOffset.UnixEpoch;
+        var time = new ManualTimeProvider(now);
+        var token = new OutboxSequenceToken(1, GrainId.Create("sender", "one"), now, now);
+        var tracker = new MessageTracker();
+        tracker.RegisterTimeProvider(time);
+        tracker.TryAcceptMessage(token, out tracker);
+        time.Advance(TimeSpan.FromHours(1));
+
+        Assert.False(tracker.TryAcceptMessage(token, out var duplicate));
+        var evicted = duplicate.Evict(now);
+
+        Assert.True(evicted.TryAcceptMessage(token, out _));
+    }
+
+    [Fact]
+    public void Provider_lookup_does_not_reuse_another_providers_position()
+    {
+        var tracker = new MessageTracker();
+        tracker.TryAcceptMessage("provider-a", "orders", new EventSequenceToken(9), out tracker);
+
+        Assert.Null(tracker.LatestStream("provider-b", "orders"));
+        Assert.True(tracker.TryAcceptMessage("provider-b", "orders", new EventSequenceToken(1), out var next));
+        Assert.False(next.TryAcceptMessage("provider-a", "orders", new EventSequenceToken(9), out _));
+    }
+
+    [Fact]
+    public void TryAcceptMessage_accepts_first_stream_cursor_and_tracks_latest_position()
     {
         var streamId = StreamId.Create("orders", "one");
         var cursor = new StreamCursor("orders", new EventSequenceToken(7));
@@ -14,7 +71,7 @@ public sealed class MessageTrackerTests
         var tracker = new MessageTracker();
         tracker.RegisterTimeProvider(time);
 
-        var accepted = tracker.ProcessMessage(cursor, out var next);
+        var accepted = tracker.TryAcceptMessage(cursor, out var next);
 
         Assert.True(accepted);
         Assert.Null(tracker.LatestStream(streamId));
@@ -23,27 +80,27 @@ public sealed class MessageTrackerTests
     }
 
     [Fact]
-    public void ProcessMessage_accepts_stream_sequence_token_and_namespace()
+    public void TryAcceptMessage_accepts_stream_sequence_token_and_namespace()
     {
         var time = new ManualTimeProvider(new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero));
         var tracker = new MessageTracker();
         tracker.RegisterTimeProvider(time);
 
-        var accepted = tracker.ProcessMessage("orders", new EventSequenceToken(7), out var next);
+        var accepted = tracker.TryAcceptMessage("orders", new EventSequenceToken(7), out var next);
 
         Assert.True(accepted);
         Assert.Equal(new EventSequenceToken(7), next.LatestStreamSequenceToken("orders"));
     }
 
     [Fact]
-    public void ProcessMessage_accepts_stream_sequence_token_provider_and_namespace()
+    public void TryAcceptMessage_accepts_stream_sequence_token_provider_and_namespace()
     {
         var time = new ManualTimeProvider(new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero));
         var tracker = new MessageTracker();
         tracker.RegisterTimeProvider(time);
 
-        tracker.ProcessMessage("provider-a", "orders", new EventSequenceToken(7), out tracker);
-        tracker.ProcessMessage("provider-b", "orders", new EventSequenceToken(9), out tracker);
+        tracker.TryAcceptMessage("provider-a", "orders", new EventSequenceToken(7), out tracker);
+        tracker.TryAcceptMessage("provider-b", "orders", new EventSequenceToken(9), out tracker);
 
         Assert.Equal(new EventSequenceToken(7), tracker.LatestStreamSequenceToken("provider-a", "orders"));
         Assert.Equal(new EventSequenceToken(9), tracker.LatestStreamSequenceToken("provider-b", "orders"));
@@ -51,21 +108,21 @@ public sealed class MessageTrackerTests
     }
 
     [Fact]
-    public void ProcessMessage_with_stream_sequence_token_rejects_duplicate_for_namespace()
+    public void TryAcceptMessage_with_stream_sequence_token_rejects_duplicate_for_namespace()
     {
         var time = new ManualTimeProvider(new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero));
         var tracker = new MessageTracker();
         tracker.RegisterTimeProvider(time);
-        tracker.ProcessMessage("orders", new EventSequenceToken(7), out tracker);
+        tracker.TryAcceptMessage("orders", new EventSequenceToken(7), out tracker);
 
-        var accepted = tracker.ProcessMessage("orders", new EventSequenceToken(7), out var next);
+        var accepted = tracker.TryAcceptMessage("orders", new EventSequenceToken(7), out var next);
 
         Assert.False(accepted);
         Assert.Same(tracker, next);
     }
 
     [Fact]
-    public void ProcessMessage_accepts_first_outbox_token_and_tracks_latest_position()
+    public void TryAcceptMessage_accepts_first_outbox_token_and_tracks_latest_position()
     {
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
         var sender = GrainId.Create("test/sender", "one");
@@ -74,7 +131,7 @@ public sealed class MessageTrackerTests
         tracker.RegisterTimeProvider(time);
         var token = new OutboxSequenceToken(1, sender, now, now);
 
-        var accepted = tracker.ProcessMessage(token, out var next);
+        var accepted = tracker.TryAcceptMessage(token, out var next);
 
         Assert.True(accepted);
         Assert.Null(tracker.LatestOutbox(sender));
@@ -93,7 +150,7 @@ public sealed class MessageTrackerTests
         tracker.RegisterTimeProvider(time);
         var token = new OutboxSequenceToken(1, sender, senderTime, senderTime);
 
-        tracker.ProcessMessage(token, out var next);
+        tracker.TryAcceptMessage(token, out var next);
 
         Assert.Equal(token, next.LatestOutbox(sender));
     }
@@ -107,8 +164,8 @@ public sealed class MessageTrackerTests
         var time = new ManualTimeProvider(now);
         var tracker = new MessageTracker();
         tracker.RegisterTimeProvider(time);
-        tracker.ProcessMessage(new StreamCursor("orders", new EventSequenceToken(7)), out tracker);
-        tracker.ProcessMessage(new OutboxSequenceToken(1, sender, now, now), out tracker);
+        tracker.TryAcceptMessage(new StreamCursor("orders", new EventSequenceToken(7)), out tracker);
+        tracker.TryAcceptMessage(new OutboxSequenceToken(1, sender, now, now), out tracker);
 
         var evicted = tracker.Evict(now);
 
@@ -117,32 +174,32 @@ public sealed class MessageTrackerTests
     }
 
     [Fact]
-    public void ProcessMessage_rejects_stream_cursor_when_token_is_not_newer()
+    public void TryAcceptMessage_rejects_stream_cursor_when_token_is_not_newer()
     {
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
         var time = new ManualTimeProvider(now);
         var streamId = StreamId.Create("orders", "one");
         var tracker = new MessageTracker();
         tracker.RegisterTimeProvider(time);
-        tracker.ProcessMessage(new StreamCursor("orders", new EventSequenceToken(7)), out tracker);
+        tracker.TryAcceptMessage(new StreamCursor("orders", new EventSequenceToken(7)), out tracker);
 
-        var accepted = tracker.ProcessMessage(new StreamCursor("orders", new EventSequenceToken(7)), out var next);
+        var accepted = tracker.TryAcceptMessage(new StreamCursor("orders", new EventSequenceToken(7)), out var next);
 
         Assert.False(accepted);
         Assert.Same(tracker, next);
     }
 
     [Fact]
-    public void ProcessMessage_accepts_stream_cursor_when_token_is_newer()
+    public void TryAcceptMessage_accepts_stream_cursor_when_token_is_newer()
     {
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
         var time = new ManualTimeProvider(now);
         var streamId = StreamId.Create("orders", "one");
         var tracker = new MessageTracker();
         tracker.RegisterTimeProvider(time);
-        tracker.ProcessMessage(new StreamCursor("orders", new EventSequenceToken(7)), out tracker);
+        tracker.TryAcceptMessage(new StreamCursor("orders", new EventSequenceToken(7)), out tracker);
 
-        var accepted = tracker.ProcessMessage(new StreamCursor("orders", new EventSequenceToken(8)), out var next);
+        var accepted = tracker.TryAcceptMessage(new StreamCursor("orders", new EventSequenceToken(8)), out var next);
 
         Assert.True(accepted);
         Assert.Equal(new StreamCursor("orders", new EventSequenceToken(8)), next.LatestStream(streamId));
@@ -154,8 +211,8 @@ public sealed class MessageTrackerTests
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
         var tracker = new MessageTracker();
         tracker.RegisterTimeProvider(new ManualTimeProvider(now));
-        tracker.ProcessMessage(new StreamCursor("orders", new EventSequenceToken(7), "provider-a"), out tracker);
-        tracker.ProcessMessage(new StreamCursor("orders", new EventSequenceToken(9), "provider-b"), out tracker);
+        tracker.TryAcceptMessage(new StreamCursor("orders", new EventSequenceToken(7), "provider-a"), out tracker);
+        tracker.TryAcceptMessage(new StreamCursor("orders", new EventSequenceToken(9), "provider-b"), out tracker);
 
         var latest = tracker.LatestStream("provider-a", "orders");
 
@@ -168,7 +225,7 @@ public sealed class MessageTrackerTests
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
         var tracker = new MessageTracker();
         tracker.RegisterTimeProvider(new ManualTimeProvider(now));
-        tracker.ProcessMessage(new StreamCursor("orders", new EventSequenceToken(7)), out tracker);
+        tracker.TryAcceptMessage(new StreamCursor("orders", new EventSequenceToken(7)), out tracker);
 
         var latest = tracker.LatestStreamSequenceToken("orders");
 
@@ -181,7 +238,7 @@ public sealed class MessageTrackerTests
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
         var tracker = new MessageTracker();
         tracker.RegisterTimeProvider(new ManualTimeProvider(now));
-        tracker.ProcessMessage(new StreamCursor("orders", new EventSequenceToken(7), "provider-a"), out tracker);
+        tracker.TryAcceptMessage(new StreamCursor("orders", new EventSequenceToken(7), "provider-a"), out tracker);
 
         var latest = tracker.LatestStream("provider-b", "orders");
 
@@ -194,8 +251,8 @@ public sealed class MessageTrackerTests
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
         var tracker = new MessageTracker();
         tracker.RegisterTimeProvider(new ManualTimeProvider(now));
-        tracker.ProcessMessage(new StreamCursor("orders", new EventSequenceToken(7), "provider-a"), out tracker);
-        tracker.ProcessMessage(new StreamCursor("orders", new EventSequenceToken(9), "provider-b"), out tracker);
+        tracker.TryAcceptMessage(new StreamCursor("orders", new EventSequenceToken(7), "provider-a"), out tracker);
+        tracker.TryAcceptMessage(new StreamCursor("orders", new EventSequenceToken(9), "provider-b"), out tracker);
 
         var latest = tracker.LatestStreamSequenceToken("orders");
 
@@ -203,13 +260,13 @@ public sealed class MessageTrackerTests
     }
 
     [Fact]
-    public void ProcessMessage_accepts_null_stream_token_without_tracking_position()
+    public void TryAcceptMessage_accepts_null_stream_token_without_tracking_position()
     {
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
         var tracker = new MessageTracker();
         tracker.RegisterTimeProvider(new ManualTimeProvider(now));
 
-        var accepted = tracker.ProcessMessage("orders", token: null, out var next);
+        var accepted = tracker.TryAcceptMessage("orders", token: null, out var next);
 
         Assert.True(accepted);
         Assert.Same(tracker, next);
@@ -218,32 +275,32 @@ public sealed class MessageTrackerTests
     }
 
     [Fact]
-    public void ProcessMessage_accepts_non_null_stream_token_after_null_initial_position()
+    public void TryAcceptMessage_accepts_non_null_stream_token_after_null_initial_position()
     {
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
         var time = new ManualTimeProvider(now);
         var streamId = StreamId.Create("orders", "one");
         var tracker = new MessageTracker();
         tracker.RegisterTimeProvider(time);
-        tracker.ProcessMessage(new StreamCursor("orders", null), out tracker);
+        tracker.TryAcceptMessage(new StreamCursor("orders", null), out tracker);
 
-        var accepted = tracker.ProcessMessage(new StreamCursor("orders", new EventSequenceToken(1)), out var next);
+        var accepted = tracker.TryAcceptMessage(new StreamCursor("orders", new EventSequenceToken(1)), out var next);
 
         Assert.True(accepted);
         Assert.Equal(new StreamCursor("orders", new EventSequenceToken(1)), next.LatestStream(streamId));
     }
 
     [Fact]
-    public void ProcessMessage_accepts_null_stream_token_without_changing_tracked_position()
+    public void TryAcceptMessage_accepts_null_stream_token_without_changing_tracked_position()
     {
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
         var time = new ManualTimeProvider(now);
         var streamId = StreamId.Create("orders", "one");
         var tracker = new MessageTracker();
         tracker.RegisterTimeProvider(time);
-        tracker.ProcessMessage(new StreamCursor("orders", new EventSequenceToken(1)), out tracker);
+        tracker.TryAcceptMessage(new StreamCursor("orders", new EventSequenceToken(1)), out tracker);
 
-        var accepted = tracker.ProcessMessage(new StreamCursor("orders", null), out var next);
+        var accepted = tracker.TryAcceptMessage(new StreamCursor("orders", null), out var next);
 
         Assert.True(accepted);
         Assert.Same(tracker, next);
@@ -251,23 +308,23 @@ public sealed class MessageTrackerTests
     }
 
     [Fact]
-    public void ProcessMessage_rejects_outbox_token_when_same_epoch_and_not_newer_sequence()
+    public void TryAcceptMessage_rejects_outbox_token_when_same_epoch_and_not_newer_sequence()
     {
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
         var sender = GrainId.Create("test/sender", "one");
         var time = new ManualTimeProvider(now);
         var tracker = new MessageTracker();
         tracker.RegisterTimeProvider(time);
-        tracker.ProcessMessage(new OutboxSequenceToken(5, sender, now, now), out tracker);
+        tracker.TryAcceptMessage(new OutboxSequenceToken(5, sender, now, now), out tracker);
 
-        var accepted = tracker.ProcessMessage(new OutboxSequenceToken(5, sender, now, now), out var next);
+        var accepted = tracker.TryAcceptMessage(new OutboxSequenceToken(5, sender, now, now), out var next);
 
         Assert.False(accepted);
         Assert.Same(tracker, next);
     }
 
     [Fact]
-    public void ProcessMessage_accepts_outbox_token_when_same_epoch_and_sequence_is_newer()
+    public void TryAcceptMessage_accepts_outbox_token_when_same_epoch_and_sequence_is_newer()
     {
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
         var sender = GrainId.Create("test/sender", "one");
@@ -275,10 +332,10 @@ public sealed class MessageTrackerTests
         var second = new OutboxSequenceToken(2, sender, now, now);
         var tracker = new MessageTracker();
         tracker.RegisterTimeProvider(new ManualTimeProvider(now));
-        tracker.ProcessMessage(first, out tracker);
+        tracker.TryAcceptMessage(first, out tracker);
 
-        var accepted = tracker.ProcessMessage(second, out var next);
-        var acceptedAgain = next.ProcessMessage(second, out var unchanged);
+        var accepted = tracker.TryAcceptMessage(second, out var next);
+        var acceptedAgain = next.TryAcceptMessage(second, out var unchanged);
 
         Assert.True(accepted);
         Assert.Equal(second, next.LatestOutbox(sender));
@@ -287,7 +344,7 @@ public sealed class MessageTrackerTests
     }
 
     [Fact]
-    public void ProcessMessage_rejects_outbox_token_when_epoch_is_stale()
+    public void TryAcceptMessage_rejects_outbox_token_when_epoch_is_stale()
     {
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
         var sender = GrainId.Create("test/sender", "one");
@@ -296,16 +353,16 @@ public sealed class MessageTrackerTests
         var time = new ManualTimeProvider(now);
         var tracker = new MessageTracker();
         tracker.RegisterTimeProvider(time);
-        tracker.ProcessMessage(new OutboxSequenceToken(1, sender, now, newEpoch), out tracker);
+        tracker.TryAcceptMessage(new OutboxSequenceToken(1, sender, now, newEpoch), out tracker);
 
-        var accepted = tracker.ProcessMessage(new OutboxSequenceToken(99, sender, now, oldEpoch), out var next);
+        var accepted = tracker.TryAcceptMessage(new OutboxSequenceToken(99, sender, now, oldEpoch), out var next);
 
         Assert.False(accepted);
         Assert.Same(tracker, next);
     }
 
     [Fact]
-    public void ProcessMessage_accepts_outbox_token_when_epoch_is_newer()
+    public void TryAcceptMessage_accepts_outbox_token_when_epoch_is_newer()
     {
         var now = new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero);
         var sender = GrainId.Create("test/sender", "one");
@@ -314,9 +371,9 @@ public sealed class MessageTrackerTests
         var time = new ManualTimeProvider(now);
         var tracker = new MessageTracker();
         tracker.RegisterTimeProvider(time);
-        tracker.ProcessMessage(new OutboxSequenceToken(10, sender, now, oldEpoch), out tracker);
+        tracker.TryAcceptMessage(new OutboxSequenceToken(10, sender, now, oldEpoch), out tracker);
 
-        var accepted = tracker.ProcessMessage(new OutboxSequenceToken(1, sender, now, newEpoch), out var next);
+        var accepted = tracker.TryAcceptMessage(new OutboxSequenceToken(1, sender, now, newEpoch), out var next);
 
         Assert.True(accepted);
         Assert.Equal(new OutboxSequenceToken(1, sender, now, newEpoch), next.LatestOutbox(sender));
@@ -331,8 +388,8 @@ public sealed class MessageTrackerTests
         var time = new ManualTimeProvider(now);
         var tracker = new MessageTracker();
         tracker.RegisterTimeProvider(time);
-        tracker.ProcessMessage(new StreamCursor("orders", new EventSequenceToken(7)), out tracker);
-        tracker.ProcessMessage(new OutboxSequenceToken(1, sender, now, now), out tracker);
+        tracker.TryAcceptMessage(new StreamCursor("orders", new EventSequenceToken(7)), out tracker);
+        tracker.TryAcceptMessage(new OutboxSequenceToken(1, sender, now, now), out tracker);
 
         var evicted = tracker.EvictStreams(now);
 
@@ -349,8 +406,8 @@ public sealed class MessageTrackerTests
         var time = new ManualTimeProvider(now);
         var tracker = new MessageTracker();
         tracker.RegisterTimeProvider(time);
-        tracker.ProcessMessage(new StreamCursor("orders", new EventSequenceToken(7)), out tracker);
-        tracker.ProcessMessage(new OutboxSequenceToken(1, sender, now, now), out tracker);
+        tracker.TryAcceptMessage(new StreamCursor("orders", new EventSequenceToken(7)), out tracker);
+        tracker.TryAcceptMessage(new OutboxSequenceToken(1, sender, now, now), out tracker);
 
         var evicted = tracker.EvictOutboxes(now);
 
@@ -366,7 +423,7 @@ public sealed class MessageTrackerTests
         var time = new ManualTimeProvider(now);
         var tracker = new MessageTracker();
         tracker.RegisterTimeProvider(time);
-        tracker.ProcessMessage(new StreamCursor("orders", new EventSequenceToken(7)), out tracker);
+        tracker.TryAcceptMessage(new StreamCursor("orders", new EventSequenceToken(7)), out tracker);
 
         var notEvicted = tracker.Evict(streamId, now.AddTicks(-1));
         var evicted = tracker.Evict(streamId, now);
@@ -383,7 +440,7 @@ public sealed class MessageTrackerTests
         var time = new ManualTimeProvider(now);
         var tracker = new MessageTracker();
         tracker.RegisterTimeProvider(time);
-        tracker.ProcessMessage(new OutboxSequenceToken(1, sender, now, now), out tracker);
+        tracker.TryAcceptMessage(new OutboxSequenceToken(1, sender, now, now), out tracker);
 
         var notEvicted = tracker.Evict(sender, now.AddTicks(-1));
         var evicted = tracker.Evict(sender, now);
@@ -402,8 +459,8 @@ public sealed class MessageTrackerTests
         var right = new MessageTracker();
         left.RegisterTimeProvider(time);
         right.RegisterTimeProvider(time);
-        left.ProcessMessage(new StreamCursor("orders", new EventSequenceToken(7)), out left);
-        right.ProcessMessage(new OutboxSequenceToken(1, sender, now, now), out right);
+        left.TryAcceptMessage(new StreamCursor("orders", new EventSequenceToken(7)), out left);
+        right.TryAcceptMessage(new OutboxSequenceToken(1, sender, now, now), out right);
 
         Assert.NotEqual(left, right);
     }
@@ -461,7 +518,7 @@ public sealed class MessageTrackerTests
     {
         var tracker = new MessageTracker();
         tracker.RegisterTimeProvider(new ManualTimeProvider(received));
-        tracker.ProcessMessage(stream, out tracker);
+        tracker.TryAcceptMessage(stream, out tracker);
 
         return tracker;
     }
@@ -470,7 +527,7 @@ public sealed class MessageTrackerTests
     {
         var tracker = new MessageTracker();
         tracker.RegisterTimeProvider(new ManualTimeProvider(received));
-        tracker.ProcessMessage(outbox, out tracker);
+        tracker.TryAcceptMessage(outbox, out tracker);
 
         return tracker;
     }

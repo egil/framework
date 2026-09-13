@@ -80,10 +80,22 @@ public sealed class OrderGrain : Grain, IOrderGrain
         state = this.RegisterStateManager("state", storage, () => new OrderState());
     }
 
-    public Task RenameAsync(string name) =>
-        state.WriteAsync(state.State with { Name = name });
+    public Task RenameAsync(string name, CancellationToken cancellationToken) =>
+        state.WriteAsync(state.State with { Name = name }, cancellationToken);
 }
 ```
+
+`ReadAsync`, `WriteAsync`, and `ClearAsync` accept an optional `CancellationToken`,
+which is forwarded to storage and any recovery read. Cancellation is cooperative:
+the provider decides whether it can interrupt in-flight work. Existing calls may omit the token; custom
+`IStateManager<T>` implementations must update their method signatures. An already canceled
+token prevents storage access and write-version stamping.
+
+Cancellation after a write or clear starts does not establish whether it persisted.
+If recovery is also canceled, the manager retains its previous visible snapshot
+and rethrows the original operation exception. Re-read with a fresh token before
+another mutation to refresh the state and ETag. A provider-confirmed success is
+adopted even if cancellation was requested concurrently.
 
 The overload without a factory requires `TState : new()`. Constructor registration
 returns immediately, but the provider-specific manager and default state are
@@ -142,21 +154,48 @@ public sealed record OrderState : VersionedState
 {
     [Id(0)] public string? Name { get; init; }
 
-    [Id(1)] public Outbox<IOrderEvent> Outbox { get; init; } =
-        Outbox<IOrderEvent>.Create();
+    [Id(1)] public Outbox<IOrderEvent> Outbox { get; init; } = [];
 }
 
-public async Task SubmitAsync()
+public async Task SubmitAsync(CancellationToken cancellationToken)
 {
     var next = state.State with
     {
         Outbox = state.State.Outbox.Add(new OrderSubmitted())
     };
 
-    await state.WriteAsync(next);
-    await outboxProcessor.PostInBackgroundAsync();
+    await state.WriteAsync(next, cancellationToken);
+    await outboxProcessor.PostInBackgroundAsync(cancellationToken);
 }
 ```
+
+`Outbox<T>` implements `IReadOnlyList<T>`: indexing, enumeration, LINQ, and
+collection expressions use payloads. `Envelopes` exposes the same snapshot as an
+`ImmutableArray<OutboxMessageEnvelope<T>>`, including the assigned message IDs,
+without copying. Collection structure is immutable; do not mutate payload objects
+after enqueueing.
+
+```csharp
+Outbox<IOrderEvent> pending = [new OrderSubmitted()];
+var extended = pending.AddRange(new IOrderEvent[] { new OrderCancelled() });
+var queued = extended.Envelopes[0];
+var acknowledged = extended.Remove(queued);
+```
+
+`[]`, `[message]`, and `[.. pending, message]` construct **fresh history** with a
+fresh revision and consecutive IDs starting at one. Spreading copies payloads,
+not IDs, epoch, or the prior sequence high-water mark. Use `Add` / `AddRange` to
+extend existing history, and `Clear` to drain it while preserving that history.
+`AddRange(messages)` uses one system UTC timestamp for the batch; its overload
+`AddRange(messages, utcNow)` accepts an explicit batch timestamp. An empty batch
+returns the same snapshot. Batch inputs are enumerated once and buffered together.
+
+`Remove(envelope)` and `Remove(id)` remove only a matching FIFO head.
+`RemoveRange(envelopes)` and `RemoveRange(ids)` remove matching occurrences
+anywhere, preserving remaining order and sequence history. Use the batch overload
+for processor acknowledgements, which may contain gaps. For an empty removal
+batch, supply a typed collection: bare `RemoveRange([])` is ambiguous between the
+two overloads.
 
 `Add(message)` uses system UTC. When a grain uses an injected clock, sample it
 at the call site and pass the instant with
@@ -176,14 +215,13 @@ public OrderGrain([PersistentState("state", "Default")] IPersistentState<OrderSt
     state = this.RegisterStateManager("state", storage);
     outboxProcessor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<IOrderEvent>
     {
-        PendingItems = () => [.. state.State.Outbox],
+        OutboxAccessor = () => state.State.Outbox,
         AcknowledgePostedAsync = async (items, ct) =>
         {
-            ct.ThrowIfCancellationRequested();
             await state.WriteAsync(state.State with
             {
-                Outbox = state.State.Outbox.RemoveRange(items.Select(item => item.Id))
-            });
+                Outbox = state.State.Outbox.RemoveRange(items)
+            }, ct);
         }
     })
     .AddPostman<OrderSubmitted>(async message => await PublishSubmittedAsync(message))
@@ -202,10 +240,11 @@ and cancellation is always third. Capture a grain factory when needed, or use
 `OutboxMessageId` and its owning grain ID, preserving sequence, epoch and append
 timestamp across retries and reactivation. No sender identity is stored in the outbox.
 
-`PendingItems`, `AcknowledgePostedAsync`, and `ReconcileFailedAsync` use the original
+`OutboxAccessor` returns the current `Outbox<T>` snapshot.
+`AcknowledgePostedAsync` and `ReconcileFailedAsync` receive its original
 stored `OutboxMessageEnvelope<T>` values. Acknowledgment receives exactly the
 successfully delivered items, which need not be a contiguous prefix. Remove them
-by `item.Id` using `RemoveRange`; never remove by position or count. Equal payloads
+by passing the envelopes directly to `RemoveRange`; never remove by position or count. Equal payloads
 can represent different messages and retain distinct stored IDs.
 
 `IOutboxGrain` forwards reminder ticks to the single attached processor.
@@ -319,18 +358,20 @@ synchronous, with optional token arguments.
 Group registrations that use the same configured provider:
 
 ```csharp
-processor.ForStreamProvider("events")
+processor.ForStreamProvider("events", provider => provider
     .AddStreamPostman<OrderSubmitted>(
         message => StreamId.Create("submitted-orders", message.OrderId))
     .AddStreamPostman<OrderCancelled>(
-        message => StreamId.Create("cancelled-orders", message.OrderId));
+        message => StreamId.Create("cancelled-orders", message.OrderId)));
 ```
 
 The group supports the same projections and token-aware selectors as direct
 `AddStreamPostman` calls. Each call registers immediately on the original
 processor, so registration order remains first-match-wins across both forms.
 `ForStreamProvider` selects an existing Orleans provider; it does not install one.
-Continue unrelated registrations through the original `processor` variable.
+The callback overload returns the original processor, so additional postmen can
+be chained after the group. Configuration is synchronous; registrations already
+made remain if the callback throws. The builder-returning overload is also available.
 
 Routing and projection choose their token arguments independently. Both direct
 and grouped registration support token-aware routing with no projection:
@@ -349,12 +390,22 @@ processor.ForStreamProvider("events")
         message => new CancelledDelivery(message.OrderId));
 ```
 
+### Migrating existing outbox callers
+
+- Indexing and enumeration now return payloads. Use `outbox.Envelopes` where code
+  previously read `.Id` or `.Message` from outbox entries.
+- Rename `PendingItems` to `OutboxAccessor`, which returns a non-null `Outbox<T>` directly. Replace array
+  conversions with `() => state.Outbox`; return `[]` for a fresh empty snapshot,
+  not `default` or `null` (null is rejected with `InvalidOperationException`).
+- Acknowledgement and failure callbacks still receive envelopes. Existing ID-based
+  removal remains supported. The persisted JSON and Orleans field layout is unchanged.
+
 ## Receiver Dedup
 
 `MessageTracker` accepts a message only when its stream token, stream cursor, or outbox token advances the stored high-water mark:
 
 ```csharp
-if (!state.State.Tracker.ProcessMessage("prices", token, out var tracker))
+if (!state.State.Tracker.TryAcceptMessage("prices", token, out var tracker))
 {
     return;
 }
@@ -384,7 +435,7 @@ streamManager = this.RegisterStreamManager(() => state.State.Tracker)
         "prices",
         async (message, cursor) =>
         {
-            if (!state.State.Tracker.ProcessMessage(cursor, out var tracker))
+            if (!state.State.Tracker.TryAcceptMessage(cursor, out var tracker))
             {
                 return;
             }
@@ -498,6 +549,11 @@ This package is messaging infrastructure, not an event-sourcing or CQRS framewor
 
 ## Beta API changes
 
+Replace `MessageTracker.ProcessMessage(...)` with `TryAcceptMessage(...)` for all
+stream and outbox overloads. It returns the acceptance decision and the next
+tracker; it does not execute the message handler or persist the tracker. Tokenless
+stream messages are accepted without advancing tracking state.
+
 The constructor-registration and payload-postman changes tracked in
 [issue #179](https://github.com/egil/framework/issues/179) are breaking changes:
 
@@ -509,4 +565,7 @@ The constructor-registration and payload-postman changes tracked in
 - Supply state factories for types without a public parameterless constructor. Custom `IStateManagerFactory` implementations receive the initial-state factory and runtime configuration callback.
 - Pass a tracker accessor to `RegisterStreamManager`, for example `() => state.State.Tracker`. It is evaluated when attaching/resuming subscriptions, after hydration, and observes later state replacement.
 
-The stored outbox JSON shape changes. Migration of earlier beta data is not provided.
+The earlier sender-free message-ID and revision changes described above changed
+the stored JSON shape; migration of snapshots predating those changes is not
+provided. The payload-first collection and OutboxAccessor changes preserve that
+existing sender-free, revision-bearing JSON and Orleans layout.

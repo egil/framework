@@ -25,9 +25,9 @@ internal sealed class ActivationStateManager<T> : IStateManager<T>
 
     public T State => Manager.State;
 
-    public Task ReadAsync() => Manager.ReadAsync();
+    public Task ReadAsync(CancellationToken cancellationToken = default) => Manager.ReadAsync(cancellationToken);
 
-    public Task WriteAsync(T newState) => Manager.WriteAsync(newState);
+    public Task WriteAsync(T newState, CancellationToken cancellationToken = default) => Manager.WriteAsync(newState, cancellationToken);
 
-    public Task ClearAsync() => Manager.ClearAsync();
+    public Task ClearAsync(CancellationToken cancellationToken = default) => Manager.ClearAsync(cancellationToken);
 }

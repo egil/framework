@@ -364,9 +364,10 @@ business-state change that produced it.
 (handed off to a postman successfully). It lives as a property on the
 grain's state record for atomic writes.
 
-The collection behaves like `ImmutableArray<OutboxMessageEnvelope<T>>`
-— read-only iteration, indexer, value semantics, mutators return new
-instances — with three additions:
+The collection implements `IReadOnlyList<T>` over payloads, with read-only
+iteration and indexing. Mutations return new snapshots; equality compares their
+persisted revisions rather than payload contents. `Envelopes` exposes the
+immutable array of assigned message IDs and payloads. The outbox also provides:
 
 - A sender-free stored `OutboxMessageId` for each item.
 - A monotonic `LatestSequenceNumber` that persists independently of the
@@ -386,9 +387,15 @@ public sealed record OutboxMessageId(long SequenceNumber, DateTimeOffset Timesta
 public sealed record OutboxMessageEnvelope<T>(OutboxMessageId Id, T Message);
 
 // Public collection operations; mutations return new immutable instances.
+Outbox<T> fresh = [];
 Outbox<T>.Create();
 outbox.Add(message);
 outbox.Add(message, utcNow);
+outbox.AddRange(messages);
+outbox.AddRange(messages, utcNow);
+ImmutableArray<OutboxMessageEnvelope<T>> envelopes = outbox.Envelopes;
+outbox.Remove(envelope);
+outbox.RemoveRange(envelopes);
 outbox.Remove(id);          // Removes only a matching FIFO head.
 outbox.RemoveRange(ids);    // Removes matching IDs anywhere, preserving remaining order.
 outbox.Clear();             // Preserves sequence high-water mark and epoch.
@@ -396,7 +403,16 @@ outbox.Clear();             // Preserves sequence high-water mark and epoch.
 
 The actual types carry Orleans serialization metadata and JSON support. Each stored
 ID field is required in JSON so malformed data cannot silently acquire default
-sequence metadata. This beta changes the stored shape without a legacy migration.
+sequence metadata. The earlier sender-free ID and revision changes changed the
+stored shape without a legacy migration. Payload-first enumeration and the
+OutboxAccessor rename do not change that persisted representation.
+
+The public collection implements `IReadOnlyList<T>` over payloads. `Envelopes`
+returns the existing immutable envelope array for inspection and acknowledgement.
+Collection expressions enqueue payloads in fresh history, including spreads;
+`AddRange` extends existing history with one timestamp per batch and one new
+snapshot revision. Empty batches return the original instance. Neither operation
+mutates payload objects or existing snapshots.
 
 ### Epoch semantics
 
@@ -445,7 +461,7 @@ equality, never revision ordering. Message IDs and delivery tokens are unchanged
 ### Why these choices
 
 - **Sealed class, not record.** No `with`, no synthesized copy
-  constructor. Mutation through four method families only, preserving
+  constructor. Mutation through controlled collection operations, preserving
   sequence and epoch invariants.
 - **`Add(T payload)` not `Add(envelope)`.** Outbox owns sequence
   assignment. Callers cannot fabricate sequence numbers.
@@ -564,17 +580,17 @@ public sealed class MessageTracker
 
     public void RegisterTimeProvider(TimeProvider time) => this.time = time;
 
-    public bool ProcessMessage(StreamCursor cursor, out MessageTracker next);
-    public bool ProcessMessage(
+    public bool TryAcceptMessage(StreamCursor cursor, out MessageTracker next);
+    public bool TryAcceptMessage(
         string streamNamespace,
         StreamSequenceToken? token,
         out MessageTracker next);
-    public bool ProcessMessage(
+    public bool TryAcceptMessage(
         string streamProviderName,
         string streamNamespace,
         StreamSequenceToken? token,
         out MessageTracker next);
-    public bool ProcessMessage(OutboxSequenceToken token, out MessageTracker next);
+    public bool TryAcceptMessage(OutboxSequenceToken token, out MessageTracker next);
 
     public StreamCursor? LatestStream(string streamNamespace);
     public StreamCursor? LatestStream(string streamProviderName, string streamNamespace);
@@ -615,7 +631,7 @@ public sealed class MessageTracker
   Stream keys are intentionally not part of `MessageTracker` state because
   the tracker is scoped to one grain activation's durable state.
 
-### `ProcessMessage(StreamCursor)` and stream token semantics
+### `TryAcceptMessage(StreamCursor)` and stream token semantics
 
 Users can pass either a `StreamCursor` or the raw Orleans
 `StreamSequenceToken` plus stream namespace. Provider-qualified overloads are
@@ -635,7 +651,7 @@ It returns `null` both when no stream is tracked and when the tracked cursor
 has a null token; callers that need to distinguish those cases should use
 `LatestStream(...)`.
 
-### `ProcessMessage(OutboxSequenceToken)` semantics
+### `TryAcceptMessage(OutboxSequenceToken)` semantics
 
 | Prior entry | Comparison                                   | Decision | Effect                   |
 | ----------- | -------------------------------------------- | -------- | ------------------------ |
@@ -1278,14 +1294,14 @@ sequenceDiagram
     participant Reconcile as "Non-interleaving reconciliation turn"
 
     Grain->>Dispatch: "PostInBackgroundAsync schedules dispatch"
-    Dispatch->>Grain: "PendingItems() snapshot"
+    Dispatch->>Grain: "OutboxAccessor() snapshot"
     Dispatch->>Postmen: "Dispatch all pending items concurrently"
     Note over Dispatch,Grain: "Other grain calls may run while postmen await"
     Postmen-->>Dispatch: "Success/failure results"
     Dispatch->>Reconcile: "Enqueue reconciliation"
     Reconcile->>Grain: "AcknowledgePostedAsync / ReconcileFailedAsync"
     Note over Reconcile,Grain: "Must not interleave with normal writes"
-    Reconcile->>Grain: "PendingItems() and retry/reminder update"
+    Reconcile->>Grain: "OutboxAccessor() and retry/reminder update"
 ```
 
 Orleans has two relevant scheduling layers:
@@ -1313,7 +1329,7 @@ The two technically valid ways to get the diagram above are:
    time-based.
 2. Move pending/acknowledge/reconcile callbacks onto an outbox grain interface
    and have the processor call the owning grain through its self-reference.
-   Those methods are then ordinary Orleans grain calls. `PendingItems` should
+   Those methods are then ordinary Orleans grain calls. `OutboxAccessor` should
    not be `[ReadOnly]` if it must wait behind writes; `[ReadOnly]` only
    interleaves with other read-only calls, not arbitrary writes.
 
@@ -1383,8 +1399,9 @@ extension<TGrain>(TGrain grain) where TGrain : IOutboxGrain, IGrainBase
 ```csharp
 public sealed class OutboxProcessorOptions<TOutbox> where TOutbox : notnull
 {
-    /// Snapshot of pending items. Called once per post run from a grain turn.
-    public required Func<ImmutableArray<OutboxMessageEnvelope<TOutbox>>> PendingItems { get; init; }
+    /// Returns the current immutable outbox snapshot. Evaluated before dispatch
+    /// and again during reconciliation and retry scheduling.
+    public required Func<Outbox<TOutbox>> OutboxAccessor { get; init; }
 
     /// Acknowledges successfully posted items.
     /// Expected to remove those items from the durable outbox state.
@@ -1427,30 +1444,29 @@ processing-timeout behavior, and pass `timeProvider.GetUtcNow()` to
 `Outbox.Add(message, utcNow)` when appending. The processor does not own the
 persisted outbox or re-inject transient services into it.
 
-Naming note: `PendingItems` intentionally names the role of the callback
-rather than an imperative method (`GetPending`). `OutboxAccessor` was
-considered, but it is less precise because the processor does not need
-general outbox access, only a pending-item snapshot.
+Naming note: `OutboxAccessor` describes a callback that reads the current immutable
+outbox snapshot. The processor evaluates it again as reconciliation and retry
+scheduling proceed, because state writes can replace the outbox instance.
 
 `AcknowledgePostedAsync` and `ReconcileFailedAsync` are reconciliation
 callbacks, not passive notifications:
 
 - `AcknowledgePostedAsync` is expected to remove successfully posted items
   from the durable outbox and persist that change. If acknowledged items
-  still appear in `PendingItems` after the callback returns, the processor
+  still appear in `OutboxAccessor` after the callback returns, the processor
   treats them as pending and they may be posted again.
 - `ReconcileFailedAsync` is the grain's policy hook for failed items. The
   grain may leave them in the outbox for retry, remove them, move them to
   dead-letter state, or make any other durable state change. If null, failed
   items are left pending and retried silently.
-- After either callback returns, the processor reads `PendingItems` again
+- After either callback returns, the processor reads `OutboxAccessor` again
   before scheduling retry/reminder work. The latest pending snapshot is the
   source of truth.
 
 ### `OutboxProcessor<TOutbox>`
 
 `TOutbox` is the base payload type. All handler families operate on payloads;
-stored envelopes are confined to pending snapshots and reconciliation callbacks.
+stored envelopes are available through `Outbox<T>.Envelopes` and reconciliation callbacks.
 `AddPostman` callbacks take `(message)`, `(message, token)`, or
 `(message, token, cancellationToken)`, with both `Task` and `ValueTask` overloads.
 Argument count selects the parameter shape. `OverloadResolutionPriority(1)` on
@@ -1467,7 +1483,9 @@ provide the same combinations.
 Grain invocations take `(grain, message)`, `(grain, message, token)`, or
 `(grain, message, token, cancellationToken)` with the same Task/ValueTask overload
 priority.
-`ForStreamProvider(name)` returns an `OutboxStreamProviderBuilder<TOutbox>` with
+`ForStreamProvider(name, configure)` invokes synchronous configuration and returns the
+original processor. Registrations are immediate and preserve first-match order,
+including if the callback subsequently throws. `ForStreamProvider(name)` returns an `OutboxStreamProviderBuilder<TOutbox>` with
 chainable `AddStreamPostman` overloads matching the direct registrations, except
 that the provider name is supplied once. Registration forwards immediately to the
 original processor; there is no separate dispatch registry, acknowledgment state,
@@ -1518,6 +1536,8 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         Func<TSub, TEvent> project)
         where TSub : TOutbox;
     public OutboxStreamProviderBuilder<TOutbox> ForStreamProvider(string streamProviderName);
+    public OutboxProcessor<TOutbox> ForStreamProvider(
+        string streamProviderName, Action<OutboxStreamProviderBuilder<TOutbox>> configure);
     [OverloadResolutionPriority(1)]
     public OutboxProcessor<TOutbox> AddGrainPostman<TSub, TGrain>(
         Func<TSub, IGrainFactory, TGrain> resolveGrain,
@@ -1573,9 +1593,9 @@ public async Task ReceiveReminder(string name, TickStatus status)
 - **Callback-based, not DI service.** Grain controls dispatch logic,
   can pass its own state to the postman. DI service adds indirection
   without clear benefit.
-- **`PendingItems`, not `GetPending`.** The option is a callback consumed
-  by the processor, not a method users call. The name describes the data
-  supplied to the processor and avoids implying ad-hoc outbox operations.
+- **`OutboxAccessor`.** The callback reads the current immutable outbox,
+  including after state replacement. It is not a captured, fixed collection
+  of pending items.
 - **First-registered-wins postman matching.** Simple dispatch model.
   The metaphor is a switch statement: the first matching case handles the
   item. Order most-specific first. Unmatched items →
@@ -1798,7 +1818,7 @@ specific behavior:
 - **Outbox drain grain** — exercises `Outbox<T>` Add/Remove/Clear,
   epoch reset, `OutboxProcessor` timer/reminder lifecycle, postman
   dispatch + error callback with attempt count.
-- **Dedup grain** — exercises `MessageTracker.ProcessMessage` for both
+- **Dedup grain** — exercises `MessageTracker.TryAcceptMessage` for both
   stream cursors and outbox tokens, epoch-aware acceptance, eviction.
 - **Interleaved-read grain** — exercises `[AlwaysInterleave]` reads
   seeing only committed state while a write is in-flight.

@@ -144,7 +144,7 @@ internal sealed class OutboxJsonConverterFactory : JsonConverterFactory
 
             writer.WritePropertyName("Items");
             writer.WriteStartArray();
-            foreach (var item in value)
+            foreach (var item in value.Envelopes)
             {
                 envelopeConverter.Write(writer, item, options);
             }
