@@ -250,6 +250,61 @@ public sealed class AzureStorageStateManagerTests
         Assert.Equal(new TestState("default"), manager.State);
     }
 
+    [Theory]
+    [InlineData(408)]
+    [InlineData(429)]
+    public async Task Timeout_and_throttling_responses_require_proof_of_the_write_outcome(int status)
+    {
+        var attempted = new TestState("next");
+        var storage = new FakePersistentState(new TestState("initial"))
+        {
+            WriteException = new RequestFailedException(status, "The write outcome is not established."),
+            OnRead = state => state.State = attempted
+        };
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
+
+        await manager.WriteAsync(attempted);
+
+        Assert.Equal(1, storage.ReadCount);
+        Assert.Same(attempted, manager.State);
+    }
+
+    [Fact]
+    public async Task Unclassified_aggregate_failure_requires_read_back_instead_of_assuming_rejection()
+    {
+        var attempted = new TestState("next");
+        var storage = new FakePersistentState(new TestState("initial"))
+        {
+            WriteException = new AggregateException(new InvalidOperationException("provider failure"), new TimeoutException()),
+            OnRead = state => state.State = attempted
+        };
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
+
+        await manager.WriteAsync(attempted);
+
+        Assert.Equal(1, storage.ReadCount);
+        Assert.Same(attempted, manager.State);
+    }
+
+    [Fact]
+    public async Task Aggregate_timeout_cannot_be_masked_by_a_rejected_attempt()
+    {
+        var attempted = new TestState("next");
+        var storage = new FakePersistentState(new TestState("initial"))
+        {
+            WriteException = new AggregateException(
+                new RequestFailedException(412, "A retry was rejected."),
+                new TimeoutException("An earlier attempt may have persisted.")),
+            OnRead = state => state.State = attempted
+        };
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
+
+        await manager.WriteAsync(attempted);
+
+        Assert.Equal(1, storage.ReadCount);
+        Assert.Same(attempted, manager.State);
+    }
+
     private sealed record TestState(string Value);
 
     private sealed class FakePersistentState(TestState state) : IPersistentState<TestState>
