@@ -136,6 +136,11 @@ internal sealed class OutboxDispatcher<TOutbox>(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            // Without this a failed delivery exports as Unset and reads as a success
+            // in a trace viewer. Matches StreamManager's consumer-span error tagging.
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            activity?.AddTag("exception.type", ex.GetType().FullName);
+            activity?.AddTag("exception.message", ex.Message);
             var itemType = getMessageType(item);
             logger.LogError(
                 ex,
@@ -163,11 +168,16 @@ internal sealed class OutboxDispatcher<TOutbox>(
             new("postman.type", postman.ItemType.Name)
         };
 
-        // parentContext is explicitly default so the span roots its own trace, and
-        // the producer context is attached as a link instead. A message can be
-        // delivered hours after the appending request ended; parenting into that
-        // trace would orphan the span and stretch one trace across the whole delay.
-        // Same reasoning as StreamManager's consumer span.
+        // parentContext: default does NOT force a root span — ActivitySource falls
+        // back to Activity.Current when the supplied context is default. So this
+        // span roots its own trace on the timer and reminder paths, where nothing
+        // is ambient, and joins the triggering request's trace when a request drives
+        // the drain. Both are correct: that request did cause this delivery, now.
+        //
+        // The producing context is attached as a link rather than as a parent because
+        // a message can be delivered hours after the appending request ended, and
+        // parenting into a finished trace orphans the span and stretches one trace
+        // across the whole delay.
         if (getTraceParent(item) is { } traceParent
             && ActivityContext.TryParse(traceParent, traceState: null, isRemote: true, out var producerContext))
         {

@@ -17,6 +17,44 @@ public sealed class OutboxSequenceTokenJsonConverterTests
         Assert.Equal(token, restored);
     }
 
+    [Fact]
+    public void Captured_trace_context_round_trips_through_the_converter()
+    {
+        var traceParent = "00-" + new string('a', 32) + "-" + new string('b', 16) + "-01";
+        var token = new OutboxSequenceToken(7, GrainId.Create("test/sender", "one"), DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, traceParent);
+
+        var restored = JsonSerializer.Deserialize<OutboxSequenceToken>(JsonSerializer.Serialize(token));
+
+        Assert.Equal(traceParent, restored!.TraceParent);
+    }
+
+    [Fact]
+    public void Token_json_omits_the_trace_context_when_none_was_captured()
+    {
+        var token = new OutboxSequenceToken(7, GrainId.Create("test/sender", "one"), DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch);
+
+        var json = JsonSerializer.Serialize(token);
+
+        Assert.DoesNotContain("TraceParent", json, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("null")]
+    [InlineData(null)]
+    public void Token_json_without_a_trace_context_still_reads_back(string? traceParentLiteral)
+    {
+        // Tokens written before trace capture existed have no property at all;
+        // a null value must be tolerated just the same.
+        var token = new OutboxSequenceToken(7, GrainId.Create("test/sender", "one"), DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch);
+        var json = System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(token))!.AsObject();
+        json["TraceParent"] = traceParentLiteral is null ? null : System.Text.Json.Nodes.JsonNode.Parse(traceParentLiteral);
+
+        var restored = JsonSerializer.Deserialize<OutboxSequenceToken>(json.ToJsonString());
+
+        Assert.Null(restored!.TraceParent);
+        Assert.Equal(token, restored);
+    }
+
     [Theory]
     [InlineData("Type")]
     [InlineData("Key")]

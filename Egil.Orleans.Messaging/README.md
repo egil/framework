@@ -626,11 +626,11 @@ Outbox messages now carry the producer's W3C traceparent:
   defaults to `null`. Existing positional construction keeps compiling.
 - `OutboxSequenceToken` gains a `TraceParent` property and
   `TryGetTraceParent(out string?)`.
-- `OutboxMessageId` equality now includes `TraceParent`. An id rebuilt by hand
-  from a sequence number, timestamp, and epoch no longer matches the stored id
-  of a message added under an active `Activity`. Pass the id from
-  `outbox.Envelopes[i].Id` to `Remove`/`RemoveRange` rather than reconstructing
-  one.
+- `TraceParent` is excluded from equality and hash code on both types, because
+  it is diagnostic metadata rather than identity. An id rebuilt by hand from a
+  sequence number, timestamp, and epoch still matches the stored id of a message
+  added under an active `Activity`, and `MessageTracker.LatestOutbox` still
+  returns a token equal to the one it accepted.
 - The property is nullable and omitted from JSON when absent, so snapshots
   written before this change load unchanged. No migration or reset is required,
   unlike the `Revision` change above.

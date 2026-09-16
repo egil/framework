@@ -151,6 +151,62 @@ public sealed class OutboxTraceContextTests : IDisposable
         Assert.Equal(caller!.Id, loaded!.Envelopes[0].Id.TraceParent);
     }
 
+    [Fact]
+    public void Message_id_equality_ignores_the_captured_trace_context()
+    {
+        // The traceparent is diagnostic metadata, not identity. Including it in
+        // equality would stop Remove/RemoveRange matching an id rebuilt by hand.
+        var withTrace = new OutboxMessageId(1, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, "00-" + new string('a', 32) + "-" + new string('b', 16) + "-01");
+        var withoutTrace = new OutboxMessageId(1, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch);
+
+        Assert.Equal(withoutTrace, withTrace);
+        Assert.Equal(withoutTrace.GetHashCode(), withTrace.GetHashCode());
+    }
+
+    [Fact]
+    public void Remove_matches_a_message_added_under_an_active_activity()
+    {
+        using var listener = StartListener(ActivitySamplingResult.AllDataAndRecorded);
+        using var caller = source.StartActivity("caller");
+        var outbox = Outbox<string>.Create().Add("first", DateTimeOffset.UnixEpoch);
+        var rebuiltId = new OutboxMessageId(1, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch);
+
+        var drained = outbox.Remove(rebuiltId);
+
+        Assert.Empty(drained);
+    }
+
+    [Fact]
+    public void Delivery_token_equality_ignores_the_captured_trace_context()
+    {
+        var sender = GrainId.Create("test/sender", "one");
+        var withTrace = new OutboxSequenceToken(1, sender, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, "00-" + new string('a', 32) + "-" + new string('b', 16) + "-01");
+        var withoutTrace = new OutboxSequenceToken(1, sender, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch);
+
+        Assert.Equal(withoutTrace, withTrace);
+        Assert.Equal(withoutTrace.GetHashCode(), withTrace.GetHashCode());
+    }
+
+    [Fact]
+    public void Tracker_reconstructs_a_token_equal_to_the_traced_token_it_accepted()
+    {
+        // MessageTracker stores no traceparent, so LatestOutbox can only stay
+        // faithful to the accepted token because identity excludes it. Persisting
+        // the traceparent per sender instead would keep stale telemetry in the
+        // receiver's durable state for a message it already processed.
+        using var listener = StartListener(ActivitySamplingResult.AllDataAndRecorded);
+        using var caller = source.StartActivity("caller");
+        var sender = GrainId.Create("test/sender", "one");
+        var accepted = Outbox<string>.Create()
+            .Add("first", DateTimeOffset.UnixEpoch)
+            .Envelopes[0].Id.ForSender(sender);
+
+        Assert.True(new MessageTracker().TryAcceptMessage(accepted, out var tracker));
+
+        Assert.NotNull(accepted.TraceParent);
+        Assert.Equal(accepted, tracker.LatestOutbox(sender));
+    }
+
     private ActivityListener StartListener(ActivitySamplingResult samplingResult)
     {
         var started = new ActivityListener

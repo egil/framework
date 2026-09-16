@@ -128,4 +128,23 @@ public sealed record OutboxSequenceToken
         traceParent = TraceParent;
         return traceParent is not null;
     }
+
+    /// <summary>
+    /// Compares delivery identity only. <see cref="TraceParent"/> is diagnostic
+    /// metadata, so two tokens that differ only by it address the same message.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="MessageTracker"/> stores no traceparent, so excluding it here is
+    /// what lets <see cref="MessageTracker.LatestOutbox"/> reconstruct a token equal
+    /// to the one it accepted instead of persisting stale telemetry per sender.
+    /// </remarks>
+    public bool Equals(OutboxSequenceToken? other) =>
+        other is not null
+        && SequenceNumber == other.SequenceNumber
+        && Sender.Equals(other.Sender)
+        && Timestamp == other.Timestamp
+        && Epoch == other.Epoch;
+
+    /// <inheritdoc/>
+    public override int GetHashCode() => HashCode.Combine(SequenceNumber, Sender, Timestamp, Epoch);
 }

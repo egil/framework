@@ -83,6 +83,11 @@ public sealed class OutboxDispatcherTraceContextTests : IDisposable
     [Fact]
     public async Task Concurrent_dispatch_links_each_message_to_its_own_trace()
     {
+        // Items sharing a postman dispatch sequentially within one group, so this
+        // registers a postman per item to force two groups and exercise the
+        // Task.WhenAll path. Each postman blocks until both have started, so the
+        // two deliveries genuinely overlap and any Activity.Current leakage between
+        // groups would show up as a crossed link.
         using var testListener = StartTestListener();
         using var recorder = RecordDispatchSpans(out var recorded);
         var first = source.StartActivity("request-a")!;
@@ -93,12 +98,38 @@ public sealed class OutboxDispatcherTraceContextTests : IDisposable
         var secondTraceId = second.TraceId;
         var secondEnvelope = Envelope(2, second.Id);
         second.Dispose();
+        var bothStarted = new Barrier(2);
+        var observed = new System.Collections.Concurrent.ConcurrentDictionary<long, ActivityTraceId>();
 
-        await DispatchAsync(firstEnvelope, secondEnvelope);
+        await DispatchConcurrentlyAsync(
+            item =>
+            {
+                bothStarted.SignalAndWait(TimeSpan.FromSeconds(30));
+                observed[item.Id.SequenceNumber] = Activity.Current!.TraceId;
+            },
+            firstEnvelope,
+            secondEnvelope);
 
         Assert.Equal(2, recorded.Count);
         Assert.Contains(recorded, span => span.Links.Single().Context.TraceId == firstTraceId);
         Assert.Contains(recorded, span => span.Links.Single().Context.TraceId == secondTraceId);
+        Assert.NotEqual(observed[1], observed[2]);
+    }
+
+    [Fact]
+    public async Task Failed_delivery_marks_the_dispatch_span_as_errored()
+    {
+        // A delivery that threw must not export as Unset, which reads as success.
+        using var recorder = RecordDispatchSpans(out var recorded);
+
+        await DispatchAsync(
+            static _ => throw new InvalidOperationException("postman exploded"),
+            Envelope(1, traceParent: null));
+
+        var span = Assert.Single(recorded);
+        Assert.Equal(ActivityStatusCode.Error, span.Status);
+        Assert.Equal("postman exploded", span.StatusDescription);
+        Assert.Equal(typeof(InvalidOperationException).FullName, span.GetTagItem("exception.type"));
     }
 
     [Fact]
@@ -136,7 +167,7 @@ public sealed class OutboxDispatcherTraceContextTests : IDisposable
     private Task DispatchAsync(params OutboxMessageEnvelope<string>[] pending) =>
         DispatchAsync(static _ => { }, pending);
 
-    private async Task DispatchAsync(
+    private Task DispatchAsync(
         Action<OutboxMessageEnvelope<string>> postman,
         params OutboxMessageEnvelope<string>[] pending)
     {
@@ -146,6 +177,32 @@ public sealed class OutboxDispatcherTraceContextTests : IDisposable
             postman(item);
             return ValueTask.CompletedTask;
         });
+        return DispatchAsync(registry, pending);
+    }
+
+    // The dispatcher groups items by the postman they match and runs groups under
+    // Task.WhenAll, so one registration per item is what makes deliveries overlap.
+    private Task DispatchConcurrentlyAsync(
+        Action<OutboxMessageEnvelope<string>> postman,
+        params OutboxMessageEnvelope<string>[] pending)
+    {
+        var registry = new OutboxPostmanRegistry<OutboxMessageEnvelope<string>>();
+        foreach (var envelope in pending)
+        {
+            var sequenceNumber = envelope.Id.SequenceNumber;
+            registry.Add(
+                typeof(string),
+                item => item.Id.SequenceNumber == sequenceNumber,
+                (item, _) => { postman(item); return ValueTask.CompletedTask; });
+        }
+
+        return DispatchAsync(registry, pending);
+    }
+
+    private async Task DispatchAsync(
+        OutboxPostmanRegistry<OutboxMessageEnvelope<string>> registry,
+        OutboxMessageEnvelope<string>[] pending)
+    {
         var dispatcher = new OutboxDispatcher<OutboxMessageEnvelope<string>>(
             registry,
             NullLogger.Instance,
