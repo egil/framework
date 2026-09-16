@@ -9,7 +9,8 @@ internal sealed class OutboxDispatcher<TOutbox>(
     ILogger logger,
     string grainType,
     TimeProvider timeProvider,
-    Func<TOutbox, Type> getMessageType)
+    Func<TOutbox, Type> getMessageType,
+    Func<TOutbox, string?> getTraceParent)
     where TOutbox : notnull
 {
     public async Task<ImmutableArray<OutboxDispatchResult<TOutbox>>> DispatchAsync(
@@ -116,6 +117,13 @@ internal sealed class OutboxDispatcher<TOutbox>(
         CancellationToken cancellationToken)
     {
         var started = Stopwatch.GetTimestamp();
+
+        // Establishes the per-item trace context for the whole delivery. Postmen
+        // that propagate Activity.Current — Orleans grain calls, and stream
+        // adapters that stamp a traceparent onto the queued message — then carry
+        // the trace of the request that appended this message, instead of the
+        // unrelated turn that happened to trigger the drain.
+        using var activity = StartDispatchActivity(item, postman);
         try
         {
             await postman.Invoke(item, cancellationToken);
@@ -142,6 +150,40 @@ internal sealed class OutboxDispatcher<TOutbox>(
                 Stopwatch.GetElapsedTime(started).TotalMilliseconds);
             return new OutboxDispatchResult<TOutbox>(item, ex);
         }
+    }
+
+    private Activity? StartDispatchActivity(TOutbox item, OutboxPostmanRegistration<TOutbox> postman)
+    {
+        var tags = new KeyValuePair<string, object?>[]
+        {
+            new("messaging.system", "orleans"),
+            new("messaging.operation", "publish"),
+            new("grain.type", grainType),
+            new("event.type", getMessageType(item).Name),
+            new("postman.type", postman.ItemType.Name)
+        };
+
+        // parentContext is explicitly default so the span roots its own trace, and
+        // the producer context is attached as a link instead. A message can be
+        // delivered hours after the appending request ended; parenting into that
+        // trace would orphan the span and stretch one trace across the whole delay.
+        // Same reasoning as StreamManager's consumer span.
+        if (getTraceParent(item) is { } traceParent
+            && ActivityContext.TryParse(traceParent, traceState: null, isRemote: true, out var producerContext))
+        {
+            return MessagingTelemetry.ActivitySource.StartActivity(
+                "orleans.outbox.post",
+                ActivityKind.Producer,
+                parentContext: default,
+                tags: tags,
+                links: [new ActivityLink(producerContext)]);
+        }
+
+        return MessagingTelemetry.ActivitySource.StartActivity(
+            "orleans.outbox.post",
+            ActivityKind.Producer,
+            parentContext: default,
+            tags: tags);
     }
 
     private sealed class DispatchGroup(OutboxPostmanRegistration<TOutbox>? postman)

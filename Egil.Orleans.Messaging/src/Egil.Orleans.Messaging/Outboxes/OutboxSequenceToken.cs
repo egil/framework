@@ -55,12 +55,14 @@ public sealed record OutboxSequenceToken
         long sequenceNumber,
         GrainId sender,
         DateTimeOffset timestamp,
-        DateTimeOffset epoch)
+        DateTimeOffset epoch,
+        string? traceParent = null)
     {
         SequenceNumber = sequenceNumber;
         Sender = sender;
         Timestamp = timestamp;
         Epoch = epoch;
+        TraceParent = traceParent;
     }
 
     /// <summary>
@@ -93,4 +95,37 @@ public sealed record OutboxSequenceToken
     /// </summary>
     [Id(3)]
     public required DateTimeOffset Epoch { get; init; }
+
+    /// <summary>
+    /// The W3C <c>traceparent</c> of the activity that was current when the sender
+    /// appended this message to its outbox, or <c>null</c> when none was current.
+    /// </summary>
+    /// <remarks>
+    /// Not part of delivery identity: <see cref="MessageTracker"/> ignores it when
+    /// deciding acceptance, and two tokens differing only by this value address the
+    /// same message.
+    /// </remarks>
+    [Id(4)]
+    public string? TraceParent { get; init; }
+
+    /// <summary>
+    /// Attempts to read the producer-side W3C <c>traceparent</c> captured when the
+    /// message was appended to the sender's outbox.
+    /// </summary>
+    /// <remarks>
+    /// Receivers should attach the parsed context as an <see cref="System.Diagnostics.ActivityLink"/>
+    /// rather than use it as a parent. An outbox message can be delivered long after
+    /// the producing activity ended, and parenting into a finished trace produces
+    /// orphaned spans.
+    /// </remarks>
+    /// <param name="traceParent">
+    /// The captured <c>traceparent</c>, or <c>null</c> when the sender had no active
+    /// activity.
+    /// </param>
+    /// <returns><c>true</c> when a traceparent was captured; otherwise <c>false</c>.</returns>
+    public bool TryGetTraceParent([NotNullWhen(true)] out string? traceParent)
+    {
+        traceParent = TraceParent;
+        return traceParent is not null;
+    }
 }

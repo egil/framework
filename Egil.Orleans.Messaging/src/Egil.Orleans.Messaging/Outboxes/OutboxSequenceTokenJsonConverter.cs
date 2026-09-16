@@ -6,8 +6,9 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// <summary>
 /// STJ converter for <see cref="OutboxSequenceToken"/>. Serializes and
 /// deserializes the token's <see cref="OutboxSequenceToken.Sender"/>,
-/// <see cref="OutboxSequenceToken.SequenceNumber"/>, and
-/// <see cref="OutboxSequenceToken.Epoch"/> properties.
+/// <see cref="OutboxSequenceToken.SequenceNumber"/>,
+/// <see cref="OutboxSequenceToken.Epoch"/>, and
+/// <see cref="OutboxSequenceToken.TraceParent"/> properties.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -43,6 +44,7 @@ internal sealed class OutboxSequenceTokenJsonConverter : JsonConverter<OutboxSeq
         var hasTimestamp = false;
         DateTimeOffset epoch = default;
         var hasEpoch = false;
+        string? traceParent = null;
 
         while (reader.Read())
         {
@@ -52,7 +54,8 @@ internal sealed class OutboxSequenceTokenJsonConverter : JsonConverter<OutboxSeq
                     hasSequenceNumber ? sequenceNumber : throw new JsonException("Missing SequenceNumber."),
                     sender ?? throw new JsonException("Missing Sender."),
                     hasTimestamp ? timestamp : throw new JsonException("Missing Timestamp."),
-                    hasEpoch ? epoch : throw new JsonException("Missing Epoch."));
+                    hasEpoch ? epoch : throw new JsonException("Missing Epoch."),
+                    traceParent);
             }
 
             if (reader.TokenType is not JsonTokenType.PropertyName)
@@ -85,6 +88,13 @@ internal sealed class OutboxSequenceTokenJsonConverter : JsonConverter<OutboxSeq
                     epoch = reader.GetDateTimeOffset();
                     hasEpoch = true;
                     break;
+                // Optional: tokens written before trace capture existed, and tokens
+                // from senders with no active activity, carry no traceparent.
+                case nameof(OutboxSequenceToken.TraceParent):
+                    traceParent = reader.TokenType is JsonTokenType.Null
+                        ? null
+                        : reader.GetString();
+                    break;
                 default:
                     reader.Skip();
                     break;
@@ -103,6 +113,11 @@ internal sealed class OutboxSequenceTokenJsonConverter : JsonConverter<OutboxSeq
         GrainIdJsonConverter.Instance.Write(writer, value.Sender, options);
         writer.WriteString(nameof(OutboxSequenceToken.Timestamp), value.Timestamp);
         writer.WriteString(nameof(OutboxSequenceToken.Epoch), value.Epoch);
+        if (value.TraceParent is { } traceParent)
+        {
+            writer.WriteString(nameof(OutboxSequenceToken.TraceParent), traceParent);
+        }
+
         writer.WriteEndObject();
     }
 }
