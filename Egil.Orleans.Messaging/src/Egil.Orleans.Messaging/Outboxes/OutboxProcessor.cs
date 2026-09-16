@@ -75,7 +75,8 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         grainType = owner.GetType().Name;
         reminderName = ReminderPrefix + typeof(TOutbox).FullName;
         dispatcher = new OutboxDispatcher<OutboxMessageEnvelope<TOutbox>>(postmen, logger, grainType, options.TimeProvider,
-            static item => item.Message is { } message ? message.GetType() : typeof(TOutbox));
+            static item => item.Message is { } message ? message.GetType() : typeof(TOutbox),
+            static item => item.Id.TraceParent);
         reconciler = new OutboxReconciler<OutboxMessageEnvelope<TOutbox>>(
             options.AcknowledgePostedAsync,
             options.ReconcileFailedAsync);

@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Serialization;
 
@@ -221,7 +222,11 @@ public sealed class Outbox<T> : IReadOnlyList<T>, IEquatable<Outbox<T>>
         utcNow = utcNow.ToUniversalTime();
         var epoch = this.epoch ?? utcNow;
         var sequenceNumber = latestSequenceNumber + 1;
-        var token = new OutboxMessageId(sequenceNumber, utcNow, epoch);
+        // Captured here, not at delivery time. The processor drains on a grain
+        // timer, a reminder, or whichever request happens to trigger the drain,
+        // and dispatches groups concurrently, so Activity.Current during delivery
+        // is unrelated to the request that appended this message.
+        var token = new OutboxMessageId(sequenceNumber, utcNow, epoch, Activity.Current?.Id);
         return new Outbox<T>(
             sequenceNumber,
             items.Add(new OutboxMessageEnvelope<T>(token, message)),
@@ -251,6 +256,13 @@ public sealed class Outbox<T> : IReadOnlyList<T>, IEquatable<Outbox<T>>
         utcNow = utcNow.ToUniversalTime();
         var batchEpoch = epoch ?? utcNow;
         var sequenceNumber = latestSequenceNumber;
+        // Captured here, not at delivery time. The processor drains on a grain
+        // timer, a reminder, or whichever request happens to trigger the drain,
+        // and dispatches groups concurrently, so Activity.Current during delivery
+        // is unrelated to the request that appended this message.
+        // One capture for the whole batch, matching the single batch timestamp:
+        // a batch is appended within one ambient scope by construction.
+        var traceParent = Activity.Current?.Id;
         var count = messages is IReadOnlyCollection<T> collection
             ? collection.Count
             : messages.TryGetNonEnumeratedCount(out var knownCount) ? knownCount : 0;
@@ -259,7 +271,7 @@ public sealed class Outbox<T> : IReadOnlyList<T>, IEquatable<Outbox<T>>
         builder.AddRange(items);
         do
         {
-            var id = new OutboxMessageId(++sequenceNumber, utcNow, batchEpoch);
+            var id = new OutboxMessageId(++sequenceNumber, utcNow, batchEpoch, traceParent);
             builder.Add(new(id, enumerator.Current));
         }
         while (enumerator.MoveNext());

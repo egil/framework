@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
 
 namespace Egil.Orleans.Messaging.Outboxes;
 
@@ -19,10 +20,15 @@ public static class Outbox
         }
 
         var now = TimeProvider.System.GetUtcNow();
+        // Captured here, not at delivery time. The processor drains on a grain
+        // timer, a reminder, or whichever request happens to trigger the drain,
+        // and dispatches groups concurrently, so Activity.Current during delivery
+        // is unrelated to the request that appended this message.
+        var traceParent = Activity.Current?.Id;
         var builder = ImmutableArray.CreateBuilder<OutboxMessageEnvelope<T>>(messages.Length);
         foreach (var message in messages)
         {
-            var id = new OutboxMessageId(builder.Count + 1L, now, now);
+            var id = new OutboxMessageId(builder.Count + 1L, now, now, traceParent);
             builder.Add(new(id, message));
         }
 
