@@ -389,13 +389,19 @@ immutable array of assigned message IDs and payloads. The outbox also provides:
 
 ### Shape
 
-`OutboxMessageId` stores `(SequenceNumber, Timestamp, Epoch)`. The stored envelope
-contains `Id` and `Message`. The processor combines that ID with the owning grain's
-identity to construct the delivery `OutboxSequenceToken`; it never writes the sender
-back into the outbox. Tokens remain identical across retries and reactivation.
+`OutboxMessageId` stores `(SequenceNumber, Timestamp, Epoch, TraceParent)`. The
+stored envelope contains `Id` and `Message`. The processor combines that ID with
+the owning grain's identity to construct the delivery `OutboxSequenceToken`; it
+never writes the sender back into the outbox. Tokens remain identical across
+retries and reactivation.
+
+`TraceParent` is the W3C traceparent of the activity current when the message was
+appended, or `null`. It is captured by `Add`, `AddRange`, and collection-expression
+construction, omitted from JSON when absent, and ignored by dedup — see
+*OpenTelemetry trace correlation*.
 
 ```csharp
-public sealed record OutboxMessageId(long SequenceNumber, DateTimeOffset Timestamp, DateTimeOffset Epoch);
+public sealed record OutboxMessageId(long SequenceNumber, DateTimeOffset Timestamp, DateTimeOffset Epoch, string? TraceParent = null);
 public sealed record OutboxMessageEnvelope<T>(OutboxMessageId Id, T Message);
 
 // Public collection operations; mutations return new immutable instances.
@@ -638,7 +644,8 @@ public sealed class MessageTracker
 ### Identity model (no OriginId)
 
 - Outbox identity: `OutboxSequenceToken.Sender` supplied by the processor at delivery.
-  Payloads stay clean.
+  Payloads stay clean. `TraceParent` rides on the token but is not part of identity:
+  two tokens differing only by traceparent address the same message.
 - Stream identity: stream namespace, plus provider name when available.
   Stream keys are intentionally not part of `MessageTracker` state because
   the tracker is scoped to one grain activation's durable state.
@@ -1085,6 +1092,61 @@ surfaces through `StreamCursor.TryGetEnqueuedTime(...)`,
 `StreamCursor.TryGetTraceParent(...)`.
 
 ### OpenTelemetry trace correlation
+
+Two separate gaps break trace correlation, and both are closed with
+`ActivityLink`s rather than parent chaining.
+
+#### Gap 1: the outbox store-and-forward delay
+
+An outbox message is stored now and delivered later, so the activity that caused
+it is gone by delivery time. Capturing `Activity.Current` at dispatch is not a
+fix, for three independent reasons:
+
+- The dispatch timer, the retry timer, and the reminder path are not incoming
+  grain calls, so no activity is ambient at all.
+- A drain flushes every pending message in one run, with groups dispatched
+  concurrently. Reading the ambient activity at dispatch attributes a message
+  added by request A to request B, whichever triggered the flush. A wrong link
+  is indistinguishable from a right one when reading a trace, which makes this
+  the more dangerous failure.
+- A span's identity outlives the span. Storing `Activity.Current?.Id` — the W3C
+  string, not the `Activity` — keeps a valid `ActivityLink` target after the
+  producing span has ended and been exported.
+
+So capture happens at append time, in `Add`, `AddRange`, and
+`Outbox.Create<T>`, into `OutboxMessageId.TraceParent`, and reaches the receiver
+through `OutboxSequenceToken.TraceParent` / `TryGetTraceParent(...)`.
+
+`OutboxDispatcher` then starts one `orleans.outbox.post` span per item, of
+`ActivityKind.Producer`, linked to the captured context, before invoking the
+postman. This is what makes the rest work without touching the Event Hubs
+adapter or `StreamManager`: `EnrichedEventHubAdapter.ToQueueMessage` already
+stamps `Activity.Current?.Id`, and the current activity it now observes is the
+per-item dispatch span rather than whatever the concurrent drain left current.
+
+Note that `parentContext: default` does **not** force a root span — .NET falls
+back to `Activity.Current` when the supplied context is `default`. The dispatch
+span therefore roots its own trace on the timer and reminder paths, where
+nothing is ambient, and joins the triggering request's trace when a request
+drives the drain. Both are correct: that request genuinely caused the delivery,
+and it is happening now. What must never happen is joining the *producing*
+trace, which the link handles.
+
+Two decisions taken deliberately here:
+
+- **`tracestate` is not captured.** It is vendor data of up to 512 bytes, sized
+  by the vendor rather than by us. The outbox lives inside the grain state
+  record, so every pending envelope is rewritten on every `WriteStateAsync`
+  until it is delivered — ten pending messages across five state writes is fifty
+  copies, and retries widen the window. The 55-byte traceparent is affordable
+  under that amplification; a variable 512-byte `tracestate` is not, for a value
+  most OTLP users never populate. Revisit as an opt-in option if asked for.
+- **Sampling is not consulted.** The traceparent is stored whatever the sampled
+  flag says. Sampling configuration is not stable across a store-and-forward gap
+  of hours, and the trace id stays useful as the join key between logs and
+  traces even when the producing span was never exported.
+
+#### Gap 2: the stream queue boundary
 
 Orleans streams lose `Activity.Current` across the queue boundary. To
 correlate consumer-side spans with producer-side spans without creating
@@ -1787,6 +1849,16 @@ metrics for state read/write, activation lifecycle, messaging layer.
 - `postman.type` — registered postman target type or delegate owner, when available
 
 **ActivitySource:** `egil.orleans.messaging` for distributed traces.
+
+| Span                    | Kind     | Started by         | Links to                        |
+|-------------------------|----------|--------------------|---------------------------------|
+| `orleans.outbox.post`   | Producer | `OutboxDispatcher` | `OutboxMessageId.TraceParent`, when captured |
+| `orleans.stream.process`| Consumer | `StreamManager`    | the token traceparent, when the provider supplies one |
+
+`orleans.outbox.post` is started per item, around the postman invocation, and
+carries `messaging.system`, `messaging.operation`, `grain.type`, `event.type`,
+and `postman.type`. See *OpenTelemetry trace correlation* for why the producing
+context is attached as a link rather than as a parent.
 
 ### Public interface surface
 

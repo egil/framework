@@ -390,6 +390,41 @@ processor.ForStreamProvider("events")
         message => new CancelledDelivery(message.OrderId));
 ```
 
+### OpenTelemetry trace correlation
+
+Adding a message to the outbox captures the current `Activity` as a W3C
+traceparent and stores it with the message. Capture happens when the message is
+added, not when it is delivered: the processor drains on a grain timer, on a
+reminder, or on whichever request happens to trigger the drain, and by then the
+activity that caused the message has usually ended. A drain also flushes every
+pending message at once, so reading the ambient activity at delivery time would
+attribute messages to whichever request triggered the flush.
+
+There is nothing to configure. `Add`, `AddRange`, and collection-expression
+construction all capture `Activity.Current` implicitly:
+
+```csharp
+// Inside a request with an active Activity.
+state = state with { Outbox = state.Outbox.Add(new OrderSubmitted(orderId)) };
+await stateManager.WriteAsync(state);
+```
+
+At delivery the processor starts one `orleans.outbox.post` producer span per
+message and links it to the captured context. Postmen run inside that span, so
+Orleans grain calls and stream adapters that propagate `Activity.Current` — such
+as `EnrichedEventHubAdapter` — carry the right trace to the receiver with no
+extra work.
+
+Delivery spans **link** back to the producing request rather than being parented
+under it. A message can be delivered hours after the request that produced it
+ended, and parenting into a finished trace produces orphaned spans and traces
+that stretch across the whole delay. When a request does drive the drain, the
+delivery span joins that request's trace and still links to the producing one.
+
+The traceparent is stored whether or not the producing activity was sampled, so
+the trace id remains available for log correlation. `tracestate` is not
+captured.
+
 ### Migrating existing outbox callers
 
 - Indexing and enumeration now return payloads. Use `outbox.Envelopes` where code
@@ -419,6 +454,26 @@ cursor or must distinguish "no stream tracked" from "tracked stream with a
 null token".
 
 The tracker can also evict old sender or stream entries when your retention policy allows it.
+
+`OutboxSequenceToken.TryGetTraceParent(out var traceParent)` exposes the
+traceparent captured when the sender added the message, so a receiver can link
+its own span back to the request that produced the message:
+
+```csharp
+if (token.TryGetTraceParent(out var traceParent)
+    && ActivityContext.TryParse(traceParent, traceState: null, isRemote: true, out var producer))
+{
+    using var activity = MySource.StartActivity(
+        "order.submitted.process",
+        ActivityKind.Consumer,
+        parentContext: default,
+        links: [new ActivityLink(producer)]);
+}
+```
+
+Use a link rather than a parent, for the same reason the processor does. The
+traceparent is not part of delivery identity: dedup ignores it, and two tokens
+that differ only by traceparent address the same message.
 
 ## Streams
 
@@ -564,6 +619,21 @@ The constructor-registration and payload-postman changes tracked in
 - Register payload subtypes with `AddPostman`, `AddStreamPostman`, and `AddGrainPostman`. Direct `AddPostman` callbacks take one, two, or three arguments. Direct and grain callbacks accept both `Task` and `ValueTask`, preferring `ValueTask` for async lambdas on C# 13+. Replace `AddPostmanWithToken` with `AddPostman`; move cancellation to the third argument and capture a grain factory rather than receiving it as a callback argument.
 - Supply state factories for types without a public parameterless constructor. Custom `IStateManagerFactory` implementations receive the initial-state factory and runtime configuration callback.
 - Pass a tracker accessor to `RegisterStreamManager`, for example `() => state.State.Tracker`. It is evaluated when attaching/resuming subscriptions, after hydration, and observes later state replacement.
+
+Outbox messages now carry the producer's W3C traceparent:
+
+- `OutboxMessageId` gains a fourth positional parameter, `TraceParent`, which
+  defaults to `null`. Existing positional construction keeps compiling.
+- `OutboxSequenceToken` gains a `TraceParent` property and
+  `TryGetTraceParent(out string?)`.
+- `OutboxMessageId` equality now includes `TraceParent`. An id rebuilt by hand
+  from a sequence number, timestamp, and epoch no longer matches the stored id
+  of a message added under an active `Activity`. Pass the id from
+  `outbox.Envelopes[i].Id` to `Remove`/`RemoveRange` rather than reconstructing
+  one.
+- The property is nullable and omitted from JSON when absent, so snapshots
+  written before this change load unchanged. No migration or reset is required,
+  unlike the `Revision` change above.
 
 The earlier sender-free message-ID and revision changes described above changed
 the stored JSON shape; migration of snapshots predating those changes is not
