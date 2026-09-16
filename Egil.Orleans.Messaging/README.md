@@ -623,9 +623,16 @@ The constructor-registration and payload-postman changes tracked in
 Outbox messages now carry the producer's W3C traceparent:
 
 - `OutboxMessageId` gains a fourth positional parameter, `TraceParent`, which
-  defaults to `null`. Existing positional construction keeps compiling.
-- `OutboxSequenceToken` gains a `TraceParent` property and
+  defaults to `null`. `OutboxSequenceToken` gains a matching optional
+  constructor parameter, a `TraceParent` property, and
   `TryGetTraceParent(out string?)`.
+- Both are **binary breaking**. An optional parameter preserves source
+  compatibility, not the emitted CLR constructor, so assemblies compiled against
+  an earlier version throw `MissingMethodException` until they are rebuilt.
+  Recompile consumers rather than mixing versions.
+- `OutboxMessageId`'s generated `Deconstruct` is now four-valued, so
+  `var (sequenceNumber, timestamp, epoch) = id;` no longer compiles. Add the
+  fourth position or discard it with `_`.
 - `TraceParent` is excluded from equality and hash code on both types, because
   it is diagnostic metadata rather than identity. An id rebuilt by hand from a
   sequence number, timestamp, and epoch still matches the stored id of a message

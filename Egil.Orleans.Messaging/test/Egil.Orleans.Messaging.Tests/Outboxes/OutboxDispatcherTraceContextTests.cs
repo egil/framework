@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -98,13 +99,25 @@ public sealed class OutboxDispatcherTraceContextTests : IDisposable
         var secondTraceId = second.TraceId;
         var secondEnvelope = Envelope(2, second.Id);
         second.Dispose();
-        var bothStarted = new Barrier(2);
-        var observed = new System.Collections.Concurrent.ConcurrentDictionary<long, ActivityTraceId>();
+        var firstArrived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondArrived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var observed = new ConcurrentDictionary<long, ActivityTraceId>();
 
         await DispatchConcurrentlyAsync(
-            item =>
+            async item =>
             {
-                bothStarted.SignalAndWait(TimeSpan.FromSeconds(30));
+                // Yield first. The dispatcher starts groups in a loop and only reaches
+                // the second one once the first awaits, so a postman that blocks
+                // synchronously would wait for a group that never starts.
+                await Task.Yield();
+                var (self, other) = item.Id.SequenceNumber == 1
+                    ? (firstArrived, secondArrived.Task)
+                    : (secondArrived, firstArrived.Task);
+                self.SetResult();
+
+                // Throws on timeout rather than returning a flag, so a regression that
+                // serialises the groups fails the test instead of passing slowly.
+                await other.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
                 observed[item.Id.SequenceNumber] = Activity.Current!.TraceId;
             },
             firstEnvelope,
@@ -183,7 +196,7 @@ public sealed class OutboxDispatcherTraceContextTests : IDisposable
     // The dispatcher groups items by the postman they match and runs groups under
     // Task.WhenAll, so one registration per item is what makes deliveries overlap.
     private Task DispatchConcurrentlyAsync(
-        Action<OutboxMessageEnvelope<string>> postman,
+        Func<OutboxMessageEnvelope<string>, ValueTask> postman,
         params OutboxMessageEnvelope<string>[] pending)
     {
         var registry = new OutboxPostmanRegistry<OutboxMessageEnvelope<string>>();
@@ -193,7 +206,7 @@ public sealed class OutboxDispatcherTraceContextTests : IDisposable
             registry.Add(
                 typeof(string),
                 item => item.Id.SequenceNumber == sequenceNumber,
-                (item, _) => { postman(item); return ValueTask.CompletedTask; });
+                (item, _) => postman(item));
         }
 
         return DispatchAsync(registry, pending);
@@ -229,9 +242,11 @@ public sealed class OutboxDispatcherTraceContextTests : IDisposable
         return listener;
     }
 
-    private ActivityListener RecordDispatchSpans(out List<Activity> recorded)
+    private ActivityListener RecordDispatchSpans(out ConcurrentBag<Activity> recorded)
     {
-        var captured = new List<Activity>();
+        // Concurrent groups stop their spans on different continuations, so
+        // ActivityStopped can run these callbacks in parallel.
+        var captured = new ConcurrentBag<Activity>();
         recorded = captured;
         var listener = new ActivityListener
         {
