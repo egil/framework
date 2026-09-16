@@ -645,7 +645,12 @@ public sealed class MessageTracker
 
 - Outbox identity: `OutboxSequenceToken.Sender` supplied by the processor at delivery.
   Payloads stay clean. `TraceParent` rides on the token but is not part of identity:
-  two tokens differing only by traceparent address the same message.
+  both `OutboxSequenceToken` and `OutboxMessageId` exclude it from equality and hash
+  code, so two values differing only by traceparent address the same message.
+  This is what keeps `MessageTracker` free of telemetry: the tracker stores no
+  traceparent, and `LatestOutbox` still reconstructs a token equal to the one it
+  accepted. Persisting it per sender instead would hold stale trace context in the
+  receiver's durable state for a message already processed.
 - Stream identity: stream namespace, plus provider name when available.
   Stream keys are intentionally not part of `MessageTracker` state because
   the tracker is scoped to one grain activation's durable state.

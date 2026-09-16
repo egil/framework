@@ -27,6 +27,26 @@ public sealed record OutboxMessageId(
     // of those writes for no information.
     [property: Id(3), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? TraceParent = null)
 {
+    /// <summary>
+    /// Compares durable identity only. <see cref="TraceParent"/> is diagnostic
+    /// metadata, so two ids that differ only by it address the same message.
+    /// </summary>
+    /// <remarks>
+    /// Keeps <see cref="Outbox{T}.Remove(OutboxMessageId)"/>-style lookups working
+    /// for an id rebuilt from its sequence number, timestamp, and epoch, and keeps
+    /// <see cref="Tracking.MessageTracker.LatestOutbox(GrainId)"/> able to
+    /// reconstruct a token equal to the one it accepted without storing the
+    /// traceparent.
+    /// </remarks>
+    public bool Equals(OutboxMessageId? other) =>
+        other is not null
+        && SequenceNumber == other.SequenceNumber
+        && Timestamp == other.Timestamp
+        && Epoch == other.Epoch;
+
+    /// <inheritdoc/>
+    public override int GetHashCode() => HashCode.Combine(SequenceNumber, Timestamp, Epoch);
+
     internal OutboxSequenceToken ForSender(GrainId sender) =>
         new(SequenceNumber, sender, Timestamp, Epoch, TraceParent);
 }
