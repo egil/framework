@@ -32,6 +32,7 @@ public class ValidationAttributeDiagnosticTest
             diagnostic.GetMessage(CultureInfo.InvariantCulture));
         Assert.Equal("EmailAddress", diagnostic.Location.SourceTree?.GetText(TestContext.Current.CancellationToken).ToString(diagnostic.Location.SourceSpan));
         Assert.Empty(compilation.GetDiagnostics(TestContext.Current.CancellationToken).Where(d => d.Severity > DiagnosticSeverity.Warning));
+        Assert.DoesNotContain("valueValidator", Assert.Single(result.GeneratedTrees).ToString());
     }
 
     [Fact]

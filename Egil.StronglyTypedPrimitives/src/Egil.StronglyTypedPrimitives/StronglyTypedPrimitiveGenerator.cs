@@ -192,7 +192,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         var targetTypeName = targetTypeSymbol.ToDisplayString();
         var underlyingTypeName = underlyingTypeSymbol.WithNullableAnnotation(NullableAnnotation.None).ToDisplayString();
 
-        var validationAttributes = Parser.GetValidationAttributes(info.Parameter, semanticModel);
+        var validationAttributes = Parser.GetValidationAttributes(info.Parameter, semanticModel, targetTypeMembers);
         var diagnostics = GetValidationAttributeDiagnostics(info, validationAttributes, hasUserDeclaredIsValueValid);
 
         string?[] typeParts = [
