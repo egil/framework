@@ -495,7 +495,6 @@ public partial class UnionMigrationTests
     [JsonMigratable(TypeDiscriminator = "counter")]
     public record class Counter(int Value)
         : IMigrateFrom<int, Counter>,
-          IMigrateFrom<long, Counter>,
           IMigrateFrom<List<int>, Counter>,
           IMigrateFrom<Dictionary<string, int>, Counter>
     {
