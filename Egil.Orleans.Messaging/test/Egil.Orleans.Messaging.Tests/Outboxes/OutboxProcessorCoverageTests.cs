@@ -223,19 +223,19 @@ public sealed class OutboxProcessorCoverageTests(MessagingTestClusterFixture fix
     public async Task Background_dispatch_allows_other_calls_while_postman_is_awaiting()
     {
         var grainKey = Guid.NewGuid();
-        var grain = fixture.GrainFactory.GetGrain<IOutboxProcessorReconciliationSchedulingGrain>(grainKey);
+        var grain = fixture.GrainFactory.GetGrain<IOutboxProcessorAcknowledgementSchedulingGrain>(grainKey);
         var gate = OutboxProcessorSchedulingGate.For(grainKey);
 
         try
         {
-            await grain.PublishInBackgroundAsync("dispatch", interleaveReconciliation: false);
+            await grain.PublishInBackgroundAsync("dispatch", interleaveAcknowledgement: false);
             await gate.DispatchStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
 
             await grain.RecordWriteAsync("during-dispatch");
 
             gate.AllowDispatch.SetResult();
-            await gate.ReconciliationStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
-            gate.AllowReconciliation.SetResult();
+            await gate.AcknowledgementStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
+            gate.AllowAcknowledgement.SetResult();
 
             await fixture.WaitForAssertionAsync(
                 grain,
@@ -254,24 +254,24 @@ public sealed class OutboxProcessorCoverageTests(MessagingTestClusterFixture fix
     }
 
     [Fact]
-    public async Task PostAsync_coalesces_with_background_dispatch_before_non_interleaving_reconciliation()
+    public async Task PostAsync_coalesces_with_background_dispatch_before_non_interleaving_acknowledgement()
     {
         var grainKey = Guid.NewGuid();
-        var grain = fixture.GrainFactory.GetGrain<IOutboxProcessorReconciliationSchedulingGrain>(grainKey);
+        var grain = fixture.GrainFactory.GetGrain<IOutboxProcessorAcknowledgementSchedulingGrain>(grainKey);
         var gate = OutboxProcessorSchedulingGate.For(grainKey);
 
         try
         {
-            await grain.PublishInBackgroundAsync("dispatch", interleaveReconciliation: false);
+            await grain.PublishInBackgroundAsync("dispatch", interleaveAcknowledgement: false);
             await gate.DispatchStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
 
             var postAgain = grain.PostAgainAsync(TestContext.Current.CancellationToken);
             await gate.ForegroundPostStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
             gate.AllowDispatch.SetResult();
-            gate.AllowReconciliation.SetResult();
+            gate.AllowAcknowledgement.SetResult();
 
             await postAgain;
-            await gate.ReconciliationStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
+            await gate.AcknowledgementStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
 
             await fixture.WaitForAssertionAsync(
                 grain,
@@ -285,27 +285,27 @@ public sealed class OutboxProcessorCoverageTests(MessagingTestClusterFixture fix
         finally
         {
             gate.AllowDispatch.TrySetResult();
-            gate.AllowReconciliation.TrySetResult();
+            gate.AllowAcknowledgement.TrySetResult();
             OutboxProcessorSchedulingGate.Remove(grainKey);
         }
     }
 
     [Fact]
-    public async Task Empty_background_post_does_not_cancel_active_reconciliation()
+    public async Task Empty_background_post_does_not_cancel_active_acknowledgement()
     {
         var grainKey = Guid.NewGuid();
-        var grain = fixture.GrainFactory.GetGrain<IOutboxProcessorReconciliationSchedulingGrain>(grainKey);
+        var grain = fixture.GrainFactory.GetGrain<IOutboxProcessorAcknowledgementSchedulingGrain>(grainKey);
         var gate = OutboxProcessorSchedulingGate.For(grainKey);
 
         try
         {
-            await grain.PublishInBackgroundAsync("dispatch", interleaveReconciliation: true);
+            await grain.PublishInBackgroundAsync("dispatch", interleaveAcknowledgement: true);
             await gate.DispatchStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
             gate.AllowDispatch.SetResult();
 
-            await gate.ReconciliationStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
+            await gate.AcknowledgementStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
             await grain.ClearAndPostInBackgroundAsync(TestContext.Current.CancellationToken);
-            gate.AllowReconciliation.SetResult();
+            gate.AllowAcknowledgement.SetResult();
 
             await fixture.WaitForAssertionAsync(
                 grain,
@@ -319,31 +319,31 @@ public sealed class OutboxProcessorCoverageTests(MessagingTestClusterFixture fix
         finally
         {
             gate.AllowDispatch.TrySetResult();
-            gate.AllowReconciliation.TrySetResult();
+            gate.AllowAcknowledgement.TrySetResult();
             OutboxProcessorSchedulingGate.Remove(grainKey);
         }
     }
 
     [Fact]
-    public async Task Background_reconciliation_does_not_interleave_with_other_calls_by_default()
+    public async Task Background_acknowledgement_does_not_interleave_with_other_calls_by_default()
     {
         var grainKey = Guid.NewGuid();
-        var grain = fixture.GrainFactory.GetGrain<IOutboxProcessorReconciliationSchedulingGrain>(grainKey);
+        var grain = fixture.GrainFactory.GetGrain<IOutboxProcessorAcknowledgementSchedulingGrain>(grainKey);
         var gate = OutboxProcessorSchedulingGate.For(grainKey);
 
         try
         {
-            await grain.PublishInBackgroundAsync("non-interleaving-reconciliation", interleaveReconciliation: false);
+            await grain.PublishInBackgroundAsync("non-interleaving-acknowledgement", interleaveAcknowledgement: false);
             gate.AllowDispatch.SetResult();
-            await gate.ReconciliationStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
+            await gate.AcknowledgementStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
 
-            var writeTask = grain.RecordWriteAsync("during-reconciliation");
+            var writeTask = grain.RecordWriteAsync("during-acknowledgement");
 
-            gate.AllowReconciliation.SetResult();
+            gate.AllowAcknowledgement.SetResult();
             await writeTask.WaitAsync(TestContext.Current.CancellationToken);
 
             var state = await grain.GetSchedulingStateAsync();
-            Assert.Equal(["acknowledged", "during-reconciliation"], state.Writes);
+            Assert.Equal(["acknowledged", "during-acknowledgement"], state.Writes);
         }
         finally
         {
@@ -352,27 +352,27 @@ public sealed class OutboxProcessorCoverageTests(MessagingTestClusterFixture fix
     }
 
     [Fact]
-    public async Task Background_reconciliation_can_be_configured_to_interleave_with_other_calls()
+    public async Task Background_acknowledgement_can_be_configured_to_interleave_with_other_calls()
     {
         var grainKey = Guid.NewGuid();
-        var grain = fixture.GrainFactory.GetGrain<IOutboxProcessorReconciliationSchedulingGrain>(grainKey);
+        var grain = fixture.GrainFactory.GetGrain<IOutboxProcessorAcknowledgementSchedulingGrain>(grainKey);
         var gate = OutboxProcessorSchedulingGate.For(grainKey);
 
         try
         {
-            await grain.PublishInBackgroundAsync("interleaving-reconciliation", interleaveReconciliation: true);
+            await grain.PublishInBackgroundAsync("interleaving-acknowledgement", interleaveAcknowledgement: true);
             gate.AllowDispatch.SetResult();
-            await gate.ReconciliationStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
+            await gate.AcknowledgementStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
 
-            await grain.RecordWriteAsync("during-reconciliation");
-            gate.AllowReconciliation.SetResult();
+            await grain.RecordWriteAsync("during-acknowledgement");
+            gate.AllowAcknowledgement.SetResult();
 
             await fixture.WaitForAssertionAsync(
                 grain,
                 async () =>
                 {
                     var state = await grain.GetSchedulingStateAsync();
-                    Assert.Equal(["during-reconciliation", "acknowledged"], state.Writes);
+                    Assert.Equal(["during-acknowledgement", "acknowledged"], state.Writes);
                     Assert.Equal(1, state.AcknowledgedCount);
                 },
                 ct: TestContext.Current.CancellationToken);
@@ -443,9 +443,9 @@ public interface IOutboxProcessorValidationCoverageGrain : IGrainWithGuidKey
     Task<OutboxProcessorSourceState> GetStateAsync();
 }
 
-public interface IOutboxProcessorReconciliationSchedulingGrain : IGrainWithGuidKey
+public interface IOutboxProcessorAcknowledgementSchedulingGrain : IGrainWithGuidKey
 {
-    Task PublishInBackgroundAsync(string value, bool interleaveReconciliation);
+    Task PublishInBackgroundAsync(string value, bool interleaveAcknowledgement);
 
     Task PostAgainAsync(CancellationToken cancellationToken);
 
@@ -474,10 +474,10 @@ internal sealed class OutboxProcessorSchedulingGate
     public TaskCompletionSource ForegroundPostStarted { get; } =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    public TaskCompletionSource ReconciliationStarted { get; } =
+    public TaskCompletionSource AcknowledgementStarted { get; } =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    public TaskCompletionSource AllowReconciliation { get; } =
+    public TaskCompletionSource AllowAcknowledgement { get; } =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public static OutboxProcessorSchedulingGate For(Guid grainKey)
@@ -545,7 +545,7 @@ public sealed class OutboxProcessorReentrantPostGrain(
     {
         OutboxAccessor = () => state.State.Outbox ?? [],
         AcknowledgePostedAsync = AcknowledgePostedAsync,
-        ReconcileFailedAsync = ReconcileFailedAsync,
+        AcknowledgeFailuresAsync = AcknowledgeFailuresAsync,
         RetryDelay = TimeSpan.FromMilliseconds(100)
     };
 
@@ -564,7 +564,7 @@ public sealed class OutboxProcessorReentrantPostGrain(
         await state.WriteStateAsync(cancellationToken);
     }
 
-    private ValueTask ReconcileFailedAsync(
+    private ValueTask AcknowledgeFailuresAsync(
         ImmutableArray<(OutboxMessageEnvelope<OutboxProcessorTestEvent> Item, Exception Error, int Attempt)> failures,
         CancellationToken cancellationToken) =>
         ValueTask.CompletedTask;
@@ -586,7 +586,7 @@ public sealed class OutboxProcessorConcurrentManualPostGrain(
         {
             OutboxAccessor = () => state.State.Outbox ?? [],
             AcknowledgePostedAsync = AcknowledgePostedAsync,
-            ReconcileFailedAsync = ReconcileFailedAsync,
+            AcknowledgeFailuresAsync = AcknowledgeFailuresAsync,
             RetryDelay = TimeSpan.FromMilliseconds(100)
         })
         .AddPostman<OutboxProcessorTestEvent>(async (message, _, cancellationToken) => await PostWithGateAsync(message, cancellationToken));
@@ -641,7 +641,7 @@ public sealed class OutboxProcessorConcurrentManualPostGrain(
         await state.WriteStateAsync(cancellationToken);
     }
 
-    private ValueTask ReconcileFailedAsync(
+    private ValueTask AcknowledgeFailuresAsync(
         ImmutableArray<(OutboxMessageEnvelope<OutboxProcessorTestEvent> Item, Exception Error, int Attempt)> failures,
         CancellationToken cancellationToken) =>
         ValueTask.CompletedTask;
@@ -663,7 +663,7 @@ public sealed class OutboxProcessorRetryPendingGrain(
         {
             OutboxAccessor = () => state.State.Outbox ?? [],
             AcknowledgePostedAsync = AcknowledgePostedAsync,
-            ReconcileFailedAsync = ReconcileFailedAsync,
+            AcknowledgeFailuresAsync = AcknowledgeFailuresAsync,
             RetryDelay = TimeSpan.FromMinutes(2)
         })
         .AddPostman<OutboxProcessorTestEvent>(PostItemAsync);
@@ -718,7 +718,7 @@ public sealed class OutboxProcessorRetryPendingGrain(
         await state.WriteStateAsync(cancellationToken);
     }
 
-    private async ValueTask ReconcileFailedAsync(
+    private async ValueTask AcknowledgeFailuresAsync(
         ImmutableArray<(OutboxMessageEnvelope<OutboxProcessorTestEvent> Item, Exception Error, int Attempt)> failures,
         CancellationToken cancellationToken)
     {
@@ -743,7 +743,7 @@ public sealed class OutboxProcessorReminderCoverageGrain(
         {
             OutboxAccessor = () => state.State.Outbox ?? [],
             AcknowledgePostedAsync = AcknowledgePostedAsync,
-            ReconcileFailedAsync = ReconcileFailedAsync,
+            AcknowledgeFailuresAsync = AcknowledgeFailuresAsync,
             RetryDelay = TimeSpan.FromMinutes(2)
         })
         .AddPostman<OutboxProcessorTestEvent>(static _ => ValueTask.CompletedTask);
@@ -783,7 +783,7 @@ public sealed class OutboxProcessorReminderCoverageGrain(
         await state.WriteStateAsync(cancellationToken);
     }
 
-    private ValueTask ReconcileFailedAsync(
+    private ValueTask AcknowledgeFailuresAsync(
         ImmutableArray<(OutboxMessageEnvelope<OutboxProcessorTestEvent> Item, Exception Error, int Attempt)> failures,
         CancellationToken cancellationToken) =>
         ValueTask.CompletedTask;
@@ -832,7 +832,7 @@ public sealed class OutboxProcessorValidationCoverageGrain(
                 returnEmpty = true;
                 return ValueTask.CompletedTask;
             },
-            ReconcileFailedAsync = ReconcileFailedAsync,
+            AcknowledgeFailuresAsync = AcknowledgeFailuresAsync,
             RetryDelay = TimeSpan.FromMilliseconds(100)
         })
         .AddPostman<OutboxProcessorTestEvent>(static _ => ValueTask.CompletedTask);
@@ -945,7 +945,7 @@ public sealed class OutboxProcessorValidationCoverageGrain(
         {
             OutboxAccessor = outboxAccessor,
             AcknowledgePostedAsync = AcknowledgePostedAsync,
-            ReconcileFailedAsync = ReconcileFailedAsync,
+            AcknowledgeFailuresAsync = AcknowledgeFailuresAsync,
             ProcessingTimeout = processingTimeout ?? TimeSpan.FromSeconds(20),
             RetryDelay = retryDelay ?? TimeSpan.FromMilliseconds(100)
         };
@@ -958,7 +958,7 @@ public sealed class OutboxProcessorValidationCoverageGrain(
         return ValueTask.CompletedTask;
     }
 
-    private ValueTask ReconcileFailedAsync(
+    private ValueTask AcknowledgeFailuresAsync(
         ImmutableArray<(OutboxMessageEnvelope<OutboxProcessorTestEvent> Item, Exception Error, int Attempt)> failures,
         CancellationToken cancellationToken)
     {
@@ -967,22 +967,22 @@ public sealed class OutboxProcessorValidationCoverageGrain(
     }
 }
 
-public sealed class OutboxProcessorReconciliationSchedulingGrain(
+public sealed class OutboxProcessorAcknowledgementSchedulingGrain(
     [PersistentState("state", "Default")] IPersistentState<OutboxProcessorSourceState> state)
-    : Grain, IOutboxProcessorReconciliationSchedulingGrain, IOutboxGrain
+    : Grain, IOutboxProcessorAcknowledgementSchedulingGrain, IOutboxGrain
 {
     private OutboxProcessor<OutboxProcessorTestEvent>? processor;
     private ImmutableArray<string> writes = [];
 
-    public async Task PublishInBackgroundAsync(string value, bool interleaveReconciliation)
+    public async Task PublishInBackgroundAsync(string value, bool interleaveAcknowledgement)
     {
         processor ??= this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorTestEvent>
         {
             OutboxAccessor = () => state.State.Outbox ?? [],
             AcknowledgePostedAsync = AcknowledgePostedAsync,
-            ReconcileFailedAsync = ReconcileFailedAsync,
+            AcknowledgeFailuresAsync = AcknowledgeFailuresAsync,
             RetryDelay = TimeSpan.FromMilliseconds(100),
-            InterleaveReconciliationCallbacks = interleaveReconciliation
+            InterleaveAcknowledgementCallbacks = interleaveAcknowledgement
         })
         .AddPostman<OutboxProcessorTestEvent>(async (message, _, cancellationToken) => await PostWithGateAsync(message, cancellationToken));
 
@@ -1028,8 +1028,8 @@ public sealed class OutboxProcessorReconciliationSchedulingGrain(
         CancellationToken cancellationToken)
     {
         var gate = OutboxProcessorSchedulingGate.For(this.GetPrimaryKey());
-        gate.ReconciliationStarted.SetResult();
-        await gate.AllowReconciliation.Task.WaitAsync(cancellationToken);
+        gate.AcknowledgementStarted.SetResult();
+        await gate.AllowAcknowledgement.Task.WaitAsync(cancellationToken);
 
         var outbox = EnsureOutbox();
         foreach (var item in items)
@@ -1043,7 +1043,7 @@ public sealed class OutboxProcessorReconciliationSchedulingGrain(
         await state.WriteStateAsync(cancellationToken);
     }
 
-    private ValueTask ReconcileFailedAsync(
+    private ValueTask AcknowledgeFailuresAsync(
         ImmutableArray<(OutboxMessageEnvelope<OutboxProcessorTestEvent> Item, Exception Error, int Attempt)> failures,
         CancellationToken cancellationToken) =>
         ValueTask.CompletedTask;

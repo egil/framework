@@ -784,7 +784,7 @@ public sealed class StateManagerTests
         completion.SetResult();
         await write;
 
-        // Only reachable in a [Reentrant] grain or with interleaved reconciliation. The
+        // Only reachable in a [Reentrant] grain or with interleaved acknowledgement. The
         // staged value never reached storage, so adopting it would mark a value storage
         // never saw as durable and lose this write's fence. Discarding it costs one
         // redelivery, which the next post run corrects.

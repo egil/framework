@@ -37,7 +37,7 @@ public sealed class OutboxProcessorTests(MessagingTestClusterFixture fixture) : 
     }
 
     [Fact]
-    public async Task PostInBackgroundAsync_reports_no_postman_failure_and_reconciles_pending_item()
+    public async Task PostInBackgroundAsync_reports_no_postman_failure_and_acknowledges_the_failure()
     {
         var source = fixture.GrainFactory.GetGrain<IOutboxProcessorNoPostmanGrain>(Guid.NewGuid());
 
@@ -56,7 +56,7 @@ public sealed class OutboxProcessorTests(MessagingTestClusterFixture fixture) : 
     }
 
     [Fact]
-    public async Task PostInBackgroundAsync_reports_postman_failure_and_reconciles_pending_item()
+    public async Task PostInBackgroundAsync_reports_postman_failure_and_acknowledges_the_failure()
     {
         var source = fixture.GrainFactory.GetGrain<IOutboxProcessorFailingPostmanGrain>(Guid.NewGuid());
 
@@ -95,7 +95,7 @@ public sealed class OutboxProcessorTests(MessagingTestClusterFixture fixture) : 
     }
 
     [Fact]
-    public async Task PostInBackgroundAsync_reports_keyed_postman_failure_and_reconciles_pending_item()
+    public async Task PostInBackgroundAsync_reports_keyed_postman_failure_and_acknowledges_the_failure()
     {
         var source = fixture.GrainFactory.GetGrain<IOutboxProcessorKeyedFailingPostmanGrain>(Guid.NewGuid());
 
@@ -494,7 +494,7 @@ public sealed class OutboxProcessorSourceGrain(
         {
             OutboxAccessor = () => state.State.Outbox ?? [],
             AcknowledgePostedAsync = AcknowledgePostedAsync,
-            ReconcileFailedAsync = ReconcileFailedAsync,
+            AcknowledgeFailuresAsync = AcknowledgeFailuresAsync,
             RetryDelay = TimeSpan.FromMilliseconds(100)
         })
         .AddPostman<OutboxProcessorTestEvent>(PublishEnvelopeAsync);
@@ -544,7 +544,7 @@ public sealed class OutboxProcessorSourceGrain(
         await state.WriteStateAsync(cancellationToken);
     }
 
-    private async ValueTask ReconcileFailedAsync(
+    private async ValueTask AcknowledgeFailuresAsync(
         ImmutableArray<(OutboxMessageEnvelope<OutboxProcessorTestEvent> Item, Exception Error, int Attempt)> failures,
         CancellationToken cancellationToken)
     {
@@ -580,7 +580,7 @@ public sealed class OutboxProcessorNoPostmanGrain(
         {
             OutboxAccessor = () => state.State.Outbox ?? [],
             AcknowledgePostedAsync = AcknowledgePostedAsync,
-            ReconcileFailedAsync = ReconcileFailedAsync,
+            AcknowledgeFailuresAsync = AcknowledgeFailuresAsync,
             RetryDelay = TimeSpan.FromMilliseconds(100)
         });
 
@@ -602,7 +602,7 @@ public sealed class OutboxProcessorNoPostmanGrain(
         CancellationToken cancellationToken) =>
         ValueTask.CompletedTask;
 
-    private async ValueTask ReconcileFailedAsync(
+    private async ValueTask AcknowledgeFailuresAsync(
         ImmutableArray<(OutboxMessageEnvelope<OutboxProcessorTestEvent> Item, Exception Error, int Attempt)> failures,
         CancellationToken cancellationToken)
     {
@@ -638,7 +638,7 @@ public sealed class OutboxProcessorFailingPostmanGrain(
         {
             OutboxAccessor = () => state.State.Outbox ?? [],
             AcknowledgePostedAsync = AcknowledgePostedAsync,
-            ReconcileFailedAsync = ReconcileFailedAsync,
+            AcknowledgeFailuresAsync = AcknowledgeFailuresAsync,
             RetryDelay = TimeSpan.FromMilliseconds(100)
         })
         .AddPostman<OutboxProcessorTestEvent>(FailAsync);
@@ -666,7 +666,7 @@ public sealed class OutboxProcessorFailingPostmanGrain(
         CancellationToken cancellationToken) =>
         ValueTask.CompletedTask;
 
-    private async ValueTask ReconcileFailedAsync(
+    private async ValueTask AcknowledgeFailuresAsync(
         ImmutableArray<(OutboxMessageEnvelope<OutboxProcessorTestEvent> Item, Exception Error, int Attempt)> failures,
         CancellationToken cancellationToken)
     {
@@ -702,7 +702,7 @@ public sealed class OutboxProcessorKeyedPostmanGrain(
         {
             OutboxAccessor = () => state.State.Outbox ?? [],
             AcknowledgePostedAsync = AcknowledgePostedAsync,
-            ReconcileFailedAsync = ReconcileFailedAsync,
+            AcknowledgeFailuresAsync = AcknowledgeFailuresAsync,
             RetryDelay = TimeSpan.FromMilliseconds(100)
         })
         .AddPostman<OutboxProcessorTestEvent>(OutboxProcessorTestPostmanNames.Success);
@@ -735,7 +735,7 @@ public sealed class OutboxProcessorKeyedPostmanGrain(
         await state.WriteStateAsync(cancellationToken);
     }
 
-    private async ValueTask ReconcileFailedAsync(
+    private async ValueTask AcknowledgeFailuresAsync(
         ImmutableArray<(OutboxMessageEnvelope<OutboxProcessorTestEvent> Item, Exception Error, int Attempt)> failures,
         CancellationToken cancellationToken)
     {
@@ -771,7 +771,7 @@ public sealed class OutboxProcessorKeyedFailingPostmanGrain(
         {
             OutboxAccessor = () => state.State.Outbox ?? [],
             AcknowledgePostedAsync = AcknowledgePostedAsync,
-            ReconcileFailedAsync = ReconcileFailedAsync,
+            AcknowledgeFailuresAsync = AcknowledgeFailuresAsync,
             RetryDelay = TimeSpan.FromMilliseconds(100)
         })
         .AddPostman<OutboxProcessorTestEvent>(OutboxProcessorTestPostmanNames.Failure);
@@ -794,7 +794,7 @@ public sealed class OutboxProcessorKeyedFailingPostmanGrain(
         CancellationToken cancellationToken) =>
         ValueTask.CompletedTask;
 
-    private async ValueTask ReconcileFailedAsync(
+    private async ValueTask AcknowledgeFailuresAsync(
         ImmutableArray<(OutboxMessageEnvelope<OutboxProcessorTestEvent> Item, Exception Error, int Attempt)> failures,
         CancellationToken cancellationToken)
     {
@@ -831,7 +831,7 @@ public sealed class OutboxProcessorKeyedCancellationPostmanGrain(
         {
             OutboxAccessor = () => state.State.Outbox ?? [],
             AcknowledgePostedAsync = AcknowledgePostedAsync,
-            ReconcileFailedAsync = ReconcileFailedAsync,
+            AcknowledgeFailuresAsync = AcknowledgeFailuresAsync,
             ProcessingTimeout = TimeSpan.FromHours(2),
             TimeProvider = timeProvider,
             RetryDelay = TimeSpan.FromMilliseconds(100)
@@ -873,7 +873,7 @@ public sealed class OutboxProcessorKeyedCancellationPostmanGrain(
         CancellationToken cancellationToken) =>
         ValueTask.CompletedTask;
 
-    private ValueTask ReconcileFailedAsync(
+    private ValueTask AcknowledgeFailuresAsync(
         ImmutableArray<(OutboxMessageEnvelope<OutboxProcessorTestEvent> Item, Exception Error, int Attempt)> failures,
         CancellationToken cancellationToken) =>
         ValueTask.CompletedTask;
@@ -899,7 +899,7 @@ public sealed class OutboxProcessorKeyedTimeoutPostmanGrain(
         {
             OutboxAccessor = () => state.State.Outbox ?? [],
             AcknowledgePostedAsync = AcknowledgePostedAsync,
-            ReconcileFailedAsync = ReconcileFailedAsync,
+            AcknowledgeFailuresAsync = AcknowledgeFailuresAsync,
             ProcessingTimeout = TimeSpan.FromHours(1),
             TimeProvider = timeProvider,
             RetryDelay = TimeSpan.FromMilliseconds(100)
@@ -940,7 +940,7 @@ public sealed class OutboxProcessorKeyedTimeoutPostmanGrain(
         CancellationToken cancellationToken) =>
         ValueTask.CompletedTask;
 
-    private ValueTask ReconcileFailedAsync(
+    private ValueTask AcknowledgeFailuresAsync(
         ImmutableArray<(OutboxMessageEnvelope<OutboxProcessorTestEvent> Item, Exception Error, int Attempt)> failures,
         CancellationToken cancellationToken) =>
         ValueTask.CompletedTask;
@@ -967,7 +967,7 @@ public sealed class OutboxProcessorTimeoutRetryGrain(
         {
             OutboxAccessor = () => state.State.Outbox ?? [],
             AcknowledgePostedAsync = AcknowledgePostedAsync,
-            ReconcileFailedAsync = (_, _) => ValueTask.CompletedTask,
+            AcknowledgeFailuresAsync = (_, _) => ValueTask.CompletedTask,
             ProcessingTimeout = TimeSpan.FromHours(1),
             TimeProvider = timeProvider,
             RetryDelay = TimeSpan.FromMilliseconds(100)
@@ -1044,7 +1044,7 @@ public sealed class OutboxProcessorConcurrentPostmanGrain(
         {
             OutboxAccessor = () => state.State.Outbox ?? [],
             AcknowledgePostedAsync = AcknowledgePostedAsync,
-            ReconcileFailedAsync = ReconcileFailedAsync,
+            AcknowledgeFailuresAsync = AcknowledgeFailuresAsync,
             RetryDelay = TimeSpan.FromMilliseconds(100)
         })
         .AddPostman<OutboxProcessorTestEvent>(async (message, _, cancellationToken) => await PostWithGateAndTrackConcurrencyAsync(message, cancellationToken));
@@ -1107,7 +1107,7 @@ public sealed class OutboxProcessorConcurrentPostmanGrain(
         await state.WriteStateAsync(cancellationToken);
     }
 
-    private async ValueTask ReconcileFailedAsync(
+    private async ValueTask AcknowledgeFailuresAsync(
         ImmutableArray<(OutboxMessageEnvelope<OutboxProcessorTestEvent> Item, Exception Error, int Attempt)> failures,
         CancellationToken cancellationToken)
     {
@@ -1146,7 +1146,7 @@ public sealed class OutboxProcessorOrderedPostmanGrain
         {
             OutboxAccessor = () => pending,
             AcknowledgePostedAsync = AcknowledgePostedAsync,
-            ReconcileFailedAsync = ReconcileFailedAsync,
+            AcknowledgeFailuresAsync = AcknowledgeFailuresAsync,
             RetryDelay = TimeSpan.FromMinutes(10)
         })
         .AddPostman<OutboxProcessorPrimaryMessage>(async (message, _, cancellationToken) => await PostPrimaryAsync(message, cancellationToken))
@@ -1231,7 +1231,7 @@ public sealed class OutboxProcessorOrderedPostmanGrain
         return ValueTask.CompletedTask;
     }
 
-    private ValueTask ReconcileFailedAsync(
+    private ValueTask AcknowledgeFailuresAsync(
         ImmutableArray<(OutboxMessageEnvelope<OutboxProcessorOrderedMessage> Item, Exception Error, int Attempt)> failures,
         CancellationToken cancellationToken)
     {

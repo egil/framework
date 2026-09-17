@@ -1,13 +1,13 @@
 namespace Egil.Orleans.Messaging.Outboxes;
 
 /// <summary>
-/// Thrown (internally, via <see cref="OutboxProcessorOptions{TOutbox}.ReconcileFailedAsync"/>)
+/// Thrown (internally, via <see cref="OutboxProcessorOptions{TOutbox}.AcknowledgeFailuresAsync"/>)
 /// when an outbox payload's runtime type does not match any registered postman.
 /// </summary>
 /// <remarks>
 /// <para>
 /// This exception is <b>never thrown out of <see cref="OutboxProcessor{TOutbox}.PostAsync"/></b>.
-/// It is surfaced through the <see cref="OutboxProcessorOptions{TOutbox}.ReconcileFailedAsync"/>
+/// It is surfaced through the <see cref="OutboxProcessorOptions{TOutbox}.AcknowledgeFailuresAsync"/>
 /// callback as the <c>Error</c> member of the failure tuple, allowing the grain
 /// to decide how to handle unmatched items (log, dead-letter, remove, etc.).
 /// </para>

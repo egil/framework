@@ -46,7 +46,7 @@ public static class OutboxProcessorExtensions
         ///             // the next business write carry it; see OutboxProcessorOptions
         ///             // &lt;TOutbox&gt;.AcknowledgePostedAsync for what deferring costs.
         ///         },
-        ///         ReconcileFailedAsync = async (failures, ct) =>
+        ///         AcknowledgeFailuresAsync = async (failures, ct) =>
         ///         {
         ///             // log, dead-letter, or leave for retry
         ///         },

@@ -361,7 +361,7 @@ own. The documented pattern is to post again in either case. Coupling the
 processor to `HasUnsavedChanges` would remove the need, at the cost of making an
 outbox-only component depend on the state manager; that trade is not taken here.
 
-`OutboxProcessorOptions<T>.InterleaveReconciliationCallbacks` defaults to `false`,
+`OutboxProcessorOptions<T>.InterleaveAcknowledgementCallbacks` defaults to `false`,
 so an acknowledgement callback cannot normally run while a business `WriteAsync`
 is in flight. In `[Reentrant]` grains, or with that option on, it can. The
 in-flight write then finishes by adopting **the value it wrote**, not whatever is
@@ -649,7 +649,7 @@ The outbox can grow unbounded if postman targets are down. Mitigation:
 - **Telemetry:** gauge for outbox depth per grain type, emitted on every
   write. Operators see growth before it becomes a crisis.
 - **Owner policy:** the owning grain controls the outbox. In
-  `ReconcileFailedAsync`, it can leave failed items pending, remove them,
+  `AcknowledgeFailuresAsync`, it can leave failed items pending, remove them,
   dead-letter them, or trim old entries according to domain policy.
 - **Documentation:** storage providers have entity size limits (e.g.
   Azure Table = 1MB). Document the risk of unbounded growth.
@@ -707,7 +707,7 @@ equality, never revision ordering. Message IDs and delivery tokens are unchanged
 - **Lazy `Epoch`.** A grain that never sends doesn't burn a fresh epoch
   on storage.
 - **`Remove(id)` and `RemoveRange(ids)`.** Single removal checks the FIFO head;
-  batch acknowledgment removes the successful stored IDs even across gaps.
+  batch acknowledgement removes the successful stored IDs even across gaps.
 - **`LatestSequenceNumber` is a separate field.** After flush, items are
   empty; high-water mark persists independently.
 
@@ -1636,14 +1636,15 @@ public static class OutboxPostmanServiceCollectionExtensions
 }
 ```
 
-- Per-item exceptions are caught and surfaced through `ReconcileFailedAsync`
+- Per-item exceptions are caught and surfaced through `AcknowledgeFailuresAsync`
   with attempt count (in-memory, resets on reactivation) — the grain
   decides: leave item in state to retry, or remove to dead-letter after
   N attempts.
 - Different postmen dispatch concurrently. Each postman processes its matching
-  items sequentially and stops after a failure. Reconciliation receives original
-  stored envelopes, with acknowledgment containing only successful items; do not
-  assume a contiguous prefix or global ordering across groups.
+  items sequentially and stops after a failure. Both acknowledgement callbacks
+  receive the original stored envelopes, and `AcknowledgePostedAsync` receives
+  only the successful items; do not assume a contiguous prefix or global
+  ordering across groups.
 - Each item dispatches to exactly **one** postman (first-registered-wins).
   Items whose runtime type matches no postman → reported as failed with
   `NoPostmanRegisteredException`.
@@ -1654,34 +1655,34 @@ Postman callbacks run on Orleans' activation scheduler. Keyed
 `IPostman<TMessage>` services should not depend on activation-local grain
 state. Inline postmen may close over and read activation-local state, but they
 should not mutate it; durable changes belong in `AcknowledgePostedAsync` and
-`ReconcileFailedAsync`.
+`AcknowledgeFailuresAsync`.
 
 Background postage uses Orleans activation scheduling and `Interleave` defaults
 to `true`, so other grain calls can run while postmen await I/O. Orleans still
-executes only one turn at a time on the activation. Reconciliation uses
-`InterleaveReconciliationCallbacks` and defaults to non-interleaving, so
-`AcknowledgePostedAsync` and `ReconcileFailedAsync` do not interleave with
+executes only one turn at a time on the activation. Acknowledgement uses
+`InterleaveAcknowledgementCallbacks` and defaults to non-interleaving, so
+`AcknowledgePostedAsync` and `AcknowledgeFailuresAsync` do not interleave with
 ordinary grain calls unless the user opts in or the grain is reentrant.
 
 The scheduling goal is to keep external postage fast without letting durable
-outbox reconciliation interleave with ordinary grain writes:
+outbox acknowledgement interleave with ordinary grain writes:
 
 ```mermaid
 sequenceDiagram
     participant Grain
     participant Dispatch as "Interleaving dispatch turn"
     participant Postmen
-    participant Reconcile as "Non-interleaving reconciliation turn"
+    participant Ack as "Non-interleaving acknowledgement turn"
 
     Grain->>Dispatch: "PostInBackgroundAsync schedules dispatch"
     Dispatch->>Grain: "OutboxAccessor() snapshot"
     Dispatch->>Postmen: "Dispatch all pending items concurrently"
     Note over Dispatch,Grain: "Other grain calls may run while postmen await"
     Postmen-->>Dispatch: "Success/failure results"
-    Dispatch->>Reconcile: "Enqueue reconciliation"
-    Reconcile->>Grain: "AcknowledgePostedAsync / ReconcileFailedAsync"
-    Note over Reconcile,Grain: "Must not interleave with normal writes"
-    Reconcile->>Grain: "OutboxAccessor() and retry/reminder update"
+    Dispatch->>Ack: "Enqueue acknowledgement"
+    Ack->>Grain: "AcknowledgePostedAsync / AcknowledgeFailuresAsync"
+    Note over Ack,Grain: "Must not interleave with normal writes"
+    Ack->>Grain: "OutboxAccessor() and retry/reminder update"
 ```
 
 Orleans has two relevant scheduling layers:
@@ -1689,7 +1690,7 @@ Orleans has two relevant scheduling layers:
 - **Task scheduling** through `IGrainContext.Scheduler` /
   `IWorkItemScheduler` queues work on the activation scheduler, but it does
   not create a grain request with interleaving metadata. It is not enough to
-  make an async reconciliation callback non-interleaving until its returned
+  make an async acknowledgement callback non-interleaving until its returned
   task completes.
 - **Request scheduling** applies to grain calls, reminder calls, and timer
   callbacks. This is the layer that understands `Interleave`, `[ReadOnly]`,
@@ -1703,37 +1704,37 @@ activation scheduler.
 
 The two technically valid ways to get the diagram above are:
 
-1. Enqueue reconciliation through a second due-now `GrainTimer` with
+1. Enqueue acknowledgement through a second due-now `GrainTimer` with
    `Interleave = false`. This works but is conceptually heavy: the timer is
-   used as a request-scheduling primitive, not because reconciliation is
+   used as a request-scheduling primitive, not because acknowledgement is
    time-based.
-2. Move pending/acknowledge/reconcile callbacks onto an outbox grain interface
+2. Move the pending/acknowledge callbacks onto an outbox grain interface
    and have the processor call the owning grain through its self-reference.
    Those methods are then ordinary Orleans grain calls. `OutboxAccessor` should
    not be `[ReadOnly]` if it must wait behind writes; `[ReadOnly]` only
    interleaves with other read-only calls, not arbitrary writes.
 
-Decision: use the second timer internally for the callback/reconciliation
+Decision: use the second timer internally for the callback/acknowledgement
 phase while preserving the callback-based public API.
 
 - The dispatch timer uses `Interleave = true`.
-- The reconciliation timer uses `Interleave = false`.
-- The reconciliation timer is not a time-based feature; it is a supported
+- The acknowledgement timer uses `Interleave = false`.
+- The acknowledgement timer is not a time-based feature; it is a supported
   Orleans request-scheduling primitive which lets the processor enqueue a
   local non-interleaving activation turn without using Orleans internals.
 - This guarantee is bounded by Orleans' normal scheduling rules. If the grain
   class is `[Reentrant]`, Orleans allows timer callbacks to interleave
   regardless of `GrainTimerCreationOptions.Interleave = false`. The processor
-  should not try to skip the reconciliation timer for reentrant grains; instead
+  should not try to skip the acknowledgement timer for reentrant grains; instead
   documentation should state that reentrant grains opt out of the
-  non-interleaving reconciliation guarantee.
-- `InterleaveReconciliationCallbacks` defaults to `false`. Most users should
-  keep reconciliation non-interleaving because those callbacks usually update
+  non-interleaving acknowledgement guarantee.
+- `InterleaveAcknowledgementCallbacks` defaults to `false`. Most users should
+  keep acknowledgement non-interleaving because those callbacks usually update
   durable outbox state.
 - `PostAsync()` remains a direct awaitable drain. It does not use the dispatch
-  or reconciliation timer, because the caller explicitly chose to wait for
+  or acknowledgement timer, because the caller explicitly chose to wait for
   postage. On ordinary non-reentrant grains, that means the caller's grain
-  turn remains occupied until dispatch and reconciliation complete.
+  turn remains occupied until dispatch and acknowledgement complete.
 
 ### Grain integration pattern
 
@@ -1780,7 +1781,7 @@ extension<TGrain>(TGrain grain) where TGrain : IOutboxGrain, IGrainBase
 public sealed class OutboxProcessorOptions<TOutbox> where TOutbox : notnull
 {
     /// Returns the current immutable outbox snapshot. Evaluated before dispatch
-    /// and again during reconciliation and retry scheduling.
+    /// and again during acknowledgement and retry scheduling.
     public required Func<Outbox<TOutbox>> OutboxAccessor { get; init; }
 
     /// Acknowledges successfully posted items.
@@ -1793,7 +1794,7 @@ public sealed class OutboxProcessorOptions<TOutbox> where TOutbox : notnull
     /// reactivation). Grain decides: leave to retry, or remove to
     /// dead-letter after N attempts. If null, failed items retry silently.
     public Func<ImmutableArray<(OutboxMessageEnvelope<TOutbox> Item, Exception Error, int Attempt)>,
-        CancellationToken, ValueTask>? ReconcileFailedAsync { get; init; }
+        CancellationToken, ValueTask>? AcknowledgeFailuresAsync { get; init; }
 
     /// Max time per post run. Set below grain's response timeout.
     public TimeSpan ProcessingTimeout { get; init; } = TimeSpan.FromSeconds(20);
@@ -1809,9 +1810,9 @@ public sealed class OutboxProcessorOptions<TOutbox> where TOutbox : notnull
     /// postmen are awaiting asynchronous work.
     public bool Interleave { get; init; } = true;
 
-    /// Whether acknowledgement/failure reconciliation callbacks may interleave
-    /// when posting runs in the background.
-    public bool InterleaveReconciliationCallbacks { get; init; } = false;
+    /// Whether the acknowledgement callbacks may interleave when posting runs
+    /// in the background.
+    public bool InterleaveAcknowledgementCallbacks { get; init; } = false;
 
     /// Whether background retry work should keep the grain activation alive
     /// while pending outbox items remain.
@@ -1826,11 +1827,11 @@ processing-timeout behavior, and pass `timeProvider.GetUtcNow()` to
 persisted outbox or re-inject transient services into it.
 
 Naming note: `OutboxAccessor` describes a callback that reads the current immutable
-outbox snapshot. The processor evaluates it again as reconciliation and retry
+outbox snapshot. The processor evaluates it again as acknowledgement and retry
 scheduling proceed, because state writes can replace the outbox instance.
 
-`AcknowledgePostedAsync` and `ReconcileFailedAsync` are reconciliation
-callbacks, not passive notifications:
+`AcknowledgePostedAsync` and `AcknowledgeFailuresAsync` carry obligations, not
+passive notifications:
 
 - `AcknowledgePostedAsync` is expected to remove successfully posted items
   from the outbox. If acknowledged items still appear in `OutboxAccessor`
@@ -1842,7 +1843,7 @@ callbacks, not passive notifications:
   retry against `OutboxAccessor`, so it sees the unsaved view and disables
   retry; a later failed write leaves those items pending again without
   re-arming it, and the grain should post again after handling that failure.
-- `ReconcileFailedAsync` is the grain's policy hook for failed items. The
+- `AcknowledgeFailuresAsync` is the grain's policy hook for failed items. The
   grain may leave them in the outbox for retry, remove them, move them to
   dead-letter state, or make any other durable state change. If null, failed
   items are left pending and retried silently.
@@ -1853,7 +1854,7 @@ callbacks, not passive notifications:
 ### `OutboxProcessor<TOutbox>`
 
 `TOutbox` is the base payload type. All handler families operate on payloads;
-stored envelopes are available through `Outbox<T>.Envelopes` and reconciliation callbacks.
+stored envelopes are available through `Outbox<T>.Envelopes` and acknowledgement callbacks.
 `AddPostman` callbacks take `(message)`, `(message, token)`, or
 `(message, token, cancellationToken)`, with both `Task` and `ValueTask` overloads.
 Argument count selects the parameter shape. `OverloadResolutionPriority(1)` on
@@ -1884,11 +1885,11 @@ original processor. Registrations are immediate and preserve first-match order,
 including if the callback subsequently throws. `ForStreamProvider(name)` returns an `OutboxStreamProviderBuilder<TOutbox>` with
 chainable `AddStreamPostman` overloads matching the direct registrations, except
 that the provider name is supplied once. Registration forwards immediately to the
-original processor; there is no separate dispatch registry, acknowledgment state,
+original processor; there is no separate dispatch registry, acknowledgement state,
 or retry lifecycle. Provider configuration is still performed in Orleans setup.
 
 These adapters retain the original
-stored item for acknowledgment. A covariant envelope interface is unnecessary.
+stored item for acknowledgement. A covariant envelope interface is unnecessary.
 
 ```csharp
 public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
@@ -2045,11 +2046,11 @@ public async Task ReceiveReminder(string name, TickStatus status)
 - **First-registered-wins postman matching.** Simple dispatch model.
   The metaphor is a switch statement: the first matching case handles the
   item. Order most-specific first. Unmatched items →
-  `NoPostmanRegisteredException` via `ReconcileFailedAsync`.
+  `NoPostmanRegisteredException` via `AcknowledgeFailuresAsync`.
 - **`PostAsync` swallows per-item errors.** Grain observes failures via
-  `ReconcileFailedAsync` with attempt count. Processor never drops items
+  `AcknowledgeFailuresAsync` with attempt count. Processor never drops items
   silently unless the grain explicitly removes them. Dead-letter and
-  max-depth policies belong in this reconciliation callback because the grain
+  max-depth policies belong in this acknowledgement callback because the grain
   owns the durable outbox state.
 - **Acknowledgement is explicit.** Successfully posted items are not removed
   by the processor directly. The grain removes them in
@@ -2281,7 +2282,7 @@ specific behavior:
 - **Interleaved-read grain** — exercises `[AlwaysInterleave]` reads
   seeing only committed state while a write is in-flight.
 - **Stuck postman grain** — exercises `ProcessingTimeout` behavior,
-  `ReconcileFailedAsync` with timeout exception.
+  `AcknowledgeFailuresAsync` with timeout exception.
 - **Multi-reminder grain** — exercises `IOutboxGrain` DIM with grain
   that also has its own reminders (DIM shadowing).
 

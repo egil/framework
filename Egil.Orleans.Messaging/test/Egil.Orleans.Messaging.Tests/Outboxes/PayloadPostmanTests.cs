@@ -56,7 +56,7 @@ public sealed class PayloadPostmanTests(MessagingTestClusterFixture fixture)
         var sink = fixture.GrainFactory.GetGrain<IPayloadSinkGrain>(key);
         await sink.EnsureActiveAsync();
 
-        await source.PublishAsync(key, failAcknowledgment: false);
+        await source.PublishAsync(key, failAcknowledgement: false);
 
         await fixture.WaitForAssertionAsync(sink, async () =>
         {
@@ -70,13 +70,13 @@ public sealed class PayloadPostmanTests(MessagingTestClusterFixture fixture)
     }
 
     [Fact]
-    public async Task Reactivation_retries_with_the_same_delivery_tokens_after_acknowledgment_failure()
+    public async Task Reactivation_retries_with_the_same_delivery_tokens_after_acknowledgement_failure()
     {
         var key = Guid.NewGuid();
         var source = fixture.GrainFactory.GetGrain<IPayloadSourceGrain>(key);
         var sink = fixture.GrainFactory.GetGrain<IPayloadSinkGrain>(key);
         await sink.EnsureActiveAsync();
-        await source.PublishAsync(key, failAcknowledgment: true);
+        await source.PublishAsync(key, failAcknowledgement: true);
         await fixture.WaitForAssertionAsync(sink, async () =>
             Assert.Equal(4, (await sink.GetDeliveriesAsync()).Length), ct: TestContext.Current.CancellationToken);
         var first = await sink.GetDeliveriesAsync();
@@ -127,7 +127,7 @@ public sealed record PayloadSourceState
 
 public interface IPayloadSourceGrain : IGrainWithGuidKey
 {
-    Task PublishAsync(Guid target, bool failAcknowledgment);
+    Task PublishAsync(Guid target, bool failAcknowledgement);
     Task RetryAsync();
     Task<int> PendingCountAsync();
 }
@@ -137,7 +137,7 @@ public sealed class PayloadSourceGrain : Grain, IPayloadSourceGrain, IOutboxGrai
     private readonly IStateManager<PayloadSourceState> manager;
     private readonly OutboxProcessor<IPayloadEvent> processor;
     private readonly ManualTimeProvider time;
-    private bool failAcknowledgment;
+    private bool failAcknowledgement;
 
     public PayloadSourceGrain(
         [PersistentState("payload", "Payload")] IPersistentState<PayloadSourceState> storage,
@@ -179,9 +179,9 @@ public sealed class PayloadSourceGrain : Grain, IPayloadSourceGrain, IOutboxGrai
         GrainFactory.GetGrain<IPayloadSinkGrain>(message.Target)
             .ReceiveAsync(new(message.Value, token));
 
-    public async Task PublishAsync(Guid target, bool failAcknowledgment)
+    public async Task PublishAsync(Guid target, bool failAcknowledgement)
     {
-        this.failAcknowledgment = failAcknowledgment;
+        this.failAcknowledgement = failAcknowledgement;
         var now = time.GetUtcNow();
         await manager.WriteAsync(manager.State with
         {
@@ -195,7 +195,7 @@ public sealed class PayloadSourceGrain : Grain, IPayloadSourceGrain, IOutboxGrai
         {
             await processor.PostAsync();
         }
-        catch (InvalidOperationException) when (failAcknowledgment)
+        catch (InvalidOperationException) when (failAcknowledgement)
         {
             DeactivateOnIdle();
         }
@@ -208,9 +208,9 @@ public sealed class PayloadSourceGrain : Grain, IPayloadSourceGrain, IOutboxGrai
     private async ValueTask AcknowledgeAsync(ImmutableArray<OutboxMessageEnvelope<IPayloadEvent>> items, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (failAcknowledgment)
+        if (failAcknowledgement)
         {
-            throw new InvalidOperationException("The delivery landed but acknowledgment could not persist.");
+            throw new InvalidOperationException("The delivery landed but acknowledgement could not persist.");
         }
 
         await manager.WriteAsync(manager.State with { Outbox = manager.State.Outbox.RemoveRange(items) });
