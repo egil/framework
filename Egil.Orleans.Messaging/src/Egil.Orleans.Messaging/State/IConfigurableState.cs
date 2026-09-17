@@ -10,8 +10,11 @@ namespace Egil.Orleans.Messaging.State;
 /// a <see cref="TimeProvider"/>, a logger, anything resolved from DI. The manager
 /// calls <see cref="Configure"/> on each instance it adopts — after activation
 /// hydration, after every <see cref="IStateManager{T}.ReadAsync"/>, after a
-/// recovery read, and on a default created for an absent record — so the grain
-/// never observes an unconfigured instance through <see cref="IStateManager{T}.State"/>.
+/// recovery read, and on a default created for an absent record. Publishing the
+/// snapshot and configuring it happen in the same turn, with no await between them,
+/// so an operation that returns leaves <see cref="IStateManager{T}.State"/> fully
+/// wired. A <see cref="Configure"/> that throws is the exception, and the one case
+/// where an incompletely wired instance stays visible.
 /// </para>
 /// <para>
 /// This is the same contract as the <c>configureState</c> callback on
