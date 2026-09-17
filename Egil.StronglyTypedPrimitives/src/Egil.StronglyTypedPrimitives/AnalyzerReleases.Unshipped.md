@@ -6,3 +6,4 @@
 Rule ID | Category | Severity | Notes
 --------|----------|----------|-------
 STP001 | Egil.StronglyTypedPrimitives | Warning | JsonSerializerContext cannot see the generated JsonConverter attribute
+STP002 | Egil.StronglyTypedPrimitives | Warning | System.Text.Json support for strongly typed primitives requires net8.0 or later

@@ -85,13 +85,21 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
                 var generated = GenerateStronglyTypedSource(stronglyTypedInfo, compilation);
                 spc.AddSource($"{stronglyTypedInfo.Target.Identifier.Text}.g.cs", generated.Source);
 
-                if (compilationHasJsonSerializerContext && generated.UsesGeneratedJsonConverterAttribute)
+                if (compilationHasJsonSerializerContext && generated.JsonConverterSupport is JsonConverterSupport.GenerateAttribute)
                 {
                     spc.ReportDiagnostic(Diagnostic.Create(
                         DiagnosticDescriptors.JsonSerializerContextCannotSeeGeneratedConverter,
                         stronglyTypedInfo.Target.Identifier.GetLocation(),
                         generated.TargetTypeName,
                         generated.UnderlyingTypeName));
+                }
+
+                if (generated.JsonConverterSupport is JsonConverterSupport.SharedConverterUnavailable)
+                {
+                    spc.ReportDiagnostic(Diagnostic.Create(
+                        DiagnosticDescriptors.JsonSupportRequiresNet8,
+                        stronglyTypedInfo.Target.Identifier.GetLocation(),
+                        generated.TargetTypeName));
                 }
             }
         });
@@ -101,7 +109,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         => attribute.AttributeClass?.Name == "StronglyTyped"
         || attribute.AttributeClass?.Name == "StronglyTypedAttribute";
 
-    private sealed record GeneratedSource(string Source, bool UsesGeneratedJsonConverterAttribute, string TargetTypeName, string UnderlyingTypeName);
+    private sealed record GeneratedSource(string Source, JsonConverterSupport JsonConverterSupport, string TargetTypeName, string UnderlyingTypeName);
 
     private static GeneratedSource GenerateStronglyTypedSource(StronglyTypedTypeInfo info, Compilation compilation)
     {
@@ -163,7 +171,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             .SelectMany(@interface => semanticModel.GetUnimplementedSymbols(targetTypeMembers, @interface))
             .ToList();
 
-        var generateJsonConverter = Parser.ShouldGenerateJsonConverter(compilation, targetTypeSymbol);
+        var jsonConverterSupport = Parser.GetJsonConverterSupport(compilation, targetTypeSymbol);
         var targetTypeName = targetTypeSymbol.ToDisplayString();
         var underlyingTypeName = underlyingTypeSymbol.WithNullableAnnotation(NullableAnnotation.None).ToDisplayString();
 
@@ -171,7 +179,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             CodeHeader,
             GetNamespaceDefinition(info),
             GeneratedCodeAttribute,
-            .. GetJsonConverterAttribute(generateJsonConverter, targetTypeName, underlyingTypeName),
+            .. GetJsonConverterAttribute(jsonConverterSupport, targetTypeName, underlyingTypeName),
             GetPartialRecordStructDefinition(info, interfacesToImplement),
             "{",
             .. GetEmptyProperty(info, targetTypeMembers, underlyingTypeSymbol),
@@ -186,7 +194,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
 
         return new GeneratedSource(
             string.Join("\n", typeParts.OfType<string>()),
-            generateJsonConverter,
+            jsonConverterSupport,
             targetTypeName,
             underlyingTypeName);
     }
@@ -573,9 +581,9 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
     // The converter is declared by attribute instead of being emitted per type so the generated
     // code stays trim/AOT clean, and so the same converter can be declared by hand for types that
     // are serialized through a JsonSerializerContext.
-    private static IEnumerable<string> GetJsonConverterAttribute(bool generateJsonConverter, string targetTypeName, string underlyingTypeName)
+    private static IEnumerable<string> GetJsonConverterAttribute(JsonConverterSupport jsonConverterSupport, string targetTypeName, string underlyingTypeName)
     {
-        if (!generateJsonConverter)
+        if (jsonConverterSupport is not JsonConverterSupport.GenerateAttribute)
         {
             yield break;
         }

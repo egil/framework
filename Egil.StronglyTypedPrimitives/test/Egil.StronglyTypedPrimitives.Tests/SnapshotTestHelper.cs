@@ -50,27 +50,35 @@ public static class SnapshotTestHelper
     /// Runs the generator over <paramref name="source"/> and returns the run result, which carries
     /// the diagnostics the generator reported (as opposed to the compilation's own diagnostics).
     /// </summary>
-    public static GeneratorDriverRunResult RunGenerator<TGenerator>(string source, out Compilation compilation)
+    /// <param name="referenceAbstractions">
+    /// When false the Abstractions assembly is left out of the compilation, which stands in for a
+    /// consumer on its netstandard2.0 asset: System.Text.Json is referenced but none of the
+    /// Abstractions types are, so the source must declare the [StronglyTyped] attribute itself.
+    /// </param>
+    public static GeneratorDriverRunResult RunGenerator<TGenerator>(string source, out Compilation compilation, bool referenceAbstractions = true)
         where TGenerator : IIncrementalGenerator, new()
-        => RunGenerator<TGenerator>(source, LanguageVersion.LatestMajor, [], out compilation).GetRunResult();
+        => RunGenerator<TGenerator>(source, LanguageVersion.LatestMajor, [], out compilation, referenceAbstractions).GetRunResult();
 
     private static GeneratorDriver RunGenerator<TGenerator>(
         string source,
         LanguageVersion languageVersion,
         IEnumerable<Type> includeTypesAssembly,
-        out Compilation compilation)
+        out Compilation compilation,
+        bool referenceAbstractions = true)
         where TGenerator : IIncrementalGenerator, new()
     {
         var parseOptions = new CSharpParseOptions(languageVersion);
+        var abstractionsAssembly = typeof(StronglyTypedAttribute).Assembly;
         var references = AppDomain.CurrentDomain.GetAssemblies()
             .Where(assembly => !assembly.IsDynamic && !string.IsNullOrWhiteSpace(assembly.Location))
+            .Where(assembly => referenceAbstractions || assembly != abstractionsAssembly)
             .Select(assembly => MetadataReference.CreateFromFile(assembly.Location))
             .Concat(
             [
                 MetadataReference.CreateFromFile(typeof(TGenerator).Assembly.Location),
-                MetadataReference.CreateFromFile(typeof(StronglyTypedAttribute).Assembly.Location),
                 MetadataReference.CreateFromFile(typeof(System.Text.Json.JsonSerializer).Assembly.Location)
             ])
+            .Concat(referenceAbstractions ? [MetadataReference.CreateFromFile(abstractionsAssembly.Location)] : [])
             .Concat(includeTypesAssembly.Select(x => MetadataReference.CreateFromFile(x.Assembly.Location)))
             .ToList();
 
