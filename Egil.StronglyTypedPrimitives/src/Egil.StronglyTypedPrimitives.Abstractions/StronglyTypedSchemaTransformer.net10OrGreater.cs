@@ -1,0 +1,60 @@
+#if NET10_0_OR_GREATER
+
+using Microsoft.AspNetCore.OpenApi;
+using Microsoft.OpenApi;
+using System.Text.Json.Serialization.Metadata;
+
+namespace Egil.StronglyTypedPrimitives;
+
+public sealed partial class StronglyTypedSchemaTransformer
+{
+    public async Task TransformAsync(OpenApiSchema schema, OpenApiSchemaTransformerContext context, CancellationToken cancellationToken)
+    {
+        if ((GetPrimitiveType(context.JsonTypeInfo.Type) ?? GetParameterPrimitiveType(context)) is { } primitiveType)
+        {
+            var primitiveSchema = await GetPrimitiveSchemaAsync(context, primitiveType, cancellationToken).ConfigureAwait(false);
+            ApplyPrimitiveSchema(schema, primitiveSchema);
+        }
+        else if (GetElementPrimitiveType(context.JsonTypeInfo) is { } elementPrimitiveType)
+        {
+            var primitiveSchema = await GetPrimitiveSchemaAsync(context, elementPrimitiveType, cancellationToken).ConfigureAwait(false);
+            var element = new OpenApiSchema();
+            ApplyPrimitiveSchema(element, primitiveSchema);
+
+            if (context.JsonTypeInfo.Kind == JsonTypeInfoKind.Dictionary)
+            {
+                schema.AdditionalProperties ??= element;
+            }
+            else
+            {
+                schema.Items ??= element;
+            }
+        }
+    }
+
+    // Asking the pipeline for the primitive's schema keeps the strongly typed wrapper in sync with
+    // whatever ASP.NET Core emits for that primitive (type, format and any value pattern), instead
+    // of hard-coding the pairs here. The parameter description is deliberately not forwarded: it
+    // describes the wrapper, whose TryParse support would make the framework answer "string" again.
+    private static Task<OpenApiSchema> GetPrimitiveSchemaAsync(OpenApiSchemaTransformerContext context, Type primitiveType, CancellationToken cancellationToken)
+        => context.GetOrCreateSchemaAsync(primitiveType, parameterDescription: null, cancellationToken);
+
+    private static void ApplyPrimitiveSchema(OpenApiSchema target, OpenApiSchema primitive)
+    {
+        // The framework has already decided whether this position admits null (for example an
+        // optional query parameter); the primitive's own schema never does, so carry the flag over.
+        var admitsNull = target.Type?.HasFlag(JsonSchemaType.Null) == true;
+        target.Type = admitsNull ? primitive.Type | JsonSchemaType.Null : primitive.Type;
+        target.Format = primitive.Format ?? target.Format;
+        target.Pattern = primitive.Pattern ?? target.Pattern;
+        target.Minimum = primitive.Minimum ?? target.Minimum;
+        target.Maximum = primitive.Maximum ?? target.Maximum;
+
+        // The wrapper is a record struct, so without the converter it would be documented as an
+        // object with the primitive as a "Value" property; that shape never appears on the wire.
+        target.Properties = null;
+        target.Required = null;
+    }
+}
+
+#endif

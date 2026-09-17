@@ -7,11 +7,11 @@
     <OutputType>Exe</OutputType>
     <RootNamespace>Egil.StronglyTypedPrimitives</RootNamespace>
     <!--
-      Multi-targeted on purpose: net9.0 exercises the net9.0 OpenAPI schema transformer
-      (StronglyTypedSchemaTransformer.net9.cs) against the Microsoft.OpenApi v1 API shipped in
-      lib/net9.0, while net10.0 exercises the net10.0 transformer against the Microsoft.OpenApi v2
-      API shipped in lib/net10.0. The transformer test uses conditional compilation to bridge the
-      v1/v2 API differences while sharing the test bodies.
+      Multi-targeted on purpose: each TFM exercises the OpenAPI schema transformer shipped in the
+      matching lib/<tfm> folder against the Microsoft.OpenApi major that TFM's
+      Microsoft.AspNetCore.OpenApi package depends on (v1 on net9.0, v2 on net10.0).
+      The transformer test boots a real ASP.NET Core host and asserts on the emitted JSON document,
+      which is identical across the two, so the test bodies need no conditional compilation.
     -->
     <TargetFrameworks>net9.0;net10.0</TargetFrameworks>
     <LangVersion>preview</LangVersion>
@@ -29,6 +29,13 @@
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
     <PackageReference Include="Verify.SourceGenerators" />
     <PackageReference Include="Verify.XunitV3" />
+  </ItemGroup>
+
+  <!-- The OpenAPI transformer test hosts a minimal API in-memory and reads /openapi/v1.json. -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" />
   </ItemGroup>
 
   <ItemGroup>
