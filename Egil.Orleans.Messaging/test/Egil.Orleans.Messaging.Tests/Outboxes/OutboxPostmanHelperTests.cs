@@ -1,5 +1,7 @@
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using Egil.Orleans.Testing;
+using Orleans.Streams;
 
 namespace Egil.Orleans.Messaging.Tests.Outboxes;
 
@@ -44,7 +46,6 @@ public sealed class OutboxPostmanHelperTests(MessagingTestClusterFixture fixture
     [InlineData("direct-token-enriched", "enriched:1:projected-stream-helper")]
     [InlineData("grouped-enriched", "enriched:1:projected-stream-helper")]
     [InlineData("grouped-token-enriched", "enriched:1:projected-stream-helper")]
-    [InlineData("derived-projection", "derived:1:projected-stream-helper")]
     public async Task Token_routing_supports_original_and_projected_payloads(string routingMode, string expectedValue)
     {
         var grainKey = Guid.NewGuid();
@@ -72,6 +73,31 @@ public sealed class OutboxPostmanHelperTests(MessagingTestClusterFixture fixture
                 Assert.Equal(0, sourceState.Outbox?.Count ?? 0);
             },
             ct: TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Derived_projection_publishes_under_the_derived_stream_contract()
+    {
+        var grainKey = Guid.NewGuid();
+        var sink = fixture.GrainFactory.GetGrain<IOutboxProcessorProjectedSinkGrain>(grainKey);
+        var source = fixture.GrainFactory.GetGrain<IOutboxProcessorProjectedStreamPostmanGrain>(grainKey, "derived-projection");
+        await sink.EnsureActiveAsync();
+
+        await source.PublishInBackgroundAsync("projected-stream-helper");
+
+        await fixture.WaitForAssertionAsync(
+            sink,
+            async () =>
+            {
+                var sinkState = await sink.GetStateAsync();
+                Assert.Contains("derived:1:projected-stream-helper", sinkState.ReceivedValues);
+            },
+            ct: TestContext.Current.CancellationToken);
+
+        var streamId = StreamManager.CreateStreamId(OutboxProcessorTestNamespaces.Events, sink.GetGrainId());
+        Assert.Equal(
+            typeof(EnrichedOutboxProcessorTestEvent),
+            RecordingStreamProvider.RequestedEventTypes[streamId]);
     }
 
     [Fact]
@@ -113,6 +139,27 @@ public interface IOutboxProcessorStreamPostmanGrain : IGrainWithGuidKey
 
 [GenerateSerializer]
 public sealed record EnrichedOutboxProcessorTestEvent(string Value) : OutboxProcessorTestEvent(Value);
+
+/// <summary>
+/// Forwards to the configured provider while recording the event type each postman
+/// asked for. The stream contract a postman publishes under is otherwise invisible:
+/// the payload arrives as its runtime type either way, so a subscriber cannot tell
+/// which generic argument produced it.
+/// </summary>
+public sealed class RecordingStreamProvider(IStreamProvider inner) : IStreamProvider
+{
+    public static ConcurrentDictionary<StreamId, Type> RequestedEventTypes { get; } = new();
+
+    public string Name => inner.Name;
+
+    public bool IsRewindable => inner.IsRewindable;
+
+    public IAsyncStream<T> GetStream<T>(StreamId streamId)
+    {
+        RequestedEventTypes[streamId] = typeof(T);
+        return inner.GetStream<T>(streamId);
+    }
+}
 
 public interface IOutboxProcessorProjectedStreamPostmanGrain : IGrainWithGuidCompoundKey
 {
@@ -272,11 +319,11 @@ public sealed class OutboxProcessorProjectedStreamPostmanGrain(
                     static (message, token) => new($"enriched:{token.SequenceNumber}:{message.Value}"));
                 break;
             case "derived-projection":
-                // Explicitly typed lambdas with no type arguments. The projection's derived
-                // return type keeps this on the two-type-parameter overload; the case exists so
-                // that an overload making the call ambiguous would fail the build.
+                // Explicitly typed lambdas with no type arguments: the projection's derived
+                // return type must keep this on the two-type-parameter overload, so the postman
+                // publishes under the derived stream contract rather than the payload's type.
                 processor.AddStreamPostman(
-                    OutboxProcessorTestProviderNames.Events,
+                    OutboxProcessorTestProviderNames.RecordingEvents,
                     (OutboxProcessorTestEvent message) => streamId,
                     (OutboxProcessorTestEvent message, OutboxSequenceToken token) =>
                         new EnrichedOutboxProcessorTestEvent($"derived:{token.SequenceNumber}:{message.Value}"));

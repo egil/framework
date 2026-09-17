@@ -281,6 +281,8 @@ internal static class OutboxProcessorTestNamespaces
 internal static class OutboxProcessorTestProviderNames
 {
     public const string Events = "outbox-processor-stream-provider";
+
+    public const string RecordingEvents = "outbox-processor-recording-stream-provider";
 }
 
 internal static class OutboxProcessorTestPostmanNames

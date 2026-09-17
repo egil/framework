@@ -41,6 +41,10 @@ public sealed class MessagingTestClusterFixture : IAsyncLifetime, IGrainActivity
                 services.AddDefaultStateManager("Default");
                 services.AddDefaultStateManager("Payload");
                 services.AddSingleton(TimeProvider);
+                services.AddKeyedSingleton<IStreamProvider>(
+                    OutboxProcessorTestProviderNames.RecordingEvents,
+                    (provider, _) => new RecordingStreamProvider(
+                        provider.GetRequiredKeyedService<IStreamProvider>(OutboxProcessorTestProviderNames.Events)));
                 services
                     .AddOutboxPostman<KeyedOutboxProcessorSuccessPostman>(OutboxProcessorTestPostmanNames.Success)
                     .AddOutboxPostman<KeyedOutboxProcessorFailingPostman>(OutboxProcessorTestPostmanNames.Failure)
