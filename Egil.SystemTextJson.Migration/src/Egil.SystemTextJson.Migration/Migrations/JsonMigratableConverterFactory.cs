@@ -257,7 +257,7 @@ internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry regis
         {
             return options.GetTypeInfo(type);
         }
-        catch (NotSupportedException exception)
+        catch (NotSupportedException exception) when (exception is not JsonMigratableTargetKindNotSupportedException)
         {
             throw new InvalidOperationException(
                 $"No JSON metadata is available for '{type.FullName}'. Add the type to your JsonSerializerContext or include a resolver that can provide metadata.",
@@ -267,6 +267,14 @@ internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry regis
 
     private static void AddDiscriminatorProperty(JsonTypeInfo typeInfo, TypeMetadata metadata)
     {
+        // Properties can only be added to object contracts. Unions (.NET 11), collections and
+        // dictionaries would otherwise fail inside STJ with a generic "invalid operation for kind"
+        // error that does not tell the user where to put the attribute instead.
+        if (typeInfo.Kind is not JsonTypeInfoKind.Object)
+        {
+            throw new JsonMigratableTargetKindNotSupportedException(typeInfo.Type, typeInfo.Kind);
+        }
+
         if (typeInfo.Properties.Any(property => property.Name.Equals(metadata.DiscriminatorPropertyName, StringComparison.Ordinal)))
         {
             return;
