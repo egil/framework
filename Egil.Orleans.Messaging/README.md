@@ -390,6 +390,20 @@ processor.ForStreamProvider("events")
         message => new CancelledDelivery(message.OrderId));
 ```
 
+When the projection enriches the payload instead of transforming it — stamping it
+with something from its delivery token and returning the same type — name the
+payload type once:
+
+```csharp
+processor.AddStreamPostman<OrderSubmitted>(
+    "events",
+    message => StreamId.Create("submitted-orders", message.OrderId),
+    (message, token) => message with { Source = token.Sender.ToString() });
+```
+
+This is the recommended alternative to storing the sender in the outbox payload.
+Both direct and grouped registration offer it, with either stream selector shape.
+
 ### OpenTelemetry trace correlation
 
 Adding a message to the outbox captures the current `Activity` as a W3C
