@@ -171,6 +171,26 @@ public class Validation_attributes_with_user_written_IsValueValid : ValidationAt
             """);
 }
 
+public class Validation_attributes_when_a_user_member_takes_the_validator_field_name : ValidationAttributeTestBase
+{
+    [Fact]
+    public Task Test()
+        => VerifyGeneratedSource("""
+            using Egil.StronglyTypedPrimitives;
+            using System.ComponentModel.DataAnnotations;
+
+            namespace SomeNamespace;
+
+            [StronglyTyped]
+            public readonly partial record struct Foo([EmailAddress] string Value)
+            {
+                private static readonly int valueValidator0 = 1;
+
+                public static int UserField => valueValidator0;
+            }
+            """);
+}
+
 public class Validation_attributes_targeting_the_property_are_ignored : ValidationAttributeTestBase
 {
     [Fact]

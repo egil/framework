@@ -47,13 +47,16 @@ internal static class Parser
     // Only attributes applied to the parameter itself take part. That is the default target on a
     // positional record parameter and the parameter symbol is what carries them, so attributes the
     // user redirected with property: or field: never show up here.
-    internal static ValidationAttributeModel GetValidationAttributes(ParameterSyntax parameter, SemanticModel semanticModel)
+    internal static ValidationAttributeModel GetValidationAttributes(ParameterSyntax parameter, SemanticModel semanticModel, IEnumerable<ISymbol> targetTypeMembers)
     {
         if (semanticModel.GetDeclaredSymbol(parameter) is not { } parameterSymbol)
         {
             return ValidationAttributeModel.Empty;
         }
 
+        // The generated fields share the type with whatever the user declared in their partial
+        // declaration, so a name is only used when no existing member already has it.
+        var reservedNames = new HashSet<string>(targetTypeMembers.Select(member => member.Name), StringComparer.Ordinal);
         var attributes = ImmutableArray.CreateBuilder<ValidationAttributeInfo>();
         var asyncAttributes = ImmutableArray.CreateBuilder<ValidationAttributeInfo>();
 
@@ -69,7 +72,7 @@ internal static class Parser
             var index = target.Count;
             target.Add(new ValidationAttributeInfo(
                 index,
-                isAsync ? $"asyncValueValidator{index}" : $"valueValidator{index}",
+                GetUnusedFieldName(isAsync ? $"asyncValueValidator{index}" : $"valueValidator{index}", reservedNames),
                 attributeClass.ToDisplayString(),
                 string.Join(", ", attribute.ConstructorArguments.Select(FormatAttributeArgument)),
                 FormatNamedArguments(attribute.NamedArguments),
@@ -77,6 +80,19 @@ internal static class Parser
         }
 
         return new ValidationAttributeModel(attributes.ToImmutable(), asyncAttributes.ToImmutable());
+    }
+
+    // Appending underscores keeps the name recognisable and deterministic; the chosen name is
+    // reserved as well so a later attribute cannot land on it.
+    private static string GetUnusedFieldName(string preferredName, HashSet<string> reservedNames)
+    {
+        var name = preferredName;
+        while (!reservedNames.Add(name))
+        {
+            name += "_";
+        }
+
+        return name;
     }
 
     // Attribute arguments are re-emitted as C# so the generated field constructs the attribute
