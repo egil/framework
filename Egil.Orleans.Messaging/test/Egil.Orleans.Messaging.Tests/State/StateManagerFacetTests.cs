@@ -74,6 +74,17 @@ public sealed class StateManagerFacetTests(StateManagerFacetFixture fixture)
     }
 
     [Fact]
+    public async Task State_type_standing_in_for_a_parameterless_constructor_needs_no_state_factory()
+    {
+        // IStateDefault<TSelf> exists to represent an absent record in place of a public
+        // parameterless constructor, so requiring one as well would defeat it.
+        var key = Guid.NewGuid();
+        var grain = fixture.GrainFactory.GetGrain<IRegisteredKeyedOnlyGrain>(key);
+
+        Assert.Equal(key, await grain.GetIdAsync());
+    }
+
+    [Fact]
     public async Task State_contract_also_applies_to_an_explicitly_registered_manager()
     {
         var key = Guid.NewGuid();
@@ -115,6 +126,15 @@ public sealed record ContractState : IConfigurableState, IStateDefault<ContractS
 
     public void Configure(IGrainContext context) =>
         clock = context.ActivationServices.GetRequiredService<TimeProvider>();
+}
+
+// Has no public parameterless constructor; IStateDefault is the only way it can
+// represent an absent record.
+[GenerateSerializer]
+public sealed record KeyedOnlyState([property: Id(0)] Guid Id) : IStateDefault<KeyedOnlyState>
+{
+    public static KeyedOnlyState CreateDefault(IGrainContext context) =>
+        new(context.GrainId.GetGuidKey());
 }
 
 [GenerateSerializer]
@@ -232,6 +252,22 @@ public sealed class RegisteredContractGrain : Grain, IRegisteredContractGrain
 
     public Task<ContractObservation> InspectAsync() => Task.FromResult(
         new ContractObservation(state.State.Id, state.State.ConfiguredNow, state.State.Label));
+}
+
+public interface IRegisteredKeyedOnlyGrain : IGrainWithGuidKey
+{
+    Task<Guid> GetIdAsync();
+}
+
+public sealed class RegisteredKeyedOnlyGrain : Grain, IRegisteredKeyedOnlyGrain
+{
+    private readonly IStateManager<KeyedOnlyState> state;
+
+    public RegisteredKeyedOnlyGrain(
+        [PersistentState("keyed-only", "Default")] IPersistentState<KeyedOnlyState> storage)
+        => state = this.RegisterStateManager("Default", storage);
+
+    public Task<Guid> GetIdAsync() => Task.FromResult(state.State.Id);
 }
 
 public sealed class StateManagerFacetFixture : IAsyncLifetime

@@ -19,7 +19,8 @@ public static class StateManagerExtensions
         /// <remarks>
         /// An absent record resolves to <see cref="IStateDefault{TSelf}.CreateDefault"/> when
         /// <typeparamref name="TState"/> implements it, and to <c>new TState()</c> otherwise.
-        /// Use the overload taking a state factory to override both.
+        /// Use the overload taking a state factory to override both. A state type with
+        /// neither is rejected at registration, naming the state type and the grain.
         /// </remarks>
         /// <typeparam name="TState">The grain state type.</typeparam>
         /// <param name="storageName">Logical storage name used as the keyed DI registration key.</param>
@@ -33,7 +34,7 @@ public static class StateManagerExtensions
             string storageName,
             IPersistentState<TState> storage,
             Action<TState>? configureState = null)
-            where TState : class, IEquatable<TState>, new()
+            where TState : class, IEquatable<TState>
         {
             ArgumentNullException.ThrowIfNull(grain);
             ArgumentException.ThrowIfNullOrWhiteSpace(storageName);
@@ -57,7 +58,8 @@ public static class StateManagerExtensions
         /// <remarks>
         /// An absent record resolves to <see cref="IStateDefault{TSelf}.CreateDefault"/> when
         /// <typeparamref name="TState"/> implements it, and to <c>new TState()</c> otherwise.
-        /// Use the overload taking a state factory to override both.
+        /// Use the overload taking a state factory to override both. A state type with
+        /// neither is rejected at registration, naming the state type and the grain.
         /// </remarks>
         /// <typeparam name="TState">The grain state type.</typeparam>
         /// <param name="storage">The Orleans-managed persistent state facet.</param>
@@ -69,7 +71,7 @@ public static class StateManagerExtensions
         public IStateManager<TState> RegisterStateManager<TState>(
             IPersistentState<TState> storage,
             Action<TState>? configureState = null)
-            where TState : class, IEquatable<TState>, new()
+            where TState : class, IEquatable<TState>
         {
             ArgumentNullException.ThrowIfNull(grain);
             ArgumentNullException.ThrowIfNull(storage);

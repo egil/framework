@@ -112,7 +112,11 @@ manager rethrows the original operation exception. Re-read with a fresh token be
 another mutation to refresh the state and ETag. A provider-confirmed success is
 adopted even if cancellation was requested concurrently.
 
-The overload without a factory requires `TState : new()`. Constructor registration
+The overload without a factory needs the state type to be able to represent an absent
+record on its own: either a public parameterless constructor, or
+`IStateDefault<TSelf>` — see [Injecting the manager](#injecting-the-manager). A state
+type with neither is rejected at registration, naming the state type and the grain.
+Constructor registration
 returns immediately, but the provider-specific manager and default state are
 created only after Orleans has hydrated storage, before `OnActivateAsync`.
 Accessing `State` before then throws a lifecycle error. Registration in
@@ -981,6 +985,12 @@ method signature, so assemblies compiled against an earlier version must be rebu
 Those two overloads also change behaviour for a state type implementing
 `IStateDefault<TSelf>`: an absent record now resolves through `CreateDefault` rather
 than `new TState()`. Nothing changes for a state type that does not implement it.
+
+They no longer constrain `TState : new()`, so a state type that implements
+`IStateDefault<TSelf>` in place of a public parameterless constructor can use them
+without supplying a redundant state factory. Relaxing a constraint is source- and
+binary-compatible. The cost is that a state type with neither is now caught at
+registration rather than by the compiler.
 
 `OutboxProcessorOptions<T>` renames two members so the post-dispatch callbacks
 read as one pair:
