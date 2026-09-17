@@ -62,8 +62,9 @@ public sealed class OutboxStreamProviderBuilder<TOutbox> where TOutbox : notnull
         return this;
     }
 
-    // Unlike the overloads above, this forward names its type arguments. Inferred, it would
-    // match both the processor's two-type-parameter projection overload and its enriching one.
+    // The overloads above let the compiler infer the type arguments they forward with. This
+    // one names them, because an inferred call would match the processor's two-type-parameter
+    // projection overload and its enriching overload equally well, and fail as ambiguous.
     /// <summary>Enriches each payload from its delivery token before publishing it to the selected stream.</summary>
     public OutboxStreamProviderBuilder<TOutbox> AddStreamPostman<TSub>(
         Func<TSub, StreamId> streamId, Func<TSub, OutboxSequenceToken, TSub> project)
