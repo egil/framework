@@ -46,6 +46,7 @@ namespace Egil.Orleans.Messaging.State;
 /// and takes part in grain migration as usual. Express a non-trivial default and any
 /// transient dependencies on the state type, with <see cref="IStateDefault{TSelf}"/>
 /// and <see cref="IConfigurableState"/>.
+/// </para>
 /// <para>
 /// Alternatively, inject <see cref="IPersistentState{TState}"/> and register the
 /// manager in the grain constructor, which is what a grain needs when its default or
@@ -55,7 +56,6 @@ namespace Egil.Orleans.Messaging.State;
 /// </code>
 /// The raw <see cref="IPersistentState{TState}"/> should not be accessed
 /// directly after wrapping — doing so bypasses the committed-state fence.
-/// </para>
 /// </para>
 /// <para>
 /// <b>Recovery:</b> On ambiguous write failure, the manager re-reads from

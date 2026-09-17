@@ -113,9 +113,10 @@ another mutation to refresh the state and ETag. A provider-confirmed success is
 adopted even if cancellation was requested concurrently.
 
 The overload without a factory needs the state type to be able to represent an absent
-record on its own: either a public parameterless constructor, or
-`IStateDefault<TSelf>` — see [Injecting the manager](#injecting-the-manager). A state
-type with neither is rejected at registration, naming the state type and the grain.
+record on its own: either `IStateDefault<TSelf>`, or a non-abstract type with a public
+parameterless constructor — see [Injecting the manager](#injecting-the-manager). A
+state type with neither is rejected at registration, naming the state type and the
+grain.
 Constructor registration
 returns immediately, but the provider-specific manager and default state are
 created only after Orleans has hydrated storage, before `OnActivateAsync`.
@@ -241,9 +242,10 @@ type.
 Both contracts apply however the manager was obtained, so a grain that keeps using
 `RegisterStateManager` gets them too. A `createInitialState` factory passed there
 overrides `CreateDefault`, and a `configureState` callback runs after `Configure`.
-A state type implementing neither resolves an absent record to `new TState()`; one
-that also has no public parameterless constructor fails at activation with a message
-naming the state type and the grain.
+A state type implementing neither resolves an absent record to `new TState()`, which
+needs a non-abstract type with a public parameterless constructor. An abstract type
+is rejected even when it declares one, because nothing can call it. Anything else
+fails at activation with a message naming the state type and the grain.
 
 ### Deferred writes
 
