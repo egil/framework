@@ -11,7 +11,7 @@ Then read the per-project `AGENTS.md` for whichever project you are touching. A 
 | Project directory                | Solution                                    | Project AGENTS.md |
 |----------------------------------|---------------------------------------------|-------------------|
 | `Egil.SystemTextJson.Migration/` | `Egil.SystemTextJson.Migration.slnx`        | yes               |
-| `Egil.Orleans.Messaging/`        | `Egil.Orleans.Messaging.slnx`               | no — use root     |
+| `Egil.Orleans.Messaging/`        | `Egil.Orleans.Messaging.slnx`               | yes               |
 | `Egil.Orleans.Testing/`          | `Egil.Orleans.Testing.slnx`                 | yes               |
 | `Egil.StronglyTypedPrimitives/`  | `Egil.StronglyTypedPrimitives.sln`          | no — use root     |
 
