@@ -53,9 +53,7 @@ public sealed class EnrichedEventHubSequenceTokenJsonConverterTests
     [Fact]
     public void StreamCursor_round_trips_enriched_event_hub_token()
     {
-        StreamSequenceTokenJsonConverters.Register(
-            EnrichedEventHubSequenceToken.TypeAlias,
-            new EnrichedEventHubSequenceTokenJsonConverter());
+        EventHubStreamSequenceTokenJsonConverters.Register();
         var token = CreateToken();
         var cursor = new StreamCursor("orders", token);
 
@@ -71,9 +69,7 @@ public sealed class EnrichedEventHubSequenceTokenJsonConverterTests
     [Fact]
     public void MessageTracker_round_trips_enriched_event_hub_token()
     {
-        StreamSequenceTokenJsonConverters.Register(
-            EnrichedEventHubSequenceToken.TypeAlias,
-            new EnrichedEventHubSequenceTokenJsonConverter());
+        EventHubStreamSequenceTokenJsonConverters.Register();
         var token = CreateToken();
         var tracker = new MessageTracker();
         tracker.TryAcceptMessage(new StreamCursor("orders", token), out tracker);
@@ -96,7 +92,7 @@ public sealed class EnrichedEventHubSequenceTokenJsonConverterTests
         string kind,
         Type expectedType)
     {
-        RegisterConverters();
+        EventHubStreamSequenceTokenJsonConverters.Register();
         var json = $$"""
             {
               "StreamNamespace": "orders",
@@ -151,7 +147,7 @@ public sealed class EnrichedEventHubSequenceTokenJsonConverterTests
         string payload,
         string expectedMessage)
     {
-        RegisterConverters();
+        EventHubStreamSequenceTokenJsonConverters.Register();
         var json = $$"""
             {
               "StreamNamespace": "orders",
@@ -186,18 +182,5 @@ public sealed class EnrichedEventHubSequenceTokenJsonConverterTests
         Assert.Equal(expected.EnqueuedTime, actual.EnqueuedTime);
         Assert.Equal(expected.ProviderName, actual.ProviderName);
         Assert.Equal(expected.TraceParent, actual.TraceParent);
-    }
-
-    private static void RegisterConverters()
-    {
-        StreamSequenceTokenJsonConverters.Register(
-            "orleans.event-hubs.sequence-token",
-            new EventHubSequenceTokenJsonConverter());
-        StreamSequenceTokenJsonConverters.Register(
-            "orleans.event-hubs.sequence-token-v2",
-            new EventHubSequenceTokenV2JsonConverter());
-        StreamSequenceTokenJsonConverters.Register(
-            EnrichedEventHubSequenceToken.TypeAlias,
-            new EnrichedEventHubSequenceTokenJsonConverter());
     }
 }
