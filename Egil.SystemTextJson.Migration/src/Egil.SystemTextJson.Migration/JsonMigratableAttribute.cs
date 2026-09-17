@@ -10,6 +10,13 @@ namespace Egil.SystemTextJson.Migration;
 /// converter in a polymorphic hierarchy to support its internal metadata protocol, which is
 /// not extensible from outside the runtime assembly. Attempting to combine the two throws
 /// <see cref="NotSupportedException"/> at type-info configuration or (de)serialization time.
+/// On .NET 11 a C# <c>union</c> whose cases are annotated with this attribute is supported
+/// instead: the cases are selected by migration discriminator.
+/// </para>
+/// <para>
+/// The annotated type must serialize as a JSON object, because the discriminator is written as a
+/// property. Applying the attribute to a collection, dictionary or union type throws
+/// <see cref="NotSupportedException"/> when its converter is created.
 /// </para>
 /// <para>
 /// See the <c>polymorphism.md</c> recipe for details and recommended workarounds.

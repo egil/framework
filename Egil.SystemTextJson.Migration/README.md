@@ -10,7 +10,8 @@ When data models evolve, old JSON payloads still exist — in databases, caches,
 
 - **Little to no overhead for normal-sized payloads** — the medium source-generated happy-path profile benchmarks close to plain `System.Text.Json` throughput with zero extra library allocations.
 - **O(1) discriminator check** — only the first JSON property is inspected to determine the payload version.
-- **AOT-friendly** — works with source-generated `JsonSerializerContext`.
+- **Source-generation friendly** — works with source-generated `JsonSerializerContext`. Trimmed/NativeAOT publishing is not supported yet; see the [AOT recipe](https://github.com/egil/framework/tree/main/Egil.SystemTextJson.Migration/docs/recipes/aot-source-gen.md#nativeaot-and-trimming).
+- **C# unions (.NET 11)** — a `union` of `[JsonMigratable]` cases is classified by migration discriminator, so old and current payloads route to the case that migrates them. See the [polymorphism & unions recipe](https://github.com/egil/framework/tree/main/Egil.SystemTextJson.Migration/docs/recipes/polymorphism.md).
 - **Two migration styles** — static (target-owned) via `IMigrateFrom<TSource, TTarget>`, or external (separate class) via `IMigrate<TSource, TTarget>` with optional dependency injection.
 - **Nested migration** — migratable child types inside migratable parents are migrated recursively.
 - **Migration tracking** — types can implement `IJsonMigrationTracked` to know whether they were migrated.
@@ -481,49 +482,58 @@ builder.Services.AddOpenTelemetry()
 
 Every benchmark compares the library against hand-written migration code on top of plain `System.Text.Json`. The small profile is a minimal `{ "name": "...", "age": ... }` object that highlights worst-case fixed overhead; the medium profile is a best-guess average object with about 12 object members; and the large profile has about 96 object members spread across nested objects, arrays, and dictionary entries. See [benchmark payload examples](https://github.com/egil/framework/blob/main/Egil.SystemTextJson.Migration/docs/perf/payload-examples.md) for representative JSON from each profile.
 
-The generated table below is refreshed by `.\scripts\update-perf-docs.ps1` from the latest source-generated BenchmarkDotNet report. It keeps BenchmarkDotNet's `Ratio`, `RatioSD`, and `Alloc Ratio` columns so README numbers stay tied to the raw benchmark output.
+The generated table below is refreshed by `.\scripts\update-perf-docs.ps1` from the latest source-generated BenchmarkDotNet report, produced with the `net11.0` build of the benchmarks (the union dispatch scenario only exists there; every other scenario also runs on `net10.0`). It keeps BenchmarkDotNet's `Ratio`, `RatioSD`, and `Alloc Ratio` columns so README numbers stay tied to the raw benchmark output.
 
 <!-- This is a summary; see [full source-gen results](https://github.com/egil/framework/blob/main/Egil.SystemTextJson.Migration/docs/perf/source-gen-benchmarks.md) and [full reflection results](https://github.com/egil/framework/blob/main/Egil.SystemTextJson.Migration/docs/perf/reflection-benchmarks.md). -->
 
 <!-- perf-summary:start -->
 | Scenario | Method | Payload size | Mean | Ratio | RatioSD | Allocated | Alloc Ratio |
 |----------|--------|:------------:|-----:|------:|--------:|----------:|------------:|
-| **No migration (happy path)** | Plain STJ | Small | 304.5 ns | 1.00 | 0.06 | 160 B | 1.00 |
-|  | JsonMigratable | Small | 337.1 ns | 1.11 | 0.05 | 160 B | 1.00 |
-|  | Plain STJ | Medium | 1,465.9 ns | 1.00 | 0.01 | 1656 B | 1.00 |
-|  | JsonMigratable | Medium | 1,572.8 ns | 1.07 | 0.01 | 1656 B | 1.00 |
-|  | Plain STJ | Large | 15,625.2 ns | 1.00 | 0.01 | 24624 B | 1.00 |
-|  | JsonMigratable | Large | 16,915.7 ns | 1.08 | 0.10 | 24624 B | 1.00 |
-| **Static migration** | Manual STJ migration | Small | 342.7 ns | 1.00 | 0.08 | 312 B | 1.00 |
-|  | JsonMigratable | Small | 632.9 ns | 1.85 | 0.19 | 312 B | 1.00 |
-|  | Manual STJ migration | Medium | 2,013.6 ns | 1.00 | 0.06 | 1808 B | 1.00 |
-|  | JsonMigratable | Medium | 2,104.1 ns | 1.05 | 0.05 | 1808 B | 1.00 |
-|  | Manual STJ migration | Large | 17,840.2 ns | 1.00 | 0.10 | 24776 B | 1.00 |
-|  | JsonMigratable | Large | 16,988.8 ns | 0.96 | 0.09 | 24776 B | 1.00 |
-| **External migration** | Manual STJ migration | Small | 334.1 ns | 1.00 | 0.06 | 312 B | 1.00 |
-|  | JsonMigratable | Small | 566.9 ns | 1.70 | 0.08 | 312 B | 1.00 |
-|  | Manual STJ migration | Medium | 1,861.7 ns | 1.00 | 0.06 | 1808 B | 1.00 |
-|  | JsonMigratable | Medium | 2,405.9 ns | 1.29 | 0.08 | 1808 B | 1.00 |
-|  | Manual STJ migration | Large | 17,206.9 ns | 1.01 | 0.13 | 24776 B | 1.00 |
-|  | JsonMigratable | Large | 18,846.3 ns | 1.10 | 0.17 | 24776 B | 1.00 |
-| **Undiscriminated source migration** | Manual STJ migration | Small | 379.1 ns | 1.00 | 0.09 | 312 B | 1.00 |
-|  | JsonMigratable | Small | 491.2 ns | 1.30 | 0.11 | 312 B | 1.00 |
-|  | Manual STJ migration | Medium | 2,026.8 ns | 1.00 | 0.08 | 1808 B | 1.00 |
-|  | JsonMigratable | Medium | 2,106.4 ns | 1.04 | 0.10 | 1808 B | 1.00 |
-|  | Manual STJ migration | Large | 16,685.8 ns | 1.03 | 0.25 | 24776 B | 1.00 |
-|  | JsonMigratable | Large | 15,659.2 ns | 0.97 | 0.18 | 24776 B | 1.00 |
-| **Legacy payload** | Plain STJ + tracking | Small | 373.4 ns | 1.00 | 0.04 | 192 B | 1.00 |
-|  | JsonMigratable | Small | 486.0 ns | 1.30 | 0.08 | 192 B | 1.00 |
-|  | Plain STJ + tracking | Medium | 1,933.9 ns | 1.01 | 0.12 | 1688 B | 1.00 |
-|  | JsonMigratable | Medium | 1,991.9 ns | 1.04 | 0.12 | 1688 B | 1.00 |
-|  | Plain STJ + tracking | Large | 16,924.1 ns | 1.00 | 0.02 | 24656 B | 1.00 |
-|  | JsonMigratable | Large | 15,528.3 ns | 0.92 | 0.05 | 24656 B | 1.00 |
-| **Serialization** | Plain STJ | Small | 107.8 ns | 1.00 | 0.03 | 56 B | 1.00 |
-|  | JsonMigratable | Small | 169.8 ns | 1.58 | 0.03 | 136 B | 2.43 |
-|  | Plain STJ | Medium | 436.8 ns | 1.00 | 0.00 | 416 B | 1.00 |
-|  | JsonMigratable | Medium | 735.2 ns | 1.68 | 0.01 | 800 B | 1.92 |
-|  | Plain STJ | Large | 3,689.9 ns | 1.00 | 0.01 | 10384 B | 1.00 |
-|  | JsonMigratable | Large | 4,982.6 ns | 1.35 | 0.01 | 10776 B | 1.04 |
+| **No migration (happy path)** | Plain STJ | Small | 233.89 ns | 1.00 | 0.00 | 160 B | 1.00 |
+|  | JsonMigratable | Small | 380.09 ns | 1.63 | 0.22 | 160 B | 1.00 |
+|  | Plain STJ | Medium | 1,578.58 ns | 1.00 | 0.03 | 1656 B | 1.00 |
+|  | JsonMigratable | Medium | 1,834.29 ns | 1.16 | 0.11 | 1656 B | 1.00 |
+|  | Plain STJ | Large | 12,367.64 ns | 1.00 | 0.02 | 24624 B | 1.00 |
+|  | JsonMigratable | Large | 13,136.24 ns | 1.06 | 0.03 | 24624 B | 1.00 |
+| **Static migration** | Manual STJ migration | Small | 313.21 ns | 1.00 | 0.09 | 312 B | 1.00 |
+|  | JsonMigratable | Small | 491.07 ns | 1.57 | 0.10 | 312 B | 1.00 |
+|  | Manual STJ migration | Medium | 1,718.06 ns | 1.00 | 0.09 | 1808 B | 1.00 |
+|  | JsonMigratable | Medium | 2,264.20 ns | 1.32 | 0.17 | 1808 B | 1.00 |
+|  | Manual STJ migration | Large | 13,700.87 ns | 1.00 | 0.06 | 24776 B | 1.00 |
+|  | JsonMigratable | Large | 15,620.61 ns | 1.14 | 0.16 | 24776 B | 1.00 |
+| **External migration** | Manual STJ migration | Small | 329.82 ns | 1.01 | 0.16 | 312 B | 1.00 |
+|  | JsonMigratable | Small | 490.48 ns | 1.50 | 0.17 | 312 B | 1.00 |
+|  | Manual STJ migration | Medium | 1,688.97 ns | 1.00 | 0.09 | 1808 B | 1.00 |
+|  | JsonMigratable | Medium | 2,063.24 ns | 1.23 | 0.21 | 1808 B | 1.00 |
+|  | Manual STJ migration | Large | 13,380.76 ns | 1.00 | 0.07 | 24776 B | 1.00 |
+|  | JsonMigratable | Large | 14,137.09 ns | 1.06 | 0.08 | 24776 B | 1.00 |
+| **Undiscriminated source migration** | Manual STJ migration | Small | 342.72 ns | 1.01 | 0.15 | 312 B | 1.00 |
+|  | JsonMigratable | Small | 434.87 ns | 1.28 | 0.23 | 312 B | 1.00 |
+|  | Manual STJ migration | Medium | 1,584.87 ns | 1.00 | 0.01 | 1808 B | 1.00 |
+|  | JsonMigratable | Medium | 1,753.54 ns | 1.11 | 0.02 | 1808 B | 1.00 |
+|  | Manual STJ migration | Large | 14,065.53 ns | 1.00 | 0.05 | 24776 B | 1.00 |
+|  | JsonMigratable | Large | 14,061.32 ns | 1.00 | 0.15 | 24776 B | 1.00 |
+| **Legacy payload** | Plain STJ + tracking | Small | 290.99 ns | 1.00 | 0.01 | 192 B | 1.00 |
+|  | JsonMigratable | Small | 400.39 ns | 1.38 | 0.08 | 192 B | 1.00 |
+|  | Plain STJ + tracking | Medium | 1,572.89 ns | 1.00 | 0.01 | 1688 B | 1.00 |
+|  | JsonMigratable | Medium | 1,794.47 ns | 1.14 | 0.06 | 1688 B | 1.00 |
+|  | Plain STJ + tracking | Large | 12,407.33 ns | 1.00 | 0.02 | 24656 B | 1.00 |
+|  | JsonMigratable | Large | 12,685.72 ns | 1.02 | 0.02 | 24656 B | 1.00 |
+| **Union dispatch (.NET 11)** | Plain STJ structural classifier | Small | 718.78 ns | 1.02 | 0.19 | 632 B | 1.00 |
+|  | JsonMigratable classifier | Small | 522.86 ns | 0.74 | 0.09 | 160 B | 0.25 |
+|  | JsonMigratable classifier + migration | Small | 720.58 ns | 1.02 | 0.13 | 312 B | 0.49 |
+|  | Plain STJ structural classifier | Medium | 2,709.53 ns | 1.00 | 0.06 | 1656 B | 1.00 |
+|  | JsonMigratable classifier | Medium | 2,397.28 ns | 0.89 | 0.06 | 1656 B | 1.00 |
+|  | JsonMigratable classifier + migration | Medium | 2,478.37 ns | 0.92 | 0.04 | 1808 B | 1.09 |
+|  | Plain STJ structural classifier | Large | 22,888.62 ns | 1.01 | 0.11 | 25544 B | 1.00 |
+|  | JsonMigratable classifier | Large | 18,482.30 ns | 0.81 | 0.07 | 24624 B | 0.96 |
+|  | JsonMigratable classifier + migration | Large | 17,061.51 ns | 0.75 | 0.06 | 24776 B | 0.97 |
+| **Serialization** | Plain STJ | Small | 93.19 ns | 1.01 | 0.16 | 56 B | 1.00 |
+|  | JsonMigratable | Small | 212.18 ns | 2.31 | 0.26 | 136 B | 2.43 |
+|  | Plain STJ | Medium | 541.32 ns | 1.02 | 0.19 | 416 B | 1.00 |
+|  | JsonMigratable | Medium | 947.83 ns | 1.78 | 0.25 | 800 B | 1.92 |
+|  | Plain STJ | Large | 4,168.54 ns | 1.00 | 0.06 | 10384 B | 1.00 |
+|  | JsonMigratable | Large | 6,537.31 ns | 1.57 | 0.11 | 10776 B | 1.04 |
 <!-- perf-summary:end -->
 
 > Full benchmark reports: [source-gen](https://github.com/egil/framework/blob/main/Egil.SystemTextJson.Migration/docs/perf/source-gen-benchmarks.md) · [reflection](https://github.com/egil/framework/blob/main/Egil.SystemTextJson.Migration/docs/perf/reflection-benchmarks.md)
