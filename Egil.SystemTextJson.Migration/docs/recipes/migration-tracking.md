@@ -103,3 +103,66 @@ if (doc is { MigratedDuringDeserialization: true })
 <!-- endSnippet -->
 
 > **Note:** This pattern is especially valuable for frequently-read data (database records, cache entries). Re-persisting after migration means subsequent reads skip the migration path entirely, improving both latency and allocation.
+
+## Batch migration of NDJSON streams (.NET 11)
+
+Newline-delimited JSON (one record per line) is common for exports, event logs and queue dumps. `DeserializeAsyncEnumerable` with `topLevelValues: true` reads one record at a time and migrates it on the way in; `SerializeAsyncEnumerable` (new in .NET 11) writes the migrated records back in the same format without buffering the whole batch:
+
+<!-- snippet: ndjson_batch_types -->
+<a id='snippet-ndjson_batch_types'></a>
+```cs
+[JsonMigratable(TypeDiscriminator = "event-v1")]
+public record class EventV1(string Name, string When);
+
+[JsonMigratable(TypeDiscriminator = "event-v2")]
+public record class EventV2(string Name, DateTimeOffset OccurredAt) : IJsonMigrationTracked,
+    IMigrateFrom<EventV1, EventV2>
+{
+    [JsonIgnore]
+    public bool MigratedDuringDeserialization { get; set; }
+
+    public static bool TryMigrateFrom(EventV1 source, out EventV2 result)
+    {
+        result = new EventV2(source.Name, DateTimeOffset.Parse(source.When, System.Globalization.CultureInfo.InvariantCulture));
+        return true;
+    }
+}
+```
+<sup><a href='/samples/Egil.SystemTextJson.Migration.Samples/NdjsonBatchSample.cs#L6-L23' title='Snippet source file'>snippet source</a> | <a href='#snippet-ndjson_batch_types' title='Start of snippet'>anchor</a></sup>
+<!-- endSnippet -->
+
+<!-- snippet: ndjson_batch_usage -->
+<a id='snippet-ndjson_batch_usage'></a>
+```cs
+var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+options.AddJsonMigrationSupport();
+
+// topLevelValues: true reads newline-delimited JSON one record at a time. Each record is
+// migrated as it is read, so the write-back stream only ever contains the current format.
+var migratedCount = 0;
+var records = JsonSerializer.DeserializeAsyncEnumerable<EventV2>(input, topLevelValues: true, options, cancellationToken);
+
+await JsonSerializer.SerializeAsyncEnumerable(output, TrackMigrations(records), topLevelValues: true, options, cancellationToken);
+
+async IAsyncEnumerable<EventV2> TrackMigrations(IAsyncEnumerable<EventV2?> source)
+{
+    await foreach (var record in source)
+    {
+        if (record is null)
+        {
+            continue;
+        }
+
+        if (record.MigratedDuringDeserialization)
+        {
+            migratedCount++;
+        }
+
+        yield return record;
+    }
+}
+```
+<sup><a href='/samples/Egil.SystemTextJson.Migration.Samples/NdjsonBatchSample.cs#L39-L67' title='Snippet source file'>snippet source</a> | <a href='#snippet-ndjson_batch_usage' title='Start of snippet'>anchor</a></sup>
+<!-- endSnippet -->
+
+> **Note:** Records are processed lazily. A record that cannot be migrated throws a `JsonException` from the enumeration; because the reader parses a buffer at a time, records that precede it in the same buffer may not have been yielded yet, so treat the output written so far as partial. Pass the cancellation token to both calls; cancellation surfaces as `OperationCanceledException` from the enumeration.
