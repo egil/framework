@@ -195,6 +195,30 @@ public partial class NumericSourceMigrationTests
     }
 
     [Fact]
+    public void Element_discriminator_wins_over_the_any_shape_element_guard()
+    {
+        // List<MigratableInt> may accept any element, but a discriminated first element still
+        // identifies the tagged list exactly.
+        var options = CreateOptions();
+
+        var result = JsonSerializer.Deserialize<MigratableIntListOrTaggedListState>("""[{"$type":"tagged","name":"x"}]""", options);
+
+        Assert.Equal("from-tagged-list", result!.Source);
+    }
+
+    [Fact]
+    public void Migrate_from_base64_memory_string_to_custom_type()
+    {
+        var options = CreateOptions();
+
+        var memory = JsonSerializer.Deserialize<NumericState<Memory<byte>>>("\"AQID\"", options);
+        var readOnly = JsonSerializer.Deserialize<NumericState<ReadOnlyMemory<byte>>>("\"AQID\"", options);
+
+        Assert.Equal([1, 2, 3], memory!.Value.ToArray());
+        Assert.Equal([1, 2, 3], readOnly!.Value.ToArray());
+    }
+
+    [Fact]
     public void Quoted_number_is_not_treated_as_numeric_source_under_strict_number_handling()
     {
         var options = new JsonSerializerOptions();
@@ -595,6 +619,27 @@ public partial class NumericSourceMigrationTests
         public static bool TryMigrateFrom(List<int> source, out MigratableIntListOrIntListState result)
         {
             result = new MigratableIntListOrIntListState("from-int-list");
+            return true;
+        }
+    }
+
+    [JsonMigratable(TypeDiscriminator = "tagged")]
+    public record class Tagged(string Name);
+
+    [JsonMigratable]
+    public record class MigratableIntListOrTaggedListState(string Source)
+        : IMigrateFrom<List<MigratableInt>, MigratableIntListOrTaggedListState>,
+          IMigrateFrom<List<Tagged>, MigratableIntListOrTaggedListState>
+    {
+        public static bool TryMigrateFrom(List<MigratableInt> source, out MigratableIntListOrTaggedListState result)
+        {
+            result = new MigratableIntListOrTaggedListState("from-migratable-int-list");
+            return true;
+        }
+
+        public static bool TryMigrateFrom(List<Tagged> source, out MigratableIntListOrTaggedListState result)
+        {
+            result = new MigratableIntListOrTaggedListState("from-tagged-list");
             return true;
         }
     }

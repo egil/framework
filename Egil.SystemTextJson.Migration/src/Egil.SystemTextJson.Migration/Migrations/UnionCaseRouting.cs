@@ -135,17 +135,9 @@ internal sealed class UnionCaseRouting
 
         void AddSourceRoute(Type sourceType, TypeMetadata sourceMetadata, Type caseType)
         {
-            // A migratable source has a custom converter (Kind None), so its shape cannot be
-            // read from the contract; it is always identified by its discriminator.
-            // Object sources are identified by their discriminator even when a converter
-            // override reads them, exactly as the case's own converter does for standalone
-            // payloads; the override only matters for shape-routed (non-object) sources.
-            if (JsonMigratableTypes.IsMigratable(sourceType))
-            {
-                AddDiscriminator(context.DeclaringType, entriesByPropertyName, caseByDiscriminator, knownDiscriminators, sourceMetadata, caseType);
-                return;
-            }
-
+            // The override check comes first: a [JsonMigratable] source served by another
+            // converter (a resolver-attached one, for example) is not written by the migration
+            // converter, so its discriminator route would be meaningless.
             if (JsonMigratableTypes.HasConverterOverride(sourceType, options))
             {
                 // The overriding converter may read any token family, so the source is reachable
@@ -162,7 +154,9 @@ internal sealed class UnionCaseRouting
                 return;
             }
 
-            if (options.GetTypeInfo(sourceType).Kind is JsonTypeInfoKind.Object)
+            // A migratable source is served by the migration converter (Kind None) and is always
+            // identified by its discriminator, like any object source.
+            if (JsonMigratableTypes.IsMigratable(sourceType) || options.GetTypeInfo(sourceType).Kind is JsonTypeInfoKind.Object)
             {
                 AddDiscriminator(context.DeclaringType, entriesByPropertyName, caseByDiscriminator, knownDiscriminators, sourceMetadata, caseType);
                 return;

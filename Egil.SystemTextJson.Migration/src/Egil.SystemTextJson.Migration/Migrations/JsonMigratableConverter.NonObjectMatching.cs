@@ -80,13 +80,6 @@ internal sealed partial class JsonMigratableConverter<T>
             return singleCandidate;
         }
 
-        // A candidate whose element converter is overridden may accept any element, so no
-        // other candidate can be chosen safely by element shape.
-        if (HasOverriddenElementCandidate(kind))
-        {
-            ThrowAmbiguousNonObjectMigrators(typeof(T));
-        }
-
         // Multiple candidates — peek at the first value/element token to disambiguate.
         if (!TryPeekFirstValueToken(ref reader, kind, out JsonTokenType valueToken, out bool namedLiteral))
         {
@@ -94,9 +87,27 @@ internal sealed partial class JsonMigratableConverter<T>
             ThrowAmbiguousNonObjectMigrators(typeof(T));
         }
 
+        // An element discriminator identifies its collection exactly, so it is checked before
+        // any shape-based rule, including the guard below.
+        MigratorReference? match = valueToken is JsonTokenType.StartObject
+            ? FindMigratorByElementDiscriminator(ref reader, kind)
+            : null;
+
+        if (match is not null)
+        {
+            return match;
+        }
+
+        // A candidate whose element converter is overridden may accept any element, so no
+        // other candidate can be chosen safely by element shape.
+        if (HasOverriddenElementCandidate(kind))
+        {
+            ThrowAmbiguousNonObjectMigrators(typeof(T));
+        }
+
         // Same precedence as top-level primitives: exact element shapes first, then quoted
         // numbers for numeric element types when number handling allows reading from strings.
-        MigratorReference? match = MatchByPrimitiveElementType(kind, valueToken, quotedNumbers: false, namedLiteral: false);
+        match = MatchByPrimitiveElementType(kind, valueToken, quotedNumbers: false, namedLiteral: false);
 
         if (match is null && valueToken is JsonTokenType.String)
         {
@@ -105,7 +116,7 @@ internal sealed partial class JsonMigratableConverter<T>
 
         if (match is null)
         {
-            match = MatchByComplexElementType(ref reader, kind, valueToken);
+            match = MatchByComplexElementType(kind, valueToken);
         }
 
         return match ?? singleCandidate;
@@ -180,24 +191,10 @@ internal sealed partial class JsonMigratableConverter<T>
         return match;
     }
 
-    private MigratorReference? MatchByComplexElementType(ref Utf8JsonReader reader, JsonTypeInfoKind kind, JsonTokenType valueToken)
-    {
-        MigratorReference? match = null;
-
-        if (valueToken is JsonTokenType.StartObject)
-        {
-            // Try to read the discriminator from the first element object
-            // to match against migratable element types.
-            match = FindMigratorByElementDiscriminator(ref reader, kind);
-        }
-
-        if (match is null && valueToken is JsonTokenType.StartObject or JsonTokenType.StartArray)
-        {
-            match = MatchByElementShape(kind, valueToken);
-        }
-
-        return match;
-    }
+    private MigratorReference? MatchByComplexElementType(JsonTypeInfoKind kind, JsonTokenType valueToken)
+        => valueToken is JsonTokenType.StartObject or JsonTokenType.StartArray
+            ? MatchByElementShape(kind, valueToken)
+            : null;
 
     private MigratorReference? MatchByElementShape(JsonTypeInfoKind kind, JsonTokenType valueToken)
     {

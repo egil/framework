@@ -29,7 +29,7 @@ internal static class SourceValueShapes
         type = Nullable.GetUnderlyingType(type) ?? type;
 
         // Built-in STJ converters that read from a JSON string token. char is written as a
-        // one-character string and byte[] as base64. Converter overrides (for example
+        // one-character string and byte[], Memory<byte> and ReadOnlyMemory<byte> as base64. Converter overrides (for example
         // JsonStringEnumConverter) are not visible here; enums stay numeric.
         if (type == typeof(string)
             || type == typeof(char)
@@ -41,7 +41,9 @@ internal static class SourceValueShapes
             || type == typeof(Guid)
             || type == typeof(Uri)
             || type == typeof(Version)
-            || type == typeof(byte[]))
+            || type == typeof(byte[])
+            || type == typeof(Memory<byte>)
+            || type == typeof(ReadOnlyMemory<byte>))
         {
             return SourceValueShape.String;
         }
