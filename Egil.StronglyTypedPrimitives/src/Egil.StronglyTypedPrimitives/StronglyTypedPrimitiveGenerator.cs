@@ -193,6 +193,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         var underlyingTypeName = underlyingTypeSymbol.WithNullableAnnotation(NullableAnnotation.None).ToDisplayString();
 
         var validationAttributes = Parser.GetValidationAttributes(info.Parameter, semanticModel, targetTypeMembers);
+        var generatesValidate = Parser.ShouldGenerateValidate(compilation, targetTypeSymbol);
         var diagnostics = GetValidationAttributeDiagnostics(info, validationAttributes, hasUserDeclaredIsValueValid);
 
         string?[] typeParts = [
@@ -209,6 +210,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             .. GetToStringMethod(info, targetTypeMembers, underlyingTypeSymbol),
             .. GetIsValueValidMethod(info, underlyingTypeSymbol, hasUserDeclaredIsValueValid, validationAttributes),
             .. GetInterfaceSymbols(info, unimplementedSymbols, underlyingTypeSymbol),
+            .. GetValidateMethod(info, generatesValidate, hasUserDeclaredIsValueValid, validationAttributes),
             .. GetOperatorOverloads(info, targetTypeSymbol, targetTypeMembers),
             "}"
         ];
@@ -680,6 +682,87 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         }
     }
 
+
+    private const string ValidationResultTypeName = "System.ComponentModel.DataAnnotations.ValidationResult";
+
+    // Validate reports the failures IsValueValid throws for as ValidationResults, so ASP.NET Core
+    // validation can answer with a 400 instead of an exception. It is only emitted when the user
+    // declared IValidatableObject themselves (see Parser.ShouldGenerateValidate). By the time it
+    // runs, the JSON converter or TryParse has already replaced an invalid payload with Empty, so
+    // the value being validated is usually the default value, and it is reported like any other.
+    private static IEnumerable<string> GetValidateMethod(StronglyTypedTypeInfo info, bool generatesValidate, bool hasUserDeclaredIsValueValid, ValidationAttributeModel validationAttributes)
+    {
+        if (!generatesValidate)
+        {
+            yield break;
+        }
+
+        var parameterName = info.Parameter.Identifier.Text;
+        var signature = $"public System.Collections.Generic.IEnumerable<{ValidationResultTypeName}> Validate(System.ComponentModel.DataAnnotations.ValidationContext validationContext)";
+        var emptyResults = $"System.Array.Empty<{ValidationResultTypeName}>()";
+
+        if (!hasUserDeclaredIsValueValid && validationAttributes.Attributes.IsEmpty)
+        {
+            yield return $"""
+
+                    {signature}
+                        => {emptyResults};
+                """;
+            yield break;
+        }
+
+        if (hasUserDeclaredIsValueValid)
+        {
+            // A hand-written IsValueValid only explains a failure through its exception, so the
+            // throwing overload is the one whose message is reported. ArgumentException is what
+            // the README shows users throwing; ValidationException is what the attribute-generated
+            // method throws and what a user copying it would use. Anything else is a bug in the
+            // user's method and is left to propagate. The fallback message is the documented
+            // literal, whatever the positional parameter is called.
+            yield return $$"""
+
+                    {{signature}}
+                    {
+                        try
+                        {
+                            if (IsValueValid({{parameterName}}, throwIfInvalid: true)) return {{emptyResults}};
+                        }
+                        catch (System.Exception ex) when (ex is System.ArgumentException or System.ComponentModel.DataAnnotations.ValidationException)
+                        {
+                            return new[] { new {{ValidationResultTypeName}}(ex.Message) };
+                        }
+                        return new[] { new {{ValidationResultTypeName}}("Value is not valid.") };
+                    }
+                """;
+            yield break;
+        }
+
+        // Same flat layout as the attribute-generated IsValueValid: one local per attribute and
+        // every attribute evaluated so a single round trip reports all failures. The result array
+        // is sized exactly and only created on failure, so a valid value allocates nothing.
+        var attributes = validationAttributes.Attributes;
+        var source = new StringBuilder();
+        source.Append($"\n    {signature}\n    {{");
+
+        foreach (var attribute in attributes)
+        {
+            source.Append($"\n        var result{attribute.Index} = {validationAttributes.ValidatorsTypeName}.{attribute.FieldName}.GetValidationResult({parameterName}, validationContext);");
+            source.Append($"\n        if (result{attribute.Index} == {ValidationResultTypeName}.Success) result{attribute.Index} = null;");
+        }
+
+        source.Append($"\n\n        if ({string.Join(" && ", attributes.Select(attribute => $"result{attribute.Index} is null"))}) return {emptyResults};");
+        source.Append($"\n\n        var results = new {ValidationResultTypeName}[{string.Join(" + ", attributes.Select(attribute => $"(result{attribute.Index} is null ? 0 : 1)"))}];");
+        source.Append("\n        var index = 0;");
+
+        foreach (var attribute in attributes)
+        {
+            source.Append($"\n        if (result{attribute.Index} is not null) results[index++] = result{attribute.Index};");
+        }
+
+        source.Append("\n        return results;\n    }");
+
+        yield return source.ToString();
+    }
 
     private static string GetParse(StronglyTypedTypeInfo info, IMethodSymbol method, ITypeSymbol underlyingTypeSymbol)
         => $$"""

@@ -303,6 +303,23 @@ internal static class Parser
             : JsonConverterSupport.SharedConverterUnavailable;
     }
 
+    // Generators cannot see each other's output, and the ASP.NET Core validation generator decides
+    // whether a type is validatable by looking for IValidatableObject on the type symbol. Adding
+    // the interface from here would therefore be invisible to it, so Validate is only filled in
+    // when the user's own declaration names the interface, and a Validate the user wrote (implicit
+    // or explicit) wins like every other generated member.
+    internal static bool ShouldGenerateValidate(Compilation compilation, INamedTypeSymbol targetTypeSymbol)
+    {
+        var validatableObjectType = compilation.GetTypeByMetadataName("System.ComponentModel.DataAnnotations.IValidatableObject");
+        if (validatableObjectType is null || !targetTypeSymbol.AllInterfaces.Contains(validatableObjectType, SymbolEqualityComparer.Default))
+        {
+            return false;
+        }
+
+        var validateMethod = validatableObjectType.GetMembers("Validate").OfType<IMethodSymbol>().FirstOrDefault();
+        return validateMethod is not null && targetTypeSymbol.FindImplementationForInterfaceMember(validateMethod) is null;
+    }
+
     internal static bool DerivesFromJsonSerializerContext(INamedTypeSymbol type)
         => DerivesFrom(type, "System.Text.Json.Serialization.JsonSerializerContext");
 
