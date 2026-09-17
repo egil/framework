@@ -219,6 +219,31 @@ public partial class NumericSourceMigrationTests
     }
 
     [Fact]
+    public void Object_element_collection_competes_for_every_element_shape()
+    {
+        var options = CreateOptions();
+
+        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<ObjectListOrIntListState>("[1]", options));
+        var alone = JsonSerializer.Deserialize<ObjectListState>("[1]", options);
+
+        Assert.Contains("ambiguous", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(1, alone!.Count);
+    }
+
+    [Fact]
+    public void Overridden_migratable_element_has_no_discriminator_route()
+    {
+        // The resolver serves ElemV1 with a custom converter, so its discriminator must not
+        // select the collection; with two candidates the payload is ambiguous instead.
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web) { TypeInfoResolver = new CustomTaggedResolver() };
+        options.AddJsonMigrationSupport();
+
+        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<TaggedListOrItemListState>("""[{"$type":"tagged","name":"x"}]""", options));
+
+        Assert.Contains("ambiguous", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Quoted_number_is_not_treated_as_numeric_source_under_strict_number_handling()
     {
         var options = new JsonSerializerOptions();
@@ -625,6 +650,74 @@ public partial class NumericSourceMigrationTests
 
     [JsonMigratable(TypeDiscriminator = "tagged")]
     public record class Tagged(string Name);
+
+    public sealed class TaggedNameConverter : JsonConverter<Tagged>
+    {
+        public override Tagged Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            reader.Skip();
+            return new Tagged("custom");
+        }
+
+        public override void Write(Utf8JsonWriter writer, Tagged value, JsonSerializerOptions options)
+            => writer.WriteNullValue();
+    }
+
+    public sealed class CustomTaggedResolver : System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver
+    {
+        private readonly System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver inner = new();
+
+        public System.Text.Json.Serialization.Metadata.JsonTypeInfo? GetTypeInfo(Type type, JsonSerializerOptions options)
+            => type == typeof(Tagged)
+                ? System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateValueInfo<Tagged>(options, new TaggedNameConverter())
+                : inner.GetTypeInfo(type, options);
+    }
+
+    [JsonMigratable]
+    public record class TaggedListOrItemListState(string Source)
+        : IMigrateFrom<List<Tagged>, TaggedListOrItemListState>,
+          IMigrateFrom<List<Item>, TaggedListOrItemListState>
+    {
+        public static bool TryMigrateFrom(List<Tagged> source, out TaggedListOrItemListState result)
+        {
+            result = new TaggedListOrItemListState("from-tagged-list");
+            return true;
+        }
+
+        public static bool TryMigrateFrom(List<Item> source, out TaggedListOrItemListState result)
+        {
+            result = new TaggedListOrItemListState("from-item-list");
+            return true;
+        }
+    }
+
+    [JsonMigratable]
+    public record class ObjectListOrIntListState(string Source)
+        : IMigrateFrom<List<object>, ObjectListOrIntListState>,
+          IMigrateFrom<List<int>, ObjectListOrIntListState>
+    {
+        public static bool TryMigrateFrom(List<object> source, out ObjectListOrIntListState result)
+        {
+            result = new ObjectListOrIntListState("from-object-list");
+            return true;
+        }
+
+        public static bool TryMigrateFrom(List<int> source, out ObjectListOrIntListState result)
+        {
+            result = new ObjectListOrIntListState("from-int-list");
+            return true;
+        }
+    }
+
+    [JsonMigratable]
+    public record class ObjectListState(int Count) : IMigrateFrom<List<object>, ObjectListState>
+    {
+        public static bool TryMigrateFrom(List<object> source, out ObjectListState result)
+        {
+            result = new ObjectListState(source.Count);
+            return true;
+        }
+    }
 
     [JsonMigratable]
     public record class MigratableIntListOrTaggedListState(string Source)

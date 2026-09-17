@@ -126,6 +126,13 @@ internal sealed class UnionCaseRouting
             // classification cannot see. Such cases only route through a discriminator.
             if (JsonMigratableTypes.HasConverterOverride(caseType, options))
             {
+                // Same treatment as an overridden source: reachable through its discriminator
+                // (default: the type's full name) when the type can carry one, never by shape.
+                if (!IsScalarType(caseType))
+                {
+                    AddDiscriminator(context.DeclaringType, entriesByPropertyName, caseByDiscriminator, knownDiscriminators, registry.GetTypeMetadata(caseType), caseType);
+                }
+
                 unknownShapeCase ??= caseType;
                 continue;
             }

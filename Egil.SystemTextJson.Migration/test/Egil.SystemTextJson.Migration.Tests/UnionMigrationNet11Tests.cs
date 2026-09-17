@@ -611,6 +611,18 @@ public partial class UnionMigrationTests
         Assert.Equal(6, Assert.IsType<Summed>(value.Value).Total);
     }
 
+    [Fact]
+    public void Union_overridden_object_case_is_reachable_through_its_discriminator()
+    {
+        var options = CreateOptions();
+
+        var value = JsonSerializer.Deserialize<ShapeOrLegacyBox>($$"""{"$type":"{{typeof(LegacyBox).FullName}}","payload":"x"}""", options);
+        var undiscriminated = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<ShapeOrLegacyBox>("""{"payload":"x"}""", options));
+
+        Assert.Equal("x", Assert.IsType<LegacyBox>(value.Value).Payload);
+        Assert.Contains(nameof(LegacyBox), undiscriminated.Message, StringComparison.Ordinal);
+    }
+
     private static JsonSerializerOptions CreateOptions(Action<JsonMigrationBuilder>? configure = null)
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
@@ -732,6 +744,8 @@ public partial class UnionMigrationTests
     }
 
     public union BoxedOrLabel(Boxed, string);
+
+    public union ShapeOrLegacyBox(CircleV2, LegacyBox);
 
     public sealed class BypassingCircleConverter : JsonConverter<CircleV2>
     {

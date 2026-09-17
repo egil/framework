@@ -28,10 +28,24 @@ internal static class JsonMigratableTypes
             return true;
         }
 
-        // STJ precedence: the first matching entry in options.Converters wins over
-        // [JsonConverter] on the type, so only that entry decides when one matches. The
-        // library's own factory is registered in these options too; when it wins it is the
-        // expected converter for [JsonMigratable] types, not an override.
+        // The resolved contract is the truth: a custom resolver may bypass options.Converters
+        // entirely, so the list cannot be trusted on its own.
+        Type resolvedConverter = options.GetTypeInfo(type).Converter.GetType();
+        if (resolvedConverter.IsGenericType && resolvedConverter.GetGenericTypeDefinition() == typeof(JsonMigratableConverter<>))
+        {
+            return false;
+        }
+
+        if (resolvedConverter.Assembly != typeof(JsonSerializer).Assembly)
+        {
+            return true;
+        }
+
+        // A built-in converter type may still be a configured override (JsonStringEnumConverter
+        // yields the built-in enum converter). STJ precedence: the first matching entry in
+        // options.Converters wins over [JsonConverter] on the type. A resolver substituting a
+        // differently configured built-in instance without either registration is not detected
+        // (documented limitation).
         foreach (JsonConverter converter in options.Converters)
         {
             if (converter.CanConvert(type))
@@ -40,20 +54,6 @@ internal static class JsonMigratableTypes
             }
         }
 
-        if (type.GetCustomAttribute<JsonConverterAttribute>(inherit: false) is not null)
-        {
-            return true;
-        }
-
-        // A resolver (source-generated context or custom IJsonTypeInfoResolver) can attach a
-        // converter without either registration above. Any converter type outside
-        // System.Text.Json's own assembly is treated as such an override. Comparing with
-        // options.GetConverter(type) is not possible: on read-only options it resolves through
-        // the same resolver, and instances of built-in converters are not shared between
-        // lookups. A resolver that substitutes a differently configured instance of a built-in
-        // converter type is therefore not detected (documented limitation).
-        Type resolvedConverter = options.GetTypeInfo(type).Converter.GetType();
-        return resolvedConverter.Assembly != typeof(JsonSerializer).Assembly
-            && !(resolvedConverter.IsGenericType && resolvedConverter.GetGenericTypeDefinition() == typeof(JsonMigratableConverter<>));
+        return type.GetCustomAttribute<JsonConverterAttribute>(inherit: false) is not null;
     }
 }

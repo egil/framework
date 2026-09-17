@@ -12,7 +12,7 @@ internal sealed class JsonMigratableTargetKindNotSupportedException(Type targetT
         $"'{targetType.FullName}' is annotated with [{nameof(JsonMigratableAttribute).Replace("Attribute", string.Empty, StringComparison.Ordinal)}] but its JSON contract kind is '{kind}'. " +
         "Migration targets must serialize as JSON objects because the type discriminator is written as a property. " +
         "Apply the attribute to the object types instead: for unions on .NET 11 annotate the case types and let AddJsonMigrationSupport() classify the union; " +
-        "for collections wrap the elements in an object type. See https://github.com/egil/framework/blob/main/Egil.SystemTextJson.Migration/docs/recipes/polymorphism.md.")
+        "for collections and dictionaries wrap the collection in an object type and annotate that. See https://github.com/egil/framework/blob/main/Egil.SystemTextJson.Migration/docs/recipes/polymorphism.md.")
 {
     public Type TargetType { get; } = targetType;
 

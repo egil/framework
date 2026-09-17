@@ -81,7 +81,12 @@ internal sealed record MigratorReference(
 
     private static bool ElementMayAcceptAnyShape(Type elementType, System.Text.Json.JsonSerializerOptions options)
     {
-        if (JsonMigratableTypes.HasConverterOverride(elementType, options))
+        // object, JsonElement, JsonDocument and JsonNode elements read every JSON token.
+        if (elementType == typeof(object)
+            || elementType == typeof(System.Text.Json.JsonElement)
+            || elementType == typeof(System.Text.Json.JsonDocument)
+            || typeof(System.Text.Json.Nodes.JsonNode).IsAssignableFrom(elementType)
+            || JsonMigratableTypes.HasConverterOverride(elementType, options))
         {
             return true;
         }
@@ -142,7 +147,11 @@ internal sealed record MigratorReference(
             return null;
         }
 
+        // An element served by another converter is not written by the migration converter, so
+        // its discriminator must not select the collection (the element would bypass migration).
         Type elementType = SourceValueShapes.GetValueType(sourceTypeInfo);
-        return JsonMigratableTypes.IsMigratable(elementType) ? registry.GetTypeMetadata(elementType) : null;
+        return JsonMigratableTypes.IsMigratable(elementType) && !JsonMigratableTypes.HasConverterOverride(elementType, sourceTypeInfo.Options)
+            ? registry.GetTypeMetadata(elementType)
+            : null;
     }
 }
