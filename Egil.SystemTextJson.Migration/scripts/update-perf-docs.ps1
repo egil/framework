@@ -129,7 +129,8 @@ function Get-ScenarioSortKey {
         'Deserialize,ExternalMigration' { return 2 }
         'Deserialize,UndiscriminatedSourceMigration' { return 3 }
         'Deserialize,LegacyPayload' { return 4 }
-        'Serialize' { return 5 }
+        'Deserialize,UnionDispatch' { return 5 }
+        'Serialize' { return 6 }
         default { return [int]::MaxValue }
     }
 }
@@ -168,6 +169,7 @@ function Get-ScenarioLabel {
         'Deserialize,ExternalMigration' { return '**External migration**' }
         'Deserialize,UndiscriminatedSourceMigration' { return '**Undiscriminated source migration**' }
         'Deserialize,LegacyPayload' { return '**Legacy payload**' }
+        'Deserialize,UnionDispatch' { return '**Union dispatch (.NET 11)**' }
         'Serialize' { return '**Serialization**' }
         default { return $Categories }
     }
@@ -189,6 +191,9 @@ function Get-MethodLabel {
         'JsonMigratableExternalMigration' { return 'JsonMigratable' }
         'JsonMigratableUndiscriminatedSourceMigration' { return 'JsonMigratable' }
         'JsonMigratableLegacyPayload' { return 'JsonMigratable' }
+        'PlainStjUnionDispatchStructural' { return 'Plain STJ structural classifier' }
+        'JsonMigratableUnionDispatch' { return 'JsonMigratable classifier' }
+        'JsonMigratableUnionDispatchWithMigration' { return 'JsonMigratable classifier + migration' }
         default { return $Method }
     }
 }
