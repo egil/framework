@@ -656,6 +656,17 @@ Outbox messages now carry the producer's W3C traceparent:
   written before this change load unchanged. No migration or reset is required,
   unlike the `Revision` change above.
 
+The enriching `AddStreamPostman` overloads added for
+[issue #187](https://github.com/egil/framework/issues/187) are additive, with one
+narrow source break:
+
+- A registration that omits type arguments entirely, passes explicitly typed
+  lambdas, and projects to exactly the payload type now reports an ambiguity
+  between the one- and two-type-parameter overloads. Add the single type
+  argument, as in `AddStreamPostman<OrderSubmitted>(...)`.
+- Registrations that already name one or two type arguments are unaffected and
+  continue to bind to the same overload.
+
 The earlier sender-free message-ID and revision changes described above changed
 the stored JSON shape; migration of snapshots predating those changes is not
 provided. The payload-first collection and OutboxAccessor changes preserve that
