@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Immutable;
 using System.Diagnostics;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Serialization;
 
@@ -24,8 +25,10 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// <b>Sequence ownership:</b> <see cref="Add(T)"/>, <see cref="AddRange(IEnumerable{T})"/>, and collection expressions assign sequence numbers.
 /// Callers supply the payload; the outbox stamps <see cref="OutboxMessageId"/>
 /// with a monotonically increasing <see cref="LatestSequenceNumber"/> and the
-/// current <see cref="Epoch"/>. This is a hard invariant — there is no public
-/// constructor that accepts a pre-built sequence number.
+/// current <see cref="Epoch"/>. <see cref="Restore(IEnumerable{OutboxMessageEnvelope{T}}, long)"/>
+/// is the single exception, and carries a different name for exactly that reason:
+/// reconstructing stored history is not producing messages, so it accepts
+/// pre-built identities — and validates that they increase within one epoch.
 /// </para>
 /// <para>
 /// <b>Epoch semantics:</b>
@@ -35,6 +38,8 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// ops-level sequence-space resets.</item>
 /// <item>First <see cref="Add(T)"/> → stamps <c>Epoch = now</c>. Persisted with state.</item>
 /// <item>Subsequent <see cref="Add(T)"/> → same epoch, incrementing sequence number.</item>
+/// <item><see cref="Restore(IEnumerable{T}, DateTimeOffset)"/> → takes the epoch
+/// from the restored data, never from the clock and never from an ambient activity.</item>
 /// <item><see cref="Clear"/> → removes all items but <b>preserves</b>
 /// <see cref="LatestSequenceNumber"/> and <see cref="Epoch"/>. This is the normal
 /// "postman drained successfully" path.</item>
@@ -127,6 +132,207 @@ public sealed class Outbox<T> : IReadOnlyList<T>, IEquatable<Outbox<T>>
     /// </remarks>
     public static Outbox<T> Create() =>
         new(latestSequenceNumber: 0, items: [], epoch: null, revision: Guid.CreateVersion7());
+
+    /// <summary>
+    /// Rebuilds an outbox from payloads produced earlier, each paired with the
+    /// instant it was originally appended.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Use when reconstructing stored history — a state migration, an import, a
+    /// replay — rather than producing messages. Unlike <see cref="Add(T, DateTimeOffset)"/>,
+    /// <b>no trace context is recorded</b>. A rebuild runs under whatever activity
+    /// happens to be current — for a migration inside grain-state deserialization,
+    /// the activation — and that activity did not produce these messages. Linking a
+    /// delivery span to it is worse than linking to nothing, because a wrong link is
+    /// indistinguishable from a right one when reading a trace.
+    /// </para>
+    /// <para>
+    /// The outbox still owns sequence assignment: payloads receive consecutive
+    /// numbers from <c>1</c> in enumeration order, and the first payload's timestamp
+    /// becomes the <see cref="Epoch"/>, matching the first-append rule. Timestamps are
+    /// normalized to UTC and need not be ordered — receivers deduplicate on epoch and
+    /// sequence number, not on time. An empty sequence yields the same shape as
+    /// <see cref="Create()"/>.
+    /// <code>
+    /// var restored = Outbox&lt;OrderEvent&gt;.Restore(
+    ///     legacy.Outbox.Select(item =&gt; (item, item.Timestamp)));
+    /// </code>
+    /// </para>
+    /// </remarks>
+    /// <param name="messages">The payloads to restore, paired with their original append instants.</param>
+    /// <returns>An outbox holding the restored messages.</returns>
+    public static Outbox<T> Restore(IEnumerable<(T Message, DateTimeOffset Timestamp)> messages)
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+
+        var builder = CreateEnvelopeBuilder(messages);
+        DateTimeOffset? epoch = null;
+        var sequenceNumber = 0L;
+        foreach (var (message, timestamp) in messages)
+        {
+            var utcTimestamp = timestamp.ToUniversalTime();
+            epoch ??= utcTimestamp;
+            builder.Add(new(new OutboxMessageId(++sequenceNumber, utcTimestamp, epoch.Value), message));
+        }
+
+        return new Outbox<T>(sequenceNumber, builder.DrainToImmutable(), epoch, Guid.CreateVersion7());
+    }
+
+    /// <summary>
+    /// Rebuilds an outbox from payloads produced earlier that share a single
+    /// timestamp, for source formats that kept none per message.
+    /// </summary>
+    /// <remarks>
+    /// Behaves as <see cref="Restore(IEnumerable{ValueTuple{T, DateTimeOffset}})"/> with
+    /// <paramref name="utcNow"/> paired to every payload: consecutive sequence numbers
+    /// from <c>1</c>, that instant as both every timestamp and the <see cref="Epoch"/>,
+    /// and no trace context recorded. Non-UTC offsets are normalized to UTC.
+    /// </remarks>
+    /// <param name="messages">The payloads to restore, in their original order.</param>
+    /// <param name="utcNow">The instant to stamp on every restored message.</param>
+    /// <returns>An outbox holding the restored messages.</returns>
+    public static Outbox<T> Restore(IEnumerable<T> messages, DateTimeOffset utcNow)
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+
+        var builder = CreateEnvelopeBuilder(messages);
+        var timestamp = utcNow.ToUniversalTime();
+        var sequenceNumber = 0L;
+        foreach (var message in messages)
+        {
+            builder.Add(new(new OutboxMessageId(++sequenceNumber, timestamp, timestamp), message));
+        }
+
+        return new Outbox<T>(
+            sequenceNumber,
+            builder.DrainToImmutable(),
+            // An empty restore has no history to date, so it must not claim an epoch;
+            // the next Add stamps one, exactly as it would after Create().
+            sequenceNumber == 0 ? null : timestamp,
+            Guid.CreateVersion7());
+    }
+
+    /// <summary>
+    /// Rebuilds an outbox from envelopes that already carry their stored identity,
+    /// preserving sequence numbers, timestamps, epoch, and trace context.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The full-fidelity restore: for moving messages between outboxes, or replaying
+    /// an exported one, where the original <see cref="OutboxMessageId"/> values must
+    /// survive. Nothing is captured from the ambient activity — see
+    /// <see cref="Restore(IEnumerable{ValueTuple{T, DateTimeOffset}})"/> for why — and each
+    /// <see cref="OutboxMessageId.TraceParent"/> is carried through verbatim, including
+    /// values that are not parseable W3C traceparents. Delivery tolerates those by
+    /// starting an unlinked span, and rejecting them here would fail a grain activation
+    /// over a diagnostic field.
+    /// </para>
+    /// <para>
+    /// This is the one entry point that accepts caller-supplied sequence numbers, so it
+    /// validates them. <see cref="OutboxMessageId.SequenceNumber"/> must strictly increase
+    /// in enumeration order and every <see cref="OutboxMessageId.Epoch"/> must match:
+    /// <see cref="Remove(OutboxMessageId)"/> only matches a FIFO head and receivers
+    /// deduplicate against a per-epoch high-water mark, so a mis-ordered restore produces
+    /// an outbox whose messages the receiver silently drops.
+    /// </para>
+    /// <para>
+    /// Restoring a live outbox therefore carries its high-water mark across as well:
+    /// <code>
+    /// var moved = Outbox&lt;OrderEvent&gt;.Restore(previous.Envelopes, previous.LatestSequenceNumber);
+    /// </code>
+    /// An empty sequence yields the same shape as <see cref="Create()"/>, and then
+    /// <paramref name="latestSequenceNumber"/> must be <c>0</c>. A high-water mark only
+    /// means something inside an epoch — receivers compare epochs first and sequence
+    /// numbers only within the same epoch — and an empty restore carries no envelope to
+    /// take an epoch from. Rather than keep a mark that cannot be honoured, this rejects
+    /// it: a fully drained source starts a fresh sequence space with <see cref="Create()"/>.
+    /// </para>
+    /// </remarks>
+    /// <param name="envelopes">The stored envelopes to restore, in FIFO order.</param>
+    /// <param name="latestSequenceNumber">
+    /// The source outbox's <see cref="LatestSequenceNumber"/>. Required rather than
+    /// inferred: <see cref="Envelopes"/> holds only what is still pending, so a source
+    /// whose highest-numbered messages were already delivered and removed would restore
+    /// a lower high-water mark, and the next <see cref="Add(T)"/> would reuse a sequence
+    /// number the receiver has already seen and reject as a duplicate.
+    /// </param>
+    /// <returns>An outbox holding the restored envelopes.</returns>
+    /// <exception cref="ArgumentException">
+    /// Sequence numbers are not positive and strictly increasing in enumeration order, or
+    /// the envelopes do not all share one epoch.
+    /// </exception>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="latestSequenceNumber"/> is below the last envelope's sequence
+    /// number, or is nonzero for an empty sequence.
+    /// </exception>
+    public static Outbox<T> Restore(IEnumerable<OutboxMessageEnvelope<T>> envelopes, long latestSequenceNumber)
+    {
+        ArgumentNullException.ThrowIfNull(envelopes);
+
+        var builder = CreateEnvelopeBuilder(envelopes);
+        DateTimeOffset? epoch = null;
+        // Add assigns from 1, so 0 is the floor a restored id has to clear. Seeding the
+        // running value with it rejects zero and negative ids through the same comparison
+        // that rejects a repeat or a step backwards.
+        var sequenceNumber = 0L;
+        foreach (var envelope in envelopes)
+        {
+            ArgumentNullException.ThrowIfNull(envelope, nameof(envelopes));
+
+            var id = envelope.Id;
+            // The outbox holds one epoch field, so a mixed-epoch restore has no
+            // representation here — it is rejected rather than silently flattened.
+            if (epoch is { } established && id.Epoch != established)
+            {
+                throw new ArgumentException(
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"All envelopes must share one epoch; found {established:O} and {id.Epoch:O}."),
+                    nameof(envelopes));
+            }
+
+            if (id.SequenceNumber <= sequenceNumber)
+            {
+                throw new ArgumentException(
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"Envelope sequence numbers must be positive and strictly increase in enumeration order; {sequenceNumber} was followed by {id.SequenceNumber}."),
+                    nameof(envelopes));
+            }
+
+            epoch = id.Epoch;
+            sequenceNumber = id.SequenceNumber;
+            builder.Add(envelope);
+        }
+
+        // A mark is only meaningful within an epoch, and an empty restore has no envelope
+        // to take one from. Carrying it would be theatre: the next Add stamps a fresh epoch,
+        // and the receiver then compares epochs and ignores the sequence entirely.
+        if (builder.Count == 0 && latestSequenceNumber != 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(latestSequenceNumber),
+                latestSequenceNumber,
+                "An empty restore carries no epoch, so it cannot carry a high-water mark either. Use Outbox<T>.Create() to start a fresh sequence space.");
+        }
+
+        // Guarded after enumeration because the last sequence number is the floor: a mark
+        // below it would let Add hand out a number already carried by a pending message.
+        // Envelope ids are positive, so this also rules out a negative mark.
+        ArgumentOutOfRangeException.ThrowIfLessThan(latestSequenceNumber, sequenceNumber);
+
+        return new Outbox<T>(
+            latestSequenceNumber,
+            builder.DrainToImmutable(),
+            epoch,
+            Guid.CreateVersion7());
+    }
+
+    private static ImmutableArray<OutboxMessageEnvelope<T>>.Builder CreateEnvelopeBuilder<TSource>(
+        IEnumerable<TSource> source) =>
+        ImmutableArray.CreateBuilder<OutboxMessageEnvelope<T>>(
+            source.TryGetNonEnumeratedCount(out var count) ? count : 0);
 
     /// <summary>
     /// The highest sequence number ever assigned in this outbox, including

@@ -585,7 +585,9 @@ retries and reactivation.
 `TraceParent` is the W3C traceparent of the activity current when the message was
 appended, or `null`. It is captured by `Add`, `AddRange`, and collection-expression
 construction, omitted from JSON when absent, and ignored by dedup — see
-*OpenTelemetry trace correlation*.
+*OpenTelemetry trace correlation*. Capture belongs to the producing path only:
+`Restore` never reads `Activity.Current`, and carries envelope traceparents through
+verbatim.
 
 ```csharp
 public sealed record OutboxMessageId(long SequenceNumber, DateTimeOffset Timestamp, DateTimeOffset Epoch, string? TraceParent = null);
@@ -604,6 +606,11 @@ outbox.RemoveRange(envelopes);
 outbox.Remove(id);          // Removes only a matching FIFO head.
 outbox.RemoveRange(ids);    // Removes matching IDs anywhere, preserving remaining order.
 outbox.Clear();             // Preserves sequence high-water mark and epoch.
+
+// Reconstructing stored history. Never captures Activity.Current.
+Outbox<T>.Restore(payloadTimestampPairs);
+Outbox<T>.Restore(payloads, utcNow);
+Outbox<T>.Restore(envelopes, latestSequenceNumber);   // Full fidelity; validates ids.
 ```
 
 The actual types carry Orleans serialization metadata and JSON support. Each stored
@@ -669,7 +676,30 @@ equality, never revision ordering. Message IDs and delivery tokens are unchanged
   constructor. Mutation through controlled collection operations, preserving
   sequence and epoch invariants.
 - **`Add(T payload)` not `Add(envelope)`.** Outbox owns sequence
-  assignment. Callers cannot fabricate sequence numbers.
+  assignment. Callers cannot fabricate sequence numbers on the producing path.
+- **`Restore` is the one seam where callers supply identity.** Reconstructing
+  stored history — a migration, an import, a replay — is a different operation
+  from producing a message, so it carries a different name rather than an extra
+  argument on `Add`. That name is the contract: `Restore` never reads
+  `Activity.Current`, because the activity rebuilding an outbox did not produce
+  its messages. The payload overloads still own sequence assignment; the envelope
+  overload accepts pre-built ids and therefore validates them, requiring strictly
+  increasing sequence numbers within a single epoch so FIFO removal and per-epoch
+  receiver dedup keep working. It also takes the source's `LatestSequenceNumber`
+  as a required argument rather than inferring it: `Envelopes` exposes only
+  pending items, so a source whose highest-numbered messages were already
+  delivered and removed would restore a lower high-water mark, and the next `Add`
+  would reuse a sequence number the receiver has already recorded and reject as a
+  duplicate. A mark is rejected when there are no envelopes to anchor it to an
+  epoch, because receiver dedup compares epochs first and consults sequence
+  numbers only within the same epoch — carrying one there would hide that the
+  source epoch was dropped. Envelope sequence numbers must be positive, matching
+  what `Add` can assign. Requiring the mark also keeps the overloads apart by
+  arity, so a collection expression of target-typed `new` stays unambiguous. Traceparents on restored envelopes are stored
+  verbatim, unvalidated. A `Create` overload was rejected for this: the
+  collection-builder `Outbox.Create<T>(ReadOnlySpan<T>)` *does* capture, so one
+  name would have carried both behaviours with nothing at the call site to tell
+  them apart.
 - **Time is per append, never retained.** `Add(T)` samples system UTC;
   `Add(T, DateTimeOffset)` accepts the caller's current instant and
   normalizes it to UTC. Persisted values therefore contain no transient
@@ -1389,8 +1419,25 @@ drives the drain. Both are correct: that request genuinely caused the delivery,
 and it is happening now. What must never happen is joining the *producing*
 trace, which the link handles.
 
-Two decisions taken deliberately here:
+Three decisions taken deliberately here:
 
+- **Ambient capture belongs to the producing path only.** Capture at append time
+  is right for a grain appending during a request and wrong for one rebuilding
+  stored history: a migration, import, or replay runs under an activity that did
+  not produce the message — for a migration inside `JsonMigratable`
+  deserialization, the activation — and stamping it links the delivery span to an
+  unrelated trace. The same "a wrong link is indistinguishable from a right one"
+  argument that rules out capturing at dispatch rules out capturing during a
+  rebuild. `Outbox<T>.Restore` is the non-capturing entry point; traceparents it
+  carries through from envelopes are stored verbatim and not validated, because
+  the dispatcher already tolerates unparseable values by starting an unlinked
+  span, hierarchical-format `Activity.Id` values already reach storage through
+  the ambient path, and throwing inside deserialization would fail a grain
+  activation over a diagnostic field. `Outbox.Create<T>(ReadOnlySpan<T>)` keeps
+  capturing with no suppressing overload — the `[CollectionBuilder]` contract
+  fixes its signature — which is acceptable because a collection expression
+  resets the epoch and sequence space and is therefore already the wrong tool for
+  reconstructing history.
 - **`tracestate` is not captured.** It is vendor data of up to 512 bytes, sized
   by the vendor rather than by us. The outbox lives inside the grain state
   record, so every pending envelope is rewritten on every `WriteStateAsync`

@@ -11,6 +11,11 @@ public static class Outbox
     /// Collection expressions create new history, even when spreading an existing outbox.
     /// Use AddRange to extend existing history and Clear to drain it without resetting it.
     /// All payloads in this construction share one system UTC timestamp.
+    /// Captures <see cref="Activity.Current"/>, and has no suppressing form — the
+    /// <c>[CollectionBuilder]</c> contract fixes this signature. Code rebuilding stored
+    /// history must not use a collection expression: beyond stamping an activity that
+    /// did not produce the messages, it resets the epoch and sequence space. Use
+    /// <see cref="Outbox{T}.Restore(IEnumerable{ValueTuple{T, DateTimeOffset}})"/> instead.
     /// </remarks>
     public static Outbox<T> Create<T>(ReadOnlySpan<T> messages)
     {

@@ -583,6 +583,75 @@ The traceparent is stored whether or not the producing activity was sampled, so
 the trace id remains available for log correlation. `tracestate` is not
 captured.
 
+#### Rebuilding an outbox from stored data
+
+Ambient capture is the right default for the producing path and wrong for every
+path that *reconstructs* history — a state migration, an import, a replay. Those
+run under whatever activity happens to be current; for a migration inside
+`JsonMigratable` deserialization that is the grain activation, or whichever
+inbound call triggered it. It has nothing to do with the request that originally
+produced the message, possibly days earlier. Stamping it makes the delivery span
+link to an unrelated trace, which is worse than linking to nothing: a wrong link
+is indistinguishable from a right one when reading a trace.
+
+Use `Outbox<T>.Restore`, which never reads `Activity.Current`:
+
+```csharp
+// In IMigrateFrom<TV1, TV2>: reconstructing history, not producing messages.
+var messages = Outbox<IEvseOutboxEvent>.Restore(
+    source.Outbox.Select(item => (
+        item,
+        item.Timestamp != default ? item.Timestamp : migratedAt)));
+```
+
+Sequence assignment stays inside the outbox: payloads get consecutive numbers
+from `1` in enumeration order, and the first timestamp becomes the epoch.
+Timestamps are normalized to UTC and need not be ordered — receivers deduplicate
+on epoch and sequence number, not on time.
+
+When the old format kept no per-message timestamp, pass one for the batch:
+
+```csharp
+var messages = Outbox<IEvseOutboxEvent>.Restore(source.Outbox, migratedAt);
+```
+
+When you are moving messages between outboxes and the original IDs must survive,
+restore the envelopes themselves. This overload preserves sequence numbers,
+timestamps, epoch, and each message's traceparent verbatim:
+
+```csharp
+var messages = Outbox<IEvseOutboxEvent>.Restore(
+    previousOutbox.Envelopes,
+    previousOutbox.LatestSequenceNumber);
+```
+
+The high-water mark is a required argument rather than something inferred from
+the envelopes, because `Envelopes` holds only what is still *pending*. A source
+that had already delivered and removed its highest-numbered messages would
+otherwise restore to a lower mark, the next `Add` would hand out a sequence
+number the receiver has already seen, and the receiver would reject that message
+as a duplicate. Passing a mark below the last envelope's sequence number throws
+`ArgumentOutOfRangeException`, and so does passing a nonzero mark with no
+envelopes at all: a mark only means something inside an epoch — receivers compare
+epochs first and sequence numbers only within the same epoch — and an empty
+restore has no envelope to take an epoch from. Restore a fully drained source
+with `Outbox<T>.Create()` instead, which starts a fresh sequence space.
+
+Envelope sequence numbers must also be positive, because `Add` assigns from `1`
+and a restore should not be able to build state the producing path cannot reach.
+
+Because it is also the one entry point that accepts caller-supplied identity, it
+validates that too: sequence numbers must strictly increase in enumeration order
+and every envelope must carry the same epoch, or it throws `ArgumentException`.
+`Remove` only matches a FIFO head and receivers deduplicate against a per-epoch
+high-water mark, so a mis-ordered restore would produce an outbox whose messages
+the receiver silently drops.
+
+Collection expressions are never the right tool for a rebuild. Building one with
+`Outbox<T> x = [...]` captures `Activity.Current` and has no suppressing form —
+the `[CollectionBuilder]` contract fixes its signature — and it resets the epoch
+and sequence space as well.
+
 ### Migrating existing outbox callers
 
 - Indexing and enumeration now return payloads. Use `outbox.Envelopes` where code
@@ -592,6 +661,10 @@ captured.
   not `default` or `null` (null is rejected with `InvalidOperationException`).
 - Acknowledgement and failure callbacks still receive envelopes. Existing ID-based
   removal remains supported. The persisted JSON and Orleans field layout is unchanged.
+- Rebuilding an outbox from a previously persisted shape — an `IMigrateFrom`
+  implementation, an import, a replay — must use `Outbox<T>.Restore` rather than a
+  loop of `Add` calls, so historical messages are not stamped with the trace context
+  of the activity doing the rebuilding. See *Rebuilding an outbox from stored data*.
 
 ## Receiver Dedup
 
@@ -856,6 +929,9 @@ Outbox messages now carry the producer's W3C traceparent:
 - The property is nullable and omitted from JSON when absent, so snapshots
   written before this change load unchanged. No migration or reset is required,
   unlike the `Revision` change above.
+- `Outbox<T>.Restore(...)` is new and **additive**: nothing existing changes and no
+  recompile is needed. Reach for it wherever you rebuild an outbox from stored data,
+  so the rebuilding activity is not recorded as the producer of historical messages.
 
 The earlier sender-free message-ID and revision changes described above changed
 the stored JSON shape; migration of snapshots predating those changes is not

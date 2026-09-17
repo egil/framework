@@ -10,10 +10,13 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// <param name="Timestamp">The original append time, preserved during retries.</param>
 /// <param name="Epoch">The sequence-space epoch, preserved when an outbox drains.</param>
 /// <param name="TraceParent">
-/// The W3C <c>traceparent</c> of the activity that was current when the message
-/// was appended, or <c>null</c> when no activity was current. Captured at append
-/// time rather than at delivery time because delivery can happen on a timer, a
-/// reminder, or a later activation, long after the producing activity ended.
+/// The W3C <c>traceparent</c> recorded for this message, or <c>null</c> when none
+/// was. For a produced message it is the activity that was current when the message
+/// was appended; for a reconstructed one it is whatever
+/// <see cref="Outbox{T}.Restore(IEnumerable{OutboxMessageEnvelope{T}}, long)"/> carried
+/// through. Captured at append time rather than at delivery time because delivery
+/// can happen on a timer, a reminder, or a later activation, long after the
+/// producing activity ended.
 /// </param>
 [GenerateSerializer]
 [Alias("egil.orleans.messaging.OutboxMessageId")]
