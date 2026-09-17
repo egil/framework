@@ -149,10 +149,15 @@ internal sealed class UnionCaseRouting
             if (JsonMigratableTypes.HasConverterOverride(sourceType, options))
             {
                 // The overriding converter may read any token family, so the source is reachable
-                // only through its discriminator, which is registered regardless of the CLR shape
-                // (an entry only matters for objects that start with it), and every
-                // discriminator-less payload is refused.
-                AddDiscriminator(context.DeclaringType, entriesByPropertyName, caseByDiscriminator, knownDiscriminators, sourceMetadata, caseType);
+                // only through its discriminator and every discriminator-less payload is refused.
+                // Scalar CLR types (primitives, enums, string-shaped types) cannot carry a
+                // discriminator, so no route is advertised for them; objects and collections
+                // may be read from a discriminated object by their converter and keep it.
+                if (!IsScalarType(sourceType))
+                {
+                    AddDiscriminator(context.DeclaringType, entriesByPropertyName, caseByDiscriminator, knownDiscriminators, sourceMetadata, caseType);
+                }
+
                 unknownShapeCase ??= caseType;
                 return;
             }
@@ -354,6 +359,12 @@ internal sealed class UnionCaseRouting
 
     // Several sources of one case may share a shape; the case's own converter disambiguates
     // between them, so the union only needs one route per case.
+    private static bool IsScalarType(Type type)
+    {
+        Type underlying = Nullable.GetUnderlyingType(type) ?? type;
+        return underlying.IsPrimitive || underlying.IsEnum || SourceValueShapes.Classify(underlying) is not SourceValueShape.Unknown;
+    }
+
     private static void AddCase(List<Type> cases, Type caseType)
     {
         if (!cases.Contains(caseType))

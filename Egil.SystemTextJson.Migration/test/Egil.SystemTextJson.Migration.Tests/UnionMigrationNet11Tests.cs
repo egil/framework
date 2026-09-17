@@ -466,9 +466,12 @@ public partial class UnionMigrationTests
 
         var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<PaintOrLabel>("\"Green\"", options));
         var paint = JsonSerializer.Deserialize<PaintOrLabel>("""{"$type":"paint","colour":"Red"}""", options);
+        var synthetic = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<PaintOrLabel>($$"""{"$type":"{{typeof(PlainColour).FullName}}"}""", options));
 
+        // A scalar source has no discriminator route: its type name is not a known discriminator.
         Assert.Contains(nameof(Paint), exception.Message, StringComparison.Ordinal);
         Assert.IsType<Paint>(paint.Value);
+        Assert.Contains("No case", synthetic.Message, StringComparison.Ordinal);
     }
 
     [Fact]
