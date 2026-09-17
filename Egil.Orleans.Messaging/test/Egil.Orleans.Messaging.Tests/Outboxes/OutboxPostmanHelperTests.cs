@@ -40,6 +40,10 @@ public sealed class OutboxPostmanHelperTests(MessagingTestClusterFixture fixture
     [InlineData("direct-projection", "projected:projected-stream-helper")]
     [InlineData("grouped-original", "projected-stream-helper")]
     [InlineData("grouped-projection", "projected:projected-stream-helper")]
+    [InlineData("direct-enriched", "enriched:1:projected-stream-helper")]
+    [InlineData("direct-token-enriched", "enriched:1:projected-stream-helper")]
+    [InlineData("grouped-enriched", "enriched:1:projected-stream-helper")]
+    [InlineData("grouped-token-enriched", "enriched:1:projected-stream-helper")]
     public async Task Token_routing_supports_original_and_projected_payloads(string routingMode, string expectedValue)
     {
         var grainKey = Guid.NewGuid();
@@ -229,6 +233,11 @@ public sealed class OutboxProcessorProjectedStreamPostmanGrain(
         StreamId SelectStream(OutboxProcessorTestEvent _, OutboxSequenceToken token) =>
             token.Sender == this.GetGrainId() ? streamId : throw new InvalidOperationException("Wrong delivery sender.");
         static OutboxProcessorTestEvent Project(OutboxProcessorTestEvent message) => new($"projected:{message.Value}");
+        StreamId SelectStreamWithoutToken(OutboxProcessorTestEvent _) => streamId;
+        // Carrying the sequence number into the payload shows the token reached the projection,
+        // not just the stream selector.
+        static OutboxProcessorTestEvent Enrich(OutboxProcessorTestEvent message, OutboxSequenceToken token) =>
+            new($"enriched:{token.SequenceNumber}:{message.Value}");
 
         switch (routingMode)
         {
@@ -243,6 +252,20 @@ public sealed class OutboxProcessorProjectedStreamPostmanGrain(
                 break;
             case "grouped-projection":
                 processor.ForStreamProvider(OutboxProcessorTestProviderNames.Events).AddStreamPostman<OutboxProcessorTestEvent, OutboxProcessorTestEvent>(SelectStream, Project);
+                break;
+            case "direct-enriched":
+                processor.AddStreamPostman<OutboxProcessorTestEvent>(OutboxProcessorTestProviderNames.Events, SelectStreamWithoutToken, Enrich);
+                break;
+            case "direct-token-enriched":
+                processor.AddStreamPostman<OutboxProcessorTestEvent>(OutboxProcessorTestProviderNames.Events, SelectStream, Enrich);
+                break;
+            case "grouped-enriched":
+                processor.ForStreamProvider(OutboxProcessorTestProviderNames.Events).AddStreamPostman<OutboxProcessorTestEvent>(SelectStreamWithoutToken, Enrich);
+                break;
+            case "grouped-token-enriched":
+                processor.ForStreamProvider(OutboxProcessorTestProviderNames.Events).AddStreamPostman<OutboxProcessorTestEvent>(
+                    (message, token) => SelectStream(message, token),
+                    static (message, token) => new($"enriched:{token.SequenceNumber}:{message.Value}"));
                 break;
             default:
                 throw new InvalidOperationException($"Unknown routing mode: {routingMode}");

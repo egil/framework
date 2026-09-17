@@ -210,6 +210,17 @@ public sealed partial class OutboxProcessor<TOutbox>
         return AddStreamPostman<TSub, TEvent>(streamProviderName, (message, _) => streamId(message), project);
     }
 
+    // No OverloadResolutionPriority here. It only applies once type arguments are omitted,
+    // and there it would prune the better candidate: a projection returning a type derived
+    // from TSub infers the derived TEvent today and must keep publishing to that stream type.
+    /// <summary>Enriches each payload from its delivery token before publishing it to the selected stream.</summary>
+    public OutboxProcessor<TOutbox> AddStreamPostman<TSub>(
+        string streamProviderName,
+        Func<TSub, StreamId> streamId,
+        Func<TSub, OutboxSequenceToken, TSub> project)
+        where TSub : TOutbox =>
+        AddStreamPostman<TSub, TSub>(streamProviderName, streamId, project);
+
     /// <summary>Registers token-aware stream selection and projection for a payload.</summary>
     public OutboxProcessor<TOutbox> AddStreamPostman<TSub, TEvent>(
         string streamProviderName,
@@ -229,6 +240,14 @@ public sealed partial class OutboxProcessor<TOutbox>
                 .OnNextAsync(project(message, token)));
         });
     }
+
+    /// <summary>Selects the stream and enriches the payload, both using the delivery token.</summary>
+    public OutboxProcessor<TOutbox> AddStreamPostman<TSub>(
+        string streamProviderName,
+        Func<TSub, OutboxSequenceToken, StreamId> streamId,
+        Func<TSub, OutboxSequenceToken, TSub> project)
+        where TSub : TOutbox =>
+        AddStreamPostman<TSub, TSub>(streamProviderName, streamId, project);
 
     /// <summary>Registers a grain invocation that can forward the delivery token for deduplication.</summary>
     [OverloadResolutionPriority(1)]
