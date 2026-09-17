@@ -8,7 +8,7 @@
     benchmark table in README.md.
 
 .EXAMPLE
-    dotnet run --project perf/Egil.SystemTextJson.Migration.PerfTests -c Release
+    dotnet run --project perf/Egil.SystemTextJson.Migration.PerfTests -c Release --framework net11.0
     ./scripts/update-perf-docs.ps1
 #>
 [CmdletBinding()]
@@ -25,7 +25,7 @@ $artifactDirCandidates = @(
 )
 $artifactsDir = $artifactDirCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $artifactsDir) {
-    Write-Error "Benchmark reports not found. Run benchmarks first: dotnet run --project perf\Egil.SystemTextJson.Migration.PerfTests -c Release"
+    Write-Error "Benchmark reports not found. Run benchmarks first: dotnet run --project perf\Egil.SystemTextJson.Migration.PerfTests -c Release --framework net11.0"
 }
 
 $docsDir = Join-Path $root 'docs\perf'
@@ -35,10 +35,10 @@ $sourceGenReport = Join-Path $artifactsDir 'Egil.SystemTextJson.Migration.PerfTe
 $reflectionReport = Join-Path $artifactsDir 'Egil.SystemTextJson.Migration.PerfTests.ReflectionMigrationScenarioBenchmarks-report-github.md'
 
 if (-not (Test-Path $sourceGenReport)) {
-    Write-Error "Source-gen benchmark report not found at: $sourceGenReport`nRun benchmarks first: dotnet run --project perf/Egil.SystemTextJson.Migration.PerfTests -c Release"
+    Write-Error "Source-gen benchmark report not found at: $sourceGenReport`nRun benchmarks first: dotnet run --project perf/Egil.SystemTextJson.Migration.PerfTests -c Release --framework net11.0"
 }
 if (-not (Test-Path $reflectionReport)) {
-    Write-Error "Reflection benchmark report not found at: $reflectionReport`nRun benchmarks first: dotnet run --project perf/Egil.SystemTextJson.Migration.PerfTests -c Release"
+    Write-Error "Reflection benchmark report not found at: $reflectionReport`nRun benchmarks first: dotnet run --project perf/Egil.SystemTextJson.Migration.PerfTests -c Release --framework net11.0"
 }
 
 # --- Copy full reports to docs/perf/ ---
