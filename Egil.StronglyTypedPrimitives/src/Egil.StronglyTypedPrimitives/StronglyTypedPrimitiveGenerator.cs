@@ -55,11 +55,29 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             )
             .Where(static x => x is not null);
 
-        var compilationAndRecords = context.CompilationProvider.Combine(recordCandidates.Collect());
+        // The System.Text.Json source generator requires contexts to derive directly from
+        // JsonSerializerContext, so a base list naming that type is a cheap syntactic filter
+        // before the semantic check confirms it.
+        var hasJsonSerializerContext = context.SyntaxProvider
+            .CreateSyntaxProvider(
+                predicate: static (node, _) =>
+                    node is ClassDeclarationSyntax { BaseList.Types: var baseTypes }
+                    && baseTypes.Any(static baseType => baseType.Type is IdentifierNameSyntax { Identifier.Text: "JsonSerializerContext" }
+                        or QualifiedNameSyntax { Right.Identifier.Text: "JsonSerializerContext" }),
+                transform: static (context, cancellationToken) =>
+                    context.SemanticModel.GetDeclaredSymbol((ClassDeclarationSyntax)context.Node, cancellationToken) is INamedTypeSymbol symbol
+                    && Parser.DerivesFromJsonSerializerContext(symbol))
+            .Where(static x => x)
+            .Collect()
+            .Select(static (contexts, _) => contexts.Length > 0);
+
+        var compilationAndRecords = context.CompilationProvider
+            .Combine(recordCandidates.Collect())
+            .Combine(hasJsonSerializerContext);
 
         context.RegisterSourceOutput(compilationAndRecords, (spc, source) =>
         {
-            var (compilation, stronglyTypedInfos) = source;
+            var ((compilation, stronglyTypedInfos), compilationHasJsonSerializerContext) = source;
             foreach (var stronglyTypedInfo in stronglyTypedInfos)
             {
                 if (stronglyTypedInfo is null)
@@ -67,8 +85,17 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
                     continue;
                 }
 
-                var generatedSource = GenerateStronglyTypedSource(stronglyTypedInfo, compilation);
-                spc.AddSource($"{stronglyTypedInfo.Target.Identifier.Text}.g.cs", generatedSource);
+                var generated = GenerateStronglyTypedSource(stronglyTypedInfo, compilation);
+                spc.AddSource($"{stronglyTypedInfo.Target.Identifier.Text}.g.cs", generated.Source);
+
+                if (compilationHasJsonSerializerContext && generated.UsesGeneratedJsonConverterAttribute)
+                {
+                    spc.ReportDiagnostic(Diagnostic.Create(
+                        DiagnosticDescriptors.JsonSerializerContextCannotSeeGeneratedConverter,
+                        stronglyTypedInfo.Target.Identifier.GetLocation(),
+                        generated.TargetTypeName,
+                        generated.UnderlyingTypeName));
+                }
             }
         });
     }
@@ -77,7 +104,9 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         => attribute.AttributeClass?.Name == "StronglyTyped"
         || attribute.AttributeClass?.Name == "StronglyTypedAttribute";
 
-    private static string GenerateStronglyTypedSource(StronglyTypedTypeInfo info, Compilation compilation)
+    private sealed record GeneratedSource(string Source, bool UsesGeneratedJsonConverterAttribute, string TargetTypeName, string UnderlyingTypeName);
+
+    private static GeneratedSource GenerateStronglyTypedSource(StronglyTypedTypeInfo info, Compilation compilation)
     {
         const int CSharp13 = 1300;
         var isCSharp14OrGreater = compilation is CSharpCompilation cSharpCompilation && (int)cSharpCompilation.LanguageVersion > CSharp13;
@@ -158,7 +187,11 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             "}"
         ];
 
-        return string.Join("\n", typeParts.OfType<string>());
+        return new GeneratedSource(
+            string.Join("\n", typeParts.OfType<string>()),
+            generateJsonConverter,
+            targetTypeName,
+            underlyingTypeName);
     }
 
     internal static string? GetNamespaceDefinition(StronglyTypedTypeInfo info)

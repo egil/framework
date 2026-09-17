@@ -271,4 +271,16 @@ internal static class Parser
         return generateJsonConverter;
     }
 
+    internal static bool DerivesFromJsonSerializerContext(INamedTypeSymbol type)
+    {
+        for (var baseType = type.BaseType; baseType is not null; baseType = baseType.BaseType)
+        {
+            if (baseType.ToDisplayString() == "System.Text.Json.Serialization.JsonSerializerContext")
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }
