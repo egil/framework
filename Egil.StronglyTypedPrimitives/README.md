@@ -482,9 +482,9 @@ public static bool IsValueValid(string value, bool throwIfInvalid)
 
 With `throwIfInvalid: false` the method returns at the first failing attribute. With `throwIfInvalid: true` every attribute is evaluated so the exception reports all of them at once. The name passed to `FormatErrorMessage` is the name of the positional parameter.
 
-## .NET 9 OpenAPI support
+## OpenAPI support (.NET 9 and later)
 
-The library includes a custom schema transformer that will ensure strongly typed types have the right OpenAPI schema definition. To use it, add the following to your OpenApi options:
+The library includes a custom schema transformer that documents strongly typed types with the OpenAPI schema of the primitive they wrap, wherever they appear: as body properties, as array items and dictionary values, and as route or query parameters. To use it, add the following to your OpenApi options:
 
 ```csharp
 using Egil.StronglyTypedPrimitives;
