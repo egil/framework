@@ -24,7 +24,7 @@ internal sealed partial class JsonMigratableConverter<T>
                 continue;
             }
 
-            if (!IsTokenCompatibleWithSourceType(tokenType, migrator.SourceType))
+            if (!SourceValueShapes.IsTokenCompatible(tokenType, migrator.SourceShape))
             {
                 continue;
             }
@@ -116,8 +116,7 @@ internal sealed partial class JsonMigratableConverter<T>
                 continue;
             }
 
-            Type elementType = GetValueType(migrator.SourceType, kind);
-            if (!IsTokenCompatibleWithSourceType(valueToken, elementType))
+            if (!SourceValueShapes.IsTokenCompatible(valueToken, migrator.ElementShape))
             {
                 continue;
             }
@@ -164,12 +163,12 @@ internal sealed partial class JsonMigratableConverter<T>
                 continue;
             }
 
-            Type elementType = GetValueType(migrator.SourceType, kind);
-            if (IsKnownPrimitiveType(elementType))
+            if (migrator.ElementShape is not SourceValueShape.Unknown)
             {
                 continue;
             }
 
+            Type elementType = migrator.ElementType;
             bool isElementEnumerable = elementType.IsArray
                 || (elementType.IsGenericType && typeof(System.Collections.IEnumerable).IsAssignableFrom(elementType));
 
@@ -282,8 +281,7 @@ internal sealed partial class JsonMigratableConverter<T>
                 continue;
             }
 
-            Type elementType = GetValueType(migrator.SourceType, kind);
-            TypeMetadata? elementMetadata = TryGetMigratableMetadata(elementType);
+            TypeMetadata? elementMetadata = TryGetMigratableMetadata(migrator.ElementType);
             if (elementMetadata is null)
             {
                 continue;
@@ -325,54 +323,6 @@ internal sealed partial class JsonMigratableConverter<T>
         }
 
         return TypeMetadata.FromType(type);
-    }
-
-    private static Type GetValueType(Type collectionType, JsonTypeInfoKind kind)
-    {
-        if (collectionType.IsArray)
-        {
-            return collectionType.GetElementType()!;
-        }
-
-        // For generic collections (List<T>, Dictionary<K,V>, etc.),
-        // the element type is the last generic argument.
-        if (collectionType.IsGenericType)
-        {
-            Type[] args = collectionType.GetGenericArguments();
-            return kind is JsonTypeInfoKind.Dictionary ? args[^1] : args[0];
-        }
-
-        return typeof(object);
-    }
-
-    private static bool IsKnownPrimitiveType(Type type)
-    {
-        return type == typeof(string)
-            || type == typeof(bool)
-            || Type.GetTypeCode(type) is
-                TypeCode.Byte or TypeCode.SByte or
-                TypeCode.Int16 or TypeCode.UInt16 or
-                TypeCode.Int32 or TypeCode.UInt32 or
-                TypeCode.Int64 or TypeCode.UInt64 or
-                TypeCode.Single or TypeCode.Double or
-                TypeCode.Decimal;
-    }
-
-    private static bool IsTokenCompatibleWithSourceType(JsonTokenType tokenType, Type sourceType)
-    {
-        return tokenType switch
-        {
-            JsonTokenType.String => sourceType == typeof(string),
-            JsonTokenType.Number => Type.GetTypeCode(sourceType) is
-                TypeCode.Byte or TypeCode.SByte or
-                TypeCode.Int16 or TypeCode.UInt16 or
-                TypeCode.Int32 or TypeCode.UInt32 or
-                TypeCode.Int64 or TypeCode.UInt64 or
-                TypeCode.Single or TypeCode.Double or
-                TypeCode.Decimal,
-            JsonTokenType.True or JsonTokenType.False => sourceType == typeof(bool),
-            _ => false,
-        };
     }
 
     [DoesNotReturn]

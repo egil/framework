@@ -13,4 +13,16 @@ internal sealed record MigratorReference(
 
     // Pre-cached source type name for telemetry to avoid repeated property access.
     public string SourceTypeName { get; } = SourceType.FullName ?? SourceType.Name;
+
+    // Shapes are classified once here so non-object payload matching never touches
+    // reflection on the read path.
+    public SourceValueShape SourceShape { get; } = SourceValueShapes.Classify(SourceType);
+
+    public Type ElementType { get; } = SourceTypeInfo.Kind is JsonTypeInfoKind.Enumerable or JsonTypeInfoKind.Dictionary
+        ? SourceValueShapes.GetValueType(SourceType, SourceTypeInfo.Kind)
+        : typeof(object);
+
+    public SourceValueShape ElementShape { get; } = SourceTypeInfo.Kind is JsonTypeInfoKind.Enumerable or JsonTypeInfoKind.Dictionary
+        ? SourceValueShapes.Classify(SourceValueShapes.GetValueType(SourceType, SourceTypeInfo.Kind))
+        : SourceValueShape.Unknown;
 }
