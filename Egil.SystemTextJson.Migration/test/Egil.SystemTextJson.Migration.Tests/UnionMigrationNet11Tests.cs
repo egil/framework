@@ -637,6 +637,29 @@ public partial class UnionMigrationTests
         Assert.Contains(nameof(LegacyBox), undiscriminated.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Sibling_nested_unions_claiming_the_same_discriminator_fail_at_configuration()
+    {
+        var options = CreateOptions();
+
+        var exception = Assert.Throws<InvalidOperationException>(() => JsonSerializer.Deserialize<TwoNestedShapes>("""{"$type":"circle-v2","radius":1}""", options));
+
+        Assert.Contains("circle-v2", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Nested_union_scalar_source_with_converter_override_is_not_forwarded()
+    {
+        var options = CreateOptions();
+        options.Converters.Add(new JsonStringEnumConverter());
+
+        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<NoteOrPaintUnion>($$"""{"$type":"{{typeof(PlainColour).FullName}}"}""", options));
+        var paint = JsonSerializer.Deserialize<NoteOrPaintUnion>("""{"$type":"paint","colour":"Red"}""", options);
+
+        Assert.Contains("No case", exception.Message, StringComparison.Ordinal);
+        Assert.IsType<Paint>(Assert.IsType<PaintOrLabel>(paint.Value).Value);
+    }
+
     private static JsonSerializerOptions CreateOptions(Action<JsonMigrationBuilder>? configure = null)
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
@@ -668,6 +691,12 @@ public partial class UnionMigrationTests
     public union ShapeOrNestedUnion(CircleV2, ShapeOrNote);
 
     public union NoteOrShape(Note, Shape);
+
+    public union ShapeAgain(CircleV2, Note);
+
+    public union TwoNestedShapes(Shape, ShapeAgain);
+
+    public union NoteOrPaintUnion(Note, PaintOrLabel);
 
     public union PointOrNestedUnion(PointV2, ShapeOrNote);
 
