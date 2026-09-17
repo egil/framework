@@ -22,7 +22,28 @@ internal sealed record MigratorReference(
         ? SourceValueShapes.GetValueType(SourceType, SourceTypeInfo.Kind)
         : typeof(object);
 
+    // Element discriminators are resolved and UTF-8 encoded once so collection disambiguation
+    // performs no attribute lookups or allocations while reading.
+    public byte[]? ElementDiscriminatorPropertyNameUtf8 { get; } = ElementMetadata(SourceType, SourceTypeInfo.Kind) is { } metadata
+        ? System.Text.Encoding.UTF8.GetBytes(metadata.DiscriminatorPropertyName)
+        : null;
+
+    public byte[]? ElementDiscriminatorUtf8 { get; } = ElementMetadata(SourceType, SourceTypeInfo.Kind) is { } metadata
+        ? System.Text.Encoding.UTF8.GetBytes(metadata.Discriminator)
+        : null;
+
     public SourceValueShape ElementShape { get; } = SourceTypeInfo.Kind is JsonTypeInfoKind.Enumerable or JsonTypeInfoKind.Dictionary
         ? SourceValueShapes.Classify(SourceValueShapes.GetValueType(SourceType, SourceTypeInfo.Kind))
         : SourceValueShape.Unknown;
+
+    private static TypeMetadata? ElementMetadata(Type sourceType, JsonTypeInfoKind kind)
+    {
+        if (kind is not (JsonTypeInfoKind.Enumerable or JsonTypeInfoKind.Dictionary))
+        {
+            return null;
+        }
+
+        Type elementType = SourceValueShapes.GetValueType(sourceType, kind);
+        return JsonMigratableTypes.IsMigratable(elementType) ? TypeMetadata.FromType(elementType) : null;
+    }
 }

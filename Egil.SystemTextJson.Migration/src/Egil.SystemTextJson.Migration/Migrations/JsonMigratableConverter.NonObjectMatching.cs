@@ -1,4 +1,3 @@
-using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
@@ -281,14 +280,12 @@ internal sealed partial class JsonMigratableConverter<T>
                 continue;
             }
 
-            TypeMetadata? elementMetadata = TryGetMigratableMetadata(migrator.ElementType);
-            if (elementMetadata is null)
+            if (migrator.ElementDiscriminatorPropertyNameUtf8 is null)
             {
                 continue;
             }
 
-            byte[] discriminatorPropertyNameUtf8 = System.Text.Encoding.UTF8.GetBytes(elementMetadata.DiscriminatorPropertyName);
-            if (!probe.ValueTextEquals(discriminatorPropertyNameUtf8))
+            if (!probe.ValueTextEquals(migrator.ElementDiscriminatorPropertyNameUtf8))
             {
                 continue;
             }
@@ -300,8 +297,7 @@ internal sealed partial class JsonMigratableConverter<T>
                 continue;
             }
 
-            byte[] discriminatorUtf8 = System.Text.Encoding.UTF8.GetBytes(elementMetadata.Discriminator);
-            if (valueProbe.ValueTextEquals(discriminatorUtf8))
+            if (valueProbe.ValueTextEquals(migrator.ElementDiscriminatorUtf8!))
             {
                 if (match is not null)
                 {
@@ -313,16 +309,6 @@ internal sealed partial class JsonMigratableConverter<T>
         }
 
         return match;
-    }
-
-    private TypeMetadata? TryGetMigratableMetadata(Type type)
-    {
-        if (type.GetCustomAttribute<JsonMigratableAttribute>(inherit: true) is null)
-        {
-            return null;
-        }
-
-        return TypeMetadata.FromType(type);
     }
 
     [DoesNotReturn]
