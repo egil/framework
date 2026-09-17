@@ -1,0 +1,15 @@
+{
+  Diagnostics: [
+    {
+      Id: STP002,
+      Title: Validation attributes are ignored when IsValueValid is declared,
+      Severity: Warning,
+      WarningLevel: 1,
+      Location: Program.cs: (6,43)-(6,55),
+      Description: The generator only emits an IsValueValid that evaluates the validation attributes when the type does not declare the method itself.,
+      MessageFormat: The validation attribute '{0}' on '{1}' has no effect because '{2}' declares its own IsValueValid method. Remove the attribute, or remove the method to let the generator validate the value with the attributes.,
+      Message: The validation attribute 'System.ComponentModel.DataAnnotations.EmailAddressAttribute' on 'Value' has no effect because 'Foo' declares its own IsValueValid method. Remove the attribute, or remove the method to let the generator validate the value with the attributes.,
+      Category: Egil.StronglyTypedPrimitives
+    }
+  ]
+}

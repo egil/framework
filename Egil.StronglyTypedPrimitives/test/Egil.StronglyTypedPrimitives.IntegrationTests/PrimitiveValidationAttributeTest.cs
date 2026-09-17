@@ -1,0 +1,108 @@
+using System.ComponentModel.DataAnnotations;
+using System.Text.Json;
+
+namespace Egil.StronglyTypedPrimitives
+{
+    using Examples;
+
+    public class PrimitiveValidationAttributeTest
+    {
+        [Fact]
+        public void EmailAddress_attribute_rejects_values_that_are_not_email_addresses()
+        {
+            var exception = Assert.Throws<ValidationException>(() => new StronglyTypedEmail("not-an-email"));
+
+            Assert.Equal(new EmailAddressAttribute().FormatErrorMessage("Value"), exception.Message);
+            Assert.Equal("not-an-email", exception.Value);
+            Assert.Equal("egil@example.com", new StronglyTypedEmail("egil@example.com").Value);
+        }
+
+        [Fact]
+        public void Range_attribute_rejects_values_outside_the_range()
+        {
+            Assert.Throws<ValidationException>(() => new StronglyTypedIntWithRange(5));
+            Assert.Throws<ValidationException>(() => new StronglyTypedIntWithRange(101));
+            Assert.Equal(6, new StronglyTypedIntWithRange(6).Value);
+            Assert.Equal(100, new StronglyTypedIntWithRange(100).Value);
+        }
+
+        [Fact]
+        public void StringLength_attribute_rejects_values_outside_the_length_bounds()
+        {
+            Assert.Throws<ValidationException>(() => new StronglyTypedStringWithLength("a"));
+            Assert.Throws<ValidationException>(() => new StronglyTypedStringWithLength("abcdefghijk"));
+            Assert.Equal("ab", new StronglyTypedStringWithLength("ab").Value);
+            Assert.Equal("abcdefghij", new StronglyTypedStringWithLength("abcdefghij").Value);
+        }
+
+        [Fact]
+        public void Required_attribute_rejects_null_and_empty_values()
+        {
+            Assert.Throws<ValidationException>(() => new StronglyTypedRequiredString(null!));
+            Assert.Throws<ValidationException>(() => new StronglyTypedRequiredString(string.Empty));
+            Assert.Equal("x", new StronglyTypedRequiredString("x").Value);
+        }
+
+        [Fact]
+        public void Custom_validation_attribute_is_evaluated_like_the_built_in_ones()
+        {
+            var exception = Assert.Throws<ValidationException>(() => new StronglyTypedUpperCaseString("abc"));
+
+            Assert.Equal("The Value field must be upper case.", exception.Message);
+            Assert.Equal("ABC", new StronglyTypedUpperCaseString("ABC").Value);
+        }
+
+        [Fact]
+        public void Constructor_reports_every_failing_attribute_in_declaration_order()
+        {
+            var expectedMessage = new EmailAddressAttribute().FormatErrorMessage("Value")
+                + Environment.NewLine
+                + new StringLengthAttribute(20) { MinimumLength = 6 }.FormatErrorMessage("Value");
+
+            var exception = Assert.Throws<ValidationException>(() => new StronglyTypedShortEmail("abc"));
+
+            Assert.Equal(expectedMessage, exception.Message);
+            Assert.Equal("abc", exception.Value);
+        }
+
+        [Fact]
+        public void IsValueValid_returns_false_instead_of_throwing_when_asked_not_to_throw()
+        {
+            Assert.False(StronglyTypedShortEmail.IsValueValid("abc", throwIfInvalid: false));
+            Assert.True(StronglyTypedShortEmail.IsValueValid("egil@example.com", throwIfInvalid: false));
+        }
+
+        [Fact]
+        public void TryParse_returns_false_for_an_invalid_value()
+        {
+            Assert.False(StronglyTypedShortEmail.TryParse("abc", null, out var parsed));
+            Assert.Equal(StronglyTypedShortEmail.Empty, parsed);
+        }
+
+        [Fact]
+        public void Json_deserialization_of_an_invalid_value_yields_Empty()
+        {
+            Assert.Equal(StronglyTypedShortEmail.Empty, JsonSerializer.Deserialize<StronglyTypedShortEmail>("\"abc\""));
+            Assert.Equal(StronglyTypedIntWithRange.Empty, JsonSerializer.Deserialize<StronglyTypedIntWithRange>("5"));
+        }
+
+        [Fact]
+        public void With_expression_with_an_invalid_value_throws()
+        {
+            var email = new StronglyTypedShortEmail("egil@example.com");
+
+            Assert.Throws<ValidationException>(() => email with { Value = "abc" });
+        }
+
+        [Fact]
+        public void Valid_value_round_trips_through_json()
+        {
+            var email = new StronglyTypedShortEmail("egil@example.com");
+
+            var json = JsonSerializer.Serialize(email);
+
+            Assert.Equal("\"egil@example.com\"", json);
+            Assert.Equal(email, JsonSerializer.Deserialize<StronglyTypedShortEmail>(json));
+        }
+    }
+}
