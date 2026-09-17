@@ -15,8 +15,8 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// Matching remains first-match-wins across registered postmen. During a post
 /// run, each postman receives its matching items sequentially in the order
 /// returned by <see cref="OutboxProcessorOptions{TOutbox}.OutboxAccessor"/>. A
-/// failure stops that postman's sequence so later matching items remain
-/// pending until the owning grain removes or reconciles the failed item.
+/// failure stops that postman's sequence so later matching items remain pending
+/// until the failed item posts on a later run or the owning grain removes it.
 /// Different postmen are dispatched concurrently.
 /// </remarks>
 public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
@@ -34,15 +34,15 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     private readonly object drainGate = new();
     private readonly OutboxPostmanRegistry<OutboxMessageEnvelope<TOutbox>> postmen = new();
     private readonly OutboxDispatcher<OutboxMessageEnvelope<TOutbox>> dispatcher;
-    private readonly OutboxReconciler<OutboxMessageEnvelope<TOutbox>> reconciler;
+    private readonly OutboxAcknowledger<OutboxMessageEnvelope<TOutbox>> acknowledger;
     private readonly ILogger logger;
     private readonly string grainType;
     private readonly string reminderName;
     private IGrainTimer? dispatchTimer;
-    private IGrainTimer? reconciliationTimer;
+    private IGrainTimer? acknowledgementTimer;
     private IGrainReminder? reminder;
     private bool checkedForExistingReminder;
-    private OutboxReconciliationBatch<OutboxMessageEnvelope<TOutbox>>? pendingReconciliation;
+    private OutboxAcknowledgementBatch<OutboxMessageEnvelope<TOutbox>>? pendingAcknowledgement;
     private TaskCompletionSource? activeDrain;
     private bool drainRequested;
 
@@ -77,9 +77,9 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         dispatcher = new OutboxDispatcher<OutboxMessageEnvelope<TOutbox>>(postmen, logger, grainType, options.TimeProvider,
             static item => item.Message is { } message ? message.GetType() : typeof(TOutbox),
             static item => item.Id.TraceParent);
-        reconciler = new OutboxReconciler<OutboxMessageEnvelope<TOutbox>>(
+        acknowledger = new OutboxAcknowledger<OutboxMessageEnvelope<TOutbox>>(
             options.AcknowledgePostedAsync,
-            options.ReconcileFailedAsync);
+            options.AcknowledgeFailuresAsync);
     }
 
     internal string ReminderName => reminderName;
@@ -90,7 +90,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     /// empty. If the run itself fails — for example with a
     /// <see cref="TimeoutException"/> when
     /// <see cref="OutboxProcessorOptions{TOutbox}.ProcessingTimeout"/> elapses,
-    /// or when a reconciliation callback throws — retry work is armed before
+    /// or when an acknowledgement callback throws — retry work is armed before
     /// the exception is rethrown so pending items are not stranded.
     /// </summary>
     public async ValueTask PostAsync(CancellationToken cancellationToken = default)
@@ -108,7 +108,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         }
         catch
         {
-            // A failed foreground run (timeout, cancellation, or a reconciliation
+            // A failed foreground run (timeout, cancellation, or an acknowledgement
             // callback error) skips ReconcileRetryStateAsync, and unlike the
             // background path no timer/reminder was armed beforehand. Arm retry
             // here — only on failure — so announced items still get delivered
@@ -181,26 +181,26 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         var drainCompleted = false;
         try
         {
-            if (pendingReconciliation is not null)
+            if (pendingAcknowledgement is not null)
             {
                 // A dispatch callback can win the drain gate before the queued
-                // reconciliation callback. Defer instead of posting the same
+                // acknowledgement callback. Defer instead of posting the same
                 // durable snapshot again.
-                EnsureReconciliationTimer(TimeSpan.Zero);
+                EnsureAcknowledgementTimer(TimeSpan.Zero);
                 CompleteDrain();
                 drainCompleted = true;
                 return;
             }
 
-            var reconciliation = await RunAsActiveDrainAsync(
+            var acknowledgement = await RunAsActiveDrainAsync(
                 () => ProcessPendingItemsAsync(cancellationToken));
 
-            if (reconciliation.HasWork)
+            if (acknowledgement.HasWork)
             {
-                pendingReconciliation = reconciliation;
-                EnsureReconciliationTimer(TimeSpan.Zero);
+                pendingAcknowledgement = acknowledgement;
+                EnsureAcknowledgementTimer(TimeSpan.Zero);
 
-                // Reconciliation is a separate Orleans turn. Keeping the gate
+                // Acknowledgement is a separate Orleans turn. Keeping the gate
                 // across that boundary lets a non-reentrant foreground PostAsync
                 // occupy the activation while waiting for the queued callback,
                 // so neither operation can complete.
@@ -218,7 +218,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
             if (!drainCompleted)
             {
                 // The reminder is armed lazily, so a run that throws before
-                // reconciliation must arm retry itself or pending items would
+                // acknowledgement must arm retry itself or pending items would
                 // only survive in this activation's timer.
                 await TrySchedulePendingRetryAsync();
                 CompleteDrain();
@@ -228,33 +228,33 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         }
     }
 
-    private async Task ReconcileInBackgroundAsync(CancellationToken cancellationToken)
+    private async Task AcknowledgeInBackgroundAsync(CancellationToken cancellationToken)
     {
         await WaitForTurnAsync(cancellationToken);
-        var reconciliation = pendingReconciliation;
+        var acknowledgement = pendingAcknowledgement;
 
         try
         {
             await RunAsActiveDrainAsync(async () =>
             {
-                await reconciler.ReconcileAsync(
-                    reconciliation.GetValueOrDefault(),
+                await acknowledger.AcknowledgeAsync(
+                    acknowledgement.GetValueOrDefault(),
                     cancellationToken);
 
                 // Keep ownership visible while user callbacks run. An
                 // interleaving empty post must not dispose this timer and
-                // cancel the reconciliation callback that is using it.
-                pendingReconciliation = null;
+                // cancel the acknowledgement callback that is using it.
+                pendingAcknowledgement = null;
                 await ReconcileRetryStateAsync();
             });
         }
         catch
         {
-            pendingReconciliation = null;
+            pendingAcknowledgement = null;
 
-            // A failed acknowledgement/reconciliation callback skips
-            // ReconcileRetryStateAsync; arm retry so pending items are not
-            // stranded if the activation goes away.
+            // A failed acknowledgement callback skips ReconcileRetryStateAsync;
+            // arm retry so pending items are not stranded if the activation
+            // goes away.
             await TrySchedulePendingRetryAsync();
             throw;
         }
@@ -287,18 +287,18 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
             drainRequested = false;
 
             // A foreground caller can acquire the gate between background
-            // dispatch and its queued reconciliation turn. Finish that batch
+            // dispatch and its queued acknowledgement turn. Finish that batch
             // first so already-posted items are acknowledged before taking a
             // new durable snapshot for dispatch.
-            var pending = pendingReconciliation;
-            pendingReconciliation = null;
+            var pending = pendingAcknowledgement;
+            pendingAcknowledgement = null;
             if (pending is not null)
             {
-                await ReconcileAsync(pending.Value, cancellationToken);
+                await AcknowledgeAsync(pending.Value, cancellationToken);
             }
 
-            var reconciliation = await ProcessPendingItemsAsync(cancellationToken);
-            await ReconcileAsync(reconciliation, cancellationToken);
+            var acknowledgement = await ProcessPendingItemsAsync(cancellationToken);
+            await AcknowledgeAsync(acknowledgement, cancellationToken);
         });
     }
 
@@ -333,7 +333,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     private ImmutableArray<OutboxMessageEnvelope<TOutbox>> GetPendingItems() =>
         (options.OutboxAccessor() ?? throw new InvalidOperationException("OutboxAccessor must return a non-null outbox snapshot.")).Envelopes;
 
-    private async Task<OutboxReconciliationBatch<OutboxMessageEnvelope<TOutbox>>> ProcessPendingItemsAsync(
+    private async Task<OutboxAcknowledgementBatch<OutboxMessageEnvelope<TOutbox>>> ProcessPendingItemsAsync(
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -351,14 +351,14 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
             options.ProcessingTimeout,
             cancellationToken);
 
-        return reconciler.CreateBatch(results);
+        return acknowledger.CreateBatch(results);
     }
 
-    private async Task ReconcileAsync(
-        OutboxReconciliationBatch<OutboxMessageEnvelope<TOutbox>> reconciliation,
+    private async Task AcknowledgeAsync(
+        OutboxAcknowledgementBatch<OutboxMessageEnvelope<TOutbox>> acknowledgement,
         CancellationToken cancellationToken)
     {
-        await reconciler.ReconcileAsync(reconciliation, cancellationToken);
+        await acknowledger.AcknowledgeAsync(acknowledgement, cancellationToken);
         await ReconcileRetryStateAsync();
     }
 
@@ -368,9 +368,9 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         MessagingTelemetry.RecordOutboxDepth(grainType, pending.IsDefault ? 0 : pending.Length);
 
         // Items the grain removed without a successful post (dead-lettered or
-        // dropped in ReconcileFailedAsync) would otherwise leak their attempt
+        // dropped in AcknowledgeFailuresAsync) would otherwise leak their attempt
         // counters for the activation lifetime.
-        reconciler.PruneAttempts(pending);
+        acknowledger.PruneAttempts(pending);
 
         if (pending.IsDefaultOrEmpty)
         {
@@ -468,24 +468,24 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         dispatchTimer.Change(dueTime, options.RetryDelay);
     }
 
-    private void EnsureReconciliationTimer(TimeSpan dueTime)
+    private void EnsureAcknowledgementTimer(TimeSpan dueTime)
     {
         var timerOptions = new GrainTimerCreationOptions(dueTime, Timeout.InfiniteTimeSpan)
         {
-            Interleave = options.InterleaveReconciliationCallbacks,
+            Interleave = options.InterleaveAcknowledgementCallbacks,
             KeepAlive = options.KeepAlive
         };
 
-        if (reconciliationTimer is null)
+        if (acknowledgementTimer is null)
         {
-            reconciliationTimer = owner.RegisterGrainTimer(
-                static (processor, cancellationToken) => processor.ReconcileInBackgroundAsync(cancellationToken),
+            acknowledgementTimer = owner.RegisterGrainTimer(
+                static (processor, cancellationToken) => processor.AcknowledgeInBackgroundAsync(cancellationToken),
                 this,
                 timerOptions);
             return;
         }
 
-        reconciliationTimer.Change(dueTime, Timeout.InfiniteTimeSpan);
+        acknowledgementTimer.Change(dueTime, Timeout.InfiniteTimeSpan);
     }
 
     private async Task EnsureReminderAsync()
@@ -503,12 +503,12 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         dispatchTimer = null;
 
         // The durable outbox can be cleared while an already-dispatched batch
-        // still awaits callbacks. Its timer owns that reconciliation turn;
+        // still awaits callbacks. Its timer owns that acknowledgement turn;
         // disposing it here would cancel the callback before it can finish.
-        if (pendingReconciliation is null)
+        if (pendingAcknowledgement is null)
         {
-            reconciliationTimer?.Dispose();
-            reconciliationTimer = null;
+            acknowledgementTimer?.Dispose();
+            acknowledgementTimer = null;
         }
 
         // Look up a leftover reminder from a previous activation at most once;

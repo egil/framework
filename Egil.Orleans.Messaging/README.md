@@ -6,7 +6,7 @@ Composable messaging infrastructure for Microsoft Orleans grains.
 
 - `IStateManager<T>` wraps `IPersistentState<T>` so a grain does not keep observing uncommitted state after ambiguous write failures.
 - `Outbox<T>` stores messages alongside grain state and assigns durable message IDs; processors add sender identity at delivery.
-- `OutboxProcessor<T>` dispatches pending outbox items through registered postmen, with retry, reminder forwarding, failure reconciliation, and telemetry.
+- `OutboxProcessor<T>` dispatches pending outbox items through registered postmen, with retry, reminder forwarding, failure acknowledgement, and telemetry.
 - `MessageTracker` records receiver-side high-water marks for outbox messages and Orleans streams.
 - `StreamManager` gives grains a fluent subscription facade with resume-token and handler-error support.
 
@@ -357,9 +357,9 @@ and cancellation is always third. Capture a grain factory when needed, or use
 timestamp across retries and reactivation. No sender identity is stored in the outbox.
 
 `OutboxAccessor` returns the current `Outbox<T>` snapshot.
-`AcknowledgePostedAsync` and `ReconcileFailedAsync` receive its original
-stored `OutboxMessageEnvelope<T>` values. Acknowledgment receives exactly the
-successfully delivered items, which need not be a contiguous prefix. Remove them
+`AcknowledgePostedAsync` and `AcknowledgeFailuresAsync` receive its original
+stored `OutboxMessageEnvelope<T>` values. `AcknowledgePostedAsync` receives
+exactly the successfully delivered items, which need not be a contiguous prefix. Remove them
 by passing the envelopes directly to `RemoveRange`; never remove by position or count. Equal payloads
 can represent different messages and retain distinct stored IDs.
 
@@ -398,7 +398,7 @@ as far as the processor can tell, though on the strength of a removal that is no
 durable yet. Anything that later discards the change brings those items back as
 pending without re-arming the processor: a `WriteAsync` that fails, a successful
 `ReadAsync` or `ClearAsync`, which let storage win, or — in a `[Reentrant]` grain,
-or with `InterleaveReconciliationCallbacks` on — a business write that was already
+or with `InterleaveAcknowledgementCallbacks` on — a business write that was already
 in flight when the assignment happened and finishes by adopting its own value. Call
 `PostInBackgroundAsync` in any of those cases; a grain that does nothing else can
 leave the batch waiting until something posts again. Second, a redelivery is a real delivery: receivers must
@@ -413,7 +413,7 @@ message contracts, posting target, and dead-letter policy.
 Postman matching is first-match-wins: register specific message types before
 base interfaces or catch-all handlers.
 
-Failed dispatches are reported through `ReconcileFailedAsync`. That callback
+Failed dispatches are reported through `AcknowledgeFailuresAsync`. That callback
 is where the owning grain applies retry, dead-letter, max-depth, or trimming
 policy, because the grain owns the durable outbox state. The attempt counts
 passed to the callback are in-memory per activation (and pruned once an item
@@ -433,7 +433,7 @@ when their append timestamps match. Serialization preserves the revision so
 recovery can confirm a successful save whose response was lost. Revisions are
 compared for equality, not order, and do not change message IDs or delivery tokens.
 
-If a post run fails before reconciliation completes — for example when the
+If a post run fails before acknowledgement completes — for example when the
 run exceeds `ProcessingTimeout` or an acknowledgement callback throws — the
 processor arms its retry timer and durable reminder before rethrowing, so
 pending items are retried without requiring another explicit post. Successful
@@ -445,15 +445,15 @@ Background outbox postage allows unrelated grain calls to continue while
 postmen await I/O by default. `IPostman<T>` services should be state-free with
 respect to the owning grain. Inline lambda postmen may read activation-local
 state, but should not write it; durable changes belong in
-`AcknowledgePostedAsync` or `ReconcileFailedAsync`.
+`AcknowledgePostedAsync` or `AcknowledgeFailuresAsync`.
 Postmen run on Orleans' activation scheduler, not on the .NET thread pool.
-Acknowledgement and failure callbacks are non-interleaving by default, so they
-do not interleave with normal grain calls unless
-`InterleaveReconciliationCallbacks` is enabled. Reentrant grains can still
+Both acknowledgement callbacks are non-interleaving by default: they do not
+interleave with normal grain calls unless
+`InterleaveAcknowledgementCallbacks` is enabled. Reentrant grains can still
 interleave according to Orleans' normal scheduling rules.
 Pending items in a post run are dispatched concurrently. Successful items are
 still acknowledged as one ordered batch after all dispatches complete, and
-failed items are reconciled as one batch.
+failed items are acknowledged as one batch.
 
 For reusable delivery code, implement and register keyed postman services:
 
@@ -891,6 +891,18 @@ guaranteed; use a System.Text.Json serializer or the Orleans binary serializer.
 This package is messaging infrastructure, not an event-sourcing or CQRS framework. It wraps Orleans state, outbox dispatch, receiver deduplication, and stream subscription management while leaving domain modeling, read models, transport targets, and operational policy to the application.
 
 ## Beta API changes
+
+`OutboxProcessorOptions<T>` renames two members so the post-dispatch callbacks
+read as one pair:
+
+- `ReconcileFailedAsync` becomes `AcknowledgeFailuresAsync`.
+- `InterleaveReconciliationCallbacks` becomes `InterleaveAcknowledgementCallbacks`.
+
+`AcknowledgePostedAsync` is unchanged. These are renames only — the delegate
+signatures, defaults, and behaviour are the same, so updating the names is the
+whole migration. "Reconcile" previously named both the callback pair and the
+separate step that matches the retry timer and reminder against the
+`OutboxAccessor` snapshot; it now means only the latter.
 
 Replace `MessageTracker.ProcessMessage(...)` with `TryAcceptMessage(...)` for all
 stream and outbox overloads. It returns the acceptance decision and the next

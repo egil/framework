@@ -226,7 +226,7 @@ public sealed class OutboxProcessorStreamPostmanGrain(
     {
         OutboxAccessor = () => state.State.Outbox ?? [],
         AcknowledgePostedAsync = AcknowledgePostedAsync,
-        ReconcileFailedAsync = ReconcileFailedAsync,
+        AcknowledgeFailuresAsync = AcknowledgeFailuresAsync,
         RetryDelay = TimeSpan.FromMilliseconds(100)
     };
 
@@ -245,7 +245,7 @@ public sealed class OutboxProcessorStreamPostmanGrain(
         await state.WriteStateAsync(cancellationToken);
     }
 
-    private async ValueTask ReconcileFailedAsync(
+    private async ValueTask AcknowledgeFailuresAsync(
         ImmutableArray<(OutboxMessageEnvelope<OutboxProcessorTestEvent> Item, Exception Error, int Attempt)> failures,
         CancellationToken cancellationToken)
     {
@@ -349,7 +349,7 @@ public sealed class OutboxProcessorProjectedStreamPostmanGrain(
     {
         OutboxAccessor = () => state.State.Outbox ?? [],
         AcknowledgePostedAsync = AcknowledgePostedAsync,
-        ReconcileFailedAsync = ReconcileFailedAsync,
+        AcknowledgeFailuresAsync = AcknowledgeFailuresAsync,
         RetryDelay = TimeSpan.FromMilliseconds(100)
     };
 
@@ -368,7 +368,7 @@ public sealed class OutboxProcessorProjectedStreamPostmanGrain(
         await state.WriteStateAsync(cancellationToken);
     }
 
-    private async ValueTask ReconcileFailedAsync(
+    private async ValueTask AcknowledgeFailuresAsync(
         ImmutableArray<(OutboxMessageEnvelope<OutboxProcessorTestEvent> Item, Exception Error, int Attempt)> failures,
         CancellationToken cancellationToken)
     {
@@ -457,7 +457,7 @@ public sealed class OutboxProcessorGrainPostmanSourceGrain(
     {
         OutboxAccessor = () => state.State.Outbox ?? [],
         AcknowledgePostedAsync = AcknowledgePostedAsync,
-        ReconcileFailedAsync = ReconcileFailedAsync,
+        AcknowledgeFailuresAsync = AcknowledgeFailuresAsync,
         RetryDelay = TimeSpan.FromMilliseconds(100)
     };
 
@@ -476,7 +476,7 @@ public sealed class OutboxProcessorGrainPostmanSourceGrain(
         await state.WriteStateAsync(cancellationToken);
     }
 
-    private async ValueTask ReconcileFailedAsync(
+    private async ValueTask AcknowledgeFailuresAsync(
         ImmutableArray<(OutboxMessageEnvelope<OutboxProcessorTestEvent> Item, Exception Error, int Attempt)> failures,
         CancellationToken cancellationToken)
     {

@@ -4,7 +4,7 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// <remarks>
 /// This builder stores only registration context. It forwards every call immediately
 /// to the original processor, preserving registration order across grouped and direct
-/// postmen. Delivery, retry, and acknowledgment remain owned by that processor.
+/// postmen. Delivery, retry, and acknowledgement remain owned by that processor.
 /// </remarks>
 /// <typeparam name="TOutbox">The processor's base payload type.</typeparam>
 public sealed class OutboxStreamProviderBuilder<TOutbox> where TOutbox : notnull

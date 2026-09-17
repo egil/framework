@@ -5,7 +5,7 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// <summary>
 /// Wraps a user-defined message <typeparamref name="T"/> with its
 /// <see cref="OutboxMessageId"/>, forming the unit of storage and
-/// acknowledgment within an <see cref="Outbox{T}"/>.
+/// acknowledgement within an <see cref="Outbox{T}"/>.
 /// </summary>
 /// <remarks>
 /// <para>

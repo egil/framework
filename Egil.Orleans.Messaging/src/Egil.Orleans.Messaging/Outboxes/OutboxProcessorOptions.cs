@@ -4,8 +4,8 @@ namespace Egil.Orleans.Messaging.Outboxes;
 
 /// <summary>
 /// Configuration for <see cref="OutboxProcessor{TOutbox}"/>. Defines how the
-/// processor reads pending items, reconciles successes/failures, and schedules
-/// retry work.
+/// processor reads pending items, acknowledges successes and failures, and
+/// schedules retry work.
 /// </summary>
 /// <typeparam name="TOutbox">
 /// The base payload type of outbox messages. Must match the type parameter of the
@@ -15,8 +15,9 @@ public sealed class OutboxProcessorOptions<TOutbox>
     where TOutbox : notnull
 {
     /// <summary>
-    /// Returns the current non-null immutable outbox snapshot. Evaluated before dispatch
-    /// and again during reconciliation and retry scheduling.
+    /// Returns the current non-null immutable outbox snapshot. Evaluated before dispatch,
+    /// and again during retry-state reconciliation once the acknowledgement callbacks
+    /// have returned.
     /// </summary>
     public required Func<Outbox<TOutbox>> OutboxAccessor { get; init; }
 
@@ -37,7 +38,7 @@ public sealed class OutboxProcessorOptions<TOutbox>
     /// anything that later discards the change brings those items back as pending without
     /// re-arming it: a write that fails, a successful <c>ReadAsync</c> or
     /// <c>ClearAsync</c>, which let storage win, or — in a <c>[Reentrant]</c> grain or
-    /// with interleaved reconciliation — a business write that was already in flight when
+    /// with interleaved acknowledgement — a business write that was already in flight when
     /// the assignment happened and finishes by adopting its own value. Post again in any of
     /// those cases.
     /// </para>
@@ -61,12 +62,12 @@ public sealed class OutboxProcessorOptions<TOutbox>
     /// Attempt counts are tracked in memory only, keyed by item equality:
     /// they reset to one when the grain activation recycles, and item types
     /// without stable value equality (for example mutable classes mutated
-    /// after enqueue) make counts restart silently. Counters are pruned when
-    /// the item is no longer pending after reconciliation. Policies that must
+    /// after enqueue) make counts restart silently. Counters are pruned during
+    /// retry-state reconciliation, once the item is no longer pending. Policies that must
     /// survive activation restarts (max attempts before dead-letter, etc.)
     /// should persist their own counters on the items or grain state.
     /// </remarks>
-    public Func<ImmutableArray<(OutboxMessageEnvelope<TOutbox> Item, Exception Error, int Attempt)>, CancellationToken, ValueTask>? ReconcileFailedAsync { get; init; }
+    public Func<ImmutableArray<(OutboxMessageEnvelope<TOutbox> Item, Exception Error, int Attempt)>, CancellationToken, ValueTask>? AcknowledgeFailuresAsync { get; init; }
 
     /// <summary>
     /// Maximum time per post run. Default: 20 seconds.
@@ -98,23 +99,23 @@ public sealed class OutboxProcessorOptions<TOutbox>
     /// Defaults to <see langword="true"/> so slow delivery does not block
     /// unrelated calls to the grain. This controls the delivery phase only;
     /// <see cref="AcknowledgePostedAsync"/> and
-    /// <see cref="ReconcileFailedAsync"/> use
-    /// <see cref="InterleaveReconciliationCallbacks"/>. Snapshot reads from
+    /// <see cref="AcknowledgeFailuresAsync"/> use
+    /// <see cref="InterleaveAcknowledgementCallbacks"/>. Snapshot reads from
     /// <see cref="OutboxAccessor"/> can also happen after a background delivery
     /// pass to decide whether retry work remains.
     /// </remarks>
     public bool Interleave { get; init; } = true;
 
     /// <summary>
-    /// Whether acknowledgement and failure reconciliation callbacks may
-    /// interleave with other grain calls when posting runs in the background.
+    /// Whether the acknowledgement callbacks may interleave with other grain
+    /// calls when posting runs in the background.
     /// </summary>
     /// <remarks>
     /// Defaults to <see langword="false"/> because these callbacks usually
     /// update durable outbox state. Orleans reentrancy rules still apply:
     /// reentrant grains may interleave these callbacks regardless.
     /// </remarks>
-    public bool InterleaveReconciliationCallbacks { get; init; }
+    public bool InterleaveAcknowledgementCallbacks { get; init; }
 
     /// <summary>
     /// Whether background retry work should keep the grain activation alive

@@ -2,14 +2,14 @@ using System.Collections.Immutable;
 
 namespace Egil.Orleans.Messaging.Outboxes;
 
-internal sealed class OutboxReconciler<TOutbox>(
+internal sealed class OutboxAcknowledger<TOutbox>(
     Func<ImmutableArray<TOutbox>, CancellationToken, ValueTask> acknowledgePostedAsync,
-    Func<ImmutableArray<(TOutbox Item, Exception Error, int Attempt)>, CancellationToken, ValueTask>? reconcileFailedAsync)
+    Func<ImmutableArray<(TOutbox Item, Exception Error, int Attempt)>, CancellationToken, ValueTask>? acknowledgeFailuresAsync)
     where TOutbox : notnull
 {
     private readonly Dictionary<TOutbox, int> attempts = [];
 
-    public OutboxReconciliationBatch<TOutbox> CreateBatch(
+    public OutboxAcknowledgementBatch<TOutbox> CreateBatch(
         ImmutableArray<OutboxDispatchResult<TOutbox>> results)
     {
         var posted = ImmutableArray.CreateBuilder<TOutbox>();
@@ -26,30 +26,30 @@ internal sealed class OutboxReconciler<TOutbox>(
             }
         }
 
-        return new OutboxReconciliationBatch<TOutbox>(posted.ToImmutable(), failed.ToImmutable());
+        return new OutboxAcknowledgementBatch<TOutbox>(posted.ToImmutable(), failed.ToImmutable());
     }
 
-    public async Task ReconcileAsync(
-        OutboxReconciliationBatch<TOutbox> reconciliation,
+    public async Task AcknowledgeAsync(
+        OutboxAcknowledgementBatch<TOutbox> acknowledgement,
         CancellationToken cancellationToken)
     {
-        if (!reconciliation.HasWork)
+        if (!acknowledgement.HasWork)
         {
             return;
         }
 
-        if (!reconciliation.Posted.IsDefaultOrEmpty)
+        if (!acknowledgement.Posted.IsDefaultOrEmpty)
         {
-            await acknowledgePostedAsync(reconciliation.Posted, cancellationToken);
-            foreach (var item in reconciliation.Posted)
+            await acknowledgePostedAsync(acknowledgement.Posted, cancellationToken);
+            foreach (var item in acknowledgement.Posted)
             {
                 attempts.Remove(item);
             }
         }
 
-        if (!reconciliation.Failed.IsDefaultOrEmpty && reconcileFailedAsync is not null)
+        if (!acknowledgement.Failed.IsDefaultOrEmpty && acknowledgeFailuresAsync is not null)
         {
-            await reconcileFailedAsync(reconciliation.Failed, cancellationToken);
+            await acknowledgeFailuresAsync(acknowledgement.Failed, cancellationToken);
         }
     }
 
@@ -58,13 +58,13 @@ internal sealed class OutboxReconciler<TOutbox>(
     /// </summary>
     /// <remarks>
     /// Attempt counts are keyed by item value equality and only removed by
-    /// <see cref="ReconcileAsync"/> when the item posts successfully. Items
+    /// <see cref="AcknowledgeAsync"/> when the item posts successfully. Items
     /// that leave the outbox any other way — dead-lettered or dropped by
-    /// <c>ReconcileFailedAsync</c>, or removed directly by the grain — would
+    /// <c>AcknowledgeFailuresAsync</c>, or removed directly by the grain — would
     /// otherwise keep their entries for the lifetime of the activation, a
     /// slow memory leak that the owning grain cannot observe or clean up.
     /// The processor calls this with a fresh pending snapshot after each
-    /// reconciliation.
+    /// acknowledgement.
     /// </remarks>
     public void PruneAttempts(ImmutableArray<TOutbox> pending)
     {

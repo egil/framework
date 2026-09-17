@@ -144,7 +144,7 @@ public abstract class StateManagerBase<T> : IStateManager<T>
             // unsaved value left there would be adopted as if storage had returned it. The
             // operation's own completion path re-establishes the facet either way, and an
             // assignment that raced it is discarded. Only reachable under reentrancy or
-            // interleaved reconciliation.
+            // interleaved acknowledgement callbacks.
             hasUnsavedChanges = true;
             Publish(value, mirrorToFacet: !operationInProgress);
         }
@@ -157,11 +157,11 @@ public abstract class StateManagerBase<T> : IStateManager<T>
     public async Task ReadAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-    // The guard spans the storage call and the reconciliation that follows it, not just
+    // The guard spans the storage call and the adoption that follows it, not just
     // the await. Adoption reads the facet back — ResolveLoadedState and the recovery
     // comparison both do — so an assignment that slipped in between the two would be mistaken
     // for what storage returned. Only assignment observes this, and only under reentrancy or
-    // interleaved reconciliation.
+    // interleaved acknowledgement callbacks.
         operationInProgress = true;
         try
         {
@@ -192,11 +192,11 @@ public abstract class StateManagerBase<T> : IStateManager<T>
             versioned.Version = Guid.CreateVersion7();
         }
 
-        // The guard spans the storage call and the reconciliation that follows it, not just
+        // The guard spans the storage call and the adoption that follows it, not just
         // the await. Adoption reads the facet back — ResolveLoadedState and the recovery
         // comparison both do — so an assignment that slipped in between the two would be mistaken
         // for what storage returned. Only assignment observes this, and only under reentrancy or
-        // interleaved reconciliation.
+        // interleaved acknowledgement callbacks.
         operationInProgress = true;
         try
         {
