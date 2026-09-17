@@ -574,6 +574,25 @@ siloBuilder.AddEventHubStreams("event-hubs", configurator =>
 });
 ```
 
+When the Event Hub carries a payload format the library cannot decode, subclass
+the adapter and override `CreateInnerBatchContainer` to supply your own batch
+container. The adapter still attaches the enriched token, so the container only
+has to decode:
+
+```csharp
+public sealed class DataPlatformAdapter(string providerName, Serializer serializer, ILogger logger)
+    : EnrichedEventHubAdapter(providerName, serializer)
+{
+    protected override IBatchContainer CreateInnerBatchContainer(EventHubMessage message)
+        => new DataPlatformBatchContainer(message, logger);
+}
+```
+
+Register the subclass with Orleans' `UseDataAdapter`. The container must be
+`[GenerateSerializer]`, since it is delivered to consumers inside the adapter's
+wrapper, and it does not need to produce sequence tokens: the adapter replaces
+the batch token and every per-event token.
+
 The core package can consume provider-specific token metadata through
 `IStreamSequenceTokenMetadata` without taking a direct Event Hubs dependency.
 Custom stream providers that expose custom `StreamSequenceToken` types should
