@@ -1,4 +1,5 @@
 #if NET11_0_OR_GREATER
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
@@ -99,6 +100,15 @@ internal sealed class UnionCaseRouting
                     undiscriminatedCase = caseType;
                 }
 
+                continue;
+            }
+
+            // A converter override can change the token family a scalar reads from (for example
+            // JsonStringEnumConverter turns a numeric enum into a string), which shape
+            // classification cannot see. Such cases only route through a discriminator.
+            if (HasConverterOverride(caseType, options))
+            {
+                unknownShapeCase ??= caseType;
                 continue;
             }
 
@@ -253,6 +263,24 @@ internal sealed class UnionCaseRouting
 
         ThrowNoCase(shape);
         return null!;
+    }
+
+    private static bool HasConverterOverride(Type caseType, JsonSerializerOptions options)
+    {
+        if (caseType.GetCustomAttribute<JsonConverterAttribute>(inherit: false) is not null)
+        {
+            return true;
+        }
+
+        foreach (JsonConverter converter in options.Converters)
+        {
+            if (converter.CanConvert(caseType))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static void AddDiscriminator(

@@ -409,6 +409,29 @@ public partial class UnionMigrationTests
         Assert.IsType<Note>(note.Value);
     }
 
+    [Fact]
+    public void Union_case_with_converter_override_only_routes_through_discriminator()
+    {
+        var options = CreateOptions();
+
+        var shape = JsonSerializer.Deserialize<ShapeOrStringEnum>("""{"$type":"circle-v1","r":1}""", options);
+        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<ShapeOrStringEnum>("\"Green\"", options));
+
+        Assert.IsType<CircleV2>(shape.Value);
+        Assert.Contains(nameof(Colour), exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Union_case_with_options_level_converter_only_routes_through_discriminator()
+    {
+        var options = CreateOptions();
+        options.Converters.Add(new JsonStringEnumConverter());
+
+        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<ShapeOrPlainEnum>("\"Green\"", options));
+
+        Assert.Contains(nameof(PlainColour), exception.Message, StringComparison.Ordinal);
+    }
+
     private static JsonSerializerOptions CreateOptions(Action<JsonMigrationBuilder>? configure = null)
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
@@ -442,6 +465,23 @@ public partial class UnionMigrationTests
     public union PointOrNestedUnion(PointV2, ShapeOrNote);
 
     public union ShapeOrScalars(CircleV2, DateTimeOffset, Note);
+
+    [JsonConverter(typeof(JsonStringEnumConverter<Colour>))]
+    public enum Colour
+    {
+        Red,
+        Green,
+    }
+
+    public enum PlainColour
+    {
+        Red,
+        Green,
+    }
+
+    public union ShapeOrStringEnum(CircleV2, Colour);
+
+    public union ShapeOrPlainEnum(CircleV2, PlainColour);
 
     public union DuplicateDiscriminatorUnion(CircleV2, CircleV2Copy);
 
