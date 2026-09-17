@@ -110,7 +110,7 @@ public sealed class OutboxTraceContextTests : IDisposable
             new(new OutboxMessageId(2, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch), "second")
         ];
 
-        var restored = Outbox<string>.Restore(envelopes);
+        var restored = Outbox<string>.Restore(envelopes, 2);
 
         Assert.Equal(ProducerTraceParent, restored.Envelopes[0].Id.TraceParent);
         Assert.NotEqual(migration!.Id, restored.Envelopes[0].Id.TraceParent);

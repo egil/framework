@@ -25,7 +25,7 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// <b>Sequence ownership:</b> <see cref="Add(T)"/>, <see cref="AddRange(IEnumerable{T})"/>, and collection expressions assign sequence numbers.
 /// Callers supply the payload; the outbox stamps <see cref="OutboxMessageId"/>
 /// with a monotonically increasing <see cref="LatestSequenceNumber"/> and the
-/// current <see cref="Epoch"/>. <see cref="Restore(IEnumerable{OutboxMessageEnvelope{T}})"/>
+/// current <see cref="Epoch"/>. <see cref="Restore(IEnumerable{OutboxMessageEnvelope{T}}, long)"/>
 /// is the single exception, and carries a different name for exactly that reason:
 /// reconstructing stored history is not producing messages, so it accepts
 /// pre-built identities — and validates that they increase within one epoch.
@@ -234,17 +234,36 @@ public sealed class Outbox<T> : IReadOnlyList<T>, IEquatable<Outbox<T>>
     /// in enumeration order and every <see cref="OutboxMessageId.Epoch"/> must match:
     /// <see cref="Remove(OutboxMessageId)"/> only matches a FIFO head and receivers
     /// deduplicate against a per-epoch high-water mark, so a mis-ordered restore produces
-    /// an outbox whose messages the receiver silently drops. An empty sequence yields the
-    /// same shape as <see cref="Create()"/>.
+    /// an outbox whose messages the receiver silently drops.
+    /// </para>
+    /// <para>
+    /// Restoring a live outbox therefore carries its high-water mark across as well:
+    /// <code>
+    /// var moved = Outbox&lt;OrderEvent&gt;.Restore(previous.Envelopes, previous.LatestSequenceNumber);
+    /// </code>
+    /// An empty sequence with <paramref name="latestSequenceNumber"/> <c>0</c> yields the
+    /// same shape as <see cref="Create()"/>; an empty sequence with a higher mark keeps it,
+    /// and the next <see cref="Add(T)"/> stamps a fresh epoch above it.
     /// </para>
     /// </remarks>
     /// <param name="envelopes">The stored envelopes to restore, in FIFO order.</param>
+    /// <param name="latestSequenceNumber">
+    /// The source outbox's <see cref="LatestSequenceNumber"/>. Required rather than
+    /// inferred: <see cref="Envelopes"/> holds only what is still pending, so a source
+    /// whose highest-numbered messages were already delivered and removed would restore
+    /// a lower high-water mark, and the next <see cref="Add(T)"/> would reuse a sequence
+    /// number the receiver has already seen and reject as a duplicate.
+    /// </param>
     /// <returns>An outbox holding the restored envelopes.</returns>
     /// <exception cref="ArgumentException">
     /// Sequence numbers do not strictly increase in enumeration order, or the envelopes
     /// do not all share one epoch.
     /// </exception>
-    public static Outbox<T> Restore(IEnumerable<OutboxMessageEnvelope<T>> envelopes)
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="latestSequenceNumber"/> is below the last envelope's sequence
+    /// number, or is negative.
+    /// </exception>
+    public static Outbox<T> Restore(IEnumerable<OutboxMessageEnvelope<T>> envelopes, long latestSequenceNumber)
     {
         ArgumentNullException.ThrowIfNull(envelopes);
 
@@ -272,7 +291,7 @@ public sealed class Outbox<T> : IReadOnlyList<T>, IEquatable<Outbox<T>>
                 throw new ArgumentException(
                     string.Create(
                         CultureInfo.InvariantCulture,
-                        $"Envelope sequence numbers must strictly increase in enumeration order; {id.SequenceNumber} followed {sequenceNumber}."),
+                        $"Envelope sequence numbers must strictly increase in enumeration order; {sequenceNumber} was followed by {id.SequenceNumber}."),
                     nameof(envelopes));
             }
 
@@ -281,8 +300,12 @@ public sealed class Outbox<T> : IReadOnlyList<T>, IEquatable<Outbox<T>>
             builder.Add(envelope);
         }
 
+        // Guarded after enumeration because the last sequence number is the floor: a mark
+        // below it would let Add hand out a number already carried by a pending message.
+        ArgumentOutOfRangeException.ThrowIfLessThan(latestSequenceNumber, sequenceNumber ?? 0);
+
         return new Outbox<T>(
-            sequenceNumber ?? 0,
+            latestSequenceNumber,
             builder.DrainToImmutable(),
             epoch,
             Guid.CreateVersion7());

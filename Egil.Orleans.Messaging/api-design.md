@@ -423,7 +423,7 @@ outbox.Clear();             // Preserves sequence high-water mark and epoch.
 // Reconstructing stored history. Never captures Activity.Current.
 Outbox<T>.Restore(payloadTimestampPairs);
 Outbox<T>.Restore(payloads, utcNow);
-Outbox<T>.Restore(envelopes);   // Full fidelity; validates ids.
+Outbox<T>.Restore(envelopes, latestSequenceNumber);   // Full fidelity; validates ids.
 ```
 
 The actual types carry Orleans serialization metadata and JSON support. Each stored
@@ -498,7 +498,13 @@ equality, never revision ordering. Message IDs and delivery tokens are unchanged
   its messages. The payload overloads still own sequence assignment; the envelope
   overload accepts pre-built ids and therefore validates them, requiring strictly
   increasing sequence numbers within a single epoch so FIFO removal and per-epoch
-  receiver dedup keep working. Traceparents on restored envelopes are stored
+  receiver dedup keep working. It also takes the source's `LatestSequenceNumber`
+  as a required argument rather than inferring it: `Envelopes` exposes only
+  pending items, so a source whose highest-numbered messages were already
+  delivered and removed would restore a lower high-water mark, and the next `Add`
+  would reuse a sequence number the receiver has already recorded and reject as a
+  duplicate. Requiring it also keeps the overloads apart by arity, so a
+  collection expression of target-typed `new` stays unambiguous. Traceparents on restored envelopes are stored
   verbatim, unvalidated. A `Create` overload was rejected for this: the
   collection-builder `Outbox.Create<T>(ReadOnlySpan<T>)` *does* capture, so one
   name would have carried both behaviours with nothing at the call site to tell

@@ -13,7 +13,7 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// The W3C <c>traceparent</c> recorded for this message, or <c>null</c> when none
 /// was. For a produced message it is the activity that was current when the message
 /// was appended; for a reconstructed one it is whatever
-/// <see cref="Outbox{T}.Restore(IEnumerable{OutboxMessageEnvelope{T}})"/> carried
+/// <see cref="Outbox{T}.Restore(IEnumerable{OutboxMessageEnvelope{T}}, long)"/> carried
 /// through. Captured at append time rather than at delivery time because delivery
 /// can happen on a timer, a reminder, or a later activation, long after the
 /// producing activity ended.

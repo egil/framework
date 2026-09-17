@@ -462,12 +462,22 @@ restore the envelopes themselves. This overload preserves sequence numbers,
 timestamps, epoch, and each message's traceparent verbatim:
 
 ```csharp
-var messages = Outbox<IEvseOutboxEvent>.Restore(previousOutbox.Envelopes);
+var messages = Outbox<IEvseOutboxEvent>.Restore(
+    previousOutbox.Envelopes,
+    previousOutbox.LatestSequenceNumber);
 ```
 
-Because it is the one entry point that accepts caller-supplied identity, it
-validates it: sequence numbers must strictly increase in enumeration order and
-every envelope must carry the same epoch, or it throws `ArgumentException`.
+The high-water mark is a required argument rather than something inferred from
+the envelopes, because `Envelopes` holds only what is still *pending*. A source
+that had already delivered and removed its highest-numbered messages would
+otherwise restore to a lower mark, the next `Add` would hand out a sequence
+number the receiver has already seen, and the receiver would reject that message
+as a duplicate. Passing a mark below the last envelope's sequence number throws
+`ArgumentOutOfRangeException`.
+
+Because it is also the one entry point that accepts caller-supplied identity, it
+validates that too: sequence numbers must strictly increase in enumeration order
+and every envelope must carry the same epoch, or it throws `ArgumentException`.
 `Remove` only matches a FIFO head and receivers deduplicate against a per-epoch
 high-water mark, so a mis-ordered restore would produce an outbox whose messages
 the receiver silently drops.

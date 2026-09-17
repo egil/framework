@@ -78,7 +78,7 @@ public sealed class OutboxRestoreTests
             new(new OutboxMessageId(9, Third, epoch), "third")
         ];
 
-        var restored = Outbox<string>.Restore(envelopes);
+        var restored = Outbox<string>.Restore(envelopes, 9);
 
         Assert.Equal([7L, 8L, 9L], restored.Envelopes.Select(envelope => envelope.Id.SequenceNumber));
         Assert.Equal([First, Second, Third], restored.Envelopes.Select(envelope => envelope.Id.Timestamp));
@@ -99,7 +99,7 @@ public sealed class OutboxRestoreTests
             new(new OutboxMessageId(3, Third, First), "third")
         ];
 
-        var restored = Outbox<string>.Restore(envelopes);
+        var restored = Outbox<string>.Restore(envelopes, 3);
 
         Assert.Equal(
             ["00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01", "|legacy-hierarchical-id.1.", null],
@@ -111,7 +111,7 @@ public sealed class OutboxRestoreTests
     {
         var fromPairs = Outbox<string>.Restore(Array.Empty<(string, DateTimeOffset)>());
         var fromPayloads = Outbox<string>.Restore(Array.Empty<string>(), First);
-        var fromEnvelopes = Outbox<string>.Restore(Array.Empty<OutboxMessageEnvelope<string>>());
+        var fromEnvelopes = Outbox<string>.Restore(Array.Empty<OutboxMessageEnvelope<string>>(), 0);
 
         Assert.All<Outbox<string>>([fromPairs, fromPayloads, fromEnvelopes], restored =>
         {
@@ -149,7 +149,7 @@ public sealed class OutboxRestoreTests
             new(new OutboxMessageId(second, Second, First), "second")
         ];
 
-        var exception = Assert.Throws<ArgumentException>(() => Outbox<string>.Restore(envelopes));
+        var exception = Assert.Throws<ArgumentException>(() => Outbox<string>.Restore(envelopes, 9));
 
         Assert.Equal("envelopes", exception.ParamName);
     }
@@ -165,7 +165,7 @@ public sealed class OutboxRestoreTests
             new(new OutboxMessageId(2, Second, Second), "second")
         ];
 
-        var exception = Assert.Throws<ArgumentException>(() => Outbox<string>.Restore(envelopes));
+        var exception = Assert.Throws<ArgumentException>(() => Outbox<string>.Restore(envelopes, 9));
 
         Assert.Equal("envelopes", exception.ParamName);
     }
@@ -178,7 +178,7 @@ public sealed class OutboxRestoreTests
         Assert.Throws<ArgumentNullException>(
             () => Outbox<string>.Restore((IEnumerable<string>)null!, First));
         Assert.Throws<ArgumentNullException>(
-            () => Outbox<string>.Restore((IEnumerable<OutboxMessageEnvelope<string>>)null!));
+            () => Outbox<string>.Restore((IEnumerable<OutboxMessageEnvelope<string>>)null!, 0));
     }
 
     [Fact]
@@ -186,9 +186,69 @@ public sealed class OutboxRestoreTests
     {
         OutboxMessageEnvelope<string>?[] envelopes = [null];
 
-        var exception = Assert.Throws<ArgumentNullException>(() => Outbox<string>.Restore(envelopes!));
+        var exception = Assert.Throws<ArgumentNullException>(() => Outbox<string>.Restore(envelopes!, 1));
 
         Assert.Equal("envelopes", exception.ParamName);
+    }
+
+    [Fact]
+    public void Restore_carries_a_high_water_mark_above_the_pending_envelopes()
+    {
+        // Envelopes hold only what is still pending. A source that already delivered and
+        // removed its highest-numbered messages must not restore to a lower mark.
+        OutboxMessageEnvelope<string>[] envelopes = [new(new OutboxMessageId(3, First, First), "third")];
+
+        var restored = Outbox<string>.Restore(envelopes, 10);
+
+        Assert.Equal(10, restored.LatestSequenceNumber);
+        Assert.Equal(11, restored.Add("next", Second).Envelopes[^1].Id.SequenceNumber);
+    }
+
+    [Fact]
+    public void Restore_of_an_empty_sequence_keeps_a_supplied_high_water_mark()
+    {
+        var restored = Outbox<string>.Restore(Array.Empty<OutboxMessageEnvelope<string>>(), 10);
+
+        Assert.True(restored.IsEmpty);
+        Assert.Equal(10, restored.LatestSequenceNumber);
+        // No envelope carries an epoch, so the next append stamps a fresh one. Receivers
+        // accept a higher epoch unconditionally, so the reused sequence space is safe.
+        Assert.Null(restored.Epoch);
+    }
+
+    [Theory]
+    [InlineData(2)]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void Restore_rejects_a_high_water_mark_below_the_last_envelope(long latestSequenceNumber)
+    {
+        OutboxMessageEnvelope<string>[] envelopes = [new(new OutboxMessageId(3, First, First), "third")];
+
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(
+            () => Outbox<string>.Restore(envelopes, latestSequenceNumber));
+
+        Assert.Equal("latestSequenceNumber", exception.ParamName);
+    }
+
+    [Fact]
+    public void Restore_keeps_a_receiver_accepting_after_the_tail_was_acknowledged()
+    {
+        // End to end: the source delivered 2 and 3 and removed them out of order, leaving
+        // 1 pending. Restoring without the mark would reset it to 1, the next append would
+        // reuse sequence 2, and the receiver would reject it as an already-seen duplicate.
+        var sender = GrainId.Create("test/sender", "one");
+        var outbox = Outbox<string>.Create().AddRange(["a", "b", "c"], First);
+        var tracker = new MessageTracker();
+        tracker.TryAcceptMessage(outbox.Envelopes[0].Id.ForSender(sender), out tracker);
+        tracker.TryAcceptMessage(outbox.Envelopes[1].Id.ForSender(sender), out tracker);
+        tracker.TryAcceptMessage(outbox.Envelopes[2].Id.ForSender(sender), out tracker);
+        var drained = outbox.RemoveRange([outbox.Envelopes[1].Id, outbox.Envelopes[2].Id]);
+
+        var restored = Outbox<string>.Restore(drained.Envelopes, drained.LatestSequenceNumber);
+        var next = restored.Add("d", Second);
+
+        Assert.Equal(4, next.Envelopes[^1].Id.SequenceNumber);
+        Assert.True(tracker.TryAcceptMessage(next.Envelopes[^1].Id.ForSender(sender), out _));
     }
 
     [Fact]
@@ -204,7 +264,7 @@ public sealed class OutboxRestoreTests
             new(new OutboxMessageId(8, Second, epoch), "second")
         ];
 
-        var appended = Outbox<string>.Restore(envelopes).Add("third", Third);
+        var appended = Outbox<string>.Restore(envelopes, 8).Add("third", Third);
 
         Assert.Equal(9, appended.Envelopes[2].Id.SequenceNumber);
         Assert.Equal(9, appended.LatestSequenceNumber);
@@ -221,7 +281,7 @@ public sealed class OutboxRestoreTests
             new(new OutboxMessageId(7, First, epoch, "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"), "first"),
             new(new OutboxMessageId(8, Second, epoch), "second")
         ];
-        var restored = Outbox<string>.Restore(envelopes);
+        var restored = Outbox<string>.Restore(envelopes, 8);
 
         var loaded = JsonSerializer.Deserialize<Outbox<string>>(JsonSerializer.Serialize(restored));
 
@@ -261,7 +321,17 @@ public sealed class OutboxRestoreTests
         var envelopes = Outbox<OutboxMessageEnvelope<string>>.Restore(
             [(new OutboxMessageEnvelope<string>(new OutboxMessageId(1, First, First), "first"), First)]);
 
+        // For Outbox<OutboxMessageEnvelope<T>> the two arity-2 overloads share a first
+        // parameter type and are told apart only by DateTimeOffset versus long.
+        OutboxMessageEnvelope<OutboxMessageEnvelope<string>>[] nested =
+            [new(new OutboxMessageId(1, First, First), new(new OutboxMessageId(1, First, First), "first"))];
+        var asPayloads = Outbox<OutboxMessageEnvelope<string>>.Restore(
+            nested.Select(envelope => envelope.Message), First);
+        var asEnvelopes = Outbox<OutboxMessageEnvelope<string>>.Restore(nested, 1L);
+
         Assert.Equal(1, tuples.LatestSequenceNumber);
         Assert.Equal(1, envelopes.LatestSequenceNumber);
+        Assert.Equal(1, asPayloads.LatestSequenceNumber);
+        Assert.Equal(1, asEnvelopes.LatestSequenceNumber);
     }
 }
