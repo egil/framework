@@ -153,6 +153,17 @@ public partial class NumericSourceMigrationTests
     }
 
     [Fact]
+    public void Migrate_from_base64_byte_array_string_to_custom_type()
+    {
+        var options = CreateOptions();
+
+        var result = JsonSerializer.Deserialize<NumericState<byte[]>>("\"AQID\"", options);
+
+        Assert.NotNull(result);
+        Assert.Equal([1, 2, 3], result.Value);
+    }
+
+    [Fact]
     public void Migrate_from_guid_string_to_custom_type()
     {
         var options = CreateOptions();

@@ -30,7 +30,10 @@ internal sealed partial class JsonMigratableConverter<T>
         MigratorReference? match = null;
         foreach (MigratorReference migrator in context.Migrators)
         {
-            if (migrator.SourceTypeInfo.Kind != JsonTypeInfoKind.None)
+            // Filter by classified shape rather than JsonTypeInfoKind: byte[] reports Kind
+            // Enumerable but is read from a base64 string, and custom scalar converters report
+            // Kind None without a known shape.
+            if (migrator.SourceShape is SourceValueShape.Unknown)
             {
                 continue;
             }
