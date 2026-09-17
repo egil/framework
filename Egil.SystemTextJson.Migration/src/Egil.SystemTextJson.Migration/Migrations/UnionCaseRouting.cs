@@ -1,5 +1,4 @@
 #if NET11_0_OR_GREATER
-using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
@@ -20,7 +19,6 @@ internal sealed class UnionCaseRouting
     private readonly string knownDiscriminatorList;
     private readonly Type? undiscriminatedCase;
     private readonly Type? unknownShapeCase;
-    private readonly Type? guardedObjectCase;
     private readonly ShapeRoute objectRoute;
     private readonly ShapeRoute legacyObjectRoute;
     private readonly ShapeRoute arrayRoute;
@@ -35,7 +33,6 @@ internal sealed class UnionCaseRouting
         string knownDiscriminatorList,
         Type? undiscriminatedCase,
         Type? unknownShapeCase,
-        Type? guardedObjectCase,
         ShapeRoute objectRoute,
         ShapeRoute legacyObjectRoute,
         ShapeRoute arrayRoute,
@@ -49,7 +46,6 @@ internal sealed class UnionCaseRouting
         this.knownDiscriminatorList = knownDiscriminatorList;
         this.undiscriminatedCase = undiscriminatedCase;
         this.unknownShapeCase = unknownShapeCase;
-        this.guardedObjectCase = guardedObjectCase;
         this.objectRoute = objectRoute;
         this.legacyObjectRoute = legacyObjectRoute;
         this.arrayRoute = arrayRoute;
@@ -66,7 +62,6 @@ internal sealed class UnionCaseRouting
         var knownDiscriminators = new List<string>();
         Type? undiscriminatedCase = null;
         Type? unknownShapeCase = null;
-        Type? guardedObjectCase = null;
         var plainObjectCases = new List<Type>();
         var migratableCases = new List<Type>();
         var arrayCases = new List<Type>();
@@ -115,7 +110,7 @@ internal sealed class UnionCaseRouting
             // A converter override can change the token family a scalar reads from (for example
             // JsonStringEnumConverter turns a numeric enum into a string), which shape
             // classification cannot see. Such cases only route through a discriminator.
-            if (HasConverterOverride(caseType, options))
+            if (JsonMigratableTypes.HasConverterOverride(caseType, options))
             {
                 unknownShapeCase ??= caseType;
                 continue;
@@ -137,19 +132,16 @@ internal sealed class UnionCaseRouting
                 return;
             }
 
-            if (HasConverterOverride(sourceType, options))
+            if (JsonMigratableTypes.HasConverterOverride(sourceType, options))
             {
-                if (IsObjectContract(sourceType, options))
+                // The overriding converter may read any token family, so the source is
+                // reachable only through its discriminator (registered when the type could
+                // plausibly be an object) and every discriminator-less payload is refused.
+                if (IsObjectLike(sourceType))
                 {
-                    // The overriding converter may also accept objects without the
-                    // discriminator, so discriminator-less objects are refused rather than
-                    // routed to another case; other shapes are unaffected.
                     AddDiscriminator(context.DeclaringType, entriesByPropertyName, caseByDiscriminator, knownDiscriminators, sourceMetadata, caseType);
-                    guardedObjectCase ??= caseType;
-                    return;
                 }
 
-                // Same rule as for union cases: an overridden converter may read any token family.
                 unknownShapeCase ??= caseType;
                 return;
             }
@@ -217,7 +209,6 @@ internal sealed class UnionCaseRouting
             string.Join(", ", knownDiscriminators.Select(static discriminator => $"'{discriminator}'")),
             undiscriminatedCase,
             unknownShapeCase,
-            guardedObjectCase,
             ShapeRoute.From(plainObjectCases),
             ShapeRoute.From(migratableCases),
             ShapeRoute.From(arrayCases),
@@ -286,9 +277,9 @@ internal sealed class UnionCaseRouting
         // right one. Otherwise prefer the case explicitly configured for undiscriminated
         // objects, then the plain object cases (they can never carry a discriminator), and only
         // then fall back to a lone migratable case, mirroring the converter's legacy-payload rule.
-        if ((unknownShapeCase ?? guardedObjectCase) is { } guard)
+        if (unknownShapeCase is not null)
         {
-            ThrowUnknownShapeCase("object", guard);
+            ThrowUnknownShapeCase("object", unknownShapeCase);
         }
 
         if (undiscriminatedCase is not null)
@@ -341,31 +332,12 @@ internal sealed class UnionCaseRouting
         }
     }
 
-    // A source with a converter override reports Kind None, so the object shape is inferred
-    // from the CLR type instead of the contract.
-    private static bool IsObjectContract(Type sourceType, JsonSerializerOptions options)
-        => options.GetTypeInfo(sourceType).Kind is JsonTypeInfoKind.Object
-            || (sourceType is { IsPrimitive: false, IsEnum: false }
-                && SourceValueShapes.Classify(sourceType) is SourceValueShape.Unknown
-                && !typeof(System.Collections.IEnumerable).IsAssignableFrom(sourceType));
-
-    private static bool HasConverterOverride(Type caseType, JsonSerializerOptions options)
-    {
-        if (caseType.GetCustomAttribute<JsonConverterAttribute>(inherit: false) is not null)
-        {
-            return true;
-        }
-
-        foreach (JsonConverter converter in options.Converters)
-        {
-            if (converter.CanConvert(caseType))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
+    // A source with a converter override reports Kind None, so whether it could carry a
+    // discriminator is inferred from the CLR type instead of the contract.
+    private static bool IsObjectLike(Type sourceType)
+        => sourceType is { IsPrimitive: false, IsEnum: false }
+            && SourceValueShapes.Classify(sourceType) is SourceValueShape.Unknown
+            && !typeof(System.Collections.IEnumerable).IsAssignableFrom(sourceType);
 
     private static void AddDiscriminator(
         Type unionType,

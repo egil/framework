@@ -16,7 +16,11 @@ internal sealed record MigratorReference(
 
     // Shapes are classified once here so non-object payload matching never touches
     // reflection on the read path.
-    public SourceValueShape SourceShape { get; } = SourceValueShapes.Classify(SourceType);
+    // A converter override (attribute or options-level) may read any token family, so such a
+    // source is never shape-matched; it is only reachable through an object discriminator.
+    public SourceValueShape SourceShape { get; } = JsonMigratableTypes.HasConverterOverride(SourceType, SourceTypeInfo.Options)
+        ? SourceValueShape.Unknown
+        : SourceValueShapes.Classify(SourceType);
 
     // AllowReadingFromString (on by default with JsonSerializerDefaults.Web) lets numeric sources
     // read quoted numbers; resolved once so the read path does not consult the options.
@@ -38,6 +42,7 @@ internal sealed record MigratorReference(
         : null;
 
     public SourceValueShape ElementShape { get; } = SourceTypeInfo.Kind is JsonTypeInfoKind.Enumerable or JsonTypeInfoKind.Dictionary
+        && !JsonMigratableTypes.HasConverterOverride(SourceValueShapes.GetValueType(SourceType, SourceTypeInfo.Kind), SourceTypeInfo.Options)
         ? SourceValueShapes.Classify(SourceValueShapes.GetValueType(SourceType, SourceTypeInfo.Kind))
         : SourceValueShape.Unknown;
 

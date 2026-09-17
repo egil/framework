@@ -197,6 +197,29 @@ public partial class NumericSourceMigrationTests
     }
 
     [Fact]
+    public void Byte_array_elements_do_not_compete_for_nested_array_payloads()
+    {
+        var options = CreateOptions();
+
+        var result = JsonSerializer.Deserialize<BytesOrNestedListState>("[[1,2]]", options);
+
+        Assert.Equal("from-nested-list", result!.Source);
+    }
+
+    [Fact]
+    public void Source_with_converter_override_is_not_shape_matched()
+    {
+        // JsonStringEnumConverter makes the enum read strings, which the CLR shape cannot show,
+        // so the enum source is excluded and the int source takes the number without ambiguity.
+        var options = CreateOptions();
+        options.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+
+        var result = JsonSerializer.Deserialize<IntOrColourState>("42", options);
+
+        Assert.Equal("from-int", result!.Source);
+    }
+
+    [Fact]
     public void Migrate_from_guid_string_to_custom_type()
     {
         var options = CreateOptions();
@@ -227,6 +250,48 @@ public partial class NumericSourceMigrationTests
     }
 
     public record class Item(string Name);
+
+    public enum Colour
+    {
+        Red,
+        Green,
+    }
+
+    [JsonMigratable]
+    public record class IntOrColourState(string Source)
+        : IMigrateFrom<int, IntOrColourState>,
+          IMigrateFrom<Colour, IntOrColourState>
+    {
+        public static bool TryMigrateFrom(int source, out IntOrColourState result)
+        {
+            result = new IntOrColourState("from-int");
+            return true;
+        }
+
+        public static bool TryMigrateFrom(Colour source, out IntOrColourState result)
+        {
+            result = new IntOrColourState("from-colour");
+            return true;
+        }
+    }
+
+    [JsonMigratable]
+    public record class BytesOrNestedListState(string Source)
+        : IMigrateFrom<byte[][], BytesOrNestedListState>,
+          IMigrateFrom<List<List<int>>, BytesOrNestedListState>
+    {
+        public static bool TryMigrateFrom(byte[][] source, out BytesOrNestedListState result)
+        {
+            result = new BytesOrNestedListState("from-bytes");
+            return true;
+        }
+
+        public static bool TryMigrateFrom(List<List<int>> source, out BytesOrNestedListState result)
+        {
+            result = new BytesOrNestedListState("from-nested-list");
+            return true;
+        }
+    }
 
     [JsonMigratable]
     public record class BytesOrIntListState(string Source)

@@ -513,12 +513,13 @@ public partial class UnionMigrationTests
 
         // A non-migratable source is identified by its default discriminator, the type's full name.
         var value = JsonSerializer.Deserialize<BoxedOrLabel>($$"""{"$type":"{{typeof(LegacyBox).FullName}}","payload":"x"}""", options);
-        var label = JsonSerializer.Deserialize<BoxedOrLabel>("\"plain\"", options);
-        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<BoxedOrLabel>("""{"payload":"x"}""", options));
+        var undiscriminated = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<BoxedOrLabel>("""{"payload":"x"}""", options));
+        var text = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<BoxedOrLabel>("\"plain\"", options));
 
+        // The override could read any token family, so nothing without a discriminator is routed.
         Assert.Equal("x", Assert.IsType<Boxed>(value.Value).Content);
-        Assert.Equal("plain", label.Value);
-        Assert.Contains(nameof(Boxed), exception.Message, StringComparison.Ordinal);
+        Assert.Contains(nameof(Boxed), undiscriminated.Message, StringComparison.Ordinal);
+        Assert.Contains(nameof(Boxed), text.Message, StringComparison.Ordinal);
     }
 
     private static JsonSerializerOptions CreateOptions(Action<JsonMigrationBuilder>? configure = null)
