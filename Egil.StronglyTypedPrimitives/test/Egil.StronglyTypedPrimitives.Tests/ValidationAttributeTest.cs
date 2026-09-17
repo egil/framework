@@ -5,13 +5,24 @@ namespace Egil.StronglyTypedPrimitives;
 
 public abstract class ValidationAttributeTestBase
 {
-    // A stand-in for the .NET 11 base type, declared under its real namespace so the generator
-    // resolves it by name exactly as it would against the .NET 11 reference assemblies.
-    public const string FakeAsyncValidationAttribute = """
+    // Stand-ins for the .NET 11 async validation types, declared under their real namespace so
+    // the generator resolves them by name exactly as it would against the .NET 11 reference
+    // assemblies, and with the members the generated ValidateAsync calls so the emitted source
+    // compiles in the net9.0 test compilation. GetValidationResultAsync is not abstract on the
+    // real type either (it is a template method over IsValidAsync), so attribute subclasses in
+    // the test inputs need no overrides.
+    public const string FakeAsyncValidationApi = """
         namespace System.ComponentModel.DataAnnotations
         {
+            public interface IAsyncValidatableObject : IValidatableObject
+            {
+                System.Collections.Generic.IAsyncEnumerable<ValidationResult> ValidateAsync(ValidationContext validationContext, System.Threading.CancellationToken cancellationToken);
+            }
+
             public abstract class AsyncValidationAttribute : ValidationAttribute
             {
+                public System.Threading.Tasks.Task<ValidationResult?> GetValidationResultAsync(object? value, ValidationContext validationContext, System.Threading.CancellationToken cancellationToken)
+                    => System.Threading.Tasks.Task.FromResult<ValidationResult?>(null);
             }
         }
         """;
@@ -393,6 +404,6 @@ public class Async_validation_attributes_are_excluded_from_IsValueValid : Valida
                 }
             }
 
-            {{FakeAsyncValidationAttribute}}
+            {{FakeAsyncValidationApi}}
             """);
 }

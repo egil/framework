@@ -194,7 +194,9 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
 
         var validationAttributes = Parser.GetValidationAttributes(info.Parameter, semanticModel, targetTypeMembers);
         var generatesValidate = Parser.ShouldGenerateValidate(compilation, targetTypeSymbol);
-        var diagnostics = GetValidationAttributeDiagnostics(info, validationAttributes, hasUserDeclaredIsValueValid);
+        var generatesValidateAsync = Parser.ShouldGenerateValidateAsync(compilation, targetTypeSymbol);
+        var declaresAsyncValidatableObject = Parser.DeclaresAsyncValidatableObject(compilation, targetTypeSymbol);
+        var diagnostics = GetValidationAttributeDiagnostics(info, validationAttributes, hasUserDeclaredIsValueValid, declaresAsyncValidatableObject);
 
         string?[] typeParts = [
             CodeHeader,
@@ -208,10 +210,11 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             .. GetValueProperty(info, targetTypeMembers, underlyingTypeSymbol, isCSharp14OrGreater, hasUserDeclaredIsValueValid, validationAttributes),
             .. GetSelfInterfaceValueProperty(info, targetTypeMembers, selfInterface, underlyingTypeSymbol),
             .. GetToStringMethod(info, targetTypeMembers, underlyingTypeSymbol),
-            .. GetValidatorsClass(validationAttributes, generatesValidate, hasUserDeclaredIsValueValid),
+            .. GetValidatorsClass(validationAttributes, generatesValidate, generatesValidateAsync, hasUserDeclaredIsValueValid),
             .. GetIsValueValidMethod(info, underlyingTypeSymbol, hasUserDeclaredIsValueValid, validationAttributes),
             .. GetInterfaceSymbols(info, unimplementedSymbols, underlyingTypeSymbol),
             .. GetValidateMethod(info, targetTypeMembers, generatesValidate, hasUserDeclaredIsValueValid, validationAttributes),
+            .. GetValidateAsyncMethod(info, targetTypeMembers, generatesValidate, generatesValidateAsync, Parser.ImplementsValidateExplicitly(compilation, targetTypeSymbol), validationAttributes),
             .. GetOperatorOverloads(info, targetTypeSymbol, targetTypeMembers),
             "}"
         ];
@@ -224,7 +227,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             diagnostics);
     }
 
-    private static ImmutableArray<Diagnostic> GetValidationAttributeDiagnostics(StronglyTypedTypeInfo info, ValidationAttributeModel validationAttributes, bool hasUserDeclaredIsValueValid)
+    private static ImmutableArray<Diagnostic> GetValidationAttributeDiagnostics(StronglyTypedTypeInfo info, ValidationAttributeModel validationAttributes, bool hasUserDeclaredIsValueValid, bool declaresAsyncValidatableObject)
     {
         var diagnostics = ImmutableArray.CreateBuilder<Diagnostic>();
         var typeName = info.Target.Identifier.ValueText;
@@ -243,14 +246,22 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             }
         }
 
-        foreach (var attribute in validationAttributes.AsyncAttributes)
+        // With IAsyncValidatableObject declared the async attributes run in ValidateAsync, generated
+        // or user-written. Without it only this generator's output skips them: ASP.NET Core
+        // validation still evaluates them on the compiler-synthesized property, but IsValueValid and
+        // Validate cannot, and consumers such as Validator.TryValidateObjectAsync have no
+        // ValidateAsync to call. That is what the warning tells the user.
+        if (!declaresAsyncValidatableObject)
         {
-            diagnostics.Add(Diagnostic.Create(
-                DiagnosticDescriptors.AsyncValidationAttributeNotPartOfValueInvariant,
-                attribute.Location,
-                attribute.AttributeDisplayName,
-                parameterName,
-                typeName));
+            foreach (var attribute in validationAttributes.AsyncAttributes)
+            {
+                diagnostics.Add(Diagnostic.Create(
+                    DiagnosticDescriptors.AsyncValidationAttributeNotPartOfValueInvariant,
+                    attribute.Location,
+                    attribute.AttributeDisplayName,
+                    parameterName,
+                    typeName));
+            }
         }
 
         foreach (var attribute in validationAttributes.ContextAttributes)
@@ -388,6 +399,11 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
     private static ImmutableArray<ValidationAttributeInfo> GetContextAttributes(ValidationAttributeModel validationAttributes, bool generatesValidate)
         => generatesValidate ? validationAttributes.ContextAttributes : ImmutableArray<ValidationAttributeInfo>.Empty;
 
+    // The attributes that need an await are evaluated by the generated ValidateAsync only, so they
+    // matter only when that method is generated.
+    private static ImmutableArray<ValidationAttributeInfo> GetAsyncAttributes(ValidationAttributeModel validationAttributes, bool generatesValidateAsync)
+        => generatesValidateAsync ? validationAttributes.AsyncAttributes : ImmutableArray<ValidationAttributeInfo>.Empty;
+
     // The attribute instances sit in a nested static class, not on the target type: a user's
     // static initializer such as `public static readonly Foo Default = new(1);` calls IsValueValid
     // while the target type is still initializing, and whether the generated part's fields are
@@ -396,11 +412,13 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
     // method runs. Only attributes a generated method reads get a field, so the class is absent
     // when nothing would use it. The factory for the ValidationContext that IsValueValid evaluates
     // the invariant attributes against lives here too, and only when that method has attributes
-    // to evaluate; Validate uses the context its caller passes instead.
-    private static IEnumerable<string> GetValidatorsClass(ValidationAttributeModel validationAttributes, bool generatesValidate, bool hasUserDeclaredIsValueValid)
+    // to evaluate; Validate and ValidateAsync use the context their caller passes instead.
+    private static IEnumerable<string> GetValidatorsClass(ValidationAttributeModel validationAttributes, bool generatesValidate, bool generatesValidateAsync, bool hasUserDeclaredIsValueValid)
     {
         var invariantAttributes = GetInvariantAttributes(validationAttributes, hasUserDeclaredIsValueValid);
-        var attributes = invariantAttributes.AddRange(GetContextAttributes(validationAttributes, generatesValidate));
+        var attributes = invariantAttributes
+            .AddRange(GetContextAttributes(validationAttributes, generatesValidate))
+            .AddRange(GetAsyncAttributes(validationAttributes, generatesValidateAsync));
         if (attributes.IsEmpty)
         {
             yield break;
@@ -859,6 +877,83 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         }
 
         source.Append($"\n        return {resultsName};\n    }}");
+
+        yield return source.ToString();
+    }
+
+    // ValidateAsync is the only generated member that evaluates the async attributes: their answer
+    // needs an await, so they can be part of neither the value invariant nor Validate. It is only
+    // emitted when the user declared IAsyncValidatableObject (see Parser.ShouldGenerateValidateAsync).
+    // That interface extends IValidatableObject, so a Validate exists alongside it, generated or
+    // user-written, and its results are reported first; the context attributes are evaluated there
+    // too, so nothing but the async attributes is left for this method. Every attribute is then
+    // awaited in turn so a single round trip reports all failures. Without attributes the iterator
+    // has nothing to await, and an async iterator without an await is a CS1998 like any other
+    // async method, so that shape is wrapped in a pragma: the method has to be an async iterator
+    // regardless, because IAsyncEnumerable can only be produced by one without a library helper.
+    //
+    // Like Validate, the wrapped value is read as this.<parameter>, every name the method introduces
+    // is kept clear of the positional parameter and the user's members, so a parameter called
+    // cancellationToken or asyncResult0 neither shadows nor is shadowed by them, and the interface
+    // member is implemented explicitly when the type already has a member called ValidateAsync.
+    private static IEnumerable<string> GetValidateAsyncMethod(StronglyTypedTypeInfo info, IEnumerable<ISymbol> targetTypeMembers, bool generatesValidate, bool generatesValidateAsync, bool implementsValidateExplicitly, ValidationAttributeModel validationAttributes)
+    {
+        if (!generatesValidateAsync)
+        {
+            yield break;
+        }
+
+        // ValueText is the name without the user's @ escape, which is what symbol names and the
+        // reservations compare against; the reference re-escapes it once when it is a keyword.
+        var parameterName = info.Parameter.Identifier.ValueText;
+        var value = $"this.{Parser.EscapeIdentifier(parameterName)}";
+        var reservedNames = new HashSet<string>(targetTypeMembers.Select(member => member.Name), StringComparer.Ordinal) { parameterName };
+        var contextName = Parser.GetUnusedName("validationContext", reservedNames);
+        var tokenName = Parser.GetUnusedName("cancellationToken", reservedNames);
+        var resultName = Parser.GetUnusedName("result", reservedNames);
+        var declaration = targetTypeMembers.Any(member => member.Name == "ValidateAsync")
+            ? $"async System.Collections.Generic.IAsyncEnumerable<{ValidationResultTypeName}> System.ComponentModel.DataAnnotations.IAsyncValidatableObject.ValidateAsync"
+            : $"public async System.Collections.Generic.IAsyncEnumerable<{ValidationResultTypeName}> ValidateAsync";
+        var validators = validationAttributes.ValidatorsTypeName;
+        var attributes = GetAsyncAttributes(validationAttributes, generatesValidateAsync);
+
+        // Validate is only reachable through the interface when it is an explicit implementation:
+        // one the user wrote that way, or the generated one when another member is called Validate
+        // (see GetValidateMethod). The cast boxes the struct, so only those cases pay for it.
+        var validateInvocation = implementsValidateExplicitly || (generatesValidate && targetTypeMembers.Any(member => member.Name == "Validate"))
+            ? $"((System.ComponentModel.DataAnnotations.IValidatableObject)this).Validate({contextName})"
+            : $"Validate({contextName})";
+
+        var source = new StringBuilder();
+
+        if (attributes.IsEmpty)
+        {
+            source.Append("\n#pragma warning disable CS1998 // no async attribute to await, but only an async iterator can yield an IAsyncEnumerable");
+        }
+
+        source.Append($$"""
+
+                {{declaration}}(System.ComponentModel.DataAnnotations.ValidationContext {{contextName}}, [System.Runtime.CompilerServices.EnumeratorCancellation] System.Threading.CancellationToken {{tokenName}})
+                {
+                    foreach (var {{resultName}} in {{validateInvocation}})
+                    {
+                        yield return {{resultName}};
+                    }
+            """);
+
+        foreach (var attribute in attributes)
+        {
+            var asyncResultName = Parser.GetUnusedName($"asyncResult{attribute.Index}", reservedNames);
+            source.Append($"\n\n        var {asyncResultName} = await {validators}.{attribute.FieldName}.GetValidationResultAsync({value}, {contextName}, {tokenName}).ConfigureAwait(false);");
+            source.Append($"\n        if ({asyncResultName} is not null && {asyncResultName} != {ValidationResultTypeName}.Success) yield return {asyncResultName};");
+        }
+
+        source.Append("\n    }");
+
+        if (attributes.IsEmpty)
+        {
+            source.Append("\n#pragma warning restore CS1998");
+        }
 
         yield return source.ToString();
     }

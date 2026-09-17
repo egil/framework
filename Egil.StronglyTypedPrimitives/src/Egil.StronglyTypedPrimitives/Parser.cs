@@ -18,6 +18,12 @@ internal static class Parser
     // tolerant of the type being absent.
     private const string AsyncValidationAttributeTypeName = "System.ComponentModel.DataAnnotations.AsyncValidationAttribute";
 
+    private const string ValidatableObjectTypeName = "System.ComponentModel.DataAnnotations.IValidatableObject";
+
+    // Only exists from .NET 11 on. The generator runs once per target framework, so whether the
+    // compilation can resolve the interface is the whole gate and the generated code needs no #if.
+    private const string AsyncValidatableObjectTypeName = "System.ComponentModel.DataAnnotations.IAsyncValidatableObject";
+
     internal static string? GetNamespace(RecordDeclarationSyntax structSymbol)
     {
         SyntaxNode? potentialNamespaceParent = structSymbol.Parent;
@@ -311,15 +317,40 @@ internal static class Parser
     // when the user's own declaration names the interface, and a Validate the user wrote (implicit
     // or explicit) wins like every other generated member.
     internal static bool ShouldGenerateValidate(Compilation compilation, INamedTypeSymbol targetTypeSymbol)
+        => ShouldGenerateInterfaceMethod(compilation, targetTypeSymbol, ValidatableObjectTypeName, "Validate");
+
+    // IAsyncValidatableObject extends IValidatableObject, so a declaration naming it is also a
+    // declaration of IValidatableObject and gets Validate under the same rules.
+    internal static bool ShouldGenerateValidateAsync(Compilation compilation, INamedTypeSymbol targetTypeSymbol)
+        => ShouldGenerateInterfaceMethod(compilation, targetTypeSymbol, AsyncValidatableObjectTypeName, "ValidateAsync");
+
+    internal static bool DeclaresAsyncValidatableObject(Compilation compilation, INamedTypeSymbol targetTypeSymbol)
+        => FindDeclaredInterface(compilation, targetTypeSymbol, AsyncValidatableObjectTypeName) is not null;
+
+    // The generated ValidateAsync starts by forwarding to Validate. A Validate the user wrote as an
+    // explicit interface implementation is only reachable through the interface, so the emitter
+    // has to know to go through a cast instead of a direct call.
+    internal static bool ImplementsValidateExplicitly(Compilation compilation, INamedTypeSymbol targetTypeSymbol)
+        => FindDeclaredInterface(compilation, targetTypeSymbol, ValidatableObjectTypeName)?.GetMembers("Validate").OfType<IMethodSymbol>().FirstOrDefault() is { } validateMethod
+            && targetTypeSymbol.FindImplementationForInterfaceMember(validateMethod) is IMethodSymbol { ExplicitInterfaceImplementations.Length: > 0 };
+
+    private static bool ShouldGenerateInterfaceMethod(Compilation compilation, INamedTypeSymbol targetTypeSymbol, string interfaceTypeName, string methodName)
     {
-        var validatableObjectType = compilation.GetTypeByMetadataName("System.ComponentModel.DataAnnotations.IValidatableObject");
-        if (validatableObjectType is null || !targetTypeSymbol.AllInterfaces.Contains(validatableObjectType, SymbolEqualityComparer.Default))
+        if (FindDeclaredInterface(compilation, targetTypeSymbol, interfaceTypeName) is not { } interfaceType)
         {
             return false;
         }
 
-        var validateMethod = validatableObjectType.GetMembers("Validate").OfType<IMethodSymbol>().FirstOrDefault();
-        return validateMethod is not null && targetTypeSymbol.FindImplementationForInterfaceMember(validateMethod) is null;
+        var method = interfaceType.GetMembers(methodName).OfType<IMethodSymbol>().FirstOrDefault();
+        return method is not null && targetTypeSymbol.FindImplementationForInterfaceMember(method) is null;
+    }
+
+    private static INamedTypeSymbol? FindDeclaredInterface(Compilation compilation, INamedTypeSymbol targetTypeSymbol, string interfaceTypeName)
+    {
+        var interfaceType = compilation.GetTypeByMetadataName(interfaceTypeName);
+        return interfaceType is not null && targetTypeSymbol.AllInterfaces.Contains(interfaceType, SymbolEqualityComparer.Default)
+            ? interfaceType
+            : null;
     }
 
     internal static bool DerivesFromJsonSerializerContext(INamedTypeSymbol type)
