@@ -21,20 +21,28 @@ internal static class JsonMigratableTypes
     /// </summary>
     public static bool HasConverterOverride(Type type, JsonSerializerOptions options)
     {
-        if (type.GetCustomAttribute<JsonConverterAttribute>(inherit: false) is not null)
+        // A Nullable<T> source is read by T's converter wrapped in the nullable converter, so an
+        // override registered for T counts for T? as well.
+        if (Nullable.GetUnderlyingType(type) is { } underlyingType && HasConverterOverride(underlyingType, options))
         {
             return true;
         }
 
-        // STJ selects the first matching entry, so only that entry decides. The library's own
-        // factory is registered in these options too; when it wins it is the expected converter
-        // for [JsonMigratable] types, not an override.
+        // STJ precedence: the first matching entry in options.Converters wins over
+        // [JsonConverter] on the type, so only that entry decides when one matches. The
+        // library's own factory is registered in these options too; when it wins it is the
+        // expected converter for [JsonMigratable] types, not an override.
         foreach (JsonConverter converter in options.Converters)
         {
             if (converter.CanConvert(type))
             {
                 return converter is not JsonMigratableConverterFactory;
             }
+        }
+
+        if (type.GetCustomAttribute<JsonConverterAttribute>(inherit: false) is not null)
+        {
+            return true;
         }
 
         // A resolver (source-generated context or custom IJsonTypeInfoResolver) can attach a

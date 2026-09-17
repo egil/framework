@@ -168,6 +168,33 @@ public partial class NumericSourceMigrationTests
     }
 
     [Fact]
+    public void Nullable_source_inherits_converter_override_of_its_underlying_type()
+    {
+        // A JsonConverter<int> that reads strings is wrapped in the nullable converter for int?,
+        // so the int? source must not be shape-matched as a number.
+        var options = CreateOptions();
+        options.Converters.Add(new StringIntConverter());
+
+        var result = JsonSerializer.Deserialize<NullableIntOrLongState>("42", options);
+
+        Assert.Equal("from-long", result!.Source);
+    }
+
+    [Fact]
+    public void Migratable_element_with_primitive_source_competes_for_primitive_elements()
+    {
+        // MigratableInt migrates from int, so [1] is valid for both lists; with two candidates
+        // the payload is ambiguous, alone the migratable list is selected.
+        var options = CreateOptions();
+
+        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<MigratableIntListOrIntListState>("[1]", options));
+        var alone = JsonSerializer.Deserialize<MigratableIntListState>("[1]", options);
+
+        Assert.Contains("ambiguous", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(1, alone!.Items[0].Value);
+    }
+
+    [Fact]
     public void Quoted_number_is_not_treated_as_numeric_source_under_strict_number_handling()
     {
         var options = new JsonSerializerOptions();
@@ -491,6 +518,71 @@ public partial class NumericSourceMigrationTests
     {
         Red,
         Green,
+    }
+
+    public sealed class StringIntConverter : JsonConverter<int>
+    {
+        public override int Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+            => int.Parse(reader.GetString()!, System.Globalization.CultureInfo.InvariantCulture);
+
+        public override void Write(Utf8JsonWriter writer, int value, JsonSerializerOptions options)
+            => writer.WriteStringValue(value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+    }
+
+    [JsonMigratable]
+    public record class NullableIntOrLongState(string Source)
+        : IMigrateFrom<int?, NullableIntOrLongState>,
+          IMigrateFrom<long, NullableIntOrLongState>
+    {
+        public static bool TryMigrateFrom(int? source, out NullableIntOrLongState result)
+        {
+            result = new NullableIntOrLongState("from-nullable-int");
+            return true;
+        }
+
+        public static bool TryMigrateFrom(long source, out NullableIntOrLongState result)
+        {
+            result = new NullableIntOrLongState("from-long");
+            return true;
+        }
+    }
+
+    [JsonMigratable(TypeDiscriminator = "migratable-int")]
+    public record class MigratableInt(int Value) : IMigrateFrom<int, MigratableInt>
+    {
+        public static bool TryMigrateFrom(int source, out MigratableInt result)
+        {
+            result = new MigratableInt(source);
+            return true;
+        }
+    }
+
+    [JsonMigratable]
+    public record class MigratableIntListOrIntListState(string Source)
+        : IMigrateFrom<List<MigratableInt>, MigratableIntListOrIntListState>,
+          IMigrateFrom<List<int>, MigratableIntListOrIntListState>
+    {
+        public static bool TryMigrateFrom(List<MigratableInt> source, out MigratableIntListOrIntListState result)
+        {
+            result = new MigratableIntListOrIntListState("from-migratable-int-list");
+            return true;
+        }
+
+        public static bool TryMigrateFrom(List<int> source, out MigratableIntListOrIntListState result)
+        {
+            result = new MigratableIntListOrIntListState("from-int-list");
+            return true;
+        }
+    }
+
+    [JsonMigratable]
+    public record class MigratableIntListState(List<MigratableInt> Items) : IMigrateFrom<List<MigratableInt>, MigratableIntListState>
+    {
+        public static bool TryMigrateFrom(List<MigratableInt> source, out MigratableIntListState result)
+        {
+            result = new MigratableIntListState(source);
+            return true;
+        }
     }
 
     [JsonMigratable]

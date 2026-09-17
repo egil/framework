@@ -109,7 +109,8 @@ internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry regis
                 registration.SourceMetadata,
                 sourceTypeInfo,
                 registration.Invoker,
-                MigratorReference.ResolveElementMetadata(registration.SourceType, sourceTypeInfo, registry));
+                MigratorReference.ResolveElementMetadata(registration.SourceType, sourceTypeInfo, registry),
+                MigratorReference.ResolveElementAcceptsNonObjectShapes(registration.SourceType, sourceTypeInfo, registry));
 
             AddMigratorCandidate(
                 migrators,
@@ -130,7 +131,8 @@ internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry regis
                 sourceMetadata,
                 sourceTypeInfo,
                 MigratorInvokerFactory.CreateStaticInvoker(sourceType, targetType, contract.Method),
-                MigratorReference.ResolveElementMetadata(sourceType, sourceTypeInfo, registry));
+                MigratorReference.ResolveElementMetadata(sourceType, sourceTypeInfo, registry),
+                MigratorReference.ResolveElementAcceptsNonObjectShapes(sourceType, sourceTypeInfo, registry));
 
             AddMigratorCandidate(
                 migrators,

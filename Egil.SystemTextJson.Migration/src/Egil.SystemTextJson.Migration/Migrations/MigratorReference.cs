@@ -7,7 +7,8 @@ internal sealed record MigratorReference(
     TypeMetadata SourceMetadata,
     JsonTypeInfo SourceTypeInfo,
     IMigratorInvoker Invoker,
-    TypeMetadata? ElementMetadata)
+    TypeMetadata? ElementMetadata,
+    bool ElementAcceptsNonObjectShapes)
 {
     // Pre-encoded discriminator value for zero-allocation matching via Utf8JsonReader.ValueTextEquals.
     public byte[] DiscriminatorUtf8 { get; } = System.Text.Encoding.UTF8.GetBytes(SourceMetadata.Discriminator);
@@ -55,11 +56,13 @@ internal sealed record MigratorReference(
         ? null
         : System.Text.Encoding.UTF8.GetBytes(ElementMetadata.Discriminator);
 
-    // An overridden element converter, or a union element (.NET 11) whose classifier may accept
-    // any token, can read any element shape, so the collection is excluded from element-based
-    // disambiguation entirely.
-    public bool ElementConverterOverridden { get; } = SourceTypeInfo.Kind is JsonTypeInfoKind.Enumerable or JsonTypeInfoKind.Dictionary
-        && ElementMayAcceptAnyShape(SourceValueShapes.GetValueType(SourceType, SourceTypeInfo.Kind), SourceTypeInfo.Options);
+    // An overridden element converter, a union element (.NET 11) whose classifier may accept any
+    // token, or a migratable element that itself migrates from a non-object source can read more
+    // than the object shape, so the collection is excluded from element-based disambiguation
+    // entirely.
+    public bool ElementConverterOverridden { get; } = ElementAcceptsNonObjectShapes
+        || (SourceTypeInfo.Kind is JsonTypeInfoKind.Enumerable or JsonTypeInfoKind.Dictionary
+            && ElementMayAcceptAnyShape(SourceValueShapes.GetValueType(SourceType, SourceTypeInfo.Kind), SourceTypeInfo.Options));
 
     public SourceValueShape ElementShape { get; } = SourceTypeInfo.Kind is JsonTypeInfoKind.Enumerable or JsonTypeInfoKind.Dictionary
         && !JsonMigratableTypes.HasConverterOverride(SourceValueShapes.GetValueType(SourceType, SourceTypeInfo.Kind), SourceTypeInfo.Options)
@@ -82,6 +85,38 @@ internal sealed record MigratorReference(
 
     private static System.Text.Json.Serialization.JsonNumberHandling EffectiveElementNumberHandling(JsonTypeInfo sourceTypeInfo)
         => sourceTypeInfo.NumberHandling ?? sourceTypeInfo.Options.NumberHandling;
+
+    /// <summary>
+    /// Whether a collection source's migratable element type migrates from any source that is
+    /// not a JSON object (a primitive, array or dictionary), in which case its converter accepts
+    /// elements of those shapes too.
+    /// </summary>
+    public static bool ResolveElementAcceptsNonObjectShapes(Type sourceType, JsonTypeInfo sourceTypeInfo, JsonMigrationRegistry registry)
+    {
+        if (sourceTypeInfo.Kind is not (JsonTypeInfoKind.Enumerable or JsonTypeInfoKind.Dictionary))
+        {
+            return false;
+        }
+
+        Type elementType = SourceValueShapes.GetValueType(sourceType, sourceTypeInfo.Kind);
+        if (!JsonMigratableTypes.IsMigratable(elementType))
+        {
+            return false;
+        }
+
+        IEnumerable<Type> elementSources = StaticMigratorContracts.GetSourceTypes(elementType)
+            .Concat(registry.GetForTarget(elementType).Select(static registration => registration.SourceType));
+
+        foreach (Type elementSource in elementSources)
+        {
+            if (!JsonMigratableTypes.IsMigratable(elementSource) && sourceTypeInfo.Options.GetTypeInfo(elementSource).Kind is not JsonTypeInfoKind.Object)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     /// <summary>
     /// Resolves the registry metadata of a collection source's migratable element type, or
