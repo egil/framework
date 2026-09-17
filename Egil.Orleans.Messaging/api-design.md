@@ -1278,6 +1278,23 @@ Users who need custom adapter behavior can subclass
 generic registration helper for custom subclasses because those adapters
 usually need extra services/options.
 
+An adapter reading a payload format the library knows nothing about supplies
+its own `IBatchContainer` by overriding `CreateInnerBatchContainer`:
+
+```csharp
+protected override IBatchContainer CreateInnerBatchContainer(EventHubMessage message)
+    => new DataPlatformBatchContainer(message, logger);
+```
+
+`GetBatchContainer(EventHubMessage)` is sealed, so enrichment cannot be
+silently dropped: the decorator carrying `EnrichedEventHubSequenceToken` is
+internal, and a subclass replacing that method could not reattach the token.
+Ownership of the wrapping stays with the adapter and the subclass only says how
+to decode. The container therefore does not produce sequence tokens at all —
+`null` batch and per-event tokens are supported, and per-event indexes then
+follow enumeration order. It must be `[GenerateSerializer]`, because it travels
+to consumers inside the decorator's `IBatchContainer` field.
+
 `StreamManager` is unaware of Event Hubs specifically — enrichment
 surfaces through `StreamCursor.TryGetEnqueuedTime(...)`,
 `StreamCursor.TryGetProviderName(...)`, and
