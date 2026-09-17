@@ -559,6 +559,20 @@ public partial class UnionMigrationTests
         Assert.Equal(2, Assert.IsType<Tallied>(value.Value).Count);
     }
 
+    [Fact]
+    public void Union_named_literal_skips_integer_sourced_case_when_reading_numbers_from_strings()
+    {
+        // Web defaults enable AllowReadingFromString for both cases, but only the double case
+        // can read "NaN"; the int-sourced case must not make it ambiguous.
+        var options = CreateOptions();
+
+        var named = JsonSerializer.Deserialize<CounterOrDouble>("\"NaN\"", options);
+        var quoted = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<CounterOrDouble>("\"42\"", options));
+
+        Assert.True(double.IsNaN(Assert.IsType<double>(named.Value)));
+        Assert.Contains("ambiguous", quoted.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static JsonSerializerOptions CreateOptions(Action<JsonMigrationBuilder>? configure = null)
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);

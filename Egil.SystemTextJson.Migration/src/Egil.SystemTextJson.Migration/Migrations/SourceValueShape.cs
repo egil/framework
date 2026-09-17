@@ -84,21 +84,30 @@ internal static class SourceValueShapes
     }
 
     /// <summary>
-    /// Whether the effective number handling lets the converter for <paramref name="type"/> read
-    /// a JSON string: <see cref="JsonNumberHandling.AllowReadingFromString"/> for any number and
-    /// <see cref="JsonNumberHandling.AllowNamedFloatingPointLiterals"/> only for IEEE floating-point
-    /// types, whose converters accept "NaN", "Infinity" and "-Infinity". The converter still
-    /// validates the string, so routing only needs to know that a string may be a number.
+    /// Whether <see cref="JsonNumberHandling.AllowReadingFromString"/> lets numeric converters read
+    /// ordinary quoted numbers such as "42". The converter still validates the text, so routing
+    /// only needs to know that a string may be a number.
     /// </summary>
-    public static bool AllowsQuotedNumbers(JsonNumberHandling numberHandling, Type type)
-    {
-        if ((numberHandling & JsonNumberHandling.AllowReadingFromString) != 0)
-        {
-            return true;
-        }
+    public static bool AllowsQuotedNumbers(JsonNumberHandling numberHandling)
+        => (numberHandling & JsonNumberHandling.AllowReadingFromString) != 0;
 
-        return (numberHandling & JsonNumberHandling.AllowNamedFloatingPointLiterals) != 0 && IsIeeeFloatingPoint(type);
-    }
+    /// <summary>
+    /// Whether the converter for <paramref name="type"/> reads "NaN", "Infinity" and "-Infinity"
+    /// from a JSON string: only IEEE floating-point converters do, under either
+    /// <see cref="JsonNumberHandling.AllowReadingFromString"/> or
+    /// <see cref="JsonNumberHandling.AllowNamedFloatingPointLiterals"/>.
+    /// </summary>
+    public static bool AllowsNamedFloatingPointLiterals(JsonNumberHandling numberHandling, Type type)
+        => IsIeeeFloatingPoint(type)
+            && (numberHandling & (JsonNumberHandling.AllowReadingFromString | JsonNumberHandling.AllowNamedFloatingPointLiterals)) != 0;
+
+    /// <summary>
+    /// Whether the string token under <paramref name="reader"/> is one of the named literals that
+    /// floating-point converters accept, which integer converters reject even when they read
+    /// numbers from strings.
+    /// </summary>
+    public static bool IsNamedFloatingPointLiteral(ref Utf8JsonReader reader)
+        => reader.ValueTextEquals("NaN"u8) || reader.ValueTextEquals("Infinity"u8) || reader.ValueTextEquals("-Infinity"u8);
 
     private static bool IsIeeeFloatingPoint(Type type)
     {

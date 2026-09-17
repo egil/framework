@@ -142,6 +142,19 @@ public partial class NumericSourceMigrationTests
     }
 
     [Fact]
+    public void Named_literal_reaches_only_the_floating_point_source_when_both_flags_are_set()
+    {
+        var options = new JsonSerializerOptions { NumberHandling = JsonNumberHandling.AllowReadingFromString | JsonNumberHandling.AllowNamedFloatingPointLiterals };
+        options.AddJsonMigrationSupport();
+
+        var named = JsonSerializer.Deserialize<IntOrDoubleState>("\"NaN\"", options);
+        var quoted = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<IntOrDoubleState>("\"42\"", options));
+
+        Assert.Equal("from-double", named!.Source);
+        Assert.Contains("ambiguous", quoted.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Quoted_number_is_not_treated_as_numeric_source_under_strict_number_handling()
     {
         var options = new JsonSerializerOptions();
@@ -457,6 +470,24 @@ public partial class NumericSourceMigrationTests
         public static bool TryMigrateFrom(List<Item> source, out IntOrItemListState result)
         {
             result = new IntOrItemListState("from-item-list");
+            return true;
+        }
+    }
+
+    [JsonMigratable]
+    public record class IntOrDoubleState(string Source)
+        : IMigrateFrom<int, IntOrDoubleState>,
+          IMigrateFrom<double, IntOrDoubleState>
+    {
+        public static bool TryMigrateFrom(int source, out IntOrDoubleState result)
+        {
+            result = new IntOrDoubleState("from-int");
+            return true;
+        }
+
+        public static bool TryMigrateFrom(double source, out IntOrDoubleState result)
+        {
+            result = new IntOrDoubleState("from-double");
             return true;
         }
     }

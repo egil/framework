@@ -16,16 +16,17 @@ internal sealed partial class JsonMigratableConverter<T>
         // Primitive tokens: disambiguate by checking which source CLR type is compatible with
         // the JSON token type. Exact shapes win; a quoted number only reaches a numeric source
         // when no string-shaped source exists and the options allow reading numbers from strings.
-        MigratorReference? match = MatchPrimitive(tokenType, allowQuotedNumbers: false);
+        // "NaN"/"Infinity" text qualifies floating-point sources only.
+        MigratorReference? match = MatchPrimitive(tokenType, quotedNumbers: false, namedLiteral: false);
         if (match is null && tokenType is JsonTokenType.String)
         {
-            match = MatchPrimitive(tokenType, allowQuotedNumbers: true);
+            match = MatchPrimitive(tokenType, quotedNumbers: true, SourceValueShapes.IsNamedFloatingPointLiteral(ref reader));
         }
 
         return match;
     }
 
-    private MigratorReference? MatchPrimitive(JsonTokenType tokenType, bool allowQuotedNumbers)
+    private MigratorReference? MatchPrimitive(JsonTokenType tokenType, bool quotedNumbers, bool namedLiteral)
     {
         MigratorReference? match = null;
         foreach (MigratorReference migrator in context.Migrators)
@@ -38,7 +39,8 @@ internal sealed partial class JsonMigratableConverter<T>
                 continue;
             }
 
-            if (!SourceValueShapes.IsTokenCompatible(tokenType, migrator.SourceShape, allowQuotedNumbers && migrator.AllowsQuotedNumbers))
+            bool allowQuoted = quotedNumbers && (namedLiteral ? migrator.AllowsNamedFloatingPointLiterals : migrator.AllowsQuotedNumbers);
+            if (!SourceValueShapes.IsTokenCompatible(tokenType, migrator.SourceShape, allowQuoted))
             {
                 continue;
             }
@@ -86,8 +88,7 @@ internal sealed partial class JsonMigratableConverter<T>
         }
 
         // Multiple candidates — peek at the first value/element token to disambiguate.
-        JsonTokenType? valueToken = PeekFirstValueToken(ref reader, kind);
-        if (valueToken is null)
+        if (!TryPeekFirstValueToken(ref reader, kind, out JsonTokenType valueToken, out bool namedLiteral))
         {
             // Empty collection — can't disambiguate between multiple candidates.
             ThrowAmbiguousNonObjectMigrators(typeof(T));
@@ -95,16 +96,16 @@ internal sealed partial class JsonMigratableConverter<T>
 
         // Same precedence as top-level primitives: exact element shapes first, then quoted
         // numbers for numeric element types when number handling allows reading from strings.
-        MigratorReference? match = MatchByPrimitiveElementType(kind, valueToken.Value, allowQuotedNumbers: false);
+        MigratorReference? match = MatchByPrimitiveElementType(kind, valueToken, quotedNumbers: false, namedLiteral: false);
 
         if (match is null && valueToken is JsonTokenType.String)
         {
-            match = MatchByPrimitiveElementType(kind, valueToken.Value, allowQuotedNumbers: true);
+            match = MatchByPrimitiveElementType(kind, valueToken, quotedNumbers: true, namedLiteral);
         }
 
         if (match is null)
         {
-            match = MatchByComplexElementType(ref reader, kind, valueToken.Value);
+            match = MatchByComplexElementType(ref reader, kind, valueToken);
         }
 
         return match ?? singleCandidate;
@@ -152,7 +153,7 @@ internal sealed partial class JsonMigratableConverter<T>
         return singleCandidate;
     }
 
-    private MigratorReference? MatchByPrimitiveElementType(JsonTypeInfoKind kind, JsonTokenType valueToken, bool allowQuotedNumbers)
+    private MigratorReference? MatchByPrimitiveElementType(JsonTypeInfoKind kind, JsonTokenType valueToken, bool quotedNumbers, bool namedLiteral)
     {
         MigratorReference? match = null;
         foreach (MigratorReference migrator in context.Migrators)
@@ -162,7 +163,8 @@ internal sealed partial class JsonMigratableConverter<T>
                 continue;
             }
 
-            if (!SourceValueShapes.IsTokenCompatible(valueToken, migrator.ElementShape, allowQuotedNumbers && migrator.ElementAllowsQuotedNumbers))
+            bool allowQuoted = quotedNumbers && (namedLiteral ? migrator.ElementAllowsNamedFloatingPointLiterals : migrator.ElementAllowsQuotedNumbers);
+            if (!SourceValueShapes.IsTokenCompatible(valueToken, migrator.ElementShape, allowQuoted))
             {
                 continue;
             }
@@ -239,46 +241,41 @@ internal sealed partial class JsonMigratableConverter<T>
         return match;
     }
 
-    private static JsonTokenType? PeekFirstValueToken(ref Utf8JsonReader reader, JsonTypeInfoKind kind)
+    private static bool TryPeekFirstValueToken(ref Utf8JsonReader reader, JsonTypeInfoKind kind, out JsonTokenType valueToken, out bool namedLiteral)
     {
         var probe = reader;
+        valueToken = JsonTokenType.None;
+        namedLiteral = false;
 
         // For arrays, read past StartArray to get the first element.
         // For dictionaries, we're already past StartObject and the first PropertyName;
         // read past the property name to get the value.
         if (kind is JsonTypeInfoKind.Enumerable)
         {
+            // Empty array or truncated input.
+            if (!probe.Read() || probe.TokenType is JsonTokenType.EndArray)
+            {
+                return false;
+            }
+        }
+        else
+        {
+            // Dictionary: the reader probe is already at the first PropertyName position.
+            // Skip past the property name to get the value token.
             if (!probe.Read())
             {
-                return null;
+                return false;
             }
 
-            // Empty array
-            if (probe.TokenType is JsonTokenType.EndArray)
+            if (probe.TokenType is JsonTokenType.PropertyName && !probe.Read())
             {
-                return null;
-            }
-
-            return probe.TokenType;
-        }
-
-        // Dictionary: the reader probe is already at the first PropertyName position.
-        // Skip past the property name to get the value token.
-        if (!probe.Read())
-        {
-            return null;
-        }
-
-        // The property name — now read the value.
-        if (probe.TokenType is JsonTokenType.PropertyName)
-        {
-            if (!probe.Read())
-            {
-                return null;
+                return false;
             }
         }
 
-        return probe.TokenType;
+        valueToken = probe.TokenType;
+        namedLiteral = valueToken is JsonTokenType.String && SourceValueShapes.IsNamedFloatingPointLiteral(ref probe);
+        return true;
     }
 
     private MigratorReference? FindMigratorByElementDiscriminator(ref Utf8JsonReader reader, JsonTypeInfoKind kind)

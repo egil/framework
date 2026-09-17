@@ -24,6 +24,7 @@ internal sealed class UnionCaseRouting
     private readonly ShapeRoute arrayRoute;
     private readonly ShapeRoute stringRoute;
     private readonly ShapeRoute quotedNumberRoute;
+    private readonly ShapeRoute namedLiteralRoute;
     private readonly ShapeRoute numberRoute;
     private readonly ShapeRoute booleanRoute;
 
@@ -38,6 +39,7 @@ internal sealed class UnionCaseRouting
         ShapeRoute arrayRoute,
         ShapeRoute stringRoute,
         ShapeRoute quotedNumberRoute,
+        ShapeRoute namedLiteralRoute,
         ShapeRoute numberRoute,
         ShapeRoute booleanRoute)
     {
@@ -51,6 +53,7 @@ internal sealed class UnionCaseRouting
         this.arrayRoute = arrayRoute;
         this.stringRoute = stringRoute;
         this.quotedNumberRoute = quotedNumberRoute;
+        this.namedLiteralRoute = namedLiteralRoute;
         this.numberRoute = numberRoute;
         this.booleanRoute = booleanRoute;
     }
@@ -67,6 +70,7 @@ internal sealed class UnionCaseRouting
         var arrayCases = new List<Type>();
         var stringCases = new List<Type>();
         var quotedNumberCases = new List<Type>();
+        var namedLiteralCases = new List<Type>();
         var numberCases = new List<Type>();
         var booleanCases = new List<Type>();
 
@@ -176,12 +180,19 @@ internal sealed class UnionCaseRouting
                     AddCase(numberCases, caseType);
 
                     // With AllowReadingFromString (on by default with JsonSerializerDefaults.Web)
-                    // or AllowNamedFloatingPointLiterals the numeric converter also accepts a JSON
-                    // string. A string-shaped case still wins string payloads; numeric cases only
-                    // take them when no such case exists.
-                    if (SourceValueShapes.AllowsQuotedNumbers(options.GetTypeInfo(shapeType).NumberHandling ?? options.NumberHandling, shapeType))
+                    // the numeric converter also accepts a quoted number, and floating-point
+                    // converters accept "NaN"/"Infinity" under either that flag or
+                    // AllowNamedFloatingPointLiterals. A string-shaped case still wins string
+                    // payloads; numeric cases only take them when no such case exists.
+                    JsonNumberHandling numberHandling = options.GetTypeInfo(shapeType).NumberHandling ?? options.NumberHandling;
+                    if (SourceValueShapes.AllowsQuotedNumbers(numberHandling))
                     {
                         AddCase(quotedNumberCases, caseType);
+                    }
+
+                    if (SourceValueShapes.AllowsNamedFloatingPointLiterals(numberHandling, shapeType))
+                    {
+                        AddCase(namedLiteralCases, caseType);
                     }
 
                     return;
@@ -225,6 +236,7 @@ internal sealed class UnionCaseRouting
             ShapeRoute.From(arrayCases),
             ShapeRoute.From(stringCases),
             ShapeRoute.From(quotedNumberCases),
+            ShapeRoute.From(namedLiteralCases),
             ShapeRoute.From(numberCases),
             ShapeRoute.From(booleanCases));
     }
@@ -238,7 +250,7 @@ internal sealed class UnionCaseRouting
             case JsonTokenType.StartArray:
                 return Resolve(arrayRoute, "array");
             case JsonTokenType.String:
-                return Resolve(stringRoute.Kind is RouteKind.None ? quotedNumberRoute : stringRoute, "string");
+                return Resolve(ResolveStringRoute(ref reader), "string");
             case JsonTokenType.Number:
                 return Resolve(numberRoute, "number");
             case JsonTokenType.True:
@@ -310,6 +322,16 @@ internal sealed class UnionCaseRouting
 
         ThrowAmbiguousObject();
         return null!;
+    }
+
+    private ShapeRoute ResolveStringRoute(ref Utf8JsonReader reader)
+    {
+        if (stringRoute.Kind is not RouteKind.None)
+        {
+            return stringRoute;
+        }
+
+        return SourceValueShapes.IsNamedFloatingPointLiteral(ref reader) ? namedLiteralRoute : quotedNumberRoute;
     }
 
     private Type Resolve(ShapeRoute route, string shape)

@@ -22,13 +22,22 @@ internal sealed record MigratorReference(
         ? SourceValueShape.Unknown
         : SourceValueShapes.Classify(SourceType);
 
+    // Number handling is resolved once so the read path does not consult the options.
     // AllowReadingFromString (on by default with JsonSerializerDefaults.Web) lets numeric sources
-    // read quoted numbers and AllowNamedFloatingPointLiterals lets floating-point sources read
-    // "NaN"/"Infinity"; resolved once so the read path does not consult the options.
-    public bool AllowsQuotedNumbers { get; } = SourceValueShapes.AllowsQuotedNumbers(SourceTypeInfo.NumberHandling ?? SourceTypeInfo.Options.NumberHandling, SourceType);
+    // read quoted numbers; floating-point sources additionally read "NaN"/"Infinity" under
+    // AllowNamedFloatingPointLiterals.
+    public bool AllowsQuotedNumbers { get; } = SourceValueShapes.AllowsQuotedNumbers(SourceTypeInfo.NumberHandling ?? SourceTypeInfo.Options.NumberHandling);
 
+    public bool AllowsNamedFloatingPointLiterals { get; } = SourceValueShapes.AllowsNamedFloatingPointLiterals(SourceTypeInfo.NumberHandling ?? SourceTypeInfo.Options.NumberHandling, SourceType);
+
+    // Elements follow the collection's number handling, then the options'. A NumberHandling set
+    // on the element type's own JsonTypeInfo is not applied by STJ's collection converters
+    // (verified: List<int> still rejects ["42"] with JsonTypeInfo<int>.NumberHandling set).
     public bool ElementAllowsQuotedNumbers { get; } = SourceTypeInfo.Kind is JsonTypeInfoKind.Enumerable or JsonTypeInfoKind.Dictionary
-        && SourceValueShapes.AllowsQuotedNumbers(SourceTypeInfo.NumberHandling ?? SourceTypeInfo.Options.NumberHandling, SourceValueShapes.GetValueType(SourceType, SourceTypeInfo.Kind));
+        && SourceValueShapes.AllowsQuotedNumbers(EffectiveElementNumberHandling(SourceTypeInfo));
+
+    public bool ElementAllowsNamedFloatingPointLiterals { get; } = SourceTypeInfo.Kind is JsonTypeInfoKind.Enumerable or JsonTypeInfoKind.Dictionary
+        && SourceValueShapes.AllowsNamedFloatingPointLiterals(EffectiveElementNumberHandling(SourceTypeInfo), SourceValueShapes.GetValueType(SourceType, SourceTypeInfo.Kind));
 
     public Type ElementType { get; } = SourceTypeInfo.Kind is JsonTypeInfoKind.Enumerable or JsonTypeInfoKind.Dictionary
         ? SourceValueShapes.GetValueType(SourceType, SourceTypeInfo.Kind)
@@ -53,6 +62,9 @@ internal sealed record MigratorReference(
         && !JsonMigratableTypes.HasConverterOverride(SourceValueShapes.GetValueType(SourceType, SourceTypeInfo.Kind), SourceTypeInfo.Options)
         ? SourceValueShapes.Classify(SourceValueShapes.GetValueType(SourceType, SourceTypeInfo.Kind))
         : SourceValueShape.Unknown;
+
+    private static System.Text.Json.Serialization.JsonNumberHandling EffectiveElementNumberHandling(JsonTypeInfo sourceTypeInfo)
+        => sourceTypeInfo.NumberHandling ?? sourceTypeInfo.Options.NumberHandling;
 
     private static TypeMetadata? ElementMetadata(Type sourceType, JsonTypeInfoKind kind)
     {
