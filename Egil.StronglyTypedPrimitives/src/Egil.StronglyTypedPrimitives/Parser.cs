@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -6,6 +7,13 @@ namespace Egil.StronglyTypedPrimitives;
 
 internal static class Parser
 {
+    private const string ValidationAttributeTypeName = "System.ComponentModel.DataAnnotations.ValidationAttribute";
+
+    // Only exists from .NET 11 on. Matching on the base type name means a compilation that cannot
+    // see the type simply has no async attributes, without a separate lookup that has to be
+    // tolerant of the type being absent.
+    private const string AsyncValidationAttributeTypeName = "System.ComponentModel.DataAnnotations.AsyncValidationAttribute";
+
     internal static string? GetNamespace(RecordDeclarationSyntax structSymbol)
     {
         SyntaxNode? potentialNamespaceParent = structSymbol.Parent;
@@ -124,92 +132,95 @@ internal static class Parser
         return (hasToString, hasToStringWithFormat, hasToStringWithFormatProvider);
     }
 
-    internal static IEnumerable<string> GetValidationAttributes(ParameterSyntax parameter, SemanticModel semanticModel)
+    // Only attributes applied to the parameter itself take part. That is the default target on a
+    // positional record parameter and the parameter symbol is what carries them, so attributes the
+    // user redirected with property: or field: never show up here.
+    internal static ValidationAttributeModel GetValidationAttributes(ParameterSyntax parameter, SemanticModel semanticModel)
     {
-        var parameterSymbol = semanticModel.GetDeclaredSymbol(parameter);
-        if (parameterSymbol is null)
-            yield break;
+        if (semanticModel.GetDeclaredSymbol(parameter) is not { } parameterSymbol)
+        {
+            return ValidationAttributeModel.Empty;
+        }
+
+        var attributes = ImmutableArray.CreateBuilder<ValidationAttributeInfo>();
+        var asyncAttributes = ImmutableArray.CreateBuilder<ValidationAttributeInfo>();
 
         foreach (var attribute in parameterSymbol.GetAttributes())
         {
-            if (!IsValidationAttribute(attribute))
+            if (attribute.AttributeClass is not { } attributeClass || !DerivesFrom(attributeClass, ValidationAttributeTypeName))
             {
                 continue;
             }
 
-            var constructorArgs = GetAttributeConstructorArgs(attribute);
-            var namedArgs = string.Join(", ", attribute.NamedArguments.Select(na => $"{na.Key} = {na.Value.ToCSharpString()}"));
-            var args = string.Join(", ", new[] { constructorArgs, namedArgs }.Where(s => !string.IsNullOrEmpty(s)));
-            yield return $"new global::{attribute.AttributeClass!.ToDisplayString()}({args})";
+            var isAsync = DerivesFrom(attributeClass, AsyncValidationAttributeTypeName);
+            var target = isAsync ? asyncAttributes : attributes;
+            var index = target.Count;
+            target.Add(new ValidationAttributeInfo(
+                index,
+                isAsync ? $"asyncValueValidator{index}" : $"valueValidator{index}",
+                attributeClass.ToDisplayString(),
+                string.Join(", ", attribute.ConstructorArguments.Select(FormatAttributeArgument)),
+                FormatNamedArguments(attribute.NamedArguments),
+                attribute.ApplicationSyntaxReference?.GetSyntax().GetLocation() ?? parameter.Identifier.GetLocation()));
         }
+
+        return new ValidationAttributeModel(attributes.ToImmutable(), asyncAttributes.ToImmutable());
     }
 
-    internal static string GetAttributeConstructorArgs(AttributeData attribute)
+    // Attribute arguments are re-emitted as C# so the generated field constructs the attribute
+    // exactly as the user declared it. ToCSharpString already quotes strings, qualifies enum
+    // members and writes typeof(...), but it prints an array as a bare initializer and a number
+    // without any type information, so Range(1.0, 2.0) would come back as Range(1, 2) and bind to
+    // the int overload, and AllowedValues(1L) would box an int instead of a long.
+    private static string FormatAttributeArgument(TypedConstant argument)
     {
-        var constructor = attribute.AttributeConstructor;
-        if (constructor == null)
-            return string.Empty;
-
-        var args = new List<string>();
-        var paramsParameter = constructor.Parameters.FirstOrDefault(p => p.IsParams);
-
-        if (paramsParameter == null)
+        if (argument.IsNull)
         {
-            // No params parameter, handle normally
-            return string.Join(", ", attribute.ConstructorArguments.Select(arg => arg.ToCSharpString()));
+            return "null";
         }
 
-        // Handle regular arguments before params array
-        var paramsArrayStart = constructor.Parameters.IndexOf(paramsParameter);
-        for (var i = 0; i < paramsArrayStart; i++)
+        return argument.Kind switch
         {
-            args.Add(attribute.ConstructorArguments[i].ToCSharpString());
-        }
-
-        // Handle params array
-        if (attribute.ConstructorArguments.Length > paramsArrayStart)
-        {
-            var paramsArg = attribute.ConstructorArguments[paramsArrayStart];
-            if (paramsArg.Kind == TypedConstantKind.Array)
-            {
-                // If we have multiple values, create an array
-                var values = paramsArg.Values.Select(v => v.ToCSharpString());
-                if (values.Any())
-                {
-                    if (values.Count() > 1)
-                    {
-                        args.Add($"new [] {{{string.Join(", ", values)}}}");
-                    }
-                    else
-                    {
-                        args.Add(values.First());
-                    }
-                }
-            }
-            else
-            {
-                // Single argument passed to params
-                args.Add(paramsArg.ToCSharpString());
-            }
-        }
-
-        return string.Join(", ", args);
+            TypedConstantKind.Array => $"new {argument.Type!.ToDisplayString()} {{ {string.Join(", ", argument.Values.Select(FormatAttributeArgument))} }}",
+            TypedConstantKind.Primitive when RequiresTypedLiteral(argument.Type!) => FormatTypedPrimitive(argument),
+            _ => argument.ToCSharpString(),
+        };
     }
 
-    internal static bool IsValidationAttribute(AttributeData attribute)
+    // int, bool, char and string literals already carry their type; every other numeric type is
+    // written as a cast of the literal so the constant keeps the type it had on the attribute.
+    private static bool RequiresTypedLiteral(ITypeSymbol type)
+        => type.SpecialType is SpecialType.System_Single
+            or SpecialType.System_Double
+            or SpecialType.System_Int64
+            or SpecialType.System_UInt64
+            or SpecialType.System_UInt32
+            or SpecialType.System_Int16
+            or SpecialType.System_UInt16
+            or SpecialType.System_Byte
+            or SpecialType.System_SByte;
+
+    private static string FormatTypedPrimitive(TypedConstant argument)
     {
-        var baseType = attribute.AttributeClass?.BaseType;
-        while (baseType is not null)
+        // ToCSharpString prints NaN and the infinities in a form that is not a C# literal.
+        var literal = argument.Value switch
         {
-            if (baseType.ToDisplayString() == "System.ComponentModel.DataAnnotations.ValidationAttribute")
-            {
-                return true;
-            }
+            double d when double.IsNaN(d) => "double.NaN",
+            double d when double.IsPositiveInfinity(d) => "double.PositiveInfinity",
+            double d when double.IsNegativeInfinity(d) => "double.NegativeInfinity",
+            float f when float.IsNaN(f) => "float.NaN",
+            float f when float.IsPositiveInfinity(f) => "float.PositiveInfinity",
+            float f when float.IsNegativeInfinity(f) => "float.NegativeInfinity",
+            _ => argument.ToCSharpString(),
+        };
 
-            baseType = baseType.BaseType;
-        }
-        return false;
+        return $"({argument.Type!.ToDisplayString()}){literal}";
     }
+
+    private static string FormatNamedArguments(ImmutableArray<KeyValuePair<string, TypedConstant>> namedArguments)
+        => namedArguments.Length == 0
+            ? string.Empty
+            : $"{{ {string.Join(", ", namedArguments.Select(argument => $"{argument.Key} = {FormatAttributeArgument(argument.Value)}"))} }}";
 
     internal static bool IsUnderlyingTypeIParsableOrString(SemanticModel semanticModel, ITypeSymbol underlyingTypeSymbol)
     {
@@ -285,10 +296,13 @@ internal static class Parser
     }
 
     internal static bool DerivesFromJsonSerializerContext(INamedTypeSymbol type)
+        => DerivesFrom(type, "System.Text.Json.Serialization.JsonSerializerContext");
+
+    private static bool DerivesFrom(INamedTypeSymbol type, string baseTypeName)
     {
         for (var baseType = type.BaseType; baseType is not null; baseType = baseType.BaseType)
         {
-            if (baseType.ToDisplayString() == "System.Text.Json.Serialization.JsonSerializerContext")
+            if (baseType.ToDisplayString() == baseTypeName)
             {
                 return true;
             }
