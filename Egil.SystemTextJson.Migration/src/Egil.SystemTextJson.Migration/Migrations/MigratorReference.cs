@@ -41,6 +41,12 @@ internal sealed record MigratorReference(
     public bool ElementAllowsNamedFloatingPointLiterals { get; } = SourceTypeInfo.Kind is JsonTypeInfoKind.Enumerable or JsonTypeInfoKind.Dictionary
         && SourceValueShapes.AllowsNamedFloatingPointLiterals(EffectiveElementNumberHandling(SourceTypeInfo), SourceValueShapes.GetValueType(SourceTypeInfo));
 
+    // The element's own contract kind decides whether it is written as a JSON array or object;
+    // a CLR heuristic would miss derived collections such as class IntCollection : List<int>.
+    public JsonTypeInfoKind ElementKind { get; } = SourceTypeInfo.Kind is JsonTypeInfoKind.Enumerable or JsonTypeInfoKind.Dictionary
+        ? SourceTypeInfo.Options.GetTypeInfo(SourceValueShapes.GetValueType(SourceTypeInfo)).Kind
+        : JsonTypeInfoKind.None;
+
     public Type ElementType { get; } = SourceTypeInfo.Kind is JsonTypeInfoKind.Enumerable or JsonTypeInfoKind.Dictionary
         ? SourceValueShapes.GetValueType(SourceTypeInfo)
         : typeof(object);

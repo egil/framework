@@ -216,16 +216,12 @@ internal sealed partial class JsonMigratableConverter<T>
                 continue;
             }
 
-            Type elementType = migrator.ElementType;
-            bool isElementEnumerable = elementType.IsArray
-                || (elementType.IsGenericType && typeof(System.Collections.IEnumerable).IsAssignableFrom(elementType));
-
-            if (valueToken is JsonTokenType.StartArray && !isElementEnumerable)
+            if (valueToken is JsonTokenType.StartArray && migrator.ElementKind is not JsonTypeInfoKind.Enumerable)
             {
                 continue;
             }
 
-            if (valueToken is JsonTokenType.StartObject && isElementEnumerable)
+            if (valueToken is JsonTokenType.StartObject && migrator.ElementKind is not (JsonTypeInfoKind.Object or JsonTypeInfoKind.Dictionary))
             {
                 continue;
             }
