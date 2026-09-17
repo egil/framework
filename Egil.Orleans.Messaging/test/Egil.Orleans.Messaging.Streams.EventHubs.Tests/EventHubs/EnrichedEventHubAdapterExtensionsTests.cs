@@ -25,8 +25,16 @@ public sealed class EnrichedEventHubAdapterExtensionsTests
         Assert.NotNull(configurator.LastConfigureAction);
     }
 
+    // Verifies the round trip works once the adapter has been configured, not that
+    // this call is what registered the converters. StreamSequenceTokenJsonConverters
+    // is process-wide and append-only by design — a persisted Kind must keep decoding
+    // the same way for the life of the process — so another test in this assembly may
+    // already have registered the same descriptors, and no test here can establish the
+    // "not yet registered" precondition that attributing the registration would need.
+    // Proving causation would take a dedicated single-test assembly per case, since an
+    // xUnit assembly is the process boundary.
     [Fact]
-    public void UseEnrichedDataAdapter_registers_stream_sequence_token_converters()
+    public void Enriched_token_round_trips_after_UseEnrichedDataAdapter()
     {
         var configurator = new FakeEventHubStreamConfigurator("provider-a");
         var token = new EnrichedEventHubSequenceToken(

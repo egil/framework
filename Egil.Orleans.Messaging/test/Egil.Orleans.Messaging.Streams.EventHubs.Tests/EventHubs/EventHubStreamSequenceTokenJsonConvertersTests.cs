@@ -13,9 +13,14 @@ public sealed class EventHubStreamSequenceTokenJsonConvertersTests
         CreateEnrichedToken(),
     };
 
+    // These round-trip tests assert the converters behave correctly once registered.
+    // They cannot assert that a particular call did the registering: the registry is
+    // process-wide and append-only (see the non-goal in api-design.md), so any earlier
+    // test in this assembly may already have registered the same descriptors and there
+    // is no way to establish a clean precondition inside one process.
     [Theory]
     [MemberData(nameof(EventHubTokens))]
-    public void Register_registers_every_event_hub_token_type(StreamSequenceToken token)
+    public void Every_event_hub_token_type_round_trips(StreamSequenceToken token)
     {
         EventHubStreamSequenceTokenJsonConverters.Register();
 
@@ -44,12 +49,14 @@ public sealed class EventHubStreamSequenceTokenJsonConvertersTests
     }
 
     [Fact]
-    public void AddEventHubStreamSequenceTokenJsonConverters_registers_the_converters()
+    public void AddEventHubStreamSequenceTokenJsonConverters_returns_the_service_collection()
     {
         var services = new ServiceCollection();
 
         var returned = services.AddEventHubStreamSequenceTokenJsonConverters();
 
+        // The fluent return is the part this test isolates; the round trip below is a
+        // smoke check that the extension leaves the registry in a usable state.
         Assert.Same(services, returned);
         AssertRoundTrips(CreateEnrichedToken());
     }
