@@ -574,6 +574,30 @@ siloBuilder.AddEventHubStreams("event-hubs", configurator =>
 });
 ```
 
+### Registering the converters outside a silo
+
+Any process that deserializes grain state containing Event Hub tokens needs
+these converters, including processes that never configure an Event Hub stream
+provider — a test fixture on in-memory storage using the production
+`JsonSerializerOptions`, a tool that reads grain state blobs offline, a
+background archiver. Register them directly, with or without a container:
+
+```csharp
+EventHubStreamSequenceTokenJsonConverters.Register();
+```
+
+```csharp
+services.AddEventHubStreamSequenceTokenJsonConverters();
+```
+
+Registration is idempotent, so these and `UseEnrichedDataAdapter()` can be
+combined in any order — a silo that does both is fine, and no registrar has to
+run first. `StreamSequenceTokenJsonConverters.Register(...)` throws only on a
+genuine conflict, where a *different* converter claims a type descriptor that is
+already taken. Do not wrap registration in `try`/`catch
+(InvalidOperationException)`: there is no duplicate to swallow, and it would
+hide exactly the conflict worth knowing about.
+
 The core package can consume provider-specific token metadata through
 `IStreamSequenceTokenMetadata` without taking a direct Event Hubs dependency.
 Custom stream providers that expose custom `StreamSequenceToken` types should
