@@ -12,10 +12,12 @@
 namespace SomeNamespace;
 
 [System.CodeDom.Compiler.GeneratedCodeAttribute("Egil.StronglyTypedPrimitives, Version=x.x.x.x, Culture=neutral, PublicKeyToken=null", "x.x.x.x")]
-[System.Text.Json.Serialization.JsonConverterAttribute(typeof(FooJsonConverter))]
-public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<float>, System.IParsable<SomeNamespace.Foo>, System.ISpanParsable<SomeNamespace.Foo>, System.IUtf8SpanParsable<SomeNamespace.Foo>, System.IComparable<SomeNamespace.Foo>, System.IComparable, System.IFormattable, System.ISpanFormattable, System.IUtf8SpanFormattable
+[System.Text.Json.Serialization.JsonConverterAttribute(typeof(Egil.StronglyTypedPrimitives.StronglyTypedJsonConverter<SomeNamespace.Foo, float>))]
+public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<float>, Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<SomeNamespace.Foo, float>, System.IParsable<SomeNamespace.Foo>, System.ISpanParsable<SomeNamespace.Foo>, System.IUtf8SpanParsable<SomeNamespace.Foo>, System.IComparable<SomeNamespace.Foo>, System.IComparable, System.IFormattable, System.ISpanFormattable, System.IUtf8SpanFormattable
 {
     public static readonly Foo Empty = default;
+
+    public static Foo Create(float value) => new Foo(value);
 
     public override string ToString() => Value.ToString();
 
@@ -107,25 +109,4 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
     public static bool operator >=(Foo a, Foo b) => a.CompareTo(b) >= 0;
     
     public static bool operator <=(Foo a, Foo b) => a.CompareTo(b) <= 0;
-
-    public sealed class FooJsonConverter : System.Text.Json.Serialization.JsonConverter<Foo>
-    {
-        public override Foo Read(ref System.Text.Json.Utf8JsonReader reader, System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
-        {
-            var rawValue = System.Text.Json.JsonSerializer.Deserialize<float>(ref reader, options);
-            
-            return Foo.IsValueValid(rawValue, throwIfInvalid: false)
-                ? new Foo(rawValue)
-                : Foo.Empty;
-        }
-
-        public override void Write(System.Text.Json.Utf8JsonWriter writer, Foo value, System.Text.Json.JsonSerializerOptions options)
-            => System.Text.Json.JsonSerializer.Serialize(writer, value.Value, options);
-
-        public override Foo ReadAsPropertyName(ref System.Text.Json.Utf8JsonReader reader, System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
-            => Foo.Parse(reader.GetString()!, null);
-
-        public override void WriteAsPropertyName(System.Text.Json.Utf8JsonWriter writer, [System.Diagnostics.CodeAnalysis.DisallowNull] Foo value, System.Text.Json.JsonSerializerOptions options)
-            => writer.WritePropertyName(value.ToString());
-    }
 }

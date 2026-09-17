@@ -260,11 +260,15 @@ internal static class Parser
     }
 
 
+    // The attribute is only emitted when both System.Text.Json and the shared converter from the
+    // Abstractions assembly are visible to the compilation; netstandard2.0 consumers get neither.
     internal static bool ShouldGenerateJsonConverter(Compilation compilation, INamedTypeSymbol targetTypeSymbol)
     {
         var jsonConverterAttributeType = compilation.GetTypeByMetadataName("System.Text.Json.Serialization.JsonConverterAttribute");
+        var sharedJsonConverterType = compilation.GetTypeByMetadataName("Egil.StronglyTypedPrimitives.StronglyTypedJsonConverter`2");
         var hasJsonConverterAttribute = targetTypeSymbol.GetAttributes().Any(a => a.AttributeClass?.Equals(jsonConverterAttributeType, SymbolEqualityComparer.Default) == true);
-        var generateJsonConverter = jsonConverterAttributeType is not null && !hasJsonConverterAttribute;
+        var generateJsonConverter = jsonConverterAttributeType is not null && sharedJsonConverterType is not null && !hasJsonConverterAttribute;
         return generateJsonConverter;
     }
+
 }
