@@ -295,6 +295,20 @@ public partial class UnionMigrationTests
     }
 
     [Fact]
+    public void Nested_union_discriminators_route_to_the_nested_union_case()
+    {
+        // "rect-v2" belongs to a case of the inner union only; the outer union forwards it.
+        var options = CreateOptions();
+
+        var value = JsonSerializer.Deserialize<NoteOrShape>("""{"$type":"rect-v2","width":1,"height":2}""", options);
+        var migrated = JsonSerializer.Deserialize<NoteOrShape>("""{"$type":"rect-v1","w":3,"h":4}""", CreateOptions(builder => builder.RegisterMigrator<RectangleV1, RectangleV2, RectangleMigrator>()));
+
+        var inner = Assert.IsType<Shape>(value.Value);
+        Assert.IsType<RectangleV2>(inner.Value);
+        Assert.Equal(3, Assert.IsType<RectangleV2>(Assert.IsType<Shape>(migrated.Value).Value).Width);
+    }
+
+    [Fact]
     public void Union_discriminator_that_is_not_a_string_throws()
     {
         var options = CreateOptions();
@@ -652,6 +666,8 @@ public partial class UnionMigrationTests
     public union ShapeOrStringOrChar(CircleV2, string, char);
 
     public union ShapeOrNestedUnion(CircleV2, ShapeOrNote);
+
+    public union NoteOrShape(Note, Shape);
 
     public union PointOrNestedUnion(PointV2, ShapeOrNote);
 

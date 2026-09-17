@@ -67,6 +67,7 @@ internal sealed class UnionCaseRouting
         Type? unknownShapeCase = null;
         var plainObjectCases = new List<Type>();
         var migratableCases = new List<Type>();
+        var nestedUnions = new List<(JsonTypeInfo UnionTypeInfo, Type CaseType)>();
         var arrayCases = new List<Type>();
         var stringCases = new List<Type>();
         var quotedNumberCases = new List<Type>();
@@ -205,7 +206,8 @@ internal sealed class UnionCaseRouting
             }
 
             // Dictionaries serialize as JSON objects, so they compete with object cases.
-            switch (options.GetTypeInfo(shapeType).Kind)
+            JsonTypeInfo shapeTypeInfo = options.GetTypeInfo(shapeType);
+            switch (shapeTypeInfo.Kind)
             {
                 case JsonTypeInfoKind.Enumerable:
                     AddCase(arrayCases, caseType);
@@ -214,14 +216,67 @@ internal sealed class UnionCaseRouting
                 case JsonTypeInfoKind.Dictionary:
                     AddCase(plainObjectCases, caseType);
                     break;
+                case JsonTypeInfoKind.Union:
+                    // A nested union is reached through the discriminators of its own
+                    // migratable cases (recursively), registered after the direct cases so a
+                    // direct case keeps a discriminator both claim; for every other shape it may
+                    // accept anything, see below.
+                    nestedUnions.Add((shapeTypeInfo, caseType));
+                    unknownShapeCase ??= caseType;
+                    break;
                 default:
-                    // A nested union or a custom converter can accept any JSON shape, so no
-                    // shape-based fallback is safe while such a case exists: routing a
-                    // discriminator-less object to another case could silently drop the data
-                    // the nested case would have read. Discriminated payloads still route.
+                    // A custom converter can accept any JSON shape, so no shape-based fallback
+                    // is safe while such a case exists: routing a discriminator-less object to
+                    // another case could silently drop the data this case would have read.
                     unknownShapeCase ??= caseType;
                     break;
             }
+        }
+
+        // A direct case that already claims a discriminator wins over a nested union's claim.
+        void AddNestedDiscriminator(TypeMetadata metadata, Type caseType)
+        {
+            if (!caseByDiscriminator.ContainsKey((metadata.DiscriminatorPropertyName, metadata.Discriminator)))
+            {
+                AddDiscriminator(context.DeclaringType, entriesByPropertyName, caseByDiscriminator, knownDiscriminators, metadata, caseType);
+            }
+        }
+
+        void AddNestedUnionDiscriminators(JsonTypeInfo unionTypeInfo, Type caseType)
+        {
+            foreach (JsonUnionCaseInfo nestedCase in unionTypeInfo.UnionCases)
+            {
+                Type nestedType = nestedCase.CaseType;
+                if (JsonMigratableTypes.IsMigratable(nestedType))
+                {
+                    // Only object sources are forwarded; a nested union's primitive sources are
+                    // covered by the any-shape guard the nested union already imposes.
+                    AddNestedDiscriminator(registry.GetTypeMetadata(nestedType), caseType);
+
+                    foreach (Type sourceType in StaticMigratorContracts.GetSourceTypes(nestedType))
+                    {
+                        AddNestedDiscriminator(registry.GetTypeMetadata(sourceType), caseType);
+                    }
+
+                    foreach (ExternalMigratorRegistration registration in registry.GetForTarget(nestedType))
+                    {
+                        AddNestedDiscriminator(registration.SourceMetadata, caseType);
+                    }
+
+                    continue;
+                }
+
+                JsonTypeInfo nestedTypeInfo = options.GetTypeInfo(nestedType);
+                if (nestedTypeInfo.Kind is JsonTypeInfoKind.Union)
+                {
+                    AddNestedUnionDiscriminators(nestedTypeInfo, caseType);
+                }
+            }
+        }
+
+        foreach ((JsonTypeInfo unionTypeInfo, Type caseType) in nestedUnions)
+        {
+            AddNestedUnionDiscriminators(unionTypeInfo, caseType);
         }
 
         DiscriminatorPropertyGroup[] groups = [.. entriesByPropertyName.Select(static pair => new DiscriminatorPropertyGroup(

@@ -44,7 +44,7 @@ public sealed class JsonMigratableUnionTypeClassifier : JsonTypeClassifierFactor
 
         foreach (var unionCase in context.UnionCases)
         {
-            if (JsonMigratableTypes.IsMigratable(unionCase.CaseType))
+            if (JsonMigratableTypes.IsMigratable(unionCase.CaseType) || JsonMigratableTypes.IsUnionWithMigratableCase(unionCase.CaseType))
             {
                 return true;
             }
