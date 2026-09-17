@@ -205,15 +205,32 @@ public sealed class OutboxRestoreTests
     }
 
     [Fact]
-    public void Restore_of_an_empty_sequence_keeps_a_supplied_high_water_mark()
+    public void Restore_rejects_a_high_water_mark_for_an_empty_sequence()
     {
-        var restored = Outbox<string>.Restore(Array.Empty<OutboxMessageEnvelope<string>>(), 10);
+        // Receivers compare epochs first and sequence numbers only within the same epoch,
+        // so a mark with no epoch behind it cannot be honoured. Keeping it would hide that
+        // the source epoch was dropped; a drained source starts fresh with Create().
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(
+            () => Outbox<string>.Restore(Array.Empty<OutboxMessageEnvelope<string>>(), 10));
 
-        Assert.True(restored.IsEmpty);
-        Assert.Equal(10, restored.LatestSequenceNumber);
-        // No envelope carries an epoch, so the next append stamps a fresh one. Receivers
-        // accept a higher epoch unconditionally, so the reused sequence space is safe.
-        Assert.Null(restored.Epoch);
+        Assert.Equal("latestSequenceNumber", exception.ParamName);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void Restore_rejects_envelopes_with_a_non_positive_sequence_number(long sequenceNumber)
+    {
+        // Add assigns from 1, so an id at or below 0 is state the producing path can never
+        // reach. Allowing it let a restore build a negative high-water mark, after which
+        // the next append handed out sequence 0.
+        OutboxMessageEnvelope<string>[] envelopes =
+            [new(new OutboxMessageId(sequenceNumber, First, First), "first")];
+
+        var exception = Assert.Throws<ArgumentException>(
+            () => Outbox<string>.Restore(envelopes, sequenceNumber));
+
+        Assert.Equal("envelopes", exception.ParamName);
     }
 
     [Theory]

@@ -241,9 +241,12 @@ public sealed class Outbox<T> : IReadOnlyList<T>, IEquatable<Outbox<T>>
     /// <code>
     /// var moved = Outbox&lt;OrderEvent&gt;.Restore(previous.Envelopes, previous.LatestSequenceNumber);
     /// </code>
-    /// An empty sequence with <paramref name="latestSequenceNumber"/> <c>0</c> yields the
-    /// same shape as <see cref="Create()"/>; an empty sequence with a higher mark keeps it,
-    /// and the next <see cref="Add(T)"/> stamps a fresh epoch above it.
+    /// An empty sequence yields the same shape as <see cref="Create()"/>, and then
+    /// <paramref name="latestSequenceNumber"/> must be <c>0</c>. A high-water mark only
+    /// means something inside an epoch — receivers compare epochs first and sequence
+    /// numbers only within the same epoch — and an empty restore carries no envelope to
+    /// take an epoch from. Rather than keep a mark that cannot be honoured, this rejects
+    /// it: a fully drained source starts a fresh sequence space with <see cref="Create()"/>.
     /// </para>
     /// </remarks>
     /// <param name="envelopes">The stored envelopes to restore, in FIFO order.</param>
@@ -256,12 +259,12 @@ public sealed class Outbox<T> : IReadOnlyList<T>, IEquatable<Outbox<T>>
     /// </param>
     /// <returns>An outbox holding the restored envelopes.</returns>
     /// <exception cref="ArgumentException">
-    /// Sequence numbers do not strictly increase in enumeration order, or the envelopes
-    /// do not all share one epoch.
+    /// Sequence numbers are not positive and strictly increasing in enumeration order, or
+    /// the envelopes do not all share one epoch.
     /// </exception>
     /// <exception cref="ArgumentOutOfRangeException">
     /// <paramref name="latestSequenceNumber"/> is below the last envelope's sequence
-    /// number, or is negative.
+    /// number, or is nonzero for an empty sequence.
     /// </exception>
     public static Outbox<T> Restore(IEnumerable<OutboxMessageEnvelope<T>> envelopes, long latestSequenceNumber)
     {
@@ -269,7 +272,10 @@ public sealed class Outbox<T> : IReadOnlyList<T>, IEquatable<Outbox<T>>
 
         var builder = CreateEnvelopeBuilder(envelopes);
         DateTimeOffset? epoch = null;
-        long? sequenceNumber = null;
+        // Add assigns from 1, so 0 is the floor a restored id has to clear. Seeding the
+        // running value with it rejects zero and negative ids through the same comparison
+        // that rejects a repeat or a step backwards.
+        var sequenceNumber = 0L;
         foreach (var envelope in envelopes)
         {
             ArgumentNullException.ThrowIfNull(envelope, nameof(envelopes));
@@ -286,12 +292,12 @@ public sealed class Outbox<T> : IReadOnlyList<T>, IEquatable<Outbox<T>>
                     nameof(envelopes));
             }
 
-            if (sequenceNumber >= id.SequenceNumber)
+            if (id.SequenceNumber <= sequenceNumber)
             {
                 throw new ArgumentException(
                     string.Create(
                         CultureInfo.InvariantCulture,
-                        $"Envelope sequence numbers must strictly increase in enumeration order; {sequenceNumber} was followed by {id.SequenceNumber}."),
+                        $"Envelope sequence numbers must be positive and strictly increase in enumeration order; {sequenceNumber} was followed by {id.SequenceNumber}."),
                     nameof(envelopes));
             }
 
@@ -300,9 +306,21 @@ public sealed class Outbox<T> : IReadOnlyList<T>, IEquatable<Outbox<T>>
             builder.Add(envelope);
         }
 
+        // A mark is only meaningful within an epoch, and an empty restore has no envelope
+        // to take one from. Carrying it would be theatre: the next Add stamps a fresh epoch,
+        // and the receiver then compares epochs and ignores the sequence entirely.
+        if (builder.Count == 0 && latestSequenceNumber != 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(latestSequenceNumber),
+                latestSequenceNumber,
+                "An empty restore carries no epoch, so it cannot carry a high-water mark either. Use Outbox<T>.Create() to start a fresh sequence space.");
+        }
+
         // Guarded after enumeration because the last sequence number is the floor: a mark
         // below it would let Add hand out a number already carried by a pending message.
-        ArgumentOutOfRangeException.ThrowIfLessThan(latestSequenceNumber, sequenceNumber ?? 0);
+        // Envelope ids are positive, so this also rules out a negative mark.
+        ArgumentOutOfRangeException.ThrowIfLessThan(latestSequenceNumber, sequenceNumber);
 
         return new Outbox<T>(
             latestSequenceNumber,

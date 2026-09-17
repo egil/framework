@@ -473,7 +473,14 @@ that had already delivered and removed its highest-numbered messages would
 otherwise restore to a lower mark, the next `Add` would hand out a sequence
 number the receiver has already seen, and the receiver would reject that message
 as a duplicate. Passing a mark below the last envelope's sequence number throws
-`ArgumentOutOfRangeException`.
+`ArgumentOutOfRangeException`, and so does passing a nonzero mark with no
+envelopes at all: a mark only means something inside an epoch — receivers compare
+epochs first and sequence numbers only within the same epoch — and an empty
+restore has no envelope to take an epoch from. Restore a fully drained source
+with `Outbox<T>.Create()` instead, which starts a fresh sequence space.
+
+Envelope sequence numbers must also be positive, because `Add` assigns from `1`
+and a restore should not be able to build state the producing path cannot reach.
 
 Because it is also the one entry point that accepts caller-supplied identity, it
 validates that too: sequence numbers must strictly increase in enumeration order

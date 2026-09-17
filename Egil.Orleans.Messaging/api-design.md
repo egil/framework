@@ -503,8 +503,12 @@ equality, never revision ordering. Message IDs and delivery tokens are unchanged
   pending items, so a source whose highest-numbered messages were already
   delivered and removed would restore a lower high-water mark, and the next `Add`
   would reuse a sequence number the receiver has already recorded and reject as a
-  duplicate. Requiring it also keeps the overloads apart by arity, so a
-  collection expression of target-typed `new` stays unambiguous. Traceparents on restored envelopes are stored
+  duplicate. A mark is rejected when there are no envelopes to anchor it to an
+  epoch, because receiver dedup compares epochs first and consults sequence
+  numbers only within the same epoch — carrying one there would hide that the
+  source epoch was dropped. Envelope sequence numbers must be positive, matching
+  what `Add` can assign. Requiring the mark also keeps the overloads apart by
+  arity, so a collection expression of target-typed `new` stays unambiguous. Traceparents on restored envelopes are stored
   verbatim, unvalidated. A `Create` overload was rejected for this: the
   collection-builder `Outbox.Create<T>(ReadOnlySpan<T>)` *does* capture, so one
   name would have carried both behaviours with nothing at the call site to tell
