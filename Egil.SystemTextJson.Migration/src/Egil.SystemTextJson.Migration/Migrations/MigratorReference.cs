@@ -53,15 +53,30 @@ internal sealed record MigratorReference(
         ? System.Text.Encoding.UTF8.GetBytes(metadata.Discriminator)
         : null;
 
-    // An overridden element converter may read any token family, so the collection is excluded
-    // from element-based disambiguation entirely.
+    // An overridden element converter, or a union element (.NET 11) whose classifier may accept
+    // any token, can read any element shape, so the collection is excluded from element-based
+    // disambiguation entirely.
     public bool ElementConverterOverridden { get; } = SourceTypeInfo.Kind is JsonTypeInfoKind.Enumerable or JsonTypeInfoKind.Dictionary
-        && JsonMigratableTypes.HasConverterOverride(SourceValueShapes.GetValueType(SourceType, SourceTypeInfo.Kind), SourceTypeInfo.Options);
+        && ElementMayAcceptAnyShape(SourceValueShapes.GetValueType(SourceType, SourceTypeInfo.Kind), SourceTypeInfo.Options);
 
     public SourceValueShape ElementShape { get; } = SourceTypeInfo.Kind is JsonTypeInfoKind.Enumerable or JsonTypeInfoKind.Dictionary
         && !JsonMigratableTypes.HasConverterOverride(SourceValueShapes.GetValueType(SourceType, SourceTypeInfo.Kind), SourceTypeInfo.Options)
         ? SourceValueShapes.Classify(SourceValueShapes.GetValueType(SourceType, SourceTypeInfo.Kind))
         : SourceValueShape.Unknown;
+
+    private static bool ElementMayAcceptAnyShape(Type elementType, System.Text.Json.JsonSerializerOptions options)
+    {
+        if (JsonMigratableTypes.HasConverterOverride(elementType, options))
+        {
+            return true;
+        }
+
+#if NET11_0_OR_GREATER
+        return options.GetTypeInfo(elementType).Kind is JsonTypeInfoKind.Union;
+#else
+        return false;
+#endif
+    }
 
     private static System.Text.Json.Serialization.JsonNumberHandling EffectiveElementNumberHandling(JsonTypeInfo sourceTypeInfo)
         => sourceTypeInfo.NumberHandling ?? sourceTypeInfo.Options.NumberHandling;

@@ -573,6 +573,19 @@ public partial class UnionMigrationTests
         Assert.Contains("ambiguous", quoted.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void Collection_of_unions_competes_with_other_collection_sources_for_every_element_shape()
+    {
+        // A union element may accept the primitive too, so the int list cannot be chosen by shape.
+        var options = CreateOptions();
+
+        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<UnionListOrIntListState>("[1]", options));
+        var alone = JsonSerializer.Deserialize<UnionListState>("[1]", options);
+
+        Assert.Contains("ambiguous", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(1, alone!.Count);
+    }
+
     private static JsonSerializerOptions CreateOptions(Action<JsonMigrationBuilder>? configure = null)
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
@@ -749,6 +762,34 @@ public partial class UnionMigrationTests
     public union ShapeOrDouble(CircleV2, double);
 
     public union CounterOrDouble(Counter, double);
+
+    [JsonMigratable]
+    public record class UnionListOrIntListState(string Source)
+        : IMigrateFrom<List<ShapeOrScalar>, UnionListOrIntListState>,
+          IMigrateFrom<List<int>, UnionListOrIntListState>
+    {
+        public static bool TryMigrateFrom(List<ShapeOrScalar> source, out UnionListOrIntListState result)
+        {
+            result = new UnionListOrIntListState("from-union-list");
+            return true;
+        }
+
+        public static bool TryMigrateFrom(List<int> source, out UnionListOrIntListState result)
+        {
+            result = new UnionListOrIntListState("from-int-list");
+            return true;
+        }
+    }
+
+    [JsonMigratable]
+    public record class UnionListState(int Count) : IMigrateFrom<List<ShapeOrScalar>, UnionListState>
+    {
+        public static bool TryMigrateFrom(List<ShapeOrScalar> source, out UnionListState result)
+        {
+            result = new UnionListState(source.Count);
+            return true;
+        }
+    }
 
     [JsonConverter(typeof(JsonStringEnumConverter<Colour>))]
     public enum Colour

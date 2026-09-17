@@ -26,13 +26,14 @@ internal static class JsonMigratableTypes
             return true;
         }
 
+        // STJ selects the first matching entry, so only that entry decides. The library's own
+        // factory is registered in these options too; when it wins it is the expected converter
+        // for [JsonMigratable] types, not an override.
         foreach (JsonConverter converter in options.Converters)
         {
-            // The library's own factory is registered in these options too; it is the
-            // expected converter for [JsonMigratable] types, not an override.
-            if (converter is not JsonMigratableConverterFactory && converter.CanConvert(type))
+            if (converter.CanConvert(type))
             {
-                return true;
+                return converter is not JsonMigratableConverterFactory;
             }
         }
 

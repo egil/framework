@@ -38,10 +38,20 @@ internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry regis
         TypeMetadata targetMetadata = registry.GetTypeMetadata(typeToConvert);
 
         // Clone options and replace this factory with a type-excluding instance so metadata lookup can still
-        // apply migration converters for nested migratable types.
+        // apply migration converters for nested migratable types. The replacement keeps the factory's position
+        // because STJ picks the first matching converter: appending it would let a converter registered after
+        // AddJsonMigrationSupport() win for nested migratable types while losing at the top level.
         var metadataOptions = new JsonSerializerOptions(options);
-        metadataOptions.Converters.Remove(this);
-        metadataOptions.Converters.Add(new JsonMigratableConverterFactory(registry, new HashSet<Type>(excludedTypes) { typeToConvert }));
+        var excludingFactory = new JsonMigratableConverterFactory(registry, new HashSet<Type>(excludedTypes) { typeToConvert });
+        int factoryIndex = metadataOptions.Converters.IndexOf(this);
+        if (factoryIndex >= 0)
+        {
+            metadataOptions.Converters[factoryIndex] = excludingFactory;
+        }
+        else
+        {
+            metadataOptions.Converters.Add(excludingFactory);
+        }
 
         // Attach a modifier that injects the discriminator property during type info resolution.
         // This is necessary because internal STJ caching may re-resolve type info from the resolver
