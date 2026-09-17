@@ -491,9 +491,9 @@ public static bool IsValueValid(string value, bool throwIfInvalid)
 
 With `throwIfInvalid: false` the method returns at the first failing attribute. With `throwIfInvalid: true` every attribute is evaluated so the exception reports all of them at once. Every attribute is evaluated through `GetValidationResult` with a `ValidationContext` created for that call, whose `MemberName` and `DisplayName` are the name of the positional parameter and whose `ObjectInstance` is a placeholder object, so attributes that override either `IsValid` overload work, and error messages come out formatted with the parameter name. A failing attribute that produces no message at all (a `ValidationResult` with a null `ErrorMessage` and a `FormatErrorMessage` that returns null) is still a failure, reported with DataAnnotations' default wording `The field Value is invalid.`. The context is not shared between calls because it is mutable and an attribute may write to its `Items`; the cost is one small allocation per validated construction or parse of an attribute-constrained type, and none for types without attributes. Before .NET 10 `ValidationContext` has no trim-safe constructor, so on those targets `CreateInvariantContext` calls `ValidationContext(object)` with `DisplayName` set (which keeps its reflection fallback from running) and carries an `UnconditionalSuppressMessage` for IL2026. The attribute instances live in a nested `ValueValidators` class (suffixed with underscores if the type already has a member of that name) so that they are initialized on first use, even from a static initializer on the type itself such as `public static readonly Email Default = new("a@b.c");`.
 
-## .NET 9 OpenAPI support
+## OpenAPI support (.NET 9 and later)
 
-The library includes a custom schema transformer that will ensure strongly typed types have the right OpenAPI schema definition. To use it, add the following to your OpenApi options:
+The library includes a custom schema transformer that documents strongly typed types with the OpenAPI schema of the primitive they wrap, wherever they appear: as body properties, as array items and dictionary values, and as route or query parameters. To use it, add the following to your OpenApi options:
 
 ```csharp
 using Egil.StronglyTypedPrimitives;
