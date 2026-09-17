@@ -32,5 +32,6 @@
   </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'net9.0'">
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="9.0.3" />
+    <PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="9.0.20" />
   </ItemGroup>
 </Project>
