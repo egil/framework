@@ -76,6 +76,16 @@ internal sealed class UnionCaseRouting
 
             if (JsonMigratableTypes.IsMigratable(caseType))
             {
+                // A converter registered ahead of AddJsonMigrationSupport() (or supplied by the
+                // resolver) would win over the migration converter, and routing discriminators to
+                // it would bypass migration; refuse the configuration instead.
+                JsonConverter caseConverter = options.GetTypeInfo(caseType).Converter;
+                if (!(caseConverter.GetType().IsGenericType && caseConverter.GetType().GetGenericTypeDefinition() == typeof(JsonMigratableConverter<>)))
+                {
+                    throw new InvalidOperationException(
+                        $"Union '{context.DeclaringType.FullName}' case '{caseType.FullName}' is annotated with [JsonMigratable] but is served by converter '{caseConverter.GetType().FullName}'. Call AddJsonMigrationSupport() before registering other converters for the case type.");
+                }
+
                 migratableCases.Add(caseType);
                 TypeMetadata targetMetadata = registry.GetTypeMetadata(caseType);
                 AddDiscriminator(context.DeclaringType, entriesByPropertyName, caseByDiscriminator, knownDiscriminators, targetMetadata, caseType);
@@ -338,7 +348,28 @@ internal sealed class UnionCaseRouting
     private static bool IsObjectLike(Type sourceType)
         => sourceType is { IsPrimitive: false, IsEnum: false }
             && SourceValueShapes.Classify(sourceType) is SourceValueShape.Unknown
-            && !typeof(System.Collections.IEnumerable).IsAssignableFrom(sourceType);
+            && (!typeof(System.Collections.IEnumerable).IsAssignableFrom(sourceType) || IsDictionaryLike(sourceType));
+
+    // Dictionaries serialize as JSON objects and can therefore carry a discriminator.
+    private static bool IsDictionaryLike(Type type)
+    {
+        if (typeof(System.Collections.IDictionary).IsAssignableFrom(type))
+        {
+            return true;
+        }
+
+        foreach (Type @interface in type.GetInterfaces())
+        {
+            if (@interface.IsGenericType
+                && @interface.GetGenericTypeDefinition() is var definition
+                && (definition == typeof(IDictionary<,>) || definition == typeof(IReadOnlyDictionary<,>)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     private static void AddDiscriminator(
         Type unionType,

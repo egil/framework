@@ -533,6 +533,29 @@ public partial class UnionMigrationTests
         Assert.Equal(double.PositiveInfinity, value.Value);
     }
 
+    [Fact]
+    public void Union_rejects_migratable_case_served_by_an_earlier_converter()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.Converters.Add(new BypassingCircleConverter());
+        options.AddJsonMigrationSupport();
+
+        var exception = Assert.Throws<InvalidOperationException>(() => JsonSerializer.Deserialize<Shape>("""{"$type":"circle-v2","radius":1}""", options));
+
+        Assert.Contains(nameof(BypassingCircleConverter), exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Union_overridden_dictionary_source_keeps_its_discriminator_route()
+    {
+        var options = CreateOptions();
+        options.Converters.Add(new TaggedDictionaryConverter());
+
+        var value = JsonSerializer.Deserialize<TalliedOrLabel>($$"""{"$type":"{{typeof(Dictionary<string, int>).FullName}}","a":1,"b":2}""", options);
+
+        Assert.Equal(2, Assert.IsType<Tallied>(value.Value).Count);
+    }
+
     private static JsonSerializerOptions CreateOptions(Action<JsonMigrationBuilder>? configure = null)
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
@@ -654,6 +677,53 @@ public partial class UnionMigrationTests
     }
 
     public union BoxedOrLabel(Boxed, string);
+
+    public sealed class BypassingCircleConverter : JsonConverter<CircleV2>
+    {
+        public override CircleV2 Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            reader.Skip();
+            return new CircleV2(0);
+        }
+
+        public override void Write(Utf8JsonWriter writer, CircleV2 value, JsonSerializerOptions options)
+            => writer.WriteNullValue();
+    }
+
+    // Reads {"$type":"...","a":1,...} into a dictionary, skipping the discriminator.
+    public sealed class TaggedDictionaryConverter : JsonConverter<Dictionary<string, int>>
+    {
+        public override Dictionary<string, int> Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            var result = new Dictionary<string, int>(StringComparer.Ordinal);
+            while (reader.Read() && reader.TokenType is not JsonTokenType.EndObject)
+            {
+                var key = reader.GetString()!;
+                reader.Read();
+                if (reader.TokenType is JsonTokenType.Number)
+                {
+                    result[key] = reader.GetInt32();
+                }
+            }
+
+            return result;
+        }
+
+        public override void Write(Utf8JsonWriter writer, Dictionary<string, int> value, JsonSerializerOptions options)
+            => writer.WriteNullValue();
+    }
+
+    [JsonMigratable(TypeDiscriminator = "tallied")]
+    public record class Tallied(int Count) : IMigrateFrom<Dictionary<string, int>, Tallied>
+    {
+        public static bool TryMigrateFrom(Dictionary<string, int> source, out Tallied result)
+        {
+            result = new Tallied(source.Count);
+            return true;
+        }
+    }
+
+    public union TalliedOrLabel(Tallied, string);
 
     public union CounterOrInt(Counter, int);
 

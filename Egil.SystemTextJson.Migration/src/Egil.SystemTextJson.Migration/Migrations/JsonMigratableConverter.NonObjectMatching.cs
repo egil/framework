@@ -189,7 +189,7 @@ internal sealed partial class JsonMigratableConverter<T>
                 continue;
             }
 
-            if (migrator.ElementShape is not SourceValueShape.Unknown)
+            if (migrator.ElementShape is not SourceValueShape.Unknown || migrator.ElementConverterOverridden)
             {
                 continue;
             }

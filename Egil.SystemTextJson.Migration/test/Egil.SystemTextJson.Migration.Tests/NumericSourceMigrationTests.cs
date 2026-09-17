@@ -233,6 +233,17 @@ public partial class NumericSourceMigrationTests
     }
 
     [Fact]
+    public void Collection_with_overridden_element_converter_is_not_shape_matched()
+    {
+        var options = CreateOptions();
+        options.Converters.Add(new JsonStringEnumConverter());
+
+        var result = JsonSerializer.Deserialize<ColourListOrItemListState>("""[{"name":"x"}]""", options);
+
+        Assert.Equal("from-item-list", result!.Source);
+    }
+
+    [Fact]
     public void Migrate_from_guid_string_to_custom_type()
     {
         var options = CreateOptions();
@@ -268,6 +279,24 @@ public partial class NumericSourceMigrationTests
     {
         Red,
         Green,
+    }
+
+    [JsonMigratable]
+    public record class ColourListOrItemListState(string Source)
+        : IMigrateFrom<List<Colour>, ColourListOrItemListState>,
+          IMigrateFrom<List<Item>, ColourListOrItemListState>
+    {
+        public static bool TryMigrateFrom(List<Colour> source, out ColourListOrItemListState result)
+        {
+            result = new ColourListOrItemListState("from-colour-list");
+            return true;
+        }
+
+        public static bool TryMigrateFrom(List<Item> source, out ColourListOrItemListState result)
+        {
+            result = new ColourListOrItemListState("from-item-list");
+            return true;
+        }
     }
 
     [JsonMigratable]

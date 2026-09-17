@@ -41,6 +41,11 @@ internal sealed record MigratorReference(
         ? System.Text.Encoding.UTF8.GetBytes(metadata.Discriminator)
         : null;
 
+    // An overridden element converter may read any token family, so the collection is excluded
+    // from element-based disambiguation entirely.
+    public bool ElementConverterOverridden { get; } = SourceTypeInfo.Kind is JsonTypeInfoKind.Enumerable or JsonTypeInfoKind.Dictionary
+        && JsonMigratableTypes.HasConverterOverride(SourceValueShapes.GetValueType(SourceType, SourceTypeInfo.Kind), SourceTypeInfo.Options);
+
     public SourceValueShape ElementShape { get; } = SourceTypeInfo.Kind is JsonTypeInfoKind.Enumerable or JsonTypeInfoKind.Dictionary
         && !JsonMigratableTypes.HasConverterOverride(SourceValueShapes.GetValueType(SourceType, SourceTypeInfo.Kind), SourceTypeInfo.Options)
         ? SourceValueShapes.Classify(SourceValueShapes.GetValueType(SourceType, SourceTypeInfo.Kind))
