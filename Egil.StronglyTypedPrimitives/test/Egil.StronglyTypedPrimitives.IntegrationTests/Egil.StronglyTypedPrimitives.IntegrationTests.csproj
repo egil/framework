@@ -31,6 +31,16 @@
     <PackageReference Include="Verify.XunitV3" />
   </ItemGroup>
 
+  <!--
+    The minimal API validation tests need the ASP.NET Core shared framework, whose SDK analyzers
+    include the validation source generator that AddValidation() relies on, and a TestServer to
+    host the endpoints in-process. net10.0 only: that is where AddValidation() exists.
+  -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\src\Egil.StronglyTypedPrimitives.Abstractions\Egil.StronglyTypedPrimitives.Abstractions.csproj" />
     <ProjectReference Include="..\..\src\Egil.StronglyTypedPrimitives\Egil.StronglyTypedPrimitives.csproj"
