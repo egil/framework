@@ -597,6 +597,17 @@ public partial class UnionMigrationTests
         Assert.Equal(1, Assert.IsType<ReadOnlyTallied>(value.Value).Count);
     }
 
+    [Fact]
+    public void Union_overridden_collection_source_keeps_its_discriminator_route()
+    {
+        var options = CreateOptions();
+        options.Converters.Add(new TaggedIntListConverter());
+
+        var value = JsonSerializer.Deserialize<SummedOrLabel>($$"""{"$type":"{{typeof(IntList).FullName}}","values":[1,2,3]}""", options);
+
+        Assert.Equal(6, Assert.IsType<Summed>(value.Value).Total);
+    }
+
     private static JsonSerializerOptions CreateOptions(Action<JsonMigrationBuilder>? configure = null)
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
@@ -799,6 +810,47 @@ public partial class UnionMigrationTests
     }
 
     public union ReadOnlyTalliedOrLabel(ReadOnlyTallied, string);
+
+    public sealed class IntList : List<int>;
+
+    // Reads {"$type":"...","values":[...]} into a derived list, so an enumerable source is read
+    // from a discriminated object through a converter override.
+    public sealed class TaggedIntListConverter : JsonConverter<IntList>
+    {
+        public override IntList Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            var result = new IntList();
+            while (reader.Read() && reader.TokenType is not JsonTokenType.EndObject)
+            {
+                if (reader.ValueTextEquals("values"u8))
+                {
+                    reader.Read();
+                    result.AddRange(JsonSerializer.Deserialize<List<int>>(ref reader, options)!);
+                }
+                else
+                {
+                    reader.Skip();
+                }
+            }
+
+            return result;
+        }
+
+        public override void Write(Utf8JsonWriter writer, IntList value, JsonSerializerOptions options)
+            => writer.WriteNullValue();
+    }
+
+    [JsonMigratable(TypeDiscriminator = "summed")]
+    public record class Summed(int Total) : IMigrateFrom<IntList, Summed>
+    {
+        public static bool TryMigrateFrom(IntList source, out Summed result)
+        {
+            result = new Summed(source.Sum());
+            return true;
+        }
+    }
+
+    public union SummedOrLabel(Summed, string);
 
     public union CounterOrInt(Counter, int);
 

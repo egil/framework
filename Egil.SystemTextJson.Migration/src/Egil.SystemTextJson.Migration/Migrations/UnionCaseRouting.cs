@@ -148,14 +148,11 @@ internal sealed class UnionCaseRouting
 
             if (JsonMigratableTypes.HasConverterOverride(sourceType, options))
             {
-                // The overriding converter may read any token family, so the source is
-                // reachable only through its discriminator (registered when the type could
-                // plausibly be an object) and every discriminator-less payload is refused.
-                if (IsObjectLike(sourceType))
-                {
-                    AddDiscriminator(context.DeclaringType, entriesByPropertyName, caseByDiscriminator, knownDiscriminators, sourceMetadata, caseType);
-                }
-
+                // The overriding converter may read any token family, so the source is reachable
+                // only through its discriminator, which is registered regardless of the CLR shape
+                // (an entry only matters for objects that start with it), and every
+                // discriminator-less payload is refused.
+                AddDiscriminator(context.DeclaringType, entriesByPropertyName, caseByDiscriminator, knownDiscriminators, sourceMetadata, caseType);
                 unknownShapeCase ??= caseType;
                 return;
             }
@@ -364,39 +361,6 @@ internal sealed class UnionCaseRouting
             cases.Add(caseType);
         }
     }
-
-    // A source with a converter override reports Kind None, so whether it could carry a
-    // discriminator is inferred from the CLR type instead of the contract.
-    private static bool IsObjectLike(Type sourceType)
-        => sourceType is { IsPrimitive: false, IsEnum: false }
-            && SourceValueShapes.Classify(sourceType) is SourceValueShape.Unknown
-            && (!typeof(System.Collections.IEnumerable).IsAssignableFrom(sourceType) || IsDictionaryLike(sourceType));
-
-    // Dictionaries serialize as JSON objects and can therefore carry a discriminator.
-    private static bool IsDictionaryLike(Type type)
-    {
-        if (typeof(System.Collections.IDictionary).IsAssignableFrom(type) || IsDictionaryInterface(type))
-        {
-            return true;
-        }
-
-        // GetInterfaces() does not include the type itself, so an interface-typed source such as
-        // IReadOnlyDictionary<string, int> is checked above and its bases here.
-        foreach (Type @interface in type.GetInterfaces())
-        {
-            if (IsDictionaryInterface(@interface))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static bool IsDictionaryInterface(Type type)
-        => type.IsGenericType
-            && type.GetGenericTypeDefinition() is var definition
-            && (definition == typeof(IDictionary<,>) || definition == typeof(IReadOnlyDictionary<,>));
 
     private static void AddDiscriminator(
         Type unionType,
