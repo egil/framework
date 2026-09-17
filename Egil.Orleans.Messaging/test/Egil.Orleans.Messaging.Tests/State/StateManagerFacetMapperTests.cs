@@ -61,7 +61,11 @@ public sealed class StateManagerFacetMapperTests
         var ex = Assert.Throws<ArgumentException>(() =>
             mapper.GetFactory(parameter, new PersistentStateAttribute("state", "Default")));
 
+        // The type does declare a public parameterless constructor, so a message saying it
+        // has none would send the reader looking for something that is already there.
         Assert.Contains(typeof(AbstractState).FullName!, ex.Message, StringComparison.Ordinal);
+        Assert.Contains("non-abstract type with a public parameterless constructor", ex.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("has no public parameterless constructor", ex.Message, StringComparison.Ordinal);
     }
 
     public abstract class AbstractState : IEquatable<AbstractState>

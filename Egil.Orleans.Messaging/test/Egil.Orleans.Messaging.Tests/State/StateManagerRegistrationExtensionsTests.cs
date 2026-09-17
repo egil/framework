@@ -5,6 +5,23 @@ namespace Egil.Orleans.Messaging.Tests.State;
 public sealed class StateManagerRegistrationExtensionsTests
 {
     [Fact]
+    public void The_service_provider_validates_on_build_after_enabling_the_facet()
+    {
+        // A host may build its provider with ValidateOnBuild, which constructs every
+        // registered descriptor. The idempotence guard must not be the thing that fails it.
+        var services = new ServiceCollection();
+        services.AddDefaultStateManager("state");
+
+        var provider = services.BuildServiceProvider(new ServiceProviderOptions
+        {
+            ValidateOnBuild = true,
+            ValidateScopes = true,
+        });
+
+        Assert.NotNull(provider.GetRequiredService<IAttributeToFactoryMapper<PersistentStateAttribute>>());
+    }
+
+    [Fact]
     public void Repeated_factory_registrations_enable_the_facet_exactly_once()
     {
         // Every factory registration helper enables the facet, and a silo registers several.

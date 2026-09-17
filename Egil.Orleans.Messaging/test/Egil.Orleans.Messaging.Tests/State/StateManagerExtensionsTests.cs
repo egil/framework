@@ -90,6 +90,28 @@ public sealed class StateManagerExtensionsTests
     }
 
     [Fact]
+    public void RegisterStateManagerCore_describes_why_an_abstract_state_type_has_no_default()
+    {
+        // Same hazard as the injected path: an abstract type can declare a public
+        // parameterless constructor and still be unusable, so the message has to name the
+        // requirement rather than report a missing constructor.
+        var services = new ServiceCollection();
+        services.AddDefaultStateManager();
+        var provider = services.BuildServiceProvider();
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            StateManagerExtensions.RegisterStateManagerCore(
+                new FakeGrainContext(provider),
+                storageName: null,
+                new FakeAbstractPersistentState(),
+                typeof(StateManagerExtensionsTests),
+                createInitialState: null));
+
+        Assert.Contains(typeof(AbstractTestState).FullName!, ex.Message, StringComparison.Ordinal);
+        Assert.Contains("non-abstract type with a public parameterless constructor", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void A_null_second_argument_still_selects_the_state_factory_overload()
     {
         // The overloads that take no state factory gained an optional Action<TState>, which
@@ -185,6 +207,33 @@ public sealed class StateManagerExtensionsTests
     }
 
     private sealed record TestState(string Value) : IEquatable<TestState>;
+
+    public abstract class AbstractTestState : IEquatable<AbstractTestState>
+    {
+        public AbstractTestState()
+        {
+        }
+
+        public bool Equals(AbstractTestState? other) => ReferenceEquals(this, other);
+
+        public override bool Equals(object? obj) => Equals(obj as AbstractTestState);
+
+        public override int GetHashCode() => 0;
+    }
+
+    private sealed class FakeAbstractPersistentState : IPersistentState<AbstractTestState>
+    {
+        public string Etag { get; set; } = "etag-1";
+        public bool RecordExists { get; set; }
+        public AbstractTestState State { get; set; } = null!;
+
+        public Task ReadStateAsync() => Task.CompletedTask;
+        public Task WriteStateAsync() => Task.CompletedTask;
+        public Task ClearStateAsync() => Task.CompletedTask;
+        public Task ReadStateAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task WriteStateAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task ClearStateAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    }
 
     private sealed class FakePersistentState(TestState state) : IPersistentState<TestState>
     {

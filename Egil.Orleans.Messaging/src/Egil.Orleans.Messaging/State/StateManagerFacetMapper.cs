@@ -44,9 +44,10 @@ internal sealed class StateManagerFacetMapper(IAttributeToFactoryMapper<Persiste
         {
             throw new ArgumentException(
                 $"State type '{stateType.FullName}' on the constructor for '{parameter.Member.DeclaringType?.FullName}' " +
-                $"has no public parameterless constructor, so an absent storage record cannot be represented. " +
-                $"Implement IStateDefault<{stateType.Name}> on it, or inject IPersistentState<{stateType.Name}> " +
-                "and call RegisterStateManager with a state factory.",
+                "cannot represent an absent storage record. It must either implement " +
+                $"IStateDefault<{stateType.Name}>, or be a non-abstract type with a public parameterless " +
+                $"constructor. Alternatively, inject IPersistentState<{stateType.Name}> and call " +
+                "RegisterStateManager with a state factory.",
                 parameter.Name);
         }
 

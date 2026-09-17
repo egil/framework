@@ -19,8 +19,9 @@ public static class StateManagerExtensions
         /// <remarks>
         /// An absent record resolves to <see cref="IStateDefault{TSelf}.CreateDefault"/> when
         /// <typeparamref name="TState"/> implements it, and to <c>new TState()</c> otherwise.
-        /// Use the overload taking a state factory to override both. A state type with
-        /// neither is rejected at registration, naming the state type and the grain.
+        /// Use the overload taking a state factory to override both. A state type that
+        /// implements neither, and is not a non-abstract type with a public parameterless
+        /// constructor, is rejected at registration, naming the state type and the grain.
         /// </remarks>
         /// <typeparam name="TState">The grain state type.</typeparam>
         /// <param name="storageName">Logical storage name used as the keyed DI registration key.</param>
@@ -58,8 +59,9 @@ public static class StateManagerExtensions
         /// <remarks>
         /// An absent record resolves to <see cref="IStateDefault{TSelf}.CreateDefault"/> when
         /// <typeparamref name="TState"/> implements it, and to <c>new TState()</c> otherwise.
-        /// Use the overload taking a state factory to override both. A state type with
-        /// neither is rejected at registration, naming the state type and the grain.
+        /// Use the overload taking a state factory to override both. A state type that
+        /// implements neither, and is not a non-abstract type with a public parameterless
+        /// constructor, is rejected at registration, naming the state type and the grain.
         /// </remarks>
         /// <typeparam name="TState">The grain state type.</typeparam>
         /// <param name="storage">The Orleans-managed persistent state facet.</param>
@@ -274,9 +276,10 @@ public static class StateManagerExtensions
         }
 
         throw new InvalidOperationException(
-            $"State type '{typeof(TState).FullName}' for grain type '{grainType.FullName}' has no public " +
-            $"parameterless constructor, so an absent storage record cannot be represented. Implement " +
-            $"IStateDefault<{typeof(TState).Name}> on it, or pass a state factory to RegisterStateManager.");
+            $"State type '{typeof(TState).FullName}' for grain type '{grainType.FullName}' cannot represent " +
+            $"an absent storage record. It must either implement IStateDefault<{typeof(TState).Name}>, or be " +
+            "a non-abstract type with a public parameterless constructor. Alternatively, pass a state factory " +
+            "to RegisterStateManager.");
     }
 
     private static Action<TState>? ComposeConfiguration<TState>(

@@ -38,7 +38,7 @@ public static class StateManagerRegistrationExtensions
                 return services;
             }
 
-            services.AddSingleton<FacetMarker>();
+            services.AddSingleton(FacetMarker.Instance);
 
             // Orleans registers its mapper with TryAddSingleton from the SiloBuilder
             // constructor, which runs before any ConfigureServices callback, so the default
@@ -149,7 +149,17 @@ public static class StateManagerRegistrationExtensions
 
     // Presence of this registration marks the facet as already enabled, so the helpers
     // that call AddStateManagerFacet on every factory registration decorate only once.
-    private sealed class FacetMarker;
+    // Registered as an instance because nothing ever resolves it: a host building its
+    // provider with ValidateOnBuild constructs every descriptor it can, and a marker has
+    // no reason to be among them.
+    private sealed class FacetMarker
+    {
+        public static FacetMarker Instance { get; } = new();
+
+        private FacetMarker()
+        {
+        }
+    }
 
     internal static void ValidateStorageName(string storageName)
     {
