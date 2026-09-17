@@ -38,8 +38,16 @@ internal sealed class EnrichedEventHubBatchContainer : IBatchContainer
     public StreamSequenceToken SequenceToken => sequenceToken;
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// A custom inner container supplied through
+    /// <c>EnrichedEventHubAdapter.CreateInnerBatchContainer</c> may yield
+    /// <c>null</c> per-event tokens, since the adapter replaces them anyway.
+    /// Enumeration order then supplies the event index, which matches what the
+    /// base Event Hubs container produces for the same batch.
+    /// </remarks>
     public IEnumerable<Tuple<T, StreamSequenceToken>> GetEvents<T>()
     {
+        var index = 0;
         foreach (var item in inner.GetEvents<T>())
         {
             yield return Tuple.Create(
@@ -47,10 +55,11 @@ internal sealed class EnrichedEventHubBatchContainer : IBatchContainer
                 (StreamSequenceToken)new EnrichedEventHubSequenceToken(
                     sequenceToken.EventHubOffset,
                     sequenceToken.SequenceNumber,
-                    item.Item2.EventIndex,
+                    item.Item2?.EventIndex ?? index,
                     sequenceToken.EnqueuedTime,
                     sequenceToken.ProviderName,
                     sequenceToken.TraceParent));
+            index++;
         }
     }
 
