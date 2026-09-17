@@ -506,13 +506,76 @@ public MyGrain([PersistentState("state")] IPersistentState<MyState> storage, Tim
 }
 ```
 
-`RegisterStateManager(storageName, storage, createInitialState, configureState?)`
-requires `TState : class, IEquatable<TState>`. The two-argument convenience overload
-requires `new()` and creates `new TState()` only when needed.
+Every overload requires `TState : class, IEquatable<TState>`. The convenience
+overloads that take no `createInitialState` resolve an absent record through
+`IStateDefault<TSelf>` when the state type implements it, and through
+`new TState()` otherwise. See
+[Injecting the manager as a facet](#injecting-the-manager-as-a-facet).
 
 Register a keyed `IStateManagerFactory` with `AddDefaultStateManager`,
 `AddAzureStorageStateManager`, or `AddStateManagerFactory`. Its `Create<T>` method
 receives storage, the default factory, and optional runtime configuration.
+
+### Injecting the manager as a facet
+
+**Status:** Settled.
+
+A grain may inject `IStateManager<T>` on the `[PersistentState]` parameter itself:
+
+```csharp
+public sealed class MyGrain([PersistentState("state", "Default")] IStateManager<MyState> state)
+    : Grain, IMyGrain;
+```
+
+Orleans resolves a facet attribute through `IAttributeToFactoryMapper<TMetadata>`,
+looked up from DI by the attribute's own type, and registers its own for
+`PersistentStateAttribute` with `TryAddSingleton` from the `SiloBuilder`
+constructor. That built-in mapper rejects any parameter that is not
+`IPersistentState<>`, so `StateManagerFacetMapper` takes the registration over and
+delegates every other parameter shape back to whatever was registered before it. It
+builds the facet through Orleans' own `IPersistentStateFactory`, so the state
+subscribes itself to activation hydration and the migration handoff exactly as a
+raw facet does.
+
+**Why reuse Orleans' attribute rather than `[FromKeyedServices]`.** The facet needs
+two names — a state record name and a storage provider name — and a DI key is one
+string. Encoding both in one key needs a separator and an escaping rule, which this
+package has already had one bug from. The mapper is handed the attribute, which
+carries both, so the problem does not arise. Reusing the attribute also keeps the
+storage provider name in one place: it names the record, selects the Orleans
+storage provider, and selects the keyed `IStateManagerFactory`, so those cannot
+drift from each other.
+
+**Why the state type carries the default and the configuration.** There is no call
+site to pass `createInitialState` and `configureState` to, so `IStateDefault<TSelf>`
+and `IConfigurableState` express them on the state type. That is the right home
+independently of injection: the need belongs to the state type, so every grain
+holding that state needs the same wiring, and putting it there means no call site
+can forget it.
+
+This is deliberately type-wide, not per-grain. Nothing stops two grain types from
+sharing a state type, and when they do they share its default and its baseline
+wiring. That is the intended trade-off, and it is why this library recommends a
+state type be owned by a single grain type: under that convention
+"state-specific" and "grain-specific" coincide and the question does not arise. A
+grain that genuinely needs its own default or extra wiring for a shared state type
+passes `createInitialState` or `configureState` to `RegisterStateManager`, which
+override and layer on top respectively.
+
+`IGrainContext.ActivationServices` is the same DI scope the grain's constructor is
+resolved from, so both contracts reach anything the grain could inject, plus the
+grain key and grain type.
+
+Both apply on the `RegisterStateManager` path too — how a manager was obtained
+should not change what its state type needs. Explicit arguments win: a
+`createInitialState` factory overrides `CreateDefault`, and a `configureState`
+callback runs after `Configure`. `StateContract<T>` caches the per-state-type
+reflection in a static generic, so it runs once per state type rather than per
+activation.
+
+Enabling the facet is not a separate step: every `IStateManagerFactory`
+registration helper calls `AddStateManagerFacet()`, which is idempotent, and a
+grain needs one of those to obtain a manager at all.
 
 ---
 

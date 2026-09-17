@@ -38,8 +38,19 @@ namespace Egil.Orleans.Messaging.State;
 /// even if cancellation was requested concurrently.
 /// </para>
 /// <para>
-/// <b>Usage:</b> Inject <see cref="IPersistentState{TState}"/> as normal via
-/// <c>[PersistentState]</c>, then register the manager in the grain constructor:
+/// <b>Usage:</b> Inject the manager on the <c>[PersistentState]</c> parameter itself:
+/// <code>
+/// public MyGrain([PersistentState("state", "Default")] IStateManager&lt;MyState&gt; state)
+/// </code>
+/// The facet is built underneath, so the state hydrates before <c>OnActivateAsync</c>
+/// and takes part in grain migration as usual. Express a non-trivial default and any
+/// transient dependencies on the state type, with <see cref="IStateDefault{TSelf}"/>
+/// and <see cref="IConfigurableState"/>.
+/// </para>
+/// <para>
+/// Alternatively, inject <see cref="IPersistentState{TState}"/> and register the
+/// manager in the grain constructor, which is what a grain needs when its default or
+/// its configuration closes over something only the constructor has:
 /// <code>
 /// stateManager = this.RegisterStateManager("state", storage);
 /// </code>

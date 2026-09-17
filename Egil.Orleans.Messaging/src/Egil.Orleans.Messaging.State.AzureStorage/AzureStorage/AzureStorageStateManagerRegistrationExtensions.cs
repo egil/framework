@@ -19,10 +19,12 @@ public static class AzureStorageStateManagerRegistrationExtensions
             ArgumentNullException.ThrowIfNull(services);
             ArgumentException.ThrowIfNullOrWhiteSpace(storageName);
 
-            return services.AddKeyedSingleton(
-                typeof(IStateManagerFactory),
-                storageName,
-                typeof(AzureStorageStateManagerFactory));
+            return services
+                .AddStateManagerFacet()
+                .AddKeyedSingleton(
+                    typeof(IStateManagerFactory),
+                    storageName,
+                    typeof(AzureStorageStateManagerFactory));
         }
     }
 }
