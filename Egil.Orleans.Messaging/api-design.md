@@ -1714,8 +1714,8 @@ The two technically valid ways to get the diagram above are:
    not be `[ReadOnly]` if it must wait behind writes; `[ReadOnly]` only
    interleaves with other read-only calls, not arbitrary writes.
 
-Decision: use the second timer internally for the callback/acknowledgement
-phase while preserving the callback-based public API.
+Decision: use the second timer internally for the acknowledgement phase while
+preserving the callback-based public API.
 
 - The dispatch timer uses `Interleave = true`.
 - The acknowledgement timer uses `Interleave = false`.
@@ -1780,8 +1780,9 @@ extension<TGrain>(TGrain grain) where TGrain : IOutboxGrain, IGrainBase
 ```csharp
 public sealed class OutboxProcessorOptions<TOutbox> where TOutbox : notnull
 {
-    /// Returns the current immutable outbox snapshot. Evaluated before dispatch
-    /// and again during acknowledgement and retry scheduling.
+    /// Returns the current immutable outbox snapshot. Evaluated before dispatch,
+    /// and again during retry-state reconciliation once the acknowledgement
+    /// callbacks have returned.
     public required Func<Outbox<TOutbox>> OutboxAccessor { get; init; }
 
     /// Acknowledges successfully posted items.
@@ -1827,8 +1828,9 @@ processing-timeout behavior, and pass `timeProvider.GetUtcNow()` to
 persisted outbox or re-inject transient services into it.
 
 Naming note: `OutboxAccessor` describes a callback that reads the current immutable
-outbox snapshot. The processor evaluates it again as acknowledgement and retry
-scheduling proceed, because state writes can replace the outbox instance.
+outbox snapshot. The processor evaluates it again during retry-state reconciliation,
+after both acknowledgement callbacks have returned, because state writes can replace
+the outbox instance.
 
 `AcknowledgePostedAsync` and `AcknowledgeFailuresAsync` carry obligations, not
 passive notifications:

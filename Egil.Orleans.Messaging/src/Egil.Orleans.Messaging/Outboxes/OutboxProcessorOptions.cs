@@ -15,8 +15,9 @@ public sealed class OutboxProcessorOptions<TOutbox>
     where TOutbox : notnull
 {
     /// <summary>
-    /// Returns the current non-null immutable outbox snapshot. Evaluated before dispatch
-    /// and again during acknowledgement and retry scheduling.
+    /// Returns the current non-null immutable outbox snapshot. Evaluated before dispatch,
+    /// and again during retry-state reconciliation once the acknowledgement callbacks
+    /// have returned.
     /// </summary>
     public required Func<Outbox<TOutbox>> OutboxAccessor { get; init; }
 
@@ -61,8 +62,8 @@ public sealed class OutboxProcessorOptions<TOutbox>
     /// Attempt counts are tracked in memory only, keyed by item equality:
     /// they reset to one when the grain activation recycles, and item types
     /// without stable value equality (for example mutable classes mutated
-    /// after enqueue) make counts restart silently. Counters are pruned when
-    /// the item is no longer pending after acknowledgement. Policies that must
+    /// after enqueue) make counts restart silently. Counters are pruned during
+    /// retry-state reconciliation, once the item is no longer pending. Policies that must
     /// survive activation restarts (max attempts before dead-letter, etc.)
     /// should persist their own counters on the items or grain state.
     /// </remarks>
