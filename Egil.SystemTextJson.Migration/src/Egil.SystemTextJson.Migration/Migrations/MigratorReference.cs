@@ -23,9 +23,9 @@ internal sealed record MigratorReference(
         : SourceValueShapes.Classify(SourceType);
 
     // AllowReadingFromString (on by default with JsonSerializerDefaults.Web) lets numeric sources
-    // read quoted numbers; resolved once so the read path does not consult the options.
-    public bool AllowsQuotedNumbers { get; } =
-        ((SourceTypeInfo.NumberHandling ?? SourceTypeInfo.Options.NumberHandling) & System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString) != 0;
+    // read quoted numbers and AllowNamedFloatingPointLiterals lets floating-point sources read
+    // "NaN"/"Infinity"; resolved once so the read path does not consult the options.
+    public bool AllowsQuotedNumbers { get; } = SourceValueShapes.AllowsQuotedNumbers(SourceTypeInfo.NumberHandling ?? SourceTypeInfo.Options.NumberHandling);
 
     public Type ElementType { get; } = SourceTypeInfo.Kind is JsonTypeInfoKind.Enumerable or JsonTypeInfoKind.Dictionary
         ? SourceValueShapes.GetValueType(SourceType, SourceTypeInfo.Kind)

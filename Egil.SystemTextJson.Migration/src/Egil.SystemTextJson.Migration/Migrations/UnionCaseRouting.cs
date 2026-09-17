@@ -166,9 +166,10 @@ internal sealed class UnionCaseRouting
                     AddCase(numberCases, caseType);
 
                     // With AllowReadingFromString (on by default with JsonSerializerDefaults.Web)
-                    // the numeric converter also accepts a JSON string. A string-shaped case still
-                    // wins string payloads; numeric cases only take them when no such case exists.
-                    if (((options.GetTypeInfo(shapeType).NumberHandling ?? options.NumberHandling) & JsonNumberHandling.AllowReadingFromString) != 0)
+                    // or AllowNamedFloatingPointLiterals the numeric converter also accepts a JSON
+                    // string. A string-shaped case still wins string payloads; numeric cases only
+                    // take them when no such case exists.
+                    if (SourceValueShapes.AllowsQuotedNumbers(options.GetTypeInfo(shapeType).NumberHandling ?? options.NumberHandling))
                     {
                         AddCase(quotedNumberCases, caseType);
                     }

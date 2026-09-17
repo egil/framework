@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 
 namespace Egil.SystemTextJson.Migration.Migrations;
@@ -81,6 +82,16 @@ internal static class SourceValueShapes
 
         return SourceValueShape.Unknown;
     }
+
+    /// <summary>
+    /// Whether the effective number handling lets a numeric converter read a JSON string:
+    /// <see cref="JsonNumberHandling.AllowReadingFromString"/> for any number and
+    /// <see cref="JsonNumberHandling.AllowNamedFloatingPointLiterals"/> for "NaN", "Infinity"
+    /// and "-Infinity". The converter still validates the string, so routing only needs to know
+    /// that a string may be a number.
+    /// </summary>
+    public static bool AllowsQuotedNumbers(JsonNumberHandling numberHandling)
+        => (numberHandling & (JsonNumberHandling.AllowReadingFromString | JsonNumberHandling.AllowNamedFloatingPointLiterals)) != 0;
 
     /// <param name="allowQuotedNumbers">
     /// Whether a JSON string may also satisfy a numeric shape, as with

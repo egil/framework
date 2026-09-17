@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Egil.SystemTextJson.Migration.Tests;
 
@@ -117,6 +118,18 @@ public partial class NumericSourceMigrationTests
 
         Assert.NotNull(result);
         Assert.Equal(42, result.Value);
+    }
+
+    [Fact]
+    public void Named_floating_point_literal_reaches_floating_point_source()
+    {
+        var options = new JsonSerializerOptions { NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals };
+        options.AddJsonMigrationSupport();
+
+        var result = JsonSerializer.Deserialize<NumericState<double>>("\"NaN\"", options);
+
+        Assert.NotNull(result);
+        Assert.True(double.IsNaN(result.Value));
     }
 
     [Fact]

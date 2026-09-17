@@ -522,6 +522,17 @@ public partial class UnionMigrationTests
         Assert.Contains(nameof(Boxed), text.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Union_floating_point_case_takes_named_literals_when_allowed()
+    {
+        var options = new JsonSerializerOptions { NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals };
+        options.AddJsonMigrationSupport();
+
+        var value = JsonSerializer.Deserialize<ShapeOrDouble>("\"Infinity\"", options);
+
+        Assert.Equal(double.PositiveInfinity, value.Value);
+    }
+
     private static JsonSerializerOptions CreateOptions(Action<JsonMigrationBuilder>? configure = null)
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
@@ -647,6 +658,8 @@ public partial class UnionMigrationTests
     public union CounterOrInt(Counter, int);
 
     public union CounterOrNote(Counter, Note);
+
+    public union ShapeOrDouble(CircleV2, double);
 
     [JsonConverter(typeof(JsonStringEnumConverter<Colour>))]
     public enum Colour
