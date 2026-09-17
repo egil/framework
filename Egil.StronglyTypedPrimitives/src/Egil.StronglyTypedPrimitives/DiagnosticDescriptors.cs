@@ -21,6 +21,32 @@ internal static class DiagnosticDescriptors
         description: "The System.Text.Json source generator only honours JsonConverter attributes written in user code, so strongly typed primitives serialized through a JsonSerializerContext must declare the converter themselves.");
 
     /// <summary>
+    /// A user-written IsValueValid always wins over the generated one, so validation attributes on
+    /// the positional parameter are never evaluated when the method is declared by hand.
+    /// </summary>
+    public static readonly DiagnosticDescriptor ValidationAttributesIgnoredByUserIsValueValid = new(
+        id: "STP002",
+        title: "Validation attributes are ignored when IsValueValid is declared",
+        messageFormat: "The validation attribute '{0}' on '{1}' has no effect because '{2}' declares its own IsValueValid method. Remove the attribute, or remove the method to let the generator validate the value with the attributes.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: "The generator only emits an IsValueValid that evaluates the validation attributes when the type does not declare the method itself.");
+
+    /// <summary>
+    /// The value invariant is checked synchronously in constructors, init accessors, Parse and the
+    /// JSON converter, so an attribute that can only validate asynchronously cannot be part of it.
+    /// </summary>
+    public static readonly DiagnosticDescriptor AsyncValidationAttributeNotPartOfValueInvariant = new(
+        id: "STP003",
+        title: "Async validation attributes are not part of the value invariant",
+        messageFormat: "The async validation attribute '{0}' on '{1}' is not evaluated by the generated IsValueValid because async validation cannot run as part of the value invariant of '{2}'",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: "Attributes deriving from AsyncValidationAttribute are excluded from the generated IsValueValid method.");
+
+    /// <summary>
     /// The shared converter lives in the net8.0+ assets of the Abstractions assembly only, so a
     /// consumer on the netstandard2.0 asset references System.Text.Json without being able to get
     /// the generated [JsonConverter] attribute. Reported so the missing JSON support is visible.
