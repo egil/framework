@@ -1867,9 +1867,12 @@ Stream projections and selectors remain synchronous and independently choose
 `(message)` or `(message, token)`. Token-aware routing also supports forwarding the
 original payload without an identity projection. Direct and grouped registration
 provide the same combinations. A token-aware projection that returns the payload's
-own type names that type once, because `TEvent` is not separately inferable; the
-payload-only same-type shape is deliberately absent, since without a token such a
-projection carries nothing the caller could not apply before adding the message.
+own type names that type once. `TEvent` is inferable from the projection's return
+type once `TSub` is known, but implicitly typed lambda parameters do not supply
+`TSub`, and C# has no partial type-argument inference, so naming `TSub` would
+otherwise force naming `TEvent` as well. The payload-only same-type shape is
+deliberately absent, since without a token such a projection carries nothing the
+caller could not apply before adding the message.
 These single-type-parameter overloads carry no `OverloadResolutionPriority`: it
 applies only when type arguments are omitted, where it would prune a projection
 returning a derived type and silently change the stream's event type.
