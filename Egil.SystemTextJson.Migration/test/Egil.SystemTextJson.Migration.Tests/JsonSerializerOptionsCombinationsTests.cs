@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 
 namespace Egil.SystemTextJson.Migration.Tests;
 
-public class JsonSerializerOptionsCombinationsTests
+public partial class JsonSerializerOptionsCombinationsTests
 {
     private static readonly bool[] BoolValues = [false, true];
     private static readonly JsonNamingPolicy?[] NamingPolicies = [null, JsonNamingPolicy.CamelCase];
