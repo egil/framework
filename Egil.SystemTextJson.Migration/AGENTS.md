@@ -24,7 +24,7 @@ Use the solution file from repository root:
 - `dotnet outdated`: check for dependency updates.
 
 ## Coding Style & Naming Conventions
-- Language/runtime: C# on `net10.0`, nullable enabled.
+- Language/runtime: C# on `net10.0` and `net11.0` (multi-targeted), nullable enabled. .NET 11 specific code lives under `#if NET11_0_OR_GREATER`.
 - Indentation: 4 spaces for C#; follow `.editorconfig` for other file types.
 - Prefer file-scoped namespaces and explicit braces.
 - Use `var` when the type is obvious; keep naming in PascalCase for types/methods.
