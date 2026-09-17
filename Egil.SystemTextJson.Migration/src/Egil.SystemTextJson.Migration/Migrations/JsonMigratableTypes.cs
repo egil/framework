@@ -28,7 +28,9 @@ internal static class JsonMigratableTypes
 
         foreach (JsonConverter converter in options.Converters)
         {
-            if (converter.CanConvert(type))
+            // The library's own factory is registered in these options too; it is the
+            // expected converter for [JsonMigratable] types, not an override.
+            if (converter is not JsonMigratableConverterFactory && converter.CanConvert(type))
             {
                 return true;
             }
@@ -41,6 +43,8 @@ internal static class JsonMigratableTypes
         // the same resolver, and instances of built-in converters are not shared between
         // lookups. A resolver that substitutes a differently configured instance of a built-in
         // converter type is therefore not detected (documented limitation).
-        return options.GetTypeInfo(type).Converter.GetType().Assembly != typeof(JsonSerializer).Assembly;
+        Type resolvedConverter = options.GetTypeInfo(type).Converter.GetType();
+        return resolvedConverter.Assembly != typeof(JsonSerializer).Assembly
+            && !(resolvedConverter.IsGenericType && resolvedConverter.GetGenericTypeDefinition() == typeof(JsonMigratableConverter<>));
     }
 }

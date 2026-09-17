@@ -469,6 +469,20 @@ public class NonObjectPayloadMigrationTests
         return options;
     }
 
+    [Fact]
+    public void Disambiguate_enumerable_with_discriminator_less_migratable_object_elements_by_shape()
+    {
+        // The migratable element type is served by the library's own converter, which must not
+        // count as a converter override that removes the candidate from shape matching.
+        var options = CreateOptions();
+        var json = """[{"data":"x"}]""";
+
+        var result = JsonSerializer.Deserialize<MigratableElementState>(json, options);
+
+        Assert.NotNull(result);
+        Assert.Equal("from-elem-v1", result.Source);
+    }
+
     // --- Test types ---
 
     [JsonMigratable]
