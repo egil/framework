@@ -52,6 +52,29 @@ public sealed class StateManagerFacetTests(StateManagerFacetFixture fixture)
     }
 
     [Fact]
+    public async Task Attribute_with_a_whitespace_storage_name_resolves_the_unkeyed_factory()
+    {
+        // Orleans' PersistentStateFactory selects the default IGrainStorage on
+        // IsNullOrWhiteSpace, so whitespace has to reach the unkeyed factory too. Matching
+        // IsNullOrEmpty instead would send the facet to default storage and then hunt for a
+        // keyed factory registered under "  ".
+        var grain = fixture.GrainFactory.GetGrain<IFacetWhitespaceStorageGrain>(Guid.NewGuid());
+
+        Assert.Equal("facet-default", await grain.GetValueAsync());
+    }
+
+    [Fact]
+    public async Task A_failed_configuration_leaves_the_newly_adopted_snapshot_visible()
+    {
+        var grain = fixture.GrainFactory.GetGrain<IConfigureFailureGrain>(Guid.NewGuid());
+        await grain.SaveAsync("stored");
+
+        // Configuration runs after the snapshot is published, so a throwing Configure
+        // reports the failure without reverting to the last stored value.
+        Assert.Equal("configure-default", await grain.ValueAfterFailedConfigureOnClearAsync());
+    }
+
+    [Fact]
     public async Task Raw_persistent_state_facet_is_unaffected()
     {
         var grain = fixture.GrainFactory.GetGrain<IFacetRawGrain>(Guid.NewGuid());
@@ -223,6 +246,70 @@ public sealed class FacetBlankStorageGrain(
     public Task<string> GetValueAsync() => Task.FromResult(state.State.Value);
 }
 
+public sealed class ConfigureFailureSwitch
+{
+    public bool ShouldThrow { get; set; }
+}
+
+[GenerateSerializer]
+public sealed record ConfigureFailureState : IConfigurableState
+{
+    [Id(0)] public string Value { get; init; } = "configure-default";
+
+    public void Configure(IGrainContext context)
+    {
+        if (context.ActivationServices.GetRequiredService<ConfigureFailureSwitch>().ShouldThrow)
+        {
+            throw new InvalidOperationException("Configuration failed.");
+        }
+    }
+}
+
+public interface IConfigureFailureGrain : IGrainWithGuidKey
+{
+    Task SaveAsync(string value);
+    Task<string> ValueAfterFailedConfigureOnClearAsync();
+}
+
+public sealed class ConfigureFailureGrain(
+    [PersistentState("configure-failure", "Default")] IStateManager<ConfigureFailureState> state,
+    ConfigureFailureSwitch failureSwitch) : Grain, IConfigureFailureGrain
+{
+    public Task SaveAsync(string value) => state.WriteAsync(state.State with { Value = value });
+
+    public async Task<string> ValueAfterFailedConfigureOnClearAsync()
+    {
+        // A clear adopts a fresh default, so the value that ends up visible distinguishes
+        // "keep the published snapshot" from "revert to the last stored one".
+        failureSwitch.ShouldThrow = true;
+        try
+        {
+            await state.ClearAsync();
+        }
+        catch (InvalidOperationException)
+        {
+        }
+        finally
+        {
+            failureSwitch.ShouldThrow = false;
+        }
+
+        return state.State.Value;
+    }
+}
+
+public interface IFacetWhitespaceStorageGrain : IGrainWithGuidKey
+{
+    Task<string> GetValueAsync();
+}
+
+public sealed class FacetWhitespaceStorageGrain(
+    [PersistentState("whitespace", "  ")] IStateManager<FacetState> state)
+    : Grain, IFacetWhitespaceStorageGrain
+{
+    public Task<string> GetValueAsync() => Task.FromResult(state.State.Value);
+}
+
 public interface IFacetRawGrain : IGrainWithGuidKey
 {
     Task<string> GetValueAsync();
@@ -311,6 +398,7 @@ public sealed class StateManagerFacetFixture : IAsyncLifetime
             siloBuilder.ConfigureServices(services =>
             {
                 services.AddSingleton<TimeProvider>(TimeProvider);
+                services.AddSingleton<ConfigureFailureSwitch>();
                 services.AddDefaultStateManager("Default");
                 services.AddDefaultStateManager();
             });

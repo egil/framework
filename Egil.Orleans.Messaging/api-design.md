@@ -506,9 +506,11 @@ public MyGrain([PersistentState("state")] IPersistentState<MyState> storage, Tim
 }
 ```
 
-`RegisterStateManager(storageName, storage, createInitialState, configureState?)`
-requires `TState : class, IEquatable<TState>`. The two-argument convenience overload
-requires `new()` and creates `new TState()` only when needed.
+Every overload requires `TState : class, IEquatable<TState>`. The convenience
+overloads that take no `createInitialState` resolve an absent record through
+`IStateDefault<TSelf>` when the state type implements it, and through
+`new TState()` otherwise. See
+[Injecting the manager as a facet](#injecting-the-manager-as-a-facet).
 
 Register a keyed `IStateManagerFactory` with `AddDefaultStateManager`,
 `AddAzureStorageStateManager`, or `AddStateManagerFactory`. Its `Create<T>` method
@@ -547,10 +549,18 @@ drift from each other.
 **Why the state type carries the default and the configuration.** There is no call
 site to pass `createInitialState` and `configureState` to, so `IStateDefault<TSelf>`
 and `IConfigurableState` express them on the state type. That is the right home
-independently of injection: the need belongs to the state type, every grain holding
-that state needs the same wiring, and a state type is owned by exactly one grain, so
-"state-specific" and "grain-specific" are the same thing. Putting it there means no
-call site can forget it.
+independently of injection: the need belongs to the state type, so every grain
+holding that state needs the same wiring, and putting it there means no call site
+can forget it.
+
+This is deliberately type-wide, not per-grain. Nothing stops two grain types from
+sharing a state type, and when they do they share its default and its baseline
+wiring. That is the intended trade-off, and it is why this library recommends a
+state type be owned by a single grain type: under that convention
+"state-specific" and "grain-specific" coincide and the question does not arise. A
+grain that genuinely needs its own default or extra wiring for a shared state type
+passes `createInitialState` or `configureState` to `RegisterStateManager`, which
+override and layer on top respectively.
 
 `IGrainContext.ActivationServices` is the same DI scope the grain's constructor is
 resolved from, so both contracts reach anything the grain could inject, plus the
