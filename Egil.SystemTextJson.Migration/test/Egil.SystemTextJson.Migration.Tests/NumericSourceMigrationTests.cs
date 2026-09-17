@@ -347,6 +347,18 @@ public partial class NumericSourceMigrationTests
     }
 
     [Fact]
+    public void Derived_collection_source_is_disambiguated_by_its_real_element_type()
+    {
+        var options = CreateOptions();
+
+        var numbers = JsonSerializer.Deserialize<IntCollectionOrItemListState>("[1,2]", options);
+        var items = JsonSerializer.Deserialize<IntCollectionOrItemListState>("""[{"name":"x"}]""", options);
+
+        Assert.Equal("from-int-collection", numbers!.Source);
+        Assert.Equal("from-item-list", items!.Source);
+    }
+
+    [Fact]
     public void Migrate_from_non_generic_collection_source_to_custom_type()
     {
         var options = CreateOptions();
@@ -658,6 +670,24 @@ public partial class NumericSourceMigrationTests
     }
 
     public class IntCollection : List<int>;
+
+    [JsonMigratable]
+    public record class IntCollectionOrItemListState(string Source)
+        : IMigrateFrom<IntCollection, IntCollectionOrItemListState>,
+          IMigrateFrom<List<Item>, IntCollectionOrItemListState>
+    {
+        public static bool TryMigrateFrom(IntCollection source, out IntCollectionOrItemListState result)
+        {
+            result = new IntCollectionOrItemListState("from-int-collection");
+            return true;
+        }
+
+        public static bool TryMigrateFrom(List<Item> source, out IntCollectionOrItemListState result)
+        {
+            result = new IntCollectionOrItemListState("from-item-list");
+            return true;
+        }
+    }
 
     [JsonMigratable]
     public record class IntCollectionState(int Count) : IMigrateFrom<IntCollection, IntCollectionState>

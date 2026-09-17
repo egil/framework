@@ -36,13 +36,13 @@ internal sealed record MigratorReference(
     // on the element type's own JsonTypeInfo is not applied by STJ's collection converters
     // (verified: List<int> still rejects ["42"] with JsonTypeInfo<int>.NumberHandling set).
     public bool ElementAllowsQuotedNumbers { get; } = SourceTypeInfo.Kind is JsonTypeInfoKind.Enumerable or JsonTypeInfoKind.Dictionary
-        && SourceValueShapes.AllowsQuotedNumbers(EffectiveElementNumberHandling(SourceTypeInfo), SourceValueShapes.GetValueType(SourceType, SourceTypeInfo.Kind));
+        && SourceValueShapes.AllowsQuotedNumbers(EffectiveElementNumberHandling(SourceTypeInfo), SourceValueShapes.GetValueType(SourceTypeInfo));
 
     public bool ElementAllowsNamedFloatingPointLiterals { get; } = SourceTypeInfo.Kind is JsonTypeInfoKind.Enumerable or JsonTypeInfoKind.Dictionary
-        && SourceValueShapes.AllowsNamedFloatingPointLiterals(EffectiveElementNumberHandling(SourceTypeInfo), SourceValueShapes.GetValueType(SourceType, SourceTypeInfo.Kind));
+        && SourceValueShapes.AllowsNamedFloatingPointLiterals(EffectiveElementNumberHandling(SourceTypeInfo), SourceValueShapes.GetValueType(SourceTypeInfo));
 
     public Type ElementType { get; } = SourceTypeInfo.Kind is JsonTypeInfoKind.Enumerable or JsonTypeInfoKind.Dictionary
-        ? SourceValueShapes.GetValueType(SourceType, SourceTypeInfo.Kind)
+        ? SourceValueShapes.GetValueType(SourceTypeInfo)
         : typeof(object);
 
     // Element discriminators come from the registry (so builder-configured resolvers and
@@ -62,11 +62,11 @@ internal sealed record MigratorReference(
     // entirely.
     public bool ElementConverterOverridden { get; } = ElementAcceptsNonObjectShapes
         || (SourceTypeInfo.Kind is JsonTypeInfoKind.Enumerable or JsonTypeInfoKind.Dictionary
-            && ElementMayAcceptAnyShape(SourceValueShapes.GetValueType(SourceType, SourceTypeInfo.Kind), SourceTypeInfo.Options));
+            && ElementMayAcceptAnyShape(SourceValueShapes.GetValueType(SourceTypeInfo), SourceTypeInfo.Options));
 
     public SourceValueShape ElementShape { get; } = SourceTypeInfo.Kind is JsonTypeInfoKind.Enumerable or JsonTypeInfoKind.Dictionary
-        && !JsonMigratableTypes.HasConverterOverride(SourceValueShapes.GetValueType(SourceType, SourceTypeInfo.Kind), SourceTypeInfo.Options)
-        ? SourceValueShapes.Classify(SourceValueShapes.GetValueType(SourceType, SourceTypeInfo.Kind))
+        && !JsonMigratableTypes.HasConverterOverride(SourceValueShapes.GetValueType(SourceTypeInfo), SourceTypeInfo.Options)
+        ? SourceValueShapes.Classify(SourceValueShapes.GetValueType(SourceTypeInfo))
         : SourceValueShape.Unknown;
 
     private static bool ElementMayAcceptAnyShape(Type elementType, System.Text.Json.JsonSerializerOptions options)
@@ -98,7 +98,7 @@ internal sealed record MigratorReference(
             return false;
         }
 
-        Type elementType = SourceValueShapes.GetValueType(sourceType, sourceTypeInfo.Kind);
+        Type elementType = SourceValueShapes.GetValueType(sourceTypeInfo);
         if (!JsonMigratableTypes.IsMigratable(elementType))
         {
             return false;
@@ -129,7 +129,7 @@ internal sealed record MigratorReference(
             return null;
         }
 
-        Type elementType = SourceValueShapes.GetValueType(sourceType, sourceTypeInfo.Kind);
+        Type elementType = SourceValueShapes.GetValueType(sourceTypeInfo);
         return JsonMigratableTypes.IsMigratable(elementType) ? registry.GetTypeMetadata(elementType) : null;
     }
 }

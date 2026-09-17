@@ -142,23 +142,10 @@ internal static class SourceValueShapes
 
     /// <summary>
     /// Returns the element type of an enumerable source or the value type of a dictionary
-    /// source, used to disambiguate collection migrators by their first element.
+    /// source, used to disambiguate collection migrators by their first element. The resolved
+    /// contract is used so derived collections such as <c>class IntCollection : List&lt;int&gt;</c>
+    /// report their real element type.
     /// </summary>
-    public static Type GetValueType(Type collectionType, JsonTypeInfoKind kind)
-    {
-        if (collectionType.IsArray)
-        {
-            return collectionType.GetElementType()!;
-        }
-
-        // For generic collections (List<T>, Dictionary<K,V>, etc.),
-        // the element type is the last generic argument.
-        if (collectionType.IsGenericType)
-        {
-            Type[] args = collectionType.GetGenericArguments();
-            return kind is JsonTypeInfoKind.Dictionary ? args[^1] : args[0];
-        }
-
-        return typeof(object);
-    }
+    public static Type GetValueType(JsonTypeInfo collectionTypeInfo)
+        => collectionTypeInfo.ElementType ?? typeof(object);
 }
