@@ -63,11 +63,23 @@ internal static class SourceValueShapes
             return SourceValueShape.Number;
         }
 
-        // Every other numeric STJ supports (Half, Int128, UInt128, BFloat16, Decimal32/64/128,
-        // and future additions) has TypeCode.Object but implements INumberBase<TSelf>, so
-        // the interface check keeps this list-free across runtime versions. char also
-        // implements INumberBase<char> but is handled as a string above.
-        return ImplementsNumberBase(type) ? SourceValueShape.Number : SourceValueShape.Unknown;
+        // The remaining numerics with built-in STJ converters have TypeCode.Object. This is an
+        // explicit allowlist rather than an INumberBase<TSelf> check because BigInteger and
+        // Complex implement that interface without having a converter, and routing to them
+        // would fail inside STJ instead of falling through.
+        if (type == typeof(Half) || type == typeof(Int128) || type == typeof(UInt128)
+#if NET11_0_OR_GREATER
+            || type == typeof(System.Numerics.BFloat16)
+            || type == typeof(System.Numerics.Decimal32)
+            || type == typeof(System.Numerics.Decimal64)
+            || type == typeof(System.Numerics.Decimal128)
+#endif
+            )
+        {
+            return SourceValueShape.Number;
+        }
+
+        return SourceValueShape.Unknown;
     }
 
     public static bool IsTokenCompatible(JsonTokenType tokenType, SourceValueShape shape)
@@ -101,25 +113,5 @@ internal static class SourceValueShapes
         }
 
         return typeof(object);
-    }
-
-    private static bool ImplementsNumberBase(Type type)
-    {
-        if (!type.IsValueType)
-        {
-            return false;
-        }
-
-        foreach (Type @interface in type.GetInterfaces())
-        {
-            if (@interface.IsGenericType
-                && @interface.GetGenericTypeDefinition() == typeof(System.Numerics.INumberBase<>)
-                && @interface.GetGenericArguments()[0] == type)
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 }

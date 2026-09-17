@@ -97,6 +97,19 @@ public partial class NumericSourceMigrationTests
     }
 
     [Fact]
+    public void BigInteger_source_is_not_a_numeric_shape()
+    {
+        // BigInteger implements INumberBase<T> but has no built-in STJ converter, so it must not
+        // compete with int for number tokens.
+        var options = CreateOptions();
+
+        var result = JsonSerializer.Deserialize<IntOrBigIntegerState>("42", options);
+
+        Assert.NotNull(result);
+        Assert.Equal("from-int", result.Source);
+    }
+
+    [Fact]
     public void Migrate_from_guid_string_to_custom_type()
     {
         var options = CreateOptions();
@@ -124,6 +137,24 @@ public partial class NumericSourceMigrationTests
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
         options.AddJsonMigrationSupport();
         return options;
+    }
+
+    [JsonMigratable]
+    public record class IntOrBigIntegerState(string Source)
+        : IMigrateFrom<int, IntOrBigIntegerState>,
+          IMigrateFrom<System.Numerics.BigInteger, IntOrBigIntegerState>
+    {
+        public static bool TryMigrateFrom(int source, out IntOrBigIntegerState result)
+        {
+            result = new IntOrBigIntegerState("from-int");
+            return true;
+        }
+
+        public static bool TryMigrateFrom(System.Numerics.BigInteger source, out IntOrBigIntegerState result)
+        {
+            result = new IntOrBigIntegerState("from-biginteger");
+            return true;
+        }
     }
 
     public class IntCollection : List<int>;
