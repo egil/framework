@@ -96,11 +96,34 @@ public partial class NumericSourceMigrationTests
         Assert.Contains("ambiguous", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void Migrate_from_non_generic_collection_source_to_custom_type()
+    {
+        var options = CreateOptions();
+
+        var result = JsonSerializer.Deserialize<IntCollectionState>("[1,2,3]", options);
+
+        Assert.NotNull(result);
+        Assert.Equal(3, result.Count);
+    }
+
     private static JsonSerializerOptions CreateOptions()
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
         options.AddJsonMigrationSupport();
         return options;
+    }
+
+    public class IntCollection : List<int>;
+
+    [JsonMigratable]
+    public record class IntCollectionState(int Count) : IMigrateFrom<IntCollection, IntCollectionState>
+    {
+        public static bool TryMigrateFrom(IntCollection source, out IntCollectionState result)
+        {
+            result = new IntCollectionState(source.Count);
+            return true;
+        }
     }
 
     [JsonMigratable]

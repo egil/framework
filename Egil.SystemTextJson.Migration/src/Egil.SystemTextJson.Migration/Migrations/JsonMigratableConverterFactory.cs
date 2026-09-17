@@ -22,9 +22,10 @@ internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry regis
     }
 
     /// <inheritdoc/>
+    internal JsonMigrationRegistry Registry => registry;
+
     public override bool CanConvert(Type typeToConvert)
-        => !excludedTypes.Contains(typeToConvert)
-            && typeToConvert.GetCustomAttribute<JsonMigratableAttribute>(inherit: true) is not null;
+        => !excludedTypes.Contains(typeToConvert) && JsonMigratableTypes.IsMigratable(typeToConvert);
 
     /// <inheritdoc/>
     public override JsonConverter? CreateConverter(Type typeToConvert, JsonSerializerOptions options)
@@ -194,17 +195,8 @@ internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry regis
 
     private static IEnumerable<StaticMigratorContract> FindStaticMigratorMethods(Type targetType)
     {
-        foreach (Type @interface in targetType.GetInterfaces())
+        foreach (Type sourceType in StaticMigratorContracts.GetSourceTypes(targetType))
         {
-            if (!@interface.IsGenericType
-                || @interface.ContainsGenericParameters
-                || @interface.GetGenericTypeDefinition() != typeof(IMigrateFrom<,>))
-            {
-                continue;
-            }
-
-            Type[] genericArguments = @interface.GetGenericArguments();
-            Type sourceType = genericArguments[0];
             MethodInfo method = ResolveStaticTryMigrateMethod(targetType, sourceType);
 
             yield return new StaticMigratorContract(sourceType, method);
