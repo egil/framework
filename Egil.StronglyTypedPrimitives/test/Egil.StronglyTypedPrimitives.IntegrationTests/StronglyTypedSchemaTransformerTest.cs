@@ -205,7 +205,7 @@ public sealed record PlainCollections(
 /// <summary>
 /// Boots a minimal API host once per test class with <see cref="StronglyTypedSchemaTransformer"/>
 /// registered, and exposes the OpenAPI document it serves. Every strongly typed endpoint has a
-/// "plain" twin that uses the underlying primitive, so tests can assert the two document identically.
+/// "plain" twin that uses the underlying primitive, so tests can assert that the two schemas are identical.
 /// </summary>
 public sealed class OpenApiDocumentFixture : IAsyncLifetime
 {
