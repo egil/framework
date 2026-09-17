@@ -27,8 +27,20 @@ internal static class SourceValueShapes
         // Nullable<T> is read by T's converter, so classify the underlying type.
         type = Nullable.GetUnderlyingType(type) ?? type;
 
-        // STJ writes char as a one-character JSON string.
-        if (type == typeof(string) || type == typeof(char))
+        // Built-in STJ converters that read from a JSON string token. char is written as a
+        // one-character string and byte[] as base64. Converter overrides (for example
+        // JsonStringEnumConverter) are not visible here; enums stay numeric.
+        if (type == typeof(string)
+            || type == typeof(char)
+            || type == typeof(DateTime)
+            || type == typeof(DateTimeOffset)
+            || type == typeof(DateOnly)
+            || type == typeof(TimeOnly)
+            || type == typeof(TimeSpan)
+            || type == typeof(Guid)
+            || type == typeof(Uri)
+            || type == typeof(Version)
+            || type == typeof(byte[]))
         {
             return SourceValueShape.String;
         }

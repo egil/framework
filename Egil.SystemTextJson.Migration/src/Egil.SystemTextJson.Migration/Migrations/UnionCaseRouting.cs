@@ -210,14 +210,14 @@ internal sealed class UnionCaseRouting
         // No leading discriminator: prefer the case explicitly configured for undiscriminated
         // objects, then the plain object cases (they can never carry a discriminator), and only
         // then fall back to a lone migratable case, mirroring the converter's legacy-payload rule.
-        if (undiscriminatedCase is not null)
-        {
-            return undiscriminatedCase;
-        }
-
         if (unknownShapeCase is not null)
         {
             ThrowUnknownShapeCase("object");
+        }
+
+        if (undiscriminatedCase is not null)
+        {
+            return undiscriminatedCase;
         }
 
         if (objectRoute.Kind is RouteKind.Single)

@@ -383,6 +383,32 @@ public partial class UnionMigrationTests
         Assert.Contains("Unexpected end", exception.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Union_with_nested_union_case_refuses_undiscriminated_fallback()
+    {
+        // The nested union might accept the object itself, so the UndiscriminatedSourceType
+        // case must not claim it.
+        var options = CreateOptions();
+
+        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<PointOrNestedUnion>("""{"text":"hello"}""", options));
+
+        Assert.Contains(nameof(ShapeOrNote), exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Union_routes_string_shaped_scalar_cases()
+    {
+        var options = CreateOptions();
+
+        var date = JsonSerializer.Deserialize<ShapeOrScalars>("\"2026-01-02T03:04:05Z\"", options);
+        var shape = JsonSerializer.Deserialize<ShapeOrScalars>("""{"$type":"circle-v1","r":1}""", options);
+        var note = JsonSerializer.Deserialize<ShapeOrScalars>("""{"text":"hi"}""", options);
+
+        Assert.Equal(new DateTimeOffset(2026, 1, 2, 3, 4, 5, TimeSpan.Zero), date.Value);
+        Assert.IsType<CircleV2>(shape.Value);
+        Assert.IsType<Note>(note.Value);
+    }
+
     private static JsonSerializerOptions CreateOptions(Action<JsonMigrationBuilder>? configure = null)
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
@@ -412,6 +438,10 @@ public partial class UnionMigrationTests
     public union ShapeOrStringOrChar(CircleV2, string, char);
 
     public union ShapeOrNestedUnion(CircleV2, ShapeOrNote);
+
+    public union PointOrNestedUnion(PointV2, ShapeOrNote);
+
+    public union ShapeOrScalars(CircleV2, DateTimeOffset, Note);
 
     public union DuplicateDiscriminatorUnion(CircleV2, CircleV2Copy);
 

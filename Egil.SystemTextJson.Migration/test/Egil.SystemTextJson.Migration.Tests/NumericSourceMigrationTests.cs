@@ -97,6 +97,18 @@ public partial class NumericSourceMigrationTests
     }
 
     [Fact]
+    public void Migrate_from_guid_string_to_custom_type()
+    {
+        var options = CreateOptions();
+        var id = Guid.NewGuid();
+
+        var result = JsonSerializer.Deserialize<NumericState<Guid>>($"\"{id}\"", options);
+
+        Assert.NotNull(result);
+        Assert.Equal(id, result.Value);
+    }
+
+    [Fact]
     public void Migrate_from_non_generic_collection_source_to_custom_type()
     {
         var options = CreateOptions();
