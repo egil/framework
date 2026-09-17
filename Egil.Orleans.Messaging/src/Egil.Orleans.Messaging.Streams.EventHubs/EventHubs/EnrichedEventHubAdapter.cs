@@ -34,7 +34,8 @@ namespace Egil.Orleans.Messaging.Streams.EventHubs;
 /// <see cref="EventHubSequenceTokenV2"/>.</item>
 /// <item><c>GetBatchContainer(EventHubMessage)</c> — to expose enriched
 /// per-event tokens to stream consumers while preserving the base batch
-/// container behavior.</item>
+/// container behavior. It is sealed; subclasses that need a custom container
+/// override <see cref="CreateInnerBatchContainer"/> instead.</item>
 /// <item><see cref="ToQueueMessage{T}"/> — to stamp
 /// <c>Activity.Current?.Id</c> into the outgoing
 /// <c>EventData.Properties["traceparent"]</c> before the event hits
@@ -75,6 +76,9 @@ namespace Egil.Orleans.Messaging.Streams.EventHubs;
 ///
 ///     public override string GetPartitionKey(StreamId streamId)
 ///         => streamId.GetNamespace();
+///
+///     protected override IBatchContainer CreateInnerBatchContainer(EventHubMessage message)
+///         => new MyBatchContainer(message);
 /// }
 /// </code>
 /// When subclassing, register via <c>UseDataAdapter</c> directly on the
@@ -198,25 +202,71 @@ public class EnrichedEventHubAdapter : EventHubDataAdapter
     }
 
     /// <summary>
-    /// Wraps the base batch container so the tokens observed by stream
+    /// Wraps the inner batch container so the tokens observed by stream
     /// consumers carry the Event Hub metadata reconstructed from cache.
     /// </summary>
-    protected override IBatchContainer GetBatchContainer(EventHubMessage eventHubMessage)
+    /// <remarks>
+    /// Sealed so enrichment can never be lost: the wrapper that carries the
+    /// <see cref="EnrichedEventHubSequenceToken"/> is internal, so a subclass
+    /// that replaced this method could not reattach the token. Subclasses
+    /// supply their own container through
+    /// <see cref="CreateInnerBatchContainer"/> instead, and the adapter keeps
+    /// ownership of the wrapping.
+    /// </remarks>
+    protected sealed override IBatchContainer GetBatchContainer(EventHubMessage eventHubMessage)
     {
-        var inner = base.GetBatchContainer(eventHubMessage);
+        var inner = CreateInnerBatchContainer(eventHubMessage);
         var traceParent = eventHubMessage.Properties.TryGetValue(TraceParentPropertyKey, out var value)
             ? value as string ?? value?.ToString()
             : null;
+
+        // A custom inner container is typically built straight from the EventHubMessage and
+        // carries no token of its own, so the batch-level index falls back to 0 rather than
+        // forcing the subclass to fabricate a throwaway token just to avoid a null reference.
         var sequenceToken = new EnrichedEventHubSequenceToken(
             eventHubMessage.Offset,
             eventHubMessage.SequenceNumber,
-            inner.SequenceToken.EventIndex,
+            inner.SequenceToken?.EventIndex ?? 0,
             NormalizeUtc(eventHubMessage.EnqueueTimeUtc),
             ProviderName,
             traceParent);
 
         return new EnrichedEventHubBatchContainer(inner, sequenceToken);
     }
+
+    /// <summary>
+    /// Creates the batch container that decodes the Event Hub payload. Override
+    /// this — not <c>GetBatchContainer</c> — to deliver a custom container while
+    /// keeping enriched sequence tokens.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The returned container is wrapped by the adapter, which replaces the
+    /// batch token and every per-event token with an
+    /// <see cref="EnrichedEventHubSequenceToken"/> carrying the Event Hub
+    /// offset, sequence number, enqueue time, <see cref="ProviderName"/>, and
+    /// the producer-side traceparent. A custom container therefore does not
+    /// need to produce sequence tokens at all; returning <c>null</c> tokens is
+    /// supported, and per-event indexes then follow enumeration order.
+    /// </para>
+    /// <para>
+    /// The container is serialized to stream consumers through the wrapper's
+    /// <see cref="IBatchContainer"/> field, so a custom type must be
+    /// <c>[GenerateSerializer]</c> and reachable by the silo's Orleans
+    /// serializer.
+    /// </para>
+    /// </remarks>
+    /// <param name="eventHubMessage">
+    /// The Event Hub message reconstructed from the cache, including its
+    /// application properties.
+    /// </param>
+    /// <returns>
+    /// The container whose payload and request context are delivered to
+    /// consumers. The default returns the base
+    /// <see cref="EventHubDataAdapter"/> container.
+    /// </returns>
+    protected virtual IBatchContainer CreateInnerBatchContainer(EventHubMessage eventHubMessage)
+        => base.GetBatchContainer(eventHubMessage);
 
     /// <summary>
     /// Overrides the base to produce an <see cref="EnrichedEventHubSequenceToken"/>
