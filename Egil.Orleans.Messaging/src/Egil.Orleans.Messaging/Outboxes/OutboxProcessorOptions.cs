@@ -22,10 +22,25 @@ public sealed class OutboxProcessorOptions<TOutbox>
 
     /// <summary>
     /// Called with items that were successfully dispatched by their postmen.
-    /// The grain is expected to remove these items from durable outbox state
-    /// and persist the update.
+    /// The grain is expected to remove these items from its outbox.
     /// </summary>
     /// <remarks>
+    /// <para>
+    /// Persisting the removal immediately is the straightforward choice, but not the
+    /// only one: because an item only leaves the <em>durable</em> outbox once the
+    /// removal is written, deferring that write risks a redelivery and never a lost
+    /// message. A grain using <c>IStateManager&lt;T&gt;</c> can therefore
+    /// assign <c>State</c> and let the next business write carry it. If it does,
+    /// note that this processor reconciles its retry timer and reminder against the
+    /// <see cref="OutboxAccessor"/> snapshot, which reflects the deferred removal. Retry
+    /// is therefore disabled on the strength of a removal that is not durable yet, and
+    /// anything that later discards the change brings those items back as pending without
+    /// re-arming it: a write that fails, a successful <c>ReadAsync</c> or
+    /// <c>ClearAsync</c>, which let storage win, or — in a <c>[Reentrant]</c> grain or
+    /// with interleaved reconciliation — a business write that was already in flight when
+    /// the assignment happened and finishes by adopting its own value. Post again in any of
+    /// those cases.
+    /// </para>
     /// The batch contains exactly the items that posted successfully and is
     /// <em>not necessarily a contiguous prefix</em> of the
     /// <see cref="OutboxAccessor"/> snapshot: different postmen dispatch their

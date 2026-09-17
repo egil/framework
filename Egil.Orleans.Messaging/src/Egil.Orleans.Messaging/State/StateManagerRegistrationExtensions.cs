@@ -11,6 +11,37 @@ public static class StateManagerRegistrationExtensions
     extension(IServiceCollection services)
     {
         /// <summary>
+        /// Registers the default <see cref="IStateManagerFactory"/> for grains that
+        /// register a manager without naming a storage name.
+        /// </summary>
+        /// <remarks>
+        /// Use this when one factory serves every managed facet in the silo, so a grain
+        /// can call <c>RegisterStateManager(storage)</c> and name its facet only in the
+        /// <c>[PersistentState]</c> attribute. Register a keyed factory as well, or
+        /// instead, when different storage providers need different failure handling.
+        /// </remarks>
+        public IServiceCollection AddDefaultStateManager()
+        {
+            ArgumentNullException.ThrowIfNull(services);
+
+            return services.AddSingleton(
+                typeof(IStateManagerFactory),
+                typeof(DefaultStateManagerFactory));
+        }
+
+        /// <summary>
+        /// Registers a custom <see cref="IStateManagerFactory"/> for grains that register
+        /// a manager without naming a storage name.
+        /// </summary>
+        public IServiceCollection AddStateManagerFactory(Type factoryType)
+        {
+            ArgumentNullException.ThrowIfNull(services);
+            ValidateFactoryType(factoryType);
+
+            return services.AddSingleton(typeof(IStateManagerFactory), factoryType);
+        }
+
+        /// <summary>
         /// Registers the default keyed <see cref="IStateManagerFactory"/> for the
         /// given <paramref name="storageName"/>.
         /// </summary>

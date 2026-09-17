@@ -23,9 +23,17 @@ internal sealed class ActivationStateManager<T> : IStateManager<T>
     private IStateManager<T> Manager => manager
         ?? throw new InvalidOperationException("State is not initialized. Access it after persistent state hydration, starting in OnActivateAsync.");
 
-    public T State => Manager.State;
+    public T State
+    {
+        get => Manager.State;
+        set => Manager.State = value;
+    }
+
+    public bool HasUnsavedChanges => Manager.HasUnsavedChanges;
 
     public Task ReadAsync(CancellationToken cancellationToken = default) => Manager.ReadAsync(cancellationToken);
+
+    public Task SaveChangesAsync(CancellationToken cancellationToken = default) => Manager.SaveChangesAsync(cancellationToken);
 
     public Task WriteAsync(T newState, CancellationToken cancellationToken = default) => Manager.WriteAsync(newState, cancellationToken);
 

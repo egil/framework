@@ -22,6 +22,62 @@ public static class StateManagerExtensions
             grain.RegisterStateManager(storageName, storage, static () => new TState());
 
         /// <summary>
+        /// Registers a state manager against the silo's default
+        /// <see cref="IStateManagerFactory"/>, using a new state instance when no record
+        /// exists.
+        /// </summary>
+        public IStateManager<TState> RegisterStateManager<TState>(
+            IPersistentState<TState> storage)
+            where TState : class, IEquatable<TState>, new() =>
+            grain.RegisterStateManager(storage, static () => new TState());
+
+        /// <summary>
+        /// Creates an <see cref="IStateManager{T}"/> for the given grain using the silo's
+        /// default <see cref="IStateManagerFactory"/>.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The facet already carries its names, so this overload asks for neither:
+        /// <code>
+        /// public MyGrain([PersistentState("state", "Default")] IPersistentState&lt;MyState&gt; storage)
+        /// {
+        ///     stateManager = this.RegisterStateManager(storage);
+        /// }
+        /// </code>
+        /// Register the factory with <c>AddDefaultStateManager()</c>. Use the overloads
+        /// that take a storage name when different storage providers need different
+        /// failure handling, since the factory is what classifies their failures.
+        /// </para>
+        /// </remarks>
+        /// <typeparam name="TState">The grain state type.</typeparam>
+        /// <param name="storage">The Orleans-managed persistent state facet.</param>
+        /// <param name="createInitialState">Creates state when no persisted record exists; does not write it.</param>
+        /// <param name="configureState">
+        /// Configures runtime dependencies on each adopted state instance. This
+        /// callback must not change persisted business values or perform storage I/O.
+        /// </param>
+        /// <returns>An <see cref="IStateManager{T}"/> instance.</returns>
+        public IStateManager<TState> RegisterStateManager<TState>(
+            IPersistentState<TState> storage,
+            Func<TState> createInitialState,
+            Action<TState>? configureState = null)
+            where TState : class, IEquatable<TState>
+        {
+            ArgumentNullException.ThrowIfNull(grain);
+            ArgumentNullException.ThrowIfNull(storage);
+            ArgumentNullException.ThrowIfNull(createInitialState);
+
+            return RegisterStateManagerCore(
+                grain.GrainContext.ActivationServices,
+                storageName: null,
+                storage,
+                grain.GetType(),
+                createInitialState,
+                configureState,
+                grain.GrainContext.GrainInstance is null ? grain.GrainContext.ObservableLifecycle : null);
+        }
+
+        /// <summary>
         /// Creates an <see cref="IStateManager{T}"/> for the given grain using
         /// a keyed <see cref="IStateManagerFactory"/> registration.
         /// </summary>
@@ -89,7 +145,7 @@ public static class StateManagerExtensions
 
     internal static IStateManager<TState> RegisterStateManagerCore<TState>(
         IServiceProvider activationServices,
-        string storageName,
+        string? storageName,
         IPersistentState<TState> storage,
         Type grainType,
         Func<TState> createInitialState,
@@ -98,17 +154,25 @@ public static class StateManagerExtensions
         where TState : class, IEquatable<TState>
     {
         ArgumentNullException.ThrowIfNull(activationServices);
-        ArgumentException.ThrowIfNullOrWhiteSpace(storageName);
         ArgumentNullException.ThrowIfNull(storage);
         ArgumentNullException.ThrowIfNull(grainType);
 
-        var factory = activationServices.GetKeyedService<IStateManagerFactory>(storageName);
+        // A null storage name means the caller did not choose a provider-specific factory,
+        // so the unkeyed registration is the one to use.
+        var factory = storageName is null
+            ? activationServices.GetService<IStateManagerFactory>()
+            : activationServices.GetKeyedService<IStateManagerFactory>(storageName);
+
         if (factory is null)
         {
-            throw new InvalidOperationException(
-                $"No keyed IStateManagerFactory registration was found for storage name '{storageName}', " +
-                $"state type '{typeof(TState).FullName}', grain type '{grainType.FullName}'. " +
-                "Register one via AddDefaultStateManager(...) or AddStateManagerFactory(...).");
+            throw new InvalidOperationException(storageName is null
+                ? "No default IStateManagerFactory registration was found for state type " +
+                  $"'{typeof(TState).FullName}', grain type '{grainType.FullName}'. " +
+                  "Register one via AddDefaultStateManager() or AddStateManagerFactory(Type), " +
+                  "or pass a storage name to RegisterStateManager to select a keyed registration."
+                : $"No keyed IStateManagerFactory registration was found for storage name '{storageName}', " +
+                  $"state type '{typeof(TState).FullName}', grain type '{grainType.FullName}'. " +
+                  "Register one via AddDefaultStateManager(...) or AddStateManagerFactory(...).");
         }
 
         ArgumentNullException.ThrowIfNull(createInitialState);

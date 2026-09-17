@@ -23,9 +23,10 @@ Constructor registration, absent-state defaults, and payload-level postmen follo
 
 A set of composable building blocks for Orleans grains that need:
 
-1. **Atomic, recoverable state writes** — grain's observable `State` is
-   never out of sync with what is durably persisted, even on ambiguous
-   write failures.
+1. **Atomic, recoverable state writes** — grain's observable `State` never
+   exposes a value whose durability is unknown, even on ambiguous write
+   failures. Absent deferred writes (§1), that is the same as never being out of sync
+   with what is durably persisted.
 2. **Outbox pattern** — durable, co-located message buffer that commits
    atomically with business-state changes.
 3. **Outbox processing (postman)** — timer + reminder driven dispatch
@@ -105,9 +106,15 @@ state is the enabler.
 ### Goal
 
 Replace direct grain use of `IPersistentState<T>` with a thin wrapper
-that guarantees the grain's observable `State` is never out of sync with
-what is durably persisted, even when `WriteStateAsync` fails ambiguously
-(timeout, network drop, server 5xx, ETag conflict).
+that guarantees the grain's observable `State` never exposes a value whose
+durability is *unknown*, even when `WriteStateAsync` fails ambiguously
+(timeout, network drop, server 5xx, ETag conflict). Absent deferred writes, that is the
+same as saying `State` never drifts from what is durably persisted.
+
+Deferring a write is the one deliberate exemption, and it is an exemption from
+synchronisation rather than from the fence: assigning `State` publishes a value whose
+durability is knowingly *deferred*, `HasUnsavedChanges` says so, and the grain
+chooses when it is written. Write candidates stay fenced either way.
 
 Grain code injects `IPersistentState<MyState>` as normal, then registers an
 `IStateManager<MyState>` wrapper during activation. After that point, the raw
@@ -120,9 +127,11 @@ stale `storage.State` after a failed write.
 ```csharp
 public interface IStateManager<T> where T : class, IEquatable<T>
 {
-    T State { get; }
+    T State { get; set; }
+    bool HasUnsavedChanges { get; }
     Task ReadAsync(CancellationToken cancellationToken = default);
     Task WriteAsync(T newState, CancellationToken cancellationToken = default);
+    Task SaveChangesAsync(CancellationToken cancellationToken = default);
     Task ClearAsync(CancellationToken cancellationToken = default);
 }
 ```
@@ -131,8 +140,9 @@ Tokens are forwarded through constructor-registered managers to storage operatio
 and recovery reads. Cancellation is cooperative and depends on provider support.
 An already canceled token prevents storage access and write-version stamping.
 Cancellation after a write or clear starts does not prove whether it persisted.
-If recovery is also canceled, the manager retains the previous visible snapshot
-and rethrows the original operation exception. Re-read with a fresh token before
+If recovery is also canceled, `State` reverts to the last stored value — which is
+not the previously visible snapshot when there were unsaved changes — and the manager
+rethrows the original operation exception. Re-read with a fresh token before
 another mutation to refresh state and ETag. Provider-confirmed successes are
 adopted even if cancellation arrives concurrently.
 
@@ -194,7 +204,8 @@ recovery, so a callback failure never causes an extra recovery read or silent re
 After successful recovery reads, state validation, default factories, and configuration
 also run outside the storage-read catch. Their errors propagate rather than being
 replaced by the original write/clear exception. Failed recovery reads still restore
-the previous local snapshot and preserve the original storage error.
+the last stored value — not the previously visible snapshot, which may be unsaved —
+and preserve the original storage error.
 
 ### `WriteAsync` semantics
 
@@ -220,12 +231,12 @@ Behaviour matrix:
 | Recovery read finds no record     | `State == configured default`, throws original ex |
 | 5xx / transient                    | Same as timeout — re-read decides                |
 | `InconsistentStateException`       | `State == server's value`, **always rethrows**   |
-| Re-read also fails (double failure)| `storage.State` reverted, throws original ex     |
+| Re-read also fails (double failure)| Reverted to last stored state, throws original ex |
 
 ### Double failure behaviour
 
 When both `WriteStateAsync` and the recovery `ReadStateAsync` fail, the
-manager reverts `storage.State` to `previous` and rethrows. After this
+manager reverts `storage.State` to the last stored value and rethrows. After this
 the grain holds correct data but a **stale ETag**. The next write
 attempt may hit `InconsistentStateException` if the first write actually
 persisted.
@@ -235,6 +246,163 @@ call `ReadAsync()` before its next write to refresh the ETag if it
 suspects this state. This is a documented contract — the library
 surfaces the failure, the grain decides the policy (retry, deactivate,
 alert).
+
+### Deferred writes
+
+assigning `State` replaces the visible snapshot without touching storage.
+`HasUnsavedChanges` reports that the visible value has not been persisted yet,
+and the parameterless `WriteAsync(cancellationToken)` writes it, or does nothing
+when there is nothing to save.
+
+The motivating case is an outbox acknowledgement: removing delivered items is a
+change the grain wants to see immediately but does not need to pay a storage
+write for, because an unpersisted acknowledgement causes redelivery rather than
+message loss (§2). Instrumenting the storage layer of the consumer this library
+was extracted from, roughly one write in four to grain storages that own an
+outbox existed only to persist an acknowledgement.
+
+The manager keeps two snapshots: the visible one, which may be unsaved, and the
+last value known to correspond to storage. The second is what every recovery
+path in the matrix above reverts to. Keeping them apart is what lets `State` be
+called repeatedly with no intervening write without the recovery baseline
+drifting onto a value storage never accepted. With nothing unsaved the two are the
+same reference, so behaviour without deferred writes is unchanged.
+
+Assignment deliberately does **not** stamp a fresh `Version` on `VersionedState`: a
+unsaved snapshot is not a storage revision. Stamping happens in `WriteAsync`. It
+does mirror into `IPersistentState<T>.State`, which keeps the facet consistent
+with the fence and is what makes the migration behaviour below work — except while
+a storage operation is running. The facet holds the `GrainState` the provider was
+handed, and a provider may serialize it after its first await, so replacing the
+value there mid-write would persist the unsaved snapshot instead of the one being
+written. A stage that interleaves a write therefore publishes to `State` only, and
+is discarded when that write completes.
+
+`HasUnsavedChanges` is true only while `State` holds a value that no storage
+operation has confirmed. Every operation that settles the durability question
+clears it, **including the ones that settle it by failing**: a failed write reverts
+`State` to the last stored value and discards the unsaved work rather than
+preserving it. For an outbox that
+costs one redelivery of the already-delivered batch, which the next post run
+corrects — cheaper to reason about than a marker that survives failures.
+
+An operation that settles nothing changes nothing. An already-canceled token —
+checked first by all three operations — leaves the unsaved value visible and
+flagged, so the call can be retried. The same holds for a rejected argument, and
+for a `ReadAsync` whose storage read throws: it learns nothing about a value it
+never wrote. A read that *returns* settles the question, so the marker clears
+before the returned record is resolved — an invalid record or a throwing
+default-state factory is the caller's contract, not storage's answer, and must not
+leave an unsaved value behind to be written back on top of what was just read.
+
+A *successful* `ReadAsync`, and `ClearAsync`, do discard unsaved changes. A read is
+an explicit request for what storage holds, so storage wins. `ClearAsync` clears the marker as
+soon as storage confirms the delete, *before* the default-state factory runs: a
+factory that throws already leaves the manager with no usable-state guarantee, and
+a surviving marker would let the documented deactivation save write the unsaved
+value straight back over the record the grain just deleted.
+
+**Deactivation is the caller's job.** There is no automatic flush, opt-in or
+otherwise. `ILifecycleObserver.OnStop` receives only a `CancellationToken`, never
+the `DeactivationReason` — that lives on the internal `ActivationData` with no
+public route from a lifecycle observer — so an automatic flush could not tell an
+idle deactivation from a silo shutdown or a failure-driven one. The stop token is
+also routinely already cancelled during shutdown, which would force the library to
+invent swallow-or-propagate semantics for a write the caller never asked for. The
+grain is the one that can decide, so the hook belongs there:
+
+```csharp
+public override async Task OnDeactivateAsync(DeactivationReason reason, CancellationToken cancellationToken)
+{
+    try
+    {
+        await stateManager.SaveChangesAsync(cancellationToken);   // no-op when nothing is unsaved
+    }
+    catch (Exception ex)
+    {
+        logger.LogWarning(ex, "Could not save state while deactivating.");
+    }
+
+    await base.OnDeactivateAsync(reason, cancellationToken);
+}
+```
+
+Unconditional, and not filtered on `DeactivationReason`. Every reason code skipped
+is a reason code that drops unsaved data, and `ShuttingDown` is an orderly, expected
+event on every deployment. The parameterless `WriteAsync` does not observe its
+token when there is nothing to save, precisely so this call is safe to make
+unconditionally — but with unsaved changes it does observe it, and deactivation
+tokens can already be cancelled, so the write is guarded rather than allowed to
+throw out of the hook and skip the rest of it.
+
+A grain that stages and then never writes again never drains its durable outbox.
+Each activation that posts redelivers the same items, acknowledges them into a
+stage, and loses the stage at deactivation; later post runs in that same
+activation see the deferred, empty view and do nothing. And it is not
+self-correcting on a timer: a deferred acknowledgement empties the view the
+processor reconciles against, so retry and the durable reminder are disabled, and
+registering a processor does not post on activation. The items therefore stay in
+storage until a fresh activation reads them back and something posts again. It is the same class of exposure as a write that fails
+just before deactivation, which has always been possible; what is new is that it
+can become permanent rather than exceptional. The snippet above is the fix, which
+is why it ships as an `<example>` on the API itself rather than in a caveats
+section.
+
+`OutboxProcessor<T>` reconciles its retry timer and durable reminder against
+`OutboxAccessor`, which reads through the manager. A deferred acknowledgement that
+empties the outbox therefore disables retry, which is correct from the processor's
+point of view — it was told there is nothing pending, though on the strength of a
+removal that is not durable yet. Anything that later discards the change brings
+those items back as pending: a write that fails, a successful `ReadAsync` or
+`ClearAsync`, or a business write that was already in flight when the stage
+happened and finishes by adopting its own value.
+Neither re-arms the processor, and there is no activation hook that posts on its
+own. The documented pattern is to post again in either case. Coupling the
+processor to `HasUnsavedChanges` would remove the need, at the cost of making an
+outbox-only component depend on the state manager; that trade is not taken here.
+
+`OutboxProcessorOptions<T>.InterleaveReconciliationCallbacks` defaults to `false`,
+so an acknowledgement callback cannot normally run while a business `WriteAsync`
+is in flight. In `[Reentrant]` grains, or with that option on, it can. The
+in-flight write then finishes by adopting **the value it wrote**, not whatever is
+sitting in the storage facet by then, and so discards an assignment that happened
+while it was awaiting. The result is a redelivery, not a loss. Adopting the facet
+instead would be the actual hazard: assignment mirrors into it, so the write would
+mark a value storage never saw as durable and drop its own fence.
+
+### Deferred writes and grain migration
+
+Orleans can move a live activation between silos without a storage round trip. The
+activation is deactivated with `DeactivationReasonCode.Migrating`, and instead of
+discarding in-memory state the runtime builds a dehydration context — a string-keyed
+bag of serialized values — ships it to the destination, and replays it there.
+`[PersistentState]` hands the grain an `Orleans.Core.StateStorageBridge<T>`, which
+takes part in that handoff itself, carrying `GrainState<T>` (value, ETag and
+`RecordExists`).
+
+**This library does not take part.** A migrating activation persists like any other
+one: the deactivation hook above runs before Orleans dehydrates, so the write lands
+first and the destination inherits a value storage genuinely holds.
+
+The alternative was tried and removed. Participating means carrying the unsaved
+snapshot and the recovery baseline in the dehydration context, which needs a facet
+identity both silos compute independently and agree on — and Orleans keys its own
+handoff on a facet name that `IPersistentState<T>` does not expose. Substituting one
+costs a public API parameter, a canonical type identity stable across assembly
+versions, a uniqueness rule enforced at registration, and a failure mode where two
+facets restore each other's state. All of it to avoid **one storage write per
+migration that has unsaved changes**. That is not a trade worth making, and it is
+not one Orleans makes either: `IGrainMigrationParticipant` does not appear anywhere
+in `Orleans.Journaling`, whose grains replay from storage on the destination.
+
+What a grain gives up by skipping the write is documented rather than hidden. The
+unsaved value still rides along inside the storage facet, but the destination cannot
+tell it was never written: it treats the value as durable and loses it at its own
+next deactivation. A stage made before the grain's first write is worse — the facet
+arrives with `RecordExists` false, so the destination resolves its configured
+initial state and the change is gone on arrival. Both are the exposure deferred
+writes already document for an activation that ends without writing, and both are closed
+by the same unconditional hook.
 
 ### Notes
 
@@ -304,12 +472,22 @@ The wrapper was debated — recovery logic is stateless, could be an
 extension method on `IPersistentState<T>`. But the wrapper does a fourth
 thing extensions cannot: **it hides `IPersistentState<T>.State`**.
 
-`IStateManager<T>.State` exposes the loaded or **committed** snapshot, or
-the configured default for absent storage. During an in-flight write,
-`IPersistentState<T>.State` already holds the uncommitted value. Read
-methods marked `[AlwaysInterleave]` that access `storage.State` directly
-could observe uncommitted state — and if the write fails, they returned
-data that never persisted.
+`IStateManager<T>.State` exposes the loaded or **committed** snapshot, the
+configured default for absent storage, or a value the grain deliberately
+assigned to it. What it never exposes is an in-flight **write
+candidate**. During a write, `IPersistentState<T>.State` already holds the
+uncommitted value; read methods marked `[AlwaysInterleave]` that access
+`storage.State` directly could observe it — and if the write fails, they
+returned data that never persisted.
+
+The two words carry the whole distinction. A **write candidate** is a value
+whose durability is *unknown* because a write is running, and `State` never
+exposes one. An **unsaved** value is one whose durability is *knowingly
+deferred*: `State` does expose it and `HasUnsavedChanges` reports it. The
+caller-visible consequence is that an `[AlwaysInterleave]` reader can observe,
+and answer from, a value that will vanish if the activation ends without
+persisting it. That is the deal a deferred write offers; it is not the fence being
+broken.
 
 The wrapper is a **concurrency safety boundary**, not just convenience.
 Extension methods can't provide this fence because the grain still holds
@@ -357,11 +535,20 @@ Provider-level mitigation is allowed: a storage provider may detect
 unchanged sub-graphs and skip writing unchanged bytes. That stays a
 provider concern.
 
-### Non-goal: outbox-only writes
+### Non-goal: outbox-only appends
 
 The grain does not expose "enqueue without committing other state."
-Every outbox change rides the same `WriteAsync(newState)` as the
-business-state change that produced it.
+Every outbox **append** rides the same `WriteAsync(newState)` as the
+business-state change that produced it. That is the atomicity this non-goal
+exists to defend, and deferring a write (§1) does not touch it.
+
+Acknowledgement *removal* is the opposite direction and is not covered by this
+non-goal. Deferring it leaves the durable outbox **larger** than the grain's
+view — the item is gone from `State` but still in storage — so the risk it
+carries is a redelivery, never a lost message. A
+grain may therefore assign the acknowledgement to `State` and let the next business write
+carry it, which is what §1's deferred writes exist for. The decision here is
+sharpened, not reversed.
 
 ---
 
@@ -1213,8 +1400,10 @@ Grains using this library should follow a functional-command model:
 3. **Reads interleave freely.** Methods that only read committed state
    can be marked `[AlwaysInterleave]`. They see the last
    `WriteAsync`-committed snapshot via `IStateManager<T>.State` — the
-   committed-state fence (§1) ensures they never observe in-flight
-   uncommitted values. Multiple reads execute in parallel.
+   committed-state fence (§1) ensures they never observe an in-flight write
+   candidate. Multiple reads execute in parallel. A grain that defers writes
+   changes this deliberately: an unsaved value *is* visible to interleaved
+   readers, so a reply derived from one is only as durable as the next write.
 
 4. **No external I/O in command handlers.** Commands should not call
    HTTP, query databases, or invoke other grains. All input needed for
@@ -1483,7 +1672,8 @@ public sealed class OutboxProcessorOptions<TOutbox> where TOutbox : notnull
     public required Func<Outbox<TOutbox>> OutboxAccessor { get; init; }
 
     /// Acknowledges successfully posted items.
-    /// Expected to remove those items from the durable outbox state.
+    /// Expected to remove those items from the outbox. Persisting the removal
+    /// immediately is optional — see §1 on deferred writes.
     public required Func<ImmutableArray<OutboxMessageEnvelope<TOutbox>>, CancellationToken, ValueTask>
         AcknowledgePostedAsync { get; init; }
 
@@ -1531,9 +1721,15 @@ scheduling proceed, because state writes can replace the outbox instance.
 callbacks, not passive notifications:
 
 - `AcknowledgePostedAsync` is expected to remove successfully posted items
-  from the durable outbox and persist that change. If acknowledged items
-  still appear in `OutboxAccessor` after the callback returns, the processor
-  treats them as pending and they may be posted again.
+  from the outbox. If acknowledged items still appear in `OutboxAccessor`
+  after the callback returns, the processor treats them as pending and they
+  may be posted again. Persisting the removal within the callback is the
+  straightforward choice but not required: because an item only leaves the
+  *durable* outbox once the removal is written, the callback may assign it to
+  `State` (§1) and let the next business write carry it. The processor reconciles
+  retry against `OutboxAccessor`, so it sees the unsaved view and disables
+  retry; a later failed write leaves those items pending again without
+  re-arming it, and the grain should post again after handling that failure.
 - `ReconcileFailedAsync` is the grain's policy hook for failed items. The
   grain may leave them in the outbox for retry, remove them, move them to
   dead-letter state, or make any other durable state change. If null, failed
@@ -1685,9 +1881,11 @@ public async Task ReceiveReminder(string name, TickStatus status)
   max-depth policies belong in this reconciliation callback because the grain
   owns the durable outbox state.
 - **Acknowledgement is explicit.** Successfully posted items are not removed
-  by the processor directly. The grain removes and persists them in
+  by the processor directly. The grain removes them in
   `AcknowledgePostedAsync`, preserving the outbox invariant that all durable
-  state changes go through the owning grain's state manager.
+  state changes go through the owning grain's state manager — which is also
+  what lets the grain decide *when* the removal is persisted, immediately or
+  on the next business write.
 - **`PostInBackgroundAsync` uses the same path as retry.** It schedules a
   background drain and returns quickly so a grain command can commit an outbox
   item and return to its caller without waiting for external delivery. Reminder

@@ -24,7 +24,7 @@ namespace Egil.Orleans.Messaging.State;
 /// <see cref="Version"/> has <c>internal set</c> — library code can stamp it;
 /// user code cannot. This is a hard compile-time fence. The <c>set</c> (not
 /// <c>init</c>) accessor allows mutation of the caller's reference during
-/// <see cref="IStateManager{T}.WriteAsync"/>.
+/// <see cref="IStateManager{T}.WriteAsync(T, CancellationToken)"/>.
 /// </para>
 /// <para>
 /// <b>Usage:</b>

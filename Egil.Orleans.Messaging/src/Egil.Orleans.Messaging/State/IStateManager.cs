@@ -2,9 +2,11 @@ namespace Egil.Orleans.Messaging.State;
 
 /// <summary>
 /// A thin wrapper around <see cref="IPersistentState{TState}"/> that guarantees
-/// the grain's observable <see cref="State"/> exposes the loaded or committed
-/// snapshot (or a default for absent storage), even when <see cref="WriteAsync"/> fails ambiguously
-/// (timeout, network drop, server 5xx, ETag conflict).
+/// the grain's observable <see cref="State"/> never exposes a value whose durability
+/// is unknown, even when <see cref="WriteAsync(T, CancellationToken)"/> fails ambiguously
+/// (timeout, network drop, server 5xx, ETag conflict). It exposes the loaded or
+/// committed snapshot, a default for absent storage, or a value the grain deliberately
+/// published with <see cref="State"/> and has not written yet.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -12,17 +14,26 @@ namespace Egil.Orleans.Messaging.State;
 /// successfully written value, or a configured default for a missing record. During an in-flight write, the underlying
 /// <see cref="IPersistentState{TState}"/>.State already holds the uncommitted
 /// value. Methods marked <c>[AlwaysInterleave]</c> that read <see cref="State"/>
-/// through this interface are guaranteed to never observe uncommitted state.
+/// through this interface are guaranteed to never observe a write candidate,
+/// meaning a value whose durability is unknown because a write is still running.
 /// This is the primary reason <see cref="IStateManager{T}"/> exists as a wrapper
 /// rather than extension methods on <see cref="IPersistentState{TState}"/>.
+/// </para>
+/// <para>
+/// <b>Deferred writes:</b> assigning <see cref="State"/> narrows that fence
+/// deliberately. An assigned value's durability is knowingly <em>deferred</em> rather
+/// than unknown, so <see cref="State"/> does expose it and
+/// <see cref="HasUnsavedChanges"/> reports it. That lets a grain fold several changes
+/// into a single storage write, at the cost that the value is lost if the activation
+/// ends without writing it.
 /// </para>
 /// <para>
 /// <b>Cancellation:</b> Operations forward the token to storage, including recovery
 /// reads. Cancellation is cooperative and depends on provider support. An already
 /// canceled token prevents storage access and write-version stamping. Once a write
 /// or clear starts, cancellation does not prove that it failed to persist. If recovery
-/// is canceled, the previous visible snapshot is retained and the original operation
-/// exception is rethrown. Call <see cref="ReadAsync"/> with a fresh token before the
+/// is canceled after the operation started, <see cref="State"/> reverts to the last
+/// stored value and the original operation exception is rethrown. Call <see cref="ReadAsync"/> with a fresh token before the
 /// next mutation to refresh state and ETag. A provider-confirmed success is adopted
 /// even if cancellation was requested concurrently.
 /// </para>
@@ -40,8 +51,10 @@ namespace Egil.Orleans.Messaging.State;
 /// storage. If the write actually persisted (detected via version or equality
 /// check), it swallows the exception. If the write did not persist, it rethrows.
 /// If both write and re-read fail (double failure), the manager reverts to the
-/// previous state and rethrows — the grain must call <see cref="ReadAsync"/>
-/// before its next write to refresh the ETag.
+/// last stored state and rethrows — the grain must call <see cref="ReadAsync"/>
+/// before its next write to refresh the ETag. "Last stored" rather than "previous"
+/// matters once <see cref="State"/> is in play: reverting has to land on a value
+/// storage actually holds, so an unsaved value is discarded rather than restored.
 /// </para>
 /// </remarks>
 /// <typeparam name="T">
@@ -87,16 +100,49 @@ public interface IStateManager<T>
     where T : class, IEquatable<T>
 {
     /// <summary>
-    /// Gets the loaded or successfully written state, or a configured default
-    /// when no persisted record exists. Defaults are not automatically written.
+    /// Gets or sets the grain's state snapshot: the loaded or successfully written value,
+    /// a configured default when no persisted record exists, or a value assigned here and
+    /// not yet written. Defaults are not automatically written.
     /// </summary>
     /// <remarks>
-    /// Safe to read from <c>[AlwaysInterleave]</c> methods — returns only
-    /// loaded/committed values or missing-record defaults, never in-flight writes. This is the
-    /// committed-state fence that justifies the wrapper over raw
-    /// <see cref="IPersistentState{TState}"/>.
+    /// <para>
+    /// Safe to read from <c>[AlwaysInterleave]</c> methods — never returns an
+    /// in-flight write candidate, meaning a value whose durability is unknown because
+    /// a write is still running. This is the committed-state fence that justifies the
+    /// wrapper over raw <see cref="IPersistentState{TState}"/>.
+    /// </para>
+    /// <para>
+    /// A value <em>assigned</em> here is not a write candidate: its durability is
+    /// knowingly deferred, not unknown, so it is exposed and flagged by
+    /// <see cref="HasUnsavedChanges"/> until <see cref="SaveChangesAsync"/> persists it.
+    /// An interleaved reader can therefore observe — and answer from — a value that
+    /// disappears if the activation ends without persisting it. Any reply derived from an
+    /// unsaved value is only as durable as the next write.
+    /// </para>
+    /// <para>
+    /// Assignment behaves like <see cref="IPersistentState{TState}"/>: it changes what the
+    /// grain sees and nothing else. Use <see cref="WriteAsync(T, CancellationToken)"/>
+    /// instead when the value must not become visible unless it persisted.
+    /// </para>
     /// </remarks>
-    T State { get; }
+    T State { get; set; }
+
+    /// <summary>
+    /// Gets a value indicating whether <see cref="State"/> has been assigned a value that
+    /// has not reached durable storage yet.
+    /// </summary>
+    /// <remarks>
+    /// Cleared by every operation that settles the durability question, including the
+    /// ones that settle it by failing: a successful write or clear adopts the new value,
+    /// a successful read adopts what storage holds, and a write that failed reverts
+    /// <see cref="State"/> to the last stored snapshot. It is therefore never
+    /// <c>true</c> for a value that storage has either accepted or definitively rejected.
+    /// An operation that settles nothing changes nothing, so the unsaved value stays
+    /// visible and flagged and the call can simply be retried: that covers an
+    /// already-canceled token, a rejected argument, and a <see cref="ReadAsync"/> whose
+    /// storage read throws, which learns nothing about a value it never wrote.
+    /// </remarks>
+    bool HasUnsavedChanges { get; }
 
     /// <summary>
     /// Re-reads state from durable storage, replacing the current
@@ -108,6 +154,17 @@ public interface IStateManager<T>
     /// auto-hydrates before <c>OnActivateAsync</c>. Use only when the grain
     /// needs to force a re-read mid-activation (e.g., after a known external
     /// mutation or to recover from a double-failure scenario).
+    /// <para>
+    /// Storage wins: once the read <em>succeeds</em>, any unsaved value is discarded and
+    /// <see cref="HasUnsavedChanges"/> is cleared. A read is an explicit request for what
+    /// storage holds, so silently keeping an unpersisted snapshot on top of it would be
+    /// the greater surprise. A read whose storage call throws, or that never starts
+    /// because the token was already canceled, settles nothing and leaves the unsaved value
+    /// and its marker untouched, so it can simply be retried. A read that returns settles
+    /// the question, so the marker clears before the returned record is resolved — an
+    /// invalid record or a throwing default-state factory is reported to the caller and
+    /// does not resurrect the unsaved value.
+    /// </para>
     /// </remarks>
     /// <param name="cancellationToken">The cancellation token for the storage operation.</param>
     Task ReadAsync(CancellationToken cancellationToken = default);
@@ -134,14 +191,90 @@ public interface IStateManager<T>
     /// </para>
     /// <para>
     /// <b>Double failure:</b> If both write and re-read fail, reverts
-    /// <see cref="State"/> to its pre-write value and rethrows. The grain
+    /// <see cref="State"/> to the last stored value and rethrows. The grain
     /// holds correct data but a stale ETag — call <see cref="ReadAsync"/>
     /// before the next write.
+    /// </para>
+    /// <para>
+    /// <b>Unsaved changes:</b> once the write reaches storage, <paramref name="newState"/>
+    /// wins and <see cref="HasUnsavedChanges"/> is cleared whatever the outcome. On failure
+    /// the unsaved value is discarded along with the attempted one, because the value a
+    /// write falls back to must be one that storage actually holds. For an outbox that
+    /// costs one redelivery of the already-delivered batch, which is self-correcting.
+    /// An already-canceled token prevents the write, and then leaves the unsaved value and
+    /// its marker untouched.
     /// </para>
     /// </remarks>
     /// <param name="newState">The new state value to persist.</param>
     /// <param name="cancellationToken">The cancellation token for the storage operation and recovery read.</param>
     Task WriteAsync(T newState, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Writes the current <see cref="State"/> to durable storage, or does nothing when
+    /// <see cref="HasUnsavedChanges"/> is <c>false</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Equivalent to <c>WriteAsync(State, cancellationToken)</c> when there is something
+    /// to save, including version stamping and the full recovery behavior described on
+    /// that method. The difference is the guard, which is what makes this one safe to
+    /// call unconditionally from a deactivation hook — and that the value is already
+    /// visible, where <see cref="WriteAsync(T, CancellationToken)"/> publishes only on
+    /// success.
+    /// </para>
+    /// <para>
+    /// With nothing to save this touches neither storage nor
+    /// <paramref name="cancellationToken"/>: it is a no-op, not a canceled operation.
+    /// Deactivation tokens are routinely already canceled during silo shutdown, and a
+    /// grain with nothing outstanding should not have to handle an exception for it.
+    /// </para>
+    /// <para>
+    /// Because it writes the very instance <see cref="State"/> returns, a
+    /// <see cref="VersionedState"/> has its <see cref="VersionedState.Version"/> stamped
+    /// in place, exactly as <c>WriteAsync(State, cancellationToken)</c> would. An
+    /// interleaved reader can therefore see the new version before it is durable, and see
+    /// it revert if the write fails. The version is recovery bookkeeping, not business
+    /// data, and the accompanying state is the value the reader could already see.
+    /// </para>
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// public override async Task OnDeactivateAsync(DeactivationReason reason, CancellationToken cancellationToken)
+    /// {
+    ///     try
+    ///     {
+    ///         await stateManager.SaveChangesAsync(cancellationToken);   // no-op when nothing is unsaved
+    ///     }
+    ///     catch (Exception ex)
+    ///     {
+    ///         // Deactivation is not retried, and its token can already be canceled on a
+    ///         // forced shutdown, so this write can fail. Losing the value costs a
+    ///         // redelivery; letting the failure escape costs the rest of deactivation.
+    ///         logger.LogWarning(ex, "Could not save state while deactivating.");
+    ///     }
+    ///
+    ///     await base.OnDeactivateAsync(reason, cancellationToken);
+    /// }
+    /// </code>
+    /// <para>
+    /// Unconditional on purpose. Filtering on <see cref="DeactivationReason"/> looks
+    /// tempting — skipping <c>ShuttingDown</c>, say — but every reason code that skips a
+    /// write is a reason code that drops unsaved data, and a silo shutdown is an orderly,
+    /// expected event on every deployment.
+    /// </para>
+    /// <para>
+    /// <b>Live migration is one of those reasons.</b> This library takes no part in
+    /// Orleans' migration handoff, so a migrating activation must persist like any other.
+    /// Orleans runs <c>OnDeactivateAsync</c> before it dehydrates, so a write here lands
+    /// first and the destination inherits a value storage genuinely holds. Skip it and the
+    /// unsaved value still rides along inside the storage facet Orleans carries, but the
+    /// destination has no way to know it was never written: it treats the value as durable
+    /// and loses it at its own next deactivation, or — for an assignment made before the
+    /// grain's first write — resolves the configured default and loses it on arrival.
+    /// </para>
+    /// </example>
+    /// <param name="cancellationToken">The cancellation token for the storage operation and recovery read.</param>
+    Task SaveChangesAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Clears the persisted state. On success, <see cref="State"/> reflects
@@ -159,7 +292,8 @@ public interface IStateManager<T>
     /// When recovery successfully reads a provider value before rethrowing,
     /// <see cref="State"/> adopts that value and can therefore change even
     /// though this method throws. If recovery also fails, <see cref="State"/>
-    /// reverts to its pre-clear value.
+    /// reverts to the last stored value, which is not the pre-clear value when there
+    /// were unsaved changes.
     /// </para>
     /// <para>
     /// Storage is cleared before the default-state factory runs. The factory must
@@ -168,6 +302,14 @@ public interface IStateManager<T>
     /// applies after this factory contract violation: State may still reference the
     /// previous snapshot, which must not be treated as the current persisted state.
     /// A null result is rejected with an InvalidOperationException for diagnosis.
+    /// </para>
+    /// <para>
+    /// Once the clear reaches storage, any unsaved value is discarded and
+    /// <see cref="HasUnsavedChanges"/> is cleared in every branch: a clear settles the
+    /// durability question either way, and the marker is cleared before the default-state
+    /// factory runs so that a failing factory cannot leave an unsaved value waiting to be
+    /// written back over the deleted record. An already-canceled token prevents the clear,
+    /// and then leaves the unsaved value and its marker untouched.
     /// </para>
     /// </remarks>
     /// <param name="cancellationToken">The cancellation token for the storage operation and recovery read.</param>

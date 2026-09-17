@@ -46,7 +46,18 @@ using Orleans.Hosting;
 Register the default state manager factory on the silo:
 
 ```csharp
-siloBuilder.AddDefaultStateManager("state");
+siloBuilder.AddDefaultStateManager();
+```
+
+Pass a name instead when different storage providers need different failure
+handling — the factory is what classifies their failures — and then name it at the
+registration call too:
+
+```csharp
+siloBuilder.AddDefaultStateManager("Default");
+siloBuilder.AddAzureStorageStateManager("blobs");
+
+state = this.RegisterStateManager("blobs", storage, () => new OrderState());
 ```
 
 For Orleans Azure Table or Blob grain storage, install and configure the
@@ -68,16 +79,19 @@ recovery read. Ambiguous or transient outcomes, including HTTP 503
 `ServerBusy`, HTTP 500 `OperationTimedOut`, HTTP 429 throttling, no-response
 failures, and timeout exceptions, still use read-back recovery.
 
-Register the manager in the grain constructor and keep it in a readonly field:
+Register the manager in the grain constructor and keep it in a readonly field. The
+facet already carries its names, so the manager does not ask for them again:
 
 ```csharp
+siloBuilder.AddDefaultStateManager();   // one factory for every managed facet
+
 public sealed class OrderGrain : Grain, IOrderGrain
 {
     private readonly IStateManager<OrderState> state;
 
     public OrderGrain([PersistentState("state", "Default")] IPersistentState<OrderState> storage)
     {
-        state = this.RegisterStateManager("state", storage, () => new OrderState());
+        state = this.RegisterStateManager(storage, () => new OrderState());
     }
 
     public Task RenameAsync(string name, CancellationToken cancellationToken) =>
@@ -92,8 +106,9 @@ the provider decides whether it can interrupt in-flight work. Existing calls may
 token prevents storage access and write-version stamping.
 
 Cancellation after a write or clear starts does not establish whether it persisted.
-If recovery is also canceled, the manager retains its previous visible snapshot
-and rethrows the original operation exception. Re-read with a fresh token before
+If recovery is also canceled, `State` reverts to the last stored value — discarding
+an unsaved value, which is not the same as the previously visible snapshot — and the
+manager rethrows the original operation exception. Re-read with a fresh token before
 another mutation to refresh the state and ETag. A provider-confirmed success is
 adopted even if cancellation was requested concurrently.
 
@@ -111,8 +126,12 @@ An existing record with a null value, or a factory returning null, is rejected.
 can persist its resulting state with `WriteAsync`.
 
 `State` stays read-only. It exposes the loaded or successfully written snapshot,
-or the default representing absent storage; interleaved readers cannot observe
-an in-flight write candidate. Do not replace raw `storage.State` after registration.
+or the default representing absent storage. Interleaved readers cannot observe an
+in-flight *write candidate* — a value whose durability is unknown because a write
+is still running. An *unsaved* value is different: its durability is knowingly
+deferred, so `State` does expose it and `HasUnsavedChanges` reports it (see
+[Deferred writes](#deferred-writes)). Do not replace raw
+`storage.State` after registration.
 
 Use the optional runtime configuration callback to restore transient dependencies
 on each adopted instance, including after reads and recovery:
@@ -139,10 +158,107 @@ propagates and the deletion remains completed. A null result is rejected with
 the manager has no guaranteed usable state: `State` may still reference the previous
 snapshot and must not be treated as the current persisted state.
 
+The facet must be one backed by an `IGrainStorage` provider. A journaled facet from
+`Orleans.Journaling` is also an `IPersistentState<T>`, and that package registers one
+for every DI key, so it can reach `RegisterStateManager` by accident — but its
+`ReadStateAsync` is a no-op, because a journal is replayed at activation rather than
+re-read. Recovery would then compare an attempted write with itself and report a
+failure as success, so wrapping one throws `NotSupportedException` at construction.
+Use the journal's own durability instead.
+
 State types must be reference types and implement `IEquatable<T>`. For
 non-trivial state graphs, inherit from `VersionedState` so the recovery path
 compares a library-stamped version rather than relying on structural
 collection equality.
+
+### Deferred writes
+
+`State` has a setter. Assigning it moves the visible snapshot forward **without**
+writing to storage, exactly as assigning `IPersistentState<T>.State` does, so
+several changes can be folded into one write. `HasUnsavedChanges` reports that the
+visible value is not durable yet, and `SaveChangesAsync(cancellationToken)` persists
+it — or does nothing when there is nothing outstanding:
+
+```csharp
+state.State = state.State with { Outbox = state.State.Outbox.RemoveRange(delivered) };
+
+// ... later, on the next business change, one write carries both:
+await state.WriteAsync(state.State with { Name = name }, cancellationToken);
+```
+
+The two ways to persist differ in **when the value becomes visible**:
+
+| | visible | durable |
+|---|---|---|
+| `State = x` then `SaveChangesAsync()` | immediately | at the save |
+| `WriteAsync(x)` | only if the write succeeded | on success |
+
+Use `WriteAsync(value)` when a reply must not be derived from a value that never
+persisted; assign `State` when the grain should see the change now and pay for the
+write later.
+
+Assignment does not stamp a new `VersionedState.Version`; an unsaved snapshot is not
+a storage revision, so stamping happens when the value is actually written. The
+runtime configuration callback does run on the assigned instance, as it does for
+every other adopted instance.
+
+**An unsaved value is lost if the activation ends before it is written.** Persist on
+the way out:
+
+```csharp
+public override async Task OnDeactivateAsync(DeactivationReason reason, CancellationToken cancellationToken)
+{
+    try
+    {
+        await state.SaveChangesAsync(cancellationToken);
+    }
+    catch (Exception ex)
+    {
+        // Deactivation is not retried, and its token can already be cancelled on a
+        // forced shutdown, so this write can fail. Losing the unsaved value costs a
+        // redelivery; letting the failure escape costs the rest of deactivation.
+        logger.LogWarning(ex, "Could not save state while deactivating.");
+    }
+
+    await base.OnDeactivateAsync(reason, cancellationToken);
+}
+```
+
+The library does not do this for you. A lifecycle observer never receives the
+`DeactivationReason`, so it could not tell an idle deactivation from a silo
+shutdown or a failure, and the stop token is routinely already cancelled by then.
+Calling `SaveChangesAsync` unconditionally is safe: with nothing outstanding it does
+not reach storage and does not observe the cancellation token. With unsaved changes
+it does observe the token, which is why the write is guarded — an already-cancelled
+deactivation would otherwise throw out of the hook and skip the rest of it.
+
+Keep it unconditional. Filtering on `DeactivationReason` is tempting, but every
+reason code you skip is a reason code that drops unsaved data, and `ShuttingDown` is
+an orderly, expected event on every deployment.
+
+Failures discard unsaved work rather than preserving it. A failed write reverts
+`State` to the last value storage confirmed and clears `HasUnsavedChanges`; a
+successful `ReadAsync` or `ClearAsync` discards it too, because storage wins. The
+marker is true only while `State` holds a value that no storage operation has
+confirmed. An operation that settles nothing changes nothing and leaves the unsaved
+value visible and flagged, so the call can simply be retried — that covers an
+already-cancelled token, a rejected argument, and a `ReadAsync` whose storage call
+throws, which learns nothing about a value it never wrote. A read that *does*
+return settles the question, so the marker clears before the record is resolved:
+an invalid record or a throwing default-state factory is reported to you and does
+not resurrect the unsaved value.
+
+**Live migration is one of those deactivations.** This library takes no part in
+Orleans' migration handoff — a migrating activation persists like any other, and the
+destination reads what storage holds. Orleans runs `OnDeactivateAsync` before it
+dehydrates, so the write above lands first and the destination inherits a durable
+value.
+
+Skip that write and the unsaved value still rides along inside the storage facet
+Orleans carries itself, but the destination cannot tell it was never written: it
+treats the value as durable and loses it at its own next deactivation. A stage made
+before the grain's first write is worse — the facet arrives with no record, so the
+destination resolves the configured default and the change is gone on arrival.
 
 ## Outbox
 
@@ -246,6 +362,48 @@ stored `OutboxMessageEnvelope<T>` values. Acknowledgment receives exactly the
 successfully delivered items, which need not be a contiguous prefix. Remove them
 by passing the envelopes directly to `RemoveRange`; never remove by position or count. Equal payloads
 can represent different messages and retain distinct stored IDs.
+
+To avoid paying a storage write per acknowledgement, stage the removal instead and
+let the next business write carry it:
+
+```csharp
+AcknowledgePostedAsync = (items, ct) =>
+{
+    state.State = state.State with
+    {
+        Outbox = state.State.Outbox.RemoveRange(items)
+    };
+    return ValueTask.CompletedTask;
+}
+```
+
+`OutboxAccessor` reads through the state manager, so it observes the deferred
+removal with no change at the call site. This is safe because items only leave the
+*durable* outbox once an acknowledgement is persisted: losing a deferred
+acknowledgement causes redelivery, never message loss. Pair it with the
+deactivation hook from [Deferred writes](#deferred-writes).
+Without it, a grain that stops doing business writes never drains its durable
+outbox. Each activation that posts redelivers the same items, stages the
+acknowledgement, and loses it again at deactivation; within that activation later
+post runs see the deferred, empty view and do nothing. Nor does it recover on a
+timer — the deferred removal empties the view the processor reconciles against, so
+retry and the reminder are disabled, and registering a processor does not post on
+activation. The items sit in storage until a fresh activation reads them back and
+something posts again.
+
+Two consequences of the processor seeing the deferred view are worth planning for.
+The processor reconciles its retry timer and reminder against `OutboxAccessor`, so
+a deferred acknowledgement that empties the outbox **disables retry** — correctly,
+as far as the processor can tell, though on the strength of a removal that is not
+durable yet. Anything that later discards the change brings those items back as
+pending without re-arming the processor: a `WriteAsync` that fails, a successful
+`ReadAsync` or `ClearAsync`, which let storage win, or — in a `[Reentrant]` grain,
+or with `InterleaveReconciliationCallbacks` on — a business write that was already
+in flight when the assignment happened and finishes by adopting its own value. Call
+`PostInBackgroundAsync` in any of those cases; a grain that does nothing else can
+leave the batch waiting until something posts again. Second, a redelivery is a real delivery: receivers must
+already be idempotent for at-least-once, and deferring makes the duplicate path
+slightly more likely, not differently shaped.
 
 `IOutboxGrain` forwards reminder ticks to the single attached processor.
 Register exactly one processor per grain activation; a second registration
@@ -608,6 +766,20 @@ Replace `MessageTracker.ProcessMessage(...)` with `TryAcceptMessage(...)` for al
 stream and outbox overloads. It returns the acceptance decision and the next
 tracker; it does not execute the message handler or persist the tracker. Tokenless
 stream messages are accepted without advancing tracking state.
+
+`IStateManager<T>.State` gains a setter, and the interface gains
+`HasUnsavedChanges` and `SaveChangesAsync(CancellationToken)`
+([issue #188](https://github.com/egil/framework/issues/188)). This breaks custom
+implementations of the interface both at **source** — they must add the setter and
+the two members — and at **binary**: an assembly compiled against an earlier version
+no longer satisfies the interface and fails to load its implementation until it is
+rebuilt. Recompile consumers rather than mixing versions. Managers deriving from
+`StateManagerBase<T>` inherit them and need no change.
+
+`WriteAsync(newState)` is unchanged, including its guarantee that the value becomes
+visible only if the write succeeded. `State` may now return an unsaved value — see
+[Deferred writes](#deferred-writes) for what that narrows
+and what it does not.
 
 The constructor-registration and payload-postman changes tracked in
 [issue #179](https://github.com/egil/framework/issues/179) are breaking changes:
