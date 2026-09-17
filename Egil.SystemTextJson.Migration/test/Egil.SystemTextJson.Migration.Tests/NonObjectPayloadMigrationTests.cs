@@ -496,6 +496,19 @@ public class NonObjectPayloadMigrationTests
         Assert.Equal("from-elem-v2", result.Source);
     }
 
+    [Fact]
+    public void Discriminator_less_object_elements_are_ambiguous_between_plain_and_migratable_element_lists()
+    {
+        // Both element types are JSON objects, so without a discriminator neither list can be
+        // chosen; the migratable list must not lose to the plain list by registration order.
+        var options = CreateOptions();
+        var json = """[{"data":"x"}]""";
+
+        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<ItemListOrMigratableElementState>(json, options));
+
+        Assert.Contains("ambiguous", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     // --- Test types ---
 
     [JsonMigratable]
@@ -760,6 +773,24 @@ public class NonObjectPayloadMigrationTests
 
     [JsonMigratable(TypeDiscriminator = "elem-v2")]
     public record class ElemV2(string Data);
+
+    [JsonMigratable]
+    public record class ItemListOrMigratableElementState(string Source)
+        : IMigrateFrom<List<EnumerableItem>, ItemListOrMigratableElementState>,
+          IMigrateFrom<List<ElemV1>, ItemListOrMigratableElementState>
+    {
+        public static bool TryMigrateFrom(List<EnumerableItem> source, out ItemListOrMigratableElementState result)
+        {
+            result = new ItemListOrMigratableElementState("from-item-list");
+            return true;
+        }
+
+        public static bool TryMigrateFrom(List<ElemV1> source, out ItemListOrMigratableElementState result)
+        {
+            result = new ItemListOrMigratableElementState("from-elem-v1-list");
+            return true;
+        }
+    }
 
     [JsonMigratable]
     public record class MigratableElementState(string Source)

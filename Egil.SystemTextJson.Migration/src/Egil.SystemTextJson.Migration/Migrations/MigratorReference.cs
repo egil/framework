@@ -43,8 +43,12 @@ internal sealed record MigratorReference(
 
     // The element's own contract kind decides whether it is written as a JSON array or object;
     // a CLR heuristic would miss derived collections such as class IntCollection : List<int>.
+    // A migratable element is served by the migration converter (Kind None) but is always a JSON
+    // object, because the converter factory rejects any other contract kind for such types.
     public JsonTypeInfoKind ElementKind { get; } = SourceTypeInfo.Kind is JsonTypeInfoKind.Enumerable or JsonTypeInfoKind.Dictionary
-        ? SourceTypeInfo.Options.GetTypeInfo(SourceValueShapes.GetValueType(SourceTypeInfo)).Kind
+        ? JsonMigratableTypes.IsMigratable(SourceValueShapes.GetValueType(SourceTypeInfo))
+            ? JsonTypeInfoKind.Object
+            : SourceTypeInfo.Options.GetTypeInfo(SourceValueShapes.GetValueType(SourceTypeInfo)).Kind
         : JsonTypeInfoKind.None;
 
     public Type ElementType { get; } = SourceTypeInfo.Kind is JsonTypeInfoKind.Enumerable or JsonTypeInfoKind.Dictionary
@@ -115,7 +119,10 @@ internal sealed record MigratorReference(
 
         foreach (Type elementSource in elementSources)
         {
-            if (!JsonMigratableTypes.IsMigratable(elementSource) && sourceTypeInfo.Options.GetTypeInfo(elementSource).Kind is not JsonTypeInfoKind.Object)
+            // Dictionaries serialize as JSON objects, so only primitive and array sources widen
+            // the element's accepted shapes beyond the object shape.
+            if (!JsonMigratableTypes.IsMigratable(elementSource)
+                && sourceTypeInfo.Options.GetTypeInfo(elementSource).Kind is not (JsonTypeInfoKind.Object or JsonTypeInfoKind.Dictionary))
             {
                 return true;
             }
