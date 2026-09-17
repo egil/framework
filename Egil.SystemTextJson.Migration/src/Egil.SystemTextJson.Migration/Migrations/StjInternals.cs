@@ -19,8 +19,12 @@ namespace Egil.SystemTextJson.Migration.Migrations;
 /// <c>JsonResumableConverter&lt;T&gt;.Read</c> path which creates a <c>ReadStack</c>
 /// and calls <c>TryRead</c> directly — no scoped reader, no double-parse.
 ///
-/// Targeted internal APIs (System.Text.Json, .NET 10):
+/// Targeted internal APIs (System.Text.Json, .NET 10 and .NET 11; the signature was verified
+/// unchanged against the v11.0.0-rc.1 source):
 /// - <c>JsonConverter.ReadAsObject(ref Utf8JsonReader, Type, JsonSerializerOptions)</c>
+///
+/// A signature change in a future runtime surfaces as a <see cref="MissingMethodException"/>
+/// on first use; the test suite exercises this call on every target framework.
 /// </summary>
 internal static class StjInternals
 {

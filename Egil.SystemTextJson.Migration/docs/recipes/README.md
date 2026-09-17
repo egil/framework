@@ -47,14 +47,17 @@ All code samples are extracted from the [samples project](../../samples/Egil.Sys
 - [Migrating discriminator-less object payloads from a source type](legacy-adoption.md#migrating-discriminator-less-object-payloads-from-a-source-type)
 - [Discriminator not in first position](legacy-adoption.md#discriminator-not-in-first-position)
 
-## AOT & source generation
+## Source generation & AOT
 
 - [Using with source-generated `JsonSerializerContext`](aot-source-gen.md#using-with-source-generated-jsonserializercontext)
+- [What the library does at runtime](aot-source-gen.md#what-the-library-does-at-runtime)
+- [NativeAOT and trimming (not supported yet)](aot-source-gen.md#nativeaot-and-trimming)
 
 ## Migration tracking
 
 - [Detecting whether a value was migrated](migration-tracking.md#detecting-whether-a-value-was-migrated)
 - [Read-migrate-write-back pattern](migration-tracking.md#read-migrate-write-back-pattern)
+- [Batch migration of NDJSON streams (.NET 11)](migration-tracking.md#batch-migration-of-ndjson-streams-net-11)
 
 ## Nested & collection scenarios
 
@@ -69,9 +72,10 @@ All code samples are extracted from the [samples project](../../samples/Egil.Sys
 - [Using `IJsonOnSerializing` to prepare data before serialization](stj-features.md#using-ijsononserializing-to-prepare-data-before-serialization)
 - [Combining `IJsonOnDeserialized` with `IJsonMigrationTracked`](stj-features.md#combining-ijsonondeserialized-with-ijsonmigrationtracked)
 
-## Polymorphism
+## Polymorphism & unions
 
 - [`[JsonPolymorphic]` compatibility](polymorphism.md) — current limitation and recommended workarounds
+- [C# unions of migratable cases (.NET 11)](polymorphism.md#recommended-on-net-11-model-the-hierarchy-as-a-union)
 
 ## Real-world integration patterns
 

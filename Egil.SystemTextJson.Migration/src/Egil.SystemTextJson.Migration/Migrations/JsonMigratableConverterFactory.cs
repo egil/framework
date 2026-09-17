@@ -22,9 +22,10 @@ internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry regis
     }
 
     /// <inheritdoc/>
+    internal JsonMigrationRegistry Registry => registry;
+
     public override bool CanConvert(Type typeToConvert)
-        => !excludedTypes.Contains(typeToConvert)
-            && typeToConvert.GetCustomAttribute<JsonMigratableAttribute>(inherit: true) is not null;
+        => !excludedTypes.Contains(typeToConvert) && JsonMigratableTypes.IsMigratable(typeToConvert);
 
     /// <inheritdoc/>
     public override JsonConverter? CreateConverter(Type typeToConvert, JsonSerializerOptions options)
@@ -37,10 +38,20 @@ internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry regis
         TypeMetadata targetMetadata = registry.GetTypeMetadata(typeToConvert);
 
         // Clone options and replace this factory with a type-excluding instance so metadata lookup can still
-        // apply migration converters for nested migratable types.
+        // apply migration converters for nested migratable types. The replacement keeps the factory's position
+        // because STJ picks the first matching converter: appending it would let a converter registered after
+        // AddJsonMigrationSupport() win for nested migratable types while losing at the top level.
         var metadataOptions = new JsonSerializerOptions(options);
-        metadataOptions.Converters.Remove(this);
-        metadataOptions.Converters.Add(new JsonMigratableConverterFactory(registry, new HashSet<Type>(excludedTypes) { typeToConvert }));
+        var excludingFactory = new JsonMigratableConverterFactory(registry, new HashSet<Type>(excludedTypes) { typeToConvert });
+        int factoryIndex = metadataOptions.Converters.IndexOf(this);
+        if (factoryIndex >= 0)
+        {
+            metadataOptions.Converters[factoryIndex] = excludingFactory;
+        }
+        else
+        {
+            metadataOptions.Converters.Add(excludingFactory);
+        }
 
         // Attach a modifier that injects the discriminator property during type info resolution.
         // This is necessary because internal STJ caching may re-resolve type info from the resolver
@@ -92,11 +103,14 @@ internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry regis
 
         foreach (ExternalMigratorRegistration registration in registry.GetForTarget(targetType))
         {
+            JsonTypeInfo sourceTypeInfo = GetRequiredTypeInfo(metadataOptions, registration.SourceType);
             var migrator = new MigratorReference(
                 registration.SourceType,
                 registration.SourceMetadata,
-                GetRequiredTypeInfo(metadataOptions, registration.SourceType),
-                registration.Invoker);
+                sourceTypeInfo,
+                registration.Invoker,
+                MigratorReference.ResolveElementMetadata(registration.SourceType, sourceTypeInfo, registry),
+                MigratorReference.ResolveElementAcceptsNonObjectShapes(registration.SourceType, sourceTypeInfo, registry));
 
             AddMigratorCandidate(
                 migrators,
@@ -111,11 +125,14 @@ internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry regis
             Type sourceType = contract.SourceType;
             TypeMetadata sourceMetadata = registry.GetTypeMetadata(sourceType);
 
+            JsonTypeInfo sourceTypeInfo = GetRequiredTypeInfo(metadataOptions, sourceType);
             var migrator = new MigratorReference(
                 sourceType,
                 sourceMetadata,
-                GetRequiredTypeInfo(metadataOptions, sourceType),
-                MigratorInvokerFactory.CreateStaticInvoker(sourceType, targetType, contract.Method));
+                sourceTypeInfo,
+                MigratorInvokerFactory.CreateStaticInvoker(sourceType, targetType, contract.Method),
+                MigratorReference.ResolveElementMetadata(sourceType, sourceTypeInfo, registry),
+                MigratorReference.ResolveElementAcceptsNonObjectShapes(sourceType, sourceTypeInfo, registry));
 
             AddMigratorCandidate(
                 migrators,
@@ -194,17 +211,8 @@ internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry regis
 
     private static IEnumerable<StaticMigratorContract> FindStaticMigratorMethods(Type targetType)
     {
-        foreach (Type @interface in targetType.GetInterfaces())
+        foreach (Type sourceType in StaticMigratorContracts.GetSourceTypes(targetType))
         {
-            if (!@interface.IsGenericType
-                || @interface.ContainsGenericParameters
-                || @interface.GetGenericTypeDefinition() != typeof(IMigrateFrom<,>))
-            {
-                continue;
-            }
-
-            Type[] genericArguments = @interface.GetGenericArguments();
-            Type sourceType = genericArguments[0];
             MethodInfo method = ResolveStaticTryMigrateMethod(targetType, sourceType);
 
             yield return new StaticMigratorContract(sourceType, method);
@@ -257,7 +265,7 @@ internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry regis
         {
             return options.GetTypeInfo(type);
         }
-        catch (NotSupportedException exception)
+        catch (NotSupportedException exception) when (exception is not JsonMigratableTargetKindNotSupportedException)
         {
             throw new InvalidOperationException(
                 $"No JSON metadata is available for '{type.FullName}'. Add the type to your JsonSerializerContext or include a resolver that can provide metadata.",
@@ -267,6 +275,14 @@ internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry regis
 
     private static void AddDiscriminatorProperty(JsonTypeInfo typeInfo, TypeMetadata metadata)
     {
+        // Properties can only be added to object contracts. Unions (.NET 11), collections and
+        // dictionaries would otherwise fail inside STJ with a generic "invalid operation for kind"
+        // error that does not tell the user where to put the attribute instead.
+        if (typeInfo.Kind is not JsonTypeInfoKind.Object)
+        {
+            throw new JsonMigratableTargetKindNotSupportedException(typeInfo.Type, typeInfo.Kind);
+        }
+
         if (typeInfo.Properties.Any(property => property.Name.Equals(metadata.DiscriminatorPropertyName, StringComparison.Ordinal)))
         {
             return;

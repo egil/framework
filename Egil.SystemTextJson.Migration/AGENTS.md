@@ -19,12 +19,12 @@ Use the solution file from repository root:
 - `dotnet build Egil.SystemTextJson.Migration.slnx -c Release`: compile with analyzer checks.
 - `dotnet test Egil.SystemTextJson.Migration.slnx -c Release`: run test suite (xUnit + Microsoft Testing Platform).
 - `dotnet pack src/Egil.SystemTextJson.Migration/Egil.SystemTextJson.Migration.csproj -c Release`: produce NuGet package.
-- `dotnet run --project perf/Egil.SystemTextJson.Migration.PerfTests -c Release`: run benchmarks.
+- `dotnet run --project perf/Egil.SystemTextJson.Migration.PerfTests -c Release --framework net11.0`: run benchmarks (the union dispatch category only exists on `net11.0`; pass `--framework net10.0` to measure the .NET 10 asset).
 - `.\scripts\update-perf-docs.ps1`: after running benchmarks, copy BenchmarkDotNet reports into `docs/perf/` and refresh the README performance summary.
 - `dotnet outdated`: check for dependency updates.
 
 ## Coding Style & Naming Conventions
-- Language/runtime: C# on `net10.0`, nullable enabled.
+- Language/runtime: C# on `net10.0` and `net11.0` (multi-targeted), nullable enabled. .NET 11 specific code lives under `#if NET11_0_OR_GREATER`.
 - Indentation: 4 spaces for C#; follow `.editorconfig` for other file types.
 - Prefer file-scoped namespaces and explicit braces.
 - Use `var` when the type is obvious; keep naming in PascalCase for types/methods.

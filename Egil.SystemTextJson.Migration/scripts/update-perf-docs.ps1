@@ -8,7 +8,7 @@
     benchmark table in README.md.
 
 .EXAMPLE
-    dotnet run --project perf/Egil.SystemTextJson.Migration.PerfTests -c Release
+    dotnet run --project perf/Egil.SystemTextJson.Migration.PerfTests -c Release --framework net11.0
     ./scripts/update-perf-docs.ps1
 #>
 [CmdletBinding()]
@@ -25,7 +25,7 @@ $artifactDirCandidates = @(
 )
 $artifactsDir = $artifactDirCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $artifactsDir) {
-    Write-Error "Benchmark reports not found. Run benchmarks first: dotnet run --project perf\Egil.SystemTextJson.Migration.PerfTests -c Release"
+    Write-Error "Benchmark reports not found. Run benchmarks first: dotnet run --project perf\Egil.SystemTextJson.Migration.PerfTests -c Release --framework net11.0"
 }
 
 $docsDir = Join-Path $root 'docs\perf'
@@ -35,10 +35,10 @@ $sourceGenReport = Join-Path $artifactsDir 'Egil.SystemTextJson.Migration.PerfTe
 $reflectionReport = Join-Path $artifactsDir 'Egil.SystemTextJson.Migration.PerfTests.ReflectionMigrationScenarioBenchmarks-report-github.md'
 
 if (-not (Test-Path $sourceGenReport)) {
-    Write-Error "Source-gen benchmark report not found at: $sourceGenReport`nRun benchmarks first: dotnet run --project perf/Egil.SystemTextJson.Migration.PerfTests -c Release"
+    Write-Error "Source-gen benchmark report not found at: $sourceGenReport`nRun benchmarks first: dotnet run --project perf/Egil.SystemTextJson.Migration.PerfTests -c Release --framework net11.0"
 }
 if (-not (Test-Path $reflectionReport)) {
-    Write-Error "Reflection benchmark report not found at: $reflectionReport`nRun benchmarks first: dotnet run --project perf/Egil.SystemTextJson.Migration.PerfTests -c Release"
+    Write-Error "Reflection benchmark report not found at: $reflectionReport`nRun benchmarks first: dotnet run --project perf/Egil.SystemTextJson.Migration.PerfTests -c Release --framework net11.0"
 }
 
 # --- Copy full reports to docs/perf/ ---
@@ -129,7 +129,8 @@ function Get-ScenarioSortKey {
         'Deserialize,ExternalMigration' { return 2 }
         'Deserialize,UndiscriminatedSourceMigration' { return 3 }
         'Deserialize,LegacyPayload' { return 4 }
-        'Serialize' { return 5 }
+        'Deserialize,UnionDispatch' { return 5 }
+        'Serialize' { return 6 }
         default { return [int]::MaxValue }
     }
 }
@@ -168,6 +169,7 @@ function Get-ScenarioLabel {
         'Deserialize,ExternalMigration' { return '**External migration**' }
         'Deserialize,UndiscriminatedSourceMigration' { return '**Undiscriminated source migration**' }
         'Deserialize,LegacyPayload' { return '**Legacy payload**' }
+        'Deserialize,UnionDispatch' { return '**Union dispatch (.NET 11)**' }
         'Serialize' { return '**Serialization**' }
         default { return $Categories }
     }
@@ -189,6 +191,9 @@ function Get-MethodLabel {
         'JsonMigratableExternalMigration' { return 'JsonMigratable' }
         'JsonMigratableUndiscriminatedSourceMigration' { return 'JsonMigratable' }
         'JsonMigratableLegacyPayload' { return 'JsonMigratable' }
+        'PlainStjUnionDispatchStructural' { return 'Plain STJ structural classifier' }
+        'JsonMigratableUnionDispatch' { return 'JsonMigratable classifier' }
+        'JsonMigratableUnionDispatchWithMigration' { return 'JsonMigratable classifier + migration' }
         default { return $Method }
     }
 }

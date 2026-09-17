@@ -469,6 +469,58 @@ public class NonObjectPayloadMigrationTests
         return options;
     }
 
+    [Fact]
+    public void Disambiguate_enumerable_with_discriminator_less_migratable_object_elements_by_shape()
+    {
+        // The migratable element type is served by the library's own converter, which must not
+        // count as a converter override that removes the candidate from shape matching.
+        var options = CreateOptions();
+        var json = """[{"data":"x"}]""";
+
+        var result = JsonSerializer.Deserialize<MigratableElementState>(json, options);
+
+        Assert.NotNull(result);
+        Assert.Equal("from-elem-v1", result.Source);
+    }
+
+    [Fact]
+    public void Element_discriminator_matching_honours_configured_property_name()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.AddJsonMigrationSupport(static builder => builder.SetTypeDiscriminatorPropertyName("kind"));
+        var json = """[{"kind":"elem-v2","data":"x"}]""";
+
+        var result = JsonSerializer.Deserialize<TwoMigratableElementState>(json, options);
+
+        Assert.NotNull(result);
+        Assert.Equal("from-elem-v2", result.Source);
+    }
+
+    [Fact]
+    public void Discriminator_less_object_elements_are_ambiguous_between_plain_and_migratable_element_lists()
+    {
+        // Both element types are JSON objects, so without a discriminator neither list can be
+        // chosen; the migratable list must not lose to the plain list by registration order.
+        var options = CreateOptions();
+        var json = """[{"data":"x"}]""";
+
+        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<ItemListOrMigratableElementState>(json, options));
+
+        Assert.Contains("ambiguous", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Null_first_element_is_ambiguous_between_collection_migrators()
+    {
+        var options = CreateOptions();
+
+        var array = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<MultiEnumerableState>("[null]", options));
+        var dictionary = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<MultiDictState>("""{"a":null}""", options));
+
+        Assert.Contains("ambiguous", array.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("ambiguous", dictionary.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     // --- Test types ---
 
     [JsonMigratable]
@@ -733,6 +785,24 @@ public class NonObjectPayloadMigrationTests
 
     [JsonMigratable(TypeDiscriminator = "elem-v2")]
     public record class ElemV2(string Data);
+
+    [JsonMigratable]
+    public record class ItemListOrMigratableElementState(string Source)
+        : IMigrateFrom<List<EnumerableItem>, ItemListOrMigratableElementState>,
+          IMigrateFrom<List<ElemV1>, ItemListOrMigratableElementState>
+    {
+        public static bool TryMigrateFrom(List<EnumerableItem> source, out ItemListOrMigratableElementState result)
+        {
+            result = new ItemListOrMigratableElementState("from-item-list");
+            return true;
+        }
+
+        public static bool TryMigrateFrom(List<ElemV1> source, out ItemListOrMigratableElementState result)
+        {
+            result = new ItemListOrMigratableElementState("from-elem-v1-list");
+            return true;
+        }
+    }
 
     [JsonMigratable]
     public record class MigratableElementState(string Source)

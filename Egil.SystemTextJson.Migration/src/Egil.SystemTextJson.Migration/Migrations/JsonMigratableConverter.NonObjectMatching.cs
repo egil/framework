@@ -1,4 +1,3 @@
-using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
@@ -14,17 +13,34 @@ internal sealed partial class JsonMigratableConverter<T>
             return FindEnumerableMigrator(ref reader);
         }
 
-        // Primitive tokens: disambiguate by checking which source CLR type
-        // is compatible with the JSON token type.
+        // Primitive tokens: disambiguate by checking which source CLR type is compatible with
+        // the JSON token type. Exact shapes win; a quoted number only reaches a numeric source
+        // when no string-shaped source exists and the options allow reading numbers from strings.
+        // "NaN"/"Infinity" text qualifies floating-point sources only.
+        MigratorReference? match = MatchPrimitive(tokenType, quotedNumbers: false, namedLiteral: false);
+        if (match is null && tokenType is JsonTokenType.String)
+        {
+            match = MatchPrimitive(tokenType, quotedNumbers: true, SourceValueShapes.IsNamedFloatingPointLiteral(ref reader));
+        }
+
+        return match;
+    }
+
+    private MigratorReference? MatchPrimitive(JsonTokenType tokenType, bool quotedNumbers, bool namedLiteral)
+    {
         MigratorReference? match = null;
         foreach (MigratorReference migrator in context.Migrators)
         {
-            if (migrator.SourceTypeInfo.Kind != JsonTypeInfoKind.None)
+            // Filter by classified shape rather than JsonTypeInfoKind: byte[] reports Kind
+            // Enumerable but is read from a base64 string, and custom scalar converters report
+            // Kind None without a known shape.
+            if (migrator.SourceShape is SourceValueShape.Unknown)
             {
                 continue;
             }
 
-            if (!IsTokenCompatibleWithSourceType(tokenType, migrator.SourceType))
+            bool allowQuoted = quotedNumbers && (namedLiteral ? migrator.AllowsNamedFloatingPointLiterals : migrator.AllowsQuotedNumbers);
+            if (!SourceValueShapes.IsTokenCompatible(tokenType, migrator.SourceShape, allowQuoted))
             {
                 continue;
             }
@@ -65,22 +81,71 @@ internal sealed partial class JsonMigratableConverter<T>
         }
 
         // Multiple candidates — peek at the first value/element token to disambiguate.
-        JsonTokenType? valueToken = PeekFirstValueToken(ref reader, kind);
-        if (valueToken is null)
+        if (!TryPeekFirstValueToken(ref reader, kind, out JsonTokenType valueToken, out bool namedLiteral))
         {
             // Empty collection — can't disambiguate between multiple candidates.
             ThrowAmbiguousNonObjectMigrators(typeof(T));
         }
 
-        MigratorReference? match = MatchByPrimitiveElementType(kind, valueToken.Value);
+        // An element discriminator identifies its collection exactly, so it is checked before
+        // any shape-based rule, including the guard below.
+        MigratorReference? match = valueToken is JsonTokenType.StartObject
+            ? FindMigratorByElementDiscriminator(ref reader, kind)
+            : null;
+
+        if (match is not null)
+        {
+            return match;
+        }
+
+        // A candidate whose element converter is overridden may accept any element, so no
+        // other candidate can be chosen safely by element shape.
+        if (HasOverriddenElementCandidate(kind))
+        {
+            ThrowAmbiguousNonObjectMigrators(typeof(T));
+        }
+
+        // Same precedence as top-level primitives: exact element shapes first, then quoted
+        // numbers for numeric element types when number handling allows reading from strings.
+        match = MatchByPrimitiveElementType(kind, valueToken, quotedNumbers: false, namedLiteral: false);
+
+        if (match is null && valueToken is JsonTokenType.String)
+        {
+            match = MatchByPrimitiveElementType(kind, valueToken, quotedNumbers: true, namedLiteral);
+        }
 
         if (match is null)
         {
-            match = MatchByComplexElementType(ref reader, kind, valueToken.Value);
+            match = MatchByComplexElementType(kind, valueToken);
+        }
+
+        // A null first value says nothing about the element type, so it cannot pick one of
+        // several candidates; registration order must not decide.
+        if (match is null && valueToken is JsonTokenType.Null)
+        {
+            ThrowAmbiguousNonObjectMigrators(typeof(T));
         }
 
         return match ?? singleCandidate;
     }
+
+    private bool HasOverriddenElementCandidate(JsonTypeInfoKind kind)
+    {
+        foreach (MigratorReference migrator in context.Migrators)
+        {
+            if (IsCollectionCandidate(migrator, kind) && migrator.ElementConverterOverridden)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // byte[] reports Kind Enumerable but is read from a base64 string, so scalar-shaped sources
+    // never compete for array or dictionary payloads.
+    private static bool IsCollectionCandidate(MigratorReference migrator, JsonTypeInfoKind kind)
+        => migrator.SourceTypeInfo.Kind == kind && migrator.SourceShape is SourceValueShape.Unknown;
 
     private MigratorReference? FindSingleCandidateByKind(JsonTypeInfoKind kind, out bool hasMultiple)
     {
@@ -88,7 +153,7 @@ internal sealed partial class JsonMigratableConverter<T>
         hasMultiple = false;
         foreach (MigratorReference migrator in context.Migrators)
         {
-            if (migrator.SourceTypeInfo.Kind != kind)
+            if (!IsCollectionCandidate(migrator, kind))
             {
                 continue;
             }
@@ -106,18 +171,18 @@ internal sealed partial class JsonMigratableConverter<T>
         return singleCandidate;
     }
 
-    private MigratorReference? MatchByPrimitiveElementType(JsonTypeInfoKind kind, JsonTokenType valueToken)
+    private MigratorReference? MatchByPrimitiveElementType(JsonTypeInfoKind kind, JsonTokenType valueToken, bool quotedNumbers, bool namedLiteral)
     {
         MigratorReference? match = null;
         foreach (MigratorReference migrator in context.Migrators)
         {
-            if (migrator.SourceTypeInfo.Kind != kind)
+            if (!IsCollectionCandidate(migrator, kind))
             {
                 continue;
             }
 
-            Type elementType = GetValueType(migrator.SourceType, kind);
-            if (!IsTokenCompatibleWithSourceType(valueToken, elementType))
+            bool allowQuoted = quotedNumbers && (namedLiteral ? migrator.ElementAllowsNamedFloatingPointLiterals : migrator.ElementAllowsQuotedNumbers);
+            if (!SourceValueShapes.IsTokenCompatible(valueToken, migrator.ElementShape, allowQuoted))
             {
                 continue;
             }
@@ -133,24 +198,10 @@ internal sealed partial class JsonMigratableConverter<T>
         return match;
     }
 
-    private MigratorReference? MatchByComplexElementType(ref Utf8JsonReader reader, JsonTypeInfoKind kind, JsonTokenType valueToken)
-    {
-        MigratorReference? match = null;
-
-        if (valueToken is JsonTokenType.StartObject)
-        {
-            // Try to read the discriminator from the first element object
-            // to match against migratable element types.
-            match = FindMigratorByElementDiscriminator(ref reader, kind);
-        }
-
-        if (match is null && valueToken is JsonTokenType.StartObject or JsonTokenType.StartArray)
-        {
-            match = MatchByElementShape(kind, valueToken);
-        }
-
-        return match;
-    }
+    private MigratorReference? MatchByComplexElementType(JsonTypeInfoKind kind, JsonTokenType valueToken)
+        => valueToken is JsonTokenType.StartObject or JsonTokenType.StartArray
+            ? MatchByElementShape(kind, valueToken)
+            : null;
 
     private MigratorReference? MatchByElementShape(JsonTypeInfoKind kind, JsonTokenType valueToken)
     {
@@ -159,26 +210,22 @@ internal sealed partial class JsonMigratableConverter<T>
         MigratorReference? match = null;
         foreach (MigratorReference migrator in context.Migrators)
         {
-            if (migrator.SourceTypeInfo.Kind != kind)
+            if (!IsCollectionCandidate(migrator, kind))
             {
                 continue;
             }
 
-            Type elementType = GetValueType(migrator.SourceType, kind);
-            if (IsKnownPrimitiveType(elementType))
+            if (migrator.ElementShape is not SourceValueShape.Unknown)
             {
                 continue;
             }
 
-            bool isElementEnumerable = elementType.IsArray
-                || (elementType.IsGenericType && typeof(System.Collections.IEnumerable).IsAssignableFrom(elementType));
-
-            if (valueToken is JsonTokenType.StartArray && !isElementEnumerable)
+            if (valueToken is JsonTokenType.StartArray && migrator.ElementKind is not JsonTypeInfoKind.Enumerable)
             {
                 continue;
             }
 
-            if (valueToken is JsonTokenType.StartObject && isElementEnumerable)
+            if (valueToken is JsonTokenType.StartObject && migrator.ElementKind is not (JsonTypeInfoKind.Object or JsonTypeInfoKind.Dictionary))
             {
                 continue;
             }
@@ -194,46 +241,41 @@ internal sealed partial class JsonMigratableConverter<T>
         return match;
     }
 
-    private static JsonTokenType? PeekFirstValueToken(ref Utf8JsonReader reader, JsonTypeInfoKind kind)
+    private static bool TryPeekFirstValueToken(ref Utf8JsonReader reader, JsonTypeInfoKind kind, out JsonTokenType valueToken, out bool namedLiteral)
     {
         var probe = reader;
+        valueToken = JsonTokenType.None;
+        namedLiteral = false;
 
         // For arrays, read past StartArray to get the first element.
         // For dictionaries, we're already past StartObject and the first PropertyName;
         // read past the property name to get the value.
         if (kind is JsonTypeInfoKind.Enumerable)
         {
+            // Empty array or truncated input.
+            if (!probe.Read() || probe.TokenType is JsonTokenType.EndArray)
+            {
+                return false;
+            }
+        }
+        else
+        {
+            // Dictionary: the reader probe is already at the first PropertyName position.
+            // Skip past the property name to get the value token.
             if (!probe.Read())
             {
-                return null;
+                return false;
             }
 
-            // Empty array
-            if (probe.TokenType is JsonTokenType.EndArray)
+            if (probe.TokenType is JsonTokenType.PropertyName && !probe.Read())
             {
-                return null;
-            }
-
-            return probe.TokenType;
-        }
-
-        // Dictionary: the reader probe is already at the first PropertyName position.
-        // Skip past the property name to get the value token.
-        if (!probe.Read())
-        {
-            return null;
-        }
-
-        // The property name — now read the value.
-        if (probe.TokenType is JsonTokenType.PropertyName)
-        {
-            if (!probe.Read())
-            {
-                return null;
+                return false;
             }
         }
 
-        return probe.TokenType;
+        valueToken = probe.TokenType;
+        namedLiteral = valueToken is JsonTokenType.String && SourceValueShapes.IsNamedFloatingPointLiteral(ref probe);
+        return true;
     }
 
     private MigratorReference? FindMigratorByElementDiscriminator(ref Utf8JsonReader reader, JsonTypeInfoKind kind)
@@ -277,20 +319,17 @@ internal sealed partial class JsonMigratableConverter<T>
         MigratorReference? match = null;
         foreach (MigratorReference migrator in context.Migrators)
         {
-            if (migrator.SourceTypeInfo.Kind != kind)
+            if (!IsCollectionCandidate(migrator, kind))
             {
                 continue;
             }
 
-            Type elementType = GetValueType(migrator.SourceType, kind);
-            TypeMetadata? elementMetadata = TryGetMigratableMetadata(elementType);
-            if (elementMetadata is null)
+            if (migrator.ElementDiscriminatorPropertyNameUtf8 is null)
             {
                 continue;
             }
 
-            byte[] discriminatorPropertyNameUtf8 = System.Text.Encoding.UTF8.GetBytes(elementMetadata.DiscriminatorPropertyName);
-            if (!probe.ValueTextEquals(discriminatorPropertyNameUtf8))
+            if (!probe.ValueTextEquals(migrator.ElementDiscriminatorPropertyNameUtf8))
             {
                 continue;
             }
@@ -302,8 +341,7 @@ internal sealed partial class JsonMigratableConverter<T>
                 continue;
             }
 
-            byte[] discriminatorUtf8 = System.Text.Encoding.UTF8.GetBytes(elementMetadata.Discriminator);
-            if (valueProbe.ValueTextEquals(discriminatorUtf8))
+            if (valueProbe.ValueTextEquals(migrator.ElementDiscriminatorUtf8!))
             {
                 if (match is not null)
                 {
@@ -315,64 +353,6 @@ internal sealed partial class JsonMigratableConverter<T>
         }
 
         return match;
-    }
-
-    private TypeMetadata? TryGetMigratableMetadata(Type type)
-    {
-        if (type.GetCustomAttribute<JsonMigratableAttribute>(inherit: true) is null)
-        {
-            return null;
-        }
-
-        return TypeMetadata.FromType(type);
-    }
-
-    private static Type GetValueType(Type collectionType, JsonTypeInfoKind kind)
-    {
-        if (collectionType.IsArray)
-        {
-            return collectionType.GetElementType()!;
-        }
-
-        // For generic collections (List<T>, Dictionary<K,V>, etc.),
-        // the element type is the last generic argument.
-        if (collectionType.IsGenericType)
-        {
-            Type[] args = collectionType.GetGenericArguments();
-            return kind is JsonTypeInfoKind.Dictionary ? args[^1] : args[0];
-        }
-
-        return typeof(object);
-    }
-
-    private static bool IsKnownPrimitiveType(Type type)
-    {
-        return type == typeof(string)
-            || type == typeof(bool)
-            || Type.GetTypeCode(type) is
-                TypeCode.Byte or TypeCode.SByte or
-                TypeCode.Int16 or TypeCode.UInt16 or
-                TypeCode.Int32 or TypeCode.UInt32 or
-                TypeCode.Int64 or TypeCode.UInt64 or
-                TypeCode.Single or TypeCode.Double or
-                TypeCode.Decimal;
-    }
-
-    private static bool IsTokenCompatibleWithSourceType(JsonTokenType tokenType, Type sourceType)
-    {
-        return tokenType switch
-        {
-            JsonTokenType.String => sourceType == typeof(string),
-            JsonTokenType.Number => Type.GetTypeCode(sourceType) is
-                TypeCode.Byte or TypeCode.SByte or
-                TypeCode.Int16 or TypeCode.UInt16 or
-                TypeCode.Int32 or TypeCode.UInt32 or
-                TypeCode.Int64 or TypeCode.UInt64 or
-                TypeCode.Single or TypeCode.Double or
-                TypeCode.Decimal,
-            JsonTokenType.True or JsonTokenType.False => sourceType == typeof(bool),
-            _ => false,
-        };
     }
 
     [DoesNotReturn]
