@@ -1,7 +1,49 @@
+using System.Reflection;
+
 namespace Egil.Orleans.Messaging.Tests.State;
 
 public sealed class StateManagerRegistrationExtensionsTests
 {
+    [Fact]
+    public void Repeated_factory_registrations_enable_the_facet_exactly_once()
+    {
+        // Every factory registration helper enables the facet, and a silo registers several.
+        // Decorating more than once would nest mappers silently.
+        var services = new ServiceCollection();
+
+        services.AddDefaultStateManager();
+        services.AddDefaultStateManager("first");
+        services.AddStateManagerFactory<CustomStateManagerFactory>("second");
+        services.AddStateManagerFacet();
+
+        Assert.Single(services, service =>
+            service.ServiceType == typeof(IAttributeToFactoryMapper<PersistentStateAttribute>));
+
+        var provider = services.BuildServiceProvider();
+        Assert.IsType<StateManagerFacetMapper>(
+            provider.GetRequiredService<IAttributeToFactoryMapper<PersistentStateAttribute>>());
+    }
+
+    [Fact]
+    public void Enabling_the_facet_decorates_the_mapper_already_registered()
+    {
+        // Orleans registers its own mapper before any ConfigureServices callback runs, so
+        // taking the service type over has to delegate back rather than discard it.
+        var services = new ServiceCollection();
+        var replaced = new RecordingAttributeMapper();
+        services.AddSingleton<IAttributeToFactoryMapper<PersistentStateAttribute>>(replaced);
+
+        services.AddDefaultStateManager();
+
+        var mapper = services.BuildServiceProvider()
+            .GetRequiredService<IAttributeToFactoryMapper<PersistentStateAttribute>>();
+        var rawFacetParameter = typeof(RawFacetConsumer).GetConstructors().Single().GetParameters().Single();
+
+        mapper.GetFactory(rawFacetParameter, new PersistentStateAttribute("state", "Default"));
+
+        Assert.Same(rawFacetParameter, replaced.LastParameter);
+    }
+
     [Fact]
     public void AddDefaultStateManager_registers_keyed_default_factory_as_singleton()
     {
@@ -21,6 +63,23 @@ public sealed class StateManagerRegistrationExtensionsTests
         Assert.NotNull(first);
         Assert.Same(first, second);
         Assert.IsType<DefaultStateManagerFactory>(first);
+    }
+
+    private sealed class RawFacetConsumer(
+        [PersistentState("state", "Default")] IPersistentState<FacetState> storage)
+    {
+        public IPersistentState<FacetState> Storage { get; } = storage;
+    }
+
+    private sealed class RecordingAttributeMapper : IAttributeToFactoryMapper<PersistentStateAttribute>
+    {
+        public ParameterInfo? LastParameter { get; private set; }
+
+        public Factory<IGrainContext, object> GetFactory(ParameterInfo parameter, PersistentStateAttribute metadata)
+        {
+            LastParameter = parameter;
+            return static _ => new object();
+        }
     }
 
     [Fact]
