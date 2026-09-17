@@ -185,7 +185,7 @@ internal sealed class UnionCaseRouting
                     // AllowNamedFloatingPointLiterals. A string-shaped case still wins string
                     // payloads; numeric cases only take them when no such case exists.
                     JsonNumberHandling numberHandling = options.GetTypeInfo(shapeType).NumberHandling ?? options.NumberHandling;
-                    if (SourceValueShapes.AllowsQuotedNumbers(numberHandling))
+                    if (SourceValueShapes.AllowsQuotedNumbers(numberHandling, shapeType))
                     {
                         AddCase(quotedNumberCases, caseType);
                     }

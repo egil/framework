@@ -84,12 +84,14 @@ internal static class SourceValueShapes
     }
 
     /// <summary>
-    /// Whether <see cref="JsonNumberHandling.AllowReadingFromString"/> lets numeric converters read
-    /// ordinary quoted numbers such as "42". The converter still validates the text, so routing
-    /// only needs to know that a string may be a number.
+    /// Whether <see cref="JsonNumberHandling.AllowReadingFromString"/> lets the converter for
+    /// <paramref name="type"/> read ordinary quoted numbers such as "42". Enums are excluded:
+    /// their converter ignores number handling and reads strings only as names. The converter
+    /// still validates the text, so routing only needs to know that a string may be a number.
     /// </summary>
-    public static bool AllowsQuotedNumbers(JsonNumberHandling numberHandling)
-        => (numberHandling & JsonNumberHandling.AllowReadingFromString) != 0;
+    public static bool AllowsQuotedNumbers(JsonNumberHandling numberHandling, Type type)
+        => (numberHandling & JsonNumberHandling.AllowReadingFromString) != 0
+            && !(Nullable.GetUnderlyingType(type) ?? type).IsEnum;
 
     /// <summary>
     /// Whether the converter for <paramref name="type"/> reads "NaN", "Infinity" and "-Infinity"

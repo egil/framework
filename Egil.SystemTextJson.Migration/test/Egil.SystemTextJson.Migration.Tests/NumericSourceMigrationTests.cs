@@ -155,6 +155,19 @@ public partial class NumericSourceMigrationTests
     }
 
     [Fact]
+    public void Enum_source_does_not_take_quoted_numbers()
+    {
+        // STJ's enum converter reads strings only as names regardless of number handling, so the
+        // int source takes "42" without ambiguity.
+        var options = CreateOptions();
+
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<PlainColour>("\"42\"", options));
+        var result = JsonSerializer.Deserialize<IntOrPlainColourState>("\"42\"", options);
+
+        Assert.Equal("from-int", result!.Source);
+    }
+
+    [Fact]
     public void Quoted_number_is_not_treated_as_numeric_source_under_strict_number_handling()
     {
         var options = new JsonSerializerOptions();
@@ -470,6 +483,30 @@ public partial class NumericSourceMigrationTests
         public static bool TryMigrateFrom(List<Item> source, out IntOrItemListState result)
         {
             result = new IntOrItemListState("from-item-list");
+            return true;
+        }
+    }
+
+    public enum PlainColour
+    {
+        Red,
+        Green,
+    }
+
+    [JsonMigratable]
+    public record class IntOrPlainColourState(string Source)
+        : IMigrateFrom<int, IntOrPlainColourState>,
+          IMigrateFrom<PlainColour, IntOrPlainColourState>
+    {
+        public static bool TryMigrateFrom(int source, out IntOrPlainColourState result)
+        {
+            result = new IntOrPlainColourState("from-int");
+            return true;
+        }
+
+        public static bool TryMigrateFrom(PlainColour source, out IntOrPlainColourState result)
+        {
+            result = new IntOrPlainColourState("from-colour");
             return true;
         }
     }
