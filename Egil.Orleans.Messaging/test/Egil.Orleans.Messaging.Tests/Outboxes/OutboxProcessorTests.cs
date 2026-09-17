@@ -470,7 +470,7 @@ public sealed record OutboxProcessorOrderedPostmanState(
     [property: Id(4)] int MaxConcurrentPostmen);
 
 [GenerateSerializer]
-public sealed record OutboxProcessorTestEvent([property: Id(0)] string Value);
+public record OutboxProcessorTestEvent([property: Id(0)] string Value);
 
 public abstract record OutboxProcessorOrderedMessage(string Value);
 

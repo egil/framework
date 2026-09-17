@@ -44,6 +44,7 @@ public sealed class OutboxPostmanHelperTests(MessagingTestClusterFixture fixture
     [InlineData("direct-token-enriched", "enriched:1:projected-stream-helper")]
     [InlineData("grouped-enriched", "enriched:1:projected-stream-helper")]
     [InlineData("grouped-token-enriched", "enriched:1:projected-stream-helper")]
+    [InlineData("derived-projection", "derived:1:projected-stream-helper")]
     public async Task Token_routing_supports_original_and_projected_payloads(string routingMode, string expectedValue)
     {
         var grainKey = Guid.NewGuid();
@@ -109,6 +110,9 @@ public interface IOutboxProcessorStreamPostmanGrain : IGrainWithGuidKey
 
     Task<OutboxProcessorSourceState> GetStateAsync();
 }
+
+[GenerateSerializer]
+public sealed record EnrichedOutboxProcessorTestEvent(string Value) : OutboxProcessorTestEvent(Value);
 
 public interface IOutboxProcessorProjectedStreamPostmanGrain : IGrainWithGuidCompoundKey
 {
@@ -266,6 +270,16 @@ public sealed class OutboxProcessorProjectedStreamPostmanGrain(
                 processor.ForStreamProvider(OutboxProcessorTestProviderNames.Events).AddStreamPostman<OutboxProcessorTestEvent>(
                     (message, token) => SelectStream(message, token),
                     static (message, token) => new($"enriched:{token.SequenceNumber}:{message.Value}"));
+                break;
+            case "derived-projection":
+                // Explicitly typed lambdas with no type arguments. The projection's derived
+                // return type keeps this on the two-type-parameter overload; the case exists so
+                // that an overload making the call ambiguous would fail the build.
+                processor.AddStreamPostman(
+                    OutboxProcessorTestProviderNames.Events,
+                    (OutboxProcessorTestEvent message) => streamId,
+                    (OutboxProcessorTestEvent message, OutboxSequenceToken token) =>
+                        new EnrichedOutboxProcessorTestEvent($"derived:{token.SequenceNumber}:{message.Value}"));
                 break;
             default:
                 throw new InvalidOperationException($"Unknown routing mode: {routingMode}");
