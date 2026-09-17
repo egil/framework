@@ -1866,7 +1866,13 @@ of `AddGrainPostman`; the second direct-callback argument is always a delivery t
 Stream projections and selectors remain synchronous and independently choose
 `(message)` or `(message, token)`. Token-aware routing also supports forwarding the
 original payload without an identity projection. Direct and grouped registration
-provide the same combinations.
+provide the same combinations. A token-aware projection that returns the payload's
+own type names that type once, because `TEvent` is not separately inferable; the
+payload-only same-type shape is deliberately absent, since without a token such a
+projection carries nothing the caller could not apply before adding the message.
+These single-type-parameter overloads carry no `OverloadResolutionPriority`: it
+applies only when type arguments are omitted, where it would prune a projection
+returning a derived type and silently change the stream's event type.
 Grain invocations take `(grain, message)`, `(grain, message, token)`, or
 `(grain, message, token, cancellationToken)` with the same Task/ValueTask overload
 priority.
@@ -1922,6 +1928,26 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         Func<TSub, OutboxSequenceToken, StreamId> streamId,
         Func<TSub, TEvent> project)
         where TSub : TOutbox;
+    public OutboxProcessor<TOutbox> AddStreamPostman<TSub, TEvent>(
+        string streamProviderName,
+        Func<TSub, StreamId> streamId,
+        Func<TSub, OutboxSequenceToken, TEvent> project)
+        where TSub : TOutbox;
+    public OutboxProcessor<TOutbox> AddStreamPostman<TSub, TEvent>(
+        string streamProviderName,
+        Func<TSub, OutboxSequenceToken, StreamId> streamId,
+        Func<TSub, OutboxSequenceToken, TEvent> project)
+        where TSub : TOutbox;
+    public OutboxProcessor<TOutbox> AddStreamPostman<TSub>(
+        string streamProviderName,
+        Func<TSub, StreamId> streamId,
+        Func<TSub, OutboxSequenceToken, TSub> project)
+        where TSub : TOutbox;
+    public OutboxProcessor<TOutbox> AddStreamPostman<TSub>(
+        string streamProviderName,
+        Func<TSub, OutboxSequenceToken, StreamId> streamId,
+        Func<TSub, OutboxSequenceToken, TSub> project)
+        where TSub : TOutbox;
     public OutboxStreamProviderBuilder<TOutbox> ForStreamProvider(string streamProviderName);
     public OutboxProcessor<TOutbox> ForStreamProvider(
         string streamProviderName, Action<OutboxStreamProviderBuilder<TOutbox>> configure);
@@ -1944,6 +1970,36 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
 
     /// Called by IOutboxGrain DIM. No-ops for unknown reminder names.
     public ValueTask ReceiveReminderAsync(string reminderName, TickStatus status);
+}
+
+public sealed class OutboxStreamProviderBuilder<TOutbox>
+    where TOutbox : notnull
+{
+    /// The same AddStreamPostman combinations as the processor, with the
+    /// provider name supplied once by ForStreamProvider. Each call forwards
+    /// immediately and returns this builder for chaining.
+    public OutboxStreamProviderBuilder<TOutbox> AddStreamPostman<TSub>(
+        Func<TSub, StreamId> streamId) where TSub : TOutbox;
+    public OutboxStreamProviderBuilder<TOutbox> AddStreamPostman<TSub>(
+        Func<TSub, OutboxSequenceToken, StreamId> streamId) where TSub : TOutbox;
+    public OutboxStreamProviderBuilder<TOutbox> AddStreamPostman<TSub, TEvent>(
+        Func<TSub, StreamId> streamId,
+        Func<TSub, TEvent> project) where TSub : TOutbox;
+    public OutboxStreamProviderBuilder<TOutbox> AddStreamPostman<TSub, TEvent>(
+        Func<TSub, OutboxSequenceToken, StreamId> streamId,
+        Func<TSub, TEvent> project) where TSub : TOutbox;
+    public OutboxStreamProviderBuilder<TOutbox> AddStreamPostman<TSub, TEvent>(
+        Func<TSub, StreamId> streamId,
+        Func<TSub, OutboxSequenceToken, TEvent> project) where TSub : TOutbox;
+    public OutboxStreamProviderBuilder<TOutbox> AddStreamPostman<TSub, TEvent>(
+        Func<TSub, OutboxSequenceToken, StreamId> streamId,
+        Func<TSub, OutboxSequenceToken, TEvent> project) where TSub : TOutbox;
+    public OutboxStreamProviderBuilder<TOutbox> AddStreamPostman<TSub>(
+        Func<TSub, StreamId> streamId,
+        Func<TSub, OutboxSequenceToken, TSub> project) where TSub : TOutbox;
+    public OutboxStreamProviderBuilder<TOutbox> AddStreamPostman<TSub>(
+        Func<TSub, OutboxSequenceToken, StreamId> streamId,
+        Func<TSub, OutboxSequenceToken, TSub> project) where TSub : TOutbox;
 }
 
 internal interface IOutboxComponent
