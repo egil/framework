@@ -89,6 +89,20 @@ public sealed class StateManagerFacetTests(StateManagerFacetFixture fixture)
     }
 
     [Fact]
+    public async Task A_state_type_that_cannot_represent_an_absent_record_fails_on_first_activation()
+    {
+        // The fixture's cluster deployed with this grain type present, which is itself the
+        // assertion about timing: Orleans builds a grain type's constructor argument
+        // factory on first activation, not at silo startup, so the guard runs there.
+        var grain = fixture.GrainFactory.GetGrain<IFacetUndefaultableGrain>(Guid.NewGuid());
+
+        var ex = await Assert.ThrowsAnyAsync<Exception>(() => grain.GetValueAsync());
+
+        Assert.Contains(typeof(UndefaultableFacetState).FullName!, ex.ToString(), StringComparison.Ordinal);
+        Assert.Contains("cannot represent an absent storage record", ex.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Raw_persistent_state_facet_is_unaffected()
     {
         var grain = fixture.GrainFactory.GetGrain<IFacetRawGrain>(Guid.NewGuid());
@@ -310,6 +324,22 @@ public sealed class ConfigureFailureGrain(
 
         return state.State.Value;
     }
+}
+
+// Positional record: no public parameterless constructor, and no IStateDefault.
+[GenerateSerializer]
+public sealed record UndefaultableFacetState([property: Id(0)] string Value);
+
+public interface IFacetUndefaultableGrain : IGrainWithGuidKey
+{
+    Task<string> GetValueAsync();
+}
+
+public sealed class FacetUndefaultableGrain(
+    [PersistentState("undefaultable", "Default")] IStateManager<UndefaultableFacetState> state)
+    : Grain, IFacetUndefaultableGrain
+{
+    public Task<string> GetValueAsync() => Task.FromResult(state.State.Value);
 }
 
 // Storage provider exists, but no IStateManagerFactory is keyed to it.
