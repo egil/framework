@@ -82,11 +82,16 @@ internal static class SourceValueShapes
         return SourceValueShape.Unknown;
     }
 
-    public static bool IsTokenCompatible(JsonTokenType tokenType, SourceValueShape shape)
+    /// <param name="allowQuotedNumbers">
+    /// Whether a JSON string may also satisfy a numeric shape, as with
+    /// <see cref="System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString"/>.
+    /// Callers try exact shapes first so a string-shaped candidate always wins string tokens.
+    /// </param>
+    public static bool IsTokenCompatible(JsonTokenType tokenType, SourceValueShape shape, bool allowQuotedNumbers = false)
     {
         return tokenType switch
         {
-            JsonTokenType.String => shape is SourceValueShape.String,
+            JsonTokenType.String => shape is SourceValueShape.String || (allowQuotedNumbers && shape is SourceValueShape.Number),
             JsonTokenType.Number => shape is SourceValueShape.Number,
             JsonTokenType.True or JsonTokenType.False => shape is SourceValueShape.Boolean,
             _ => false,

@@ -471,6 +471,41 @@ public partial class UnionMigrationTests
         Assert.IsType<Paint>(paint.Value);
     }
 
+    [Fact]
+    public void Union_numeric_case_also_takes_strings_when_reading_numbers_from_strings_is_allowed()
+    {
+        var options = CreateOptions();
+        options.NumberHandling = JsonNumberHandling.AllowReadingFromString;
+
+        var quoted = JsonSerializer.Deserialize<CounterOrNote>("\"42\"", options);
+        var plain = JsonSerializer.Deserialize<CounterOrNote>("42", options);
+
+        Assert.Equal(42, Assert.IsType<Counter>(quoted.Value).Value);
+        Assert.Equal(42, Assert.IsType<Counter>(plain.Value).Value);
+    }
+
+    [Fact]
+    public void Union_string_case_wins_quoted_numbers_when_reading_numbers_from_strings_is_allowed()
+    {
+        var options = CreateOptions();
+        options.NumberHandling = JsonNumberHandling.AllowReadingFromString;
+
+        var value = JsonSerializer.Deserialize<ShapeOrCounter>("\"42\"", options);
+
+        Assert.Equal("42", value.Value);
+    }
+
+    [Fact]
+    public void Union_two_numeric_cases_are_ambiguous_for_quoted_numbers_when_reading_numbers_from_strings_is_allowed()
+    {
+        var options = CreateOptions();
+        options.NumberHandling = JsonNumberHandling.AllowReadingFromString;
+
+        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<CounterOrInt>("\"42\"", options));
+
+        Assert.Contains("ambiguous", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static JsonSerializerOptions CreateOptions(Action<JsonMigrationBuilder>? configure = null)
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
@@ -545,6 +580,8 @@ public partial class UnionMigrationTests
     public union PaintOrLabel(Paint, string);
 
     public union CounterOrInt(Counter, int);
+
+    public union CounterOrNote(Counter, Note);
 
     [JsonConverter(typeof(JsonStringEnumConverter<Colour>))]
     public enum Colour

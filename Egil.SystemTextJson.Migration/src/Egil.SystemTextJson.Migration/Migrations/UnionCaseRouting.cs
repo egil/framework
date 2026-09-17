@@ -24,6 +24,7 @@ internal sealed class UnionCaseRouting
     private readonly ShapeRoute legacyObjectRoute;
     private readonly ShapeRoute arrayRoute;
     private readonly ShapeRoute stringRoute;
+    private readonly ShapeRoute quotedNumberRoute;
     private readonly ShapeRoute numberRoute;
     private readonly ShapeRoute booleanRoute;
 
@@ -37,6 +38,7 @@ internal sealed class UnionCaseRouting
         ShapeRoute legacyObjectRoute,
         ShapeRoute arrayRoute,
         ShapeRoute stringRoute,
+        ShapeRoute quotedNumberRoute,
         ShapeRoute numberRoute,
         ShapeRoute booleanRoute)
     {
@@ -49,6 +51,7 @@ internal sealed class UnionCaseRouting
         this.legacyObjectRoute = legacyObjectRoute;
         this.arrayRoute = arrayRoute;
         this.stringRoute = stringRoute;
+        this.quotedNumberRoute = quotedNumberRoute;
         this.numberRoute = numberRoute;
         this.booleanRoute = booleanRoute;
     }
@@ -64,6 +67,7 @@ internal sealed class UnionCaseRouting
         var migratableCases = new List<Type>();
         var arrayCases = new List<Type>();
         var stringCases = new List<Type>();
+        var quotedNumberCases = new List<Type>();
         var numberCases = new List<Type>();
         var booleanCases = new List<Type>();
 
@@ -151,6 +155,15 @@ internal sealed class UnionCaseRouting
                     return;
                 case SourceValueShape.Number:
                     AddCase(numberCases, caseType);
+
+                    // With AllowReadingFromString (on by default with JsonSerializerDefaults.Web)
+                    // the numeric converter also accepts a JSON string. A string-shaped case still
+                    // wins string payloads; numeric cases only take them when no such case exists.
+                    if (((options.GetTypeInfo(shapeType).NumberHandling ?? options.NumberHandling) & JsonNumberHandling.AllowReadingFromString) != 0)
+                    {
+                        AddCase(quotedNumberCases, caseType);
+                    }
+
                     return;
                 case SourceValueShape.Boolean:
                     AddCase(booleanCases, caseType);
@@ -191,6 +204,7 @@ internal sealed class UnionCaseRouting
             ShapeRoute.From(migratableCases),
             ShapeRoute.From(arrayCases),
             ShapeRoute.From(stringCases),
+            ShapeRoute.From(quotedNumberCases),
             ShapeRoute.From(numberCases),
             ShapeRoute.From(booleanCases));
     }
@@ -204,7 +218,7 @@ internal sealed class UnionCaseRouting
             case JsonTokenType.StartArray:
                 return Resolve(arrayRoute, "array");
             case JsonTokenType.String:
-                return Resolve(stringRoute, "string");
+                return Resolve(stringRoute.Kind is RouteKind.None ? quotedNumberRoute : stringRoute, "string");
             case JsonTokenType.Number:
                 return Resolve(numberRoute, "number");
             case JsonTokenType.True:

@@ -108,6 +108,38 @@ public partial class NumericSourceMigrationTests
     }
 
     [Fact]
+    public void Quoted_number_reaches_numeric_source_when_reading_numbers_from_strings_is_allowed()
+    {
+        // JsonSerializerDefaults.Web enables AllowReadingFromString.
+        var options = CreateOptions();
+
+        var result = JsonSerializer.Deserialize<NumericState<int>>("\"42\"", options);
+
+        Assert.NotNull(result);
+        Assert.Equal(42, result.Value);
+    }
+
+    [Fact]
+    public void Quoted_number_is_not_treated_as_numeric_source_under_strict_number_handling()
+    {
+        var options = new JsonSerializerOptions();
+        options.AddJsonMigrationSupport();
+
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<NumericState<int>>("\"42\"", options));
+    }
+
+    [Fact]
+    public void String_source_wins_quoted_numbers_over_numeric_source()
+    {
+        var options = CreateOptions();
+
+        var result = JsonSerializer.Deserialize<IntOrStringState>("\"42\"", options);
+
+        Assert.NotNull(result);
+        Assert.Equal("from-string", result.Source);
+    }
+
+    [Fact]
     public void BigInteger_source_is_not_a_numeric_shape()
     {
         // BigInteger implements INumberBase<T> but has no built-in STJ converter, so it must not
@@ -148,6 +180,24 @@ public partial class NumericSourceMigrationTests
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
         options.AddJsonMigrationSupport();
         return options;
+    }
+
+    [JsonMigratable]
+    public record class IntOrStringState(string Source)
+        : IMigrateFrom<int, IntOrStringState>,
+          IMigrateFrom<string, IntOrStringState>
+    {
+        public static bool TryMigrateFrom(int source, out IntOrStringState result)
+        {
+            result = new IntOrStringState("from-int");
+            return true;
+        }
+
+        public static bool TryMigrateFrom(string source, out IntOrStringState result)
+        {
+            result = new IntOrStringState("from-string");
+            return true;
+        }
     }
 
     [JsonMigratable]

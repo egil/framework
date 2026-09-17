@@ -13,8 +13,20 @@ internal sealed partial class JsonMigratableConverter<T>
             return FindEnumerableMigrator(ref reader);
         }
 
-        // Primitive tokens: disambiguate by checking which source CLR type
-        // is compatible with the JSON token type.
+        // Primitive tokens: disambiguate by checking which source CLR type is compatible with
+        // the JSON token type. Exact shapes win; a quoted number only reaches a numeric source
+        // when no string-shaped source exists and the options allow reading numbers from strings.
+        MigratorReference? match = MatchPrimitive(tokenType, allowQuotedNumbers: false);
+        if (match is null && tokenType is JsonTokenType.String)
+        {
+            match = MatchPrimitive(tokenType, allowQuotedNumbers: true);
+        }
+
+        return match;
+    }
+
+    private MigratorReference? MatchPrimitive(JsonTokenType tokenType, bool allowQuotedNumbers)
+    {
         MigratorReference? match = null;
         foreach (MigratorReference migrator in context.Migrators)
         {
@@ -23,7 +35,7 @@ internal sealed partial class JsonMigratableConverter<T>
                 continue;
             }
 
-            if (!SourceValueShapes.IsTokenCompatible(tokenType, migrator.SourceShape))
+            if (!SourceValueShapes.IsTokenCompatible(tokenType, migrator.SourceShape, allowQuotedNumbers && migrator.AllowsQuotedNumbers))
             {
                 continue;
             }

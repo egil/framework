@@ -18,6 +18,11 @@ internal sealed record MigratorReference(
     // reflection on the read path.
     public SourceValueShape SourceShape { get; } = SourceValueShapes.Classify(SourceType);
 
+    // AllowReadingFromString (on by default with JsonSerializerDefaults.Web) lets numeric sources
+    // read quoted numbers; resolved once so the read path does not consult the options.
+    public bool AllowsQuotedNumbers { get; } =
+        ((SourceTypeInfo.NumberHandling ?? SourceTypeInfo.Options.NumberHandling) & System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString) != 0;
+
     public Type ElementType { get; } = SourceTypeInfo.Kind is JsonTypeInfoKind.Enumerable or JsonTypeInfoKind.Dictionary
         ? SourceValueShapes.GetValueType(SourceType, SourceTypeInfo.Kind)
         : typeof(object);
