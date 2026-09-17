@@ -1,18 +1,64 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Orleans.Streaming.EventHubs;
+using Orleans.Streams;
 
 namespace Egil.Orleans.Messaging.Streams.EventHubs;
 
-internal static class EventHubStreamSequenceTokenJsonConverters
+/// <summary>
+/// Registers the Event Hubs <see cref="StreamSequenceToken"/> JSON
+/// converters in the process-wide <see cref="StreamSequenceTokenJsonConverters"/>
+/// registry.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <c>UseEnrichedDataAdapter()</c> calls this during silo configuration, so a silo
+/// that configures Event Hub streams needs no separate call. Processes that read the
+/// same persisted grain state without configuring an Event Hub stream provider do —
+/// a test fixture on in-memory storage using the production
+/// <see cref="System.Text.Json.JsonSerializerOptions"/>, a tool that reads grain
+/// state blobs offline, a background archiver. Without these converters,
+/// <see cref="StreamCursor"/> and <see cref="Egil.Orleans.Messaging.Tracking.MessageTracker"/>
+/// throw on any persisted Event Hub token.
+/// </para>
+/// <para>
+/// Registration is idempotent, so this is safe to call from several places and in any
+/// order relative to <c>UseEnrichedDataAdapter()</c>.
+/// </para>
+/// </remarks>
+public static class EventHubStreamSequenceTokenJsonConverters
 {
+    /// <summary>
+    /// Type descriptor written to the token JSON envelope for
+    /// <see cref="EventHubSequenceToken"/>.
+    /// </summary>
+    public const string EventHubSequenceTokenTypeDescriptor = "orleans.event-hubs.sequence-token";
+
+    /// <summary>
+    /// Type descriptor written to the token JSON envelope for
+    /// <see cref="EventHubSequenceTokenV2"/>.
+    /// </summary>
+    public const string EventHubSequenceTokenV2TypeDescriptor = "orleans.event-hubs.sequence-token-v2";
+
+    /// <summary>
+    /// Registers the JSON converters for <see cref="EventHubSequenceToken"/>,
+    /// <see cref="EventHubSequenceTokenV2"/> and
+    /// <see cref="EnrichedEventHubSequenceToken"/>.
+    /// </summary>
+    /// <remarks>
+    /// Repeated calls are a no-op. Registering the library's own converter a second
+    /// time is not a conflict worth failing on, so no registrar has to run first.
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when a different converter already owns one of these type descriptors.
+    /// </exception>
     public static void Register()
     {
         StreamSequenceTokenJsonConverters.Register(
-            "orleans.event-hubs.sequence-token",
+            EventHubSequenceTokenTypeDescriptor,
             new EventHubSequenceTokenJsonConverter());
         StreamSequenceTokenJsonConverters.Register(
-            "orleans.event-hubs.sequence-token-v2",
+            EventHubSequenceTokenV2TypeDescriptor,
             new EventHubSequenceTokenV2JsonConverter());
         StreamSequenceTokenJsonConverters.Register(
             EnrichedEventHubSequenceToken.TypeAlias,

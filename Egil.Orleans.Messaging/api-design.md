@@ -1235,6 +1235,43 @@ stream providers can register their own converter with
 `AddStreamSequenceTokenJsonConverter<TToken, TConverter>(...)` or
 `StreamSequenceTokenJsonConverters.Register(...)`.
 
+### Registration is idempotent
+
+The registry is process-wide, and more than one registrar legitimately wants the
+same converter in place: a provider package's silo setup, a test fixture, an
+offline state reader. Registering the same type descriptor a second time with
+the same token type *and* converter type is therefore a no-op, and registration
+order carries no meaning.
+
+`Register(...)` throws `InvalidOperationException` only on a genuine conflict,
+where a *different* converter claims a descriptor someone else already owns —
+the case that would silently change a persisted wire format. `TryRegister(...)`
+returns that same outcome as a `bool` for callers that want to report a conflict
+rather than catch one. It returns `true` when the registry holds an equivalent
+converter once the call returns, whether it added one or found one; deliberately
+not `TryAdd` semantics, because the caller's question is "is my converter in
+place?", not "did I mutate the registry?".
+
+**Non-goal:** unregistering, replacing, or enumerating registrations. A
+persisted `Kind` must keep decoding the same way for the life of the process.
+
+### Descriptor aliases are read-side fallbacks
+
+The guard above keys on the type descriptor, not the token type, so one token
+type may hold several descriptors. That is deliberate: every registered
+descriptor decodes, which is how a descriptor can be renamed while previously
+persisted state stays readable.
+
+The write side is not symmetric. It takes the first registration matching the
+token's exact type, so **the first registration to claim a token type owns its
+persisted `Kind`**; a later alias is decode-only and cannot change what is
+written. This is the opposite of `IServiceProvider`, where the last registration
+for a key wins and is how a caller overrides a default. There is no override
+here, by design — the winner is persisted rather than resolved, so making a late
+alias change the wire format would let registration order, which no composition
+root controls, silently rewrite durable state. Alias to widen what a process can
+read; register the descriptor you intend to persist first.
+
 Cursor, discriminator-envelope, and built-in token readers treat JSON object
 property order as insignificant and skip unknown properties. Writers keep a
 canonical order. This allows older silos to read additive payloads during
@@ -1271,6 +1308,17 @@ converters. That lets `MessageTracker` and `StreamCursor` round-trip
 `EnrichedEventHubSequenceToken` without the core package referencing Event
 Hubs and without losing `EventHubOffset`, `EnqueuedTime`, `ProviderName`, or
 `TraceParent`.
+
+That registration is also reachable on its own, because a silo is not the only
+process that reads the state it produces — a test fixture on in-memory storage,
+an offline grain-state reader, and an archiver job all need the converters
+without configuring an Event Hub stream provider. The companion package exposes
+`EventHubStreamSequenceTokenJsonConverters.Register()` for callers with no
+container and `services.AddEventHubStreamSequenceTokenJsonConverters()` for
+those with one, plus `EventHubSequenceTokenTypeDescriptor` and
+`EventHubSequenceTokenV2TypeDescriptor` so no descriptor string has to be
+copied. Because registration is idempotent, these compose with
+`UseEnrichedDataAdapter()` in any order.
 
 Users who need custom adapter behavior can subclass
 `EnrichedEventHubAdapter` and register their subclass via Orleans'
