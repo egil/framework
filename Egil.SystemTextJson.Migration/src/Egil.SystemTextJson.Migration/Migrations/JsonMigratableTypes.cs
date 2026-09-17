@@ -34,14 +34,13 @@ internal static class JsonMigratableTypes
             }
         }
 
-        return IsResolverProvidedConverter(options.GetTypeInfo(type).Converter);
+        // A resolver (source-generated context or custom IJsonTypeInfoResolver) can attach a
+        // converter without either registration above. Any converter type outside
+        // System.Text.Json's own assembly is treated as such an override. Comparing with
+        // options.GetConverter(type) is not possible: on read-only options it resolves through
+        // the same resolver, and instances of built-in converters are not shared between
+        // lookups. A resolver that substitutes a differently configured instance of a built-in
+        // converter type is therefore not detected (documented limitation).
+        return options.GetTypeInfo(type).Converter.GetType().Assembly != typeof(JsonSerializer).Assembly;
     }
-
-    /// <summary>
-    /// A resolver (source-generated context or custom <c>IJsonTypeInfoResolver</c>) can attach
-    /// a converter without either registration above; anything outside System.Text.Json's own
-    /// assembly is treated as such an override.
-    /// </summary>
-    public static bool IsResolverProvidedConverter(JsonConverter converter)
-        => converter.GetType().Assembly != typeof(JsonSerializer).Assembly;
 }

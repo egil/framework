@@ -253,6 +253,22 @@ public partial class NumericSourceMigrationTests
     }
 
     [Fact]
+    public void Source_with_resolver_supplied_converter_is_not_shape_matched()
+    {
+        // The resolver attaches a string-reading enum converter without touching options.Converters
+        // or the type, so only the resolved contract reveals the override.
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        {
+            TypeInfoResolver = new StringColourResolver(),
+        };
+        options.AddJsonMigrationSupport();
+
+        var result = JsonSerializer.Deserialize<IntOrColourState>("42", options);
+
+        Assert.Equal("from-int", result!.Source);
+    }
+
+    [Fact]
     public void Migrate_from_guid_string_to_custom_type()
     {
         var options = CreateOptions();
@@ -288,6 +304,30 @@ public partial class NumericSourceMigrationTests
     {
         Red,
         Green,
+    }
+
+    public sealed class ColourNameConverter : JsonConverter<Colour>
+    {
+        public override Colour Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+            => Enum.Parse<Colour>(reader.GetString()!);
+
+        public override void Write(Utf8JsonWriter writer, Colour value, JsonSerializerOptions options)
+            => writer.WriteStringValue(value.ToString());
+    }
+
+    public sealed class StringColourResolver : System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver
+    {
+        private readonly System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver inner = new();
+
+        public System.Text.Json.Serialization.Metadata.JsonTypeInfo? GetTypeInfo(Type type, JsonSerializerOptions options)
+        {
+            if (type != typeof(Colour))
+            {
+                return inner.GetTypeInfo(type, options);
+            }
+
+            return System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateValueInfo<Colour>(options, new ColourNameConverter());
+        }
     }
 
     [JsonMigratable]
