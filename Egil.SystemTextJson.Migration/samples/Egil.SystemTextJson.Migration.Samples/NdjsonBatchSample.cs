@@ -43,9 +43,9 @@ public class NdjsonBatchTests
         // topLevelValues: true reads newline-delimited JSON one record at a time. Each record is
         // migrated as it is read, so the write-back stream only ever contains the current format.
         var migratedCount = 0;
-        var records = JsonSerializer.DeserializeAsyncEnumerable<EventV2>(input, topLevelValues: true, options, cancellationToken);
+        var records = JsonSerializer.DeserializeAsyncEnumerable<EventV2>(input, topLevelValues: true, options: options, cancellationToken: cancellationToken);
 
-        await JsonSerializer.SerializeAsyncEnumerable(output, TrackMigrations(records), topLevelValues: true, options, cancellationToken);
+        await JsonSerializer.SerializeAsyncEnumerable(output, TrackMigrations(records), topLevelValues: true, options: options, cancellationToken: cancellationToken);
 
         async IAsyncEnumerable<EventV2> TrackMigrations(IAsyncEnumerable<EventV2?> source)
         {
@@ -90,7 +90,7 @@ public class NdjsonBatchTests
         // records in the same buffer are yielded; only the exception is a reliable signal.
         var exception = await Assert.ThrowsAsync<JsonException>(async () =>
         {
-            await foreach (var _ in JsonSerializer.DeserializeAsyncEnumerable<EventV2>(input, topLevelValues: true, options, cancellationToken))
+            await foreach (var _ in JsonSerializer.DeserializeAsyncEnumerable<EventV2>(input, topLevelValues: true, options: options, cancellationToken: cancellationToken))
             {
             }
         });
@@ -109,7 +109,7 @@ public class NdjsonBatchTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
         {
-            await foreach (var _ in JsonSerializer.DeserializeAsyncEnumerable<EventV2>(input, topLevelValues: true, options, cancellation.Token))
+            await foreach (var _ in JsonSerializer.DeserializeAsyncEnumerable<EventV2>(input, topLevelValues: true, options: options, cancellationToken: cancellation.Token))
             {
             }
         });
