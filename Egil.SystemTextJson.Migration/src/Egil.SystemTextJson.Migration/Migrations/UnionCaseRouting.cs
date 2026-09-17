@@ -20,6 +20,7 @@ internal sealed class UnionCaseRouting
     private readonly string knownDiscriminatorList;
     private readonly Type? undiscriminatedCase;
     private readonly Type? unknownShapeCase;
+    private readonly Type? guardedObjectCase;
     private readonly ShapeRoute objectRoute;
     private readonly ShapeRoute legacyObjectRoute;
     private readonly ShapeRoute arrayRoute;
@@ -34,6 +35,7 @@ internal sealed class UnionCaseRouting
         string knownDiscriminatorList,
         Type? undiscriminatedCase,
         Type? unknownShapeCase,
+        Type? guardedObjectCase,
         ShapeRoute objectRoute,
         ShapeRoute legacyObjectRoute,
         ShapeRoute arrayRoute,
@@ -47,6 +49,7 @@ internal sealed class UnionCaseRouting
         this.knownDiscriminatorList = knownDiscriminatorList;
         this.undiscriminatedCase = undiscriminatedCase;
         this.unknownShapeCase = unknownShapeCase;
+        this.guardedObjectCase = guardedObjectCase;
         this.objectRoute = objectRoute;
         this.legacyObjectRoute = legacyObjectRoute;
         this.arrayRoute = arrayRoute;
@@ -63,6 +66,7 @@ internal sealed class UnionCaseRouting
         var knownDiscriminators = new List<string>();
         Type? undiscriminatedCase = null;
         Type? unknownShapeCase = null;
+        Type? guardedObjectCase = null;
         var plainObjectCases = new List<Type>();
         var migratableCases = new List<Type>();
         var arrayCases = new List<Type>();
@@ -127,16 +131,32 @@ internal sealed class UnionCaseRouting
             // Object sources are identified by their discriminator even when a converter
             // override reads them, exactly as the case's own converter does for standalone
             // payloads; the override only matters for shape-routed (non-object) sources.
-            if (JsonMigratableTypes.IsMigratable(sourceType) || IsObjectContract(sourceType, options))
+            if (JsonMigratableTypes.IsMigratable(sourceType))
             {
                 AddDiscriminator(context.DeclaringType, entriesByPropertyName, caseByDiscriminator, knownDiscriminators, sourceMetadata, caseType);
                 return;
             }
 
-            // Same rule as for union cases: an overridden converter may read any token family.
             if (HasConverterOverride(sourceType, options))
             {
+                if (IsObjectContract(sourceType, options))
+                {
+                    // The overriding converter may also accept objects without the
+                    // discriminator, so discriminator-less objects are refused rather than
+                    // routed to another case; other shapes are unaffected.
+                    AddDiscriminator(context.DeclaringType, entriesByPropertyName, caseByDiscriminator, knownDiscriminators, sourceMetadata, caseType);
+                    guardedObjectCase ??= caseType;
+                    return;
+                }
+
+                // Same rule as for union cases: an overridden converter may read any token family.
                 unknownShapeCase ??= caseType;
+                return;
+            }
+
+            if (options.GetTypeInfo(sourceType).Kind is JsonTypeInfoKind.Object)
+            {
+                AddDiscriminator(context.DeclaringType, entriesByPropertyName, caseByDiscriminator, knownDiscriminators, sourceMetadata, caseType);
                 return;
             }
 
@@ -197,6 +217,7 @@ internal sealed class UnionCaseRouting
             string.Join(", ", knownDiscriminators.Select(static discriminator => $"'{discriminator}'")),
             undiscriminatedCase,
             unknownShapeCase,
+            guardedObjectCase,
             ShapeRoute.From(plainObjectCases),
             ShapeRoute.From(migratableCases),
             ShapeRoute.From(arrayCases),
@@ -265,9 +286,9 @@ internal sealed class UnionCaseRouting
         // right one. Otherwise prefer the case explicitly configured for undiscriminated
         // objects, then the plain object cases (they can never carry a discriminator), and only
         // then fall back to a lone migratable case, mirroring the converter's legacy-payload rule.
-        if (unknownShapeCase is not null)
+        if ((unknownShapeCase ?? guardedObjectCase) is { } guard)
         {
-            ThrowUnknownShapeCase("object");
+            ThrowUnknownShapeCase("object", guard);
         }
 
         if (undiscriminatedCase is not null)
@@ -293,7 +314,7 @@ internal sealed class UnionCaseRouting
     {
         if (unknownShapeCase is not null)
         {
-            ThrowUnknownShapeCase(shape);
+            ThrowUnknownShapeCase(shape, unknownShapeCase);
         }
 
         if (route.Kind is RouteKind.Single)
@@ -320,20 +341,13 @@ internal sealed class UnionCaseRouting
         }
     }
 
-    // A source with a converter override reports Kind None, so the object shape is read from
-    // the contract STJ would build without the override.
+    // A source with a converter override reports Kind None, so the object shape is inferred
+    // from the CLR type instead of the contract.
     private static bool IsObjectContract(Type sourceType, JsonSerializerOptions options)
-    {
-        if (options.GetTypeInfo(sourceType).Kind is JsonTypeInfoKind.Object)
-        {
-            return true;
-        }
-
-        return HasConverterOverride(sourceType, options)
-            && sourceType is { IsPrimitive: false, IsEnum: false }
-            && SourceValueShapes.Classify(sourceType) is SourceValueShape.Unknown
-            && !typeof(System.Collections.IEnumerable).IsAssignableFrom(sourceType);
-    }
+        => options.GetTypeInfo(sourceType).Kind is JsonTypeInfoKind.Object
+            || (sourceType is { IsPrimitive: false, IsEnum: false }
+                && SourceValueShapes.Classify(sourceType) is SourceValueShape.Unknown
+                && !typeof(System.Collections.IEnumerable).IsAssignableFrom(sourceType));
 
     private static bool HasConverterOverride(Type caseType, JsonSerializerOptions options)
     {
@@ -403,10 +417,10 @@ internal sealed class UnionCaseRouting
 
     [DoesNotReturn]
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private void ThrowUnknownShapeCase(string shape)
+    private void ThrowUnknownShapeCase(string shape, Type guard)
     {
         throw new JsonException(
-            $"Union '{unionType.FullName}' cannot classify a JSON {shape} without a leading type discriminator because case '{unknownShapeCase!.FullName}' may accept any JSON shape. Known discriminators: {knownDiscriminatorList}.");
+            $"Union '{unionType.FullName}' cannot classify a JSON {shape} without a leading type discriminator because case '{guard.FullName}' may accept it through a custom converter or nested union. Known discriminators: {knownDiscriminatorList}.");
     }
 
     [DoesNotReturn]
