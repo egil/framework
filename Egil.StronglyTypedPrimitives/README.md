@@ -145,7 +145,7 @@ The generator reports warning `STP001` for every strongly typed primitive withou
 
 ### Compatibility
 
-`StronglyTypedJsonConverter<TSelf, TPrimitiveType>` and `StronglyTypedJsonConverterFactory` ship in the `net8.0`, `net9.0` and `net10.0` assets of the package only. Projects that pick the `netstandard2.0` asset (for example .NET Framework or .NET Standard class libraries) get no generated JSON support, even when they reference `System.Text.Json`: the generator emits no `[JsonConverter]` attribute for them and reports warning `STP004` instead. Declare your own `[JsonConverter]` on the partial declaration to serialize the type there, or target `net8.0` or later. Versions before 2.0 generated a nested converter for every target framework.
+`StronglyTypedJsonConverter<TSelf, TPrimitiveType>` and `StronglyTypedJsonConverterFactory` ship in the `net8.0`, `net9.0`, `net10.0` and `net11.0` assets of the package only. Projects that pick the `netstandard2.0` asset (for example .NET Framework or .NET Standard class libraries) get no generated JSON support, even when they reference `System.Text.Json`: the generator emits no `[JsonConverter]` attribute for them and reports warning `STP004` instead. Declare your own `[JsonConverter]` on the partial declaration to serialize the type there, or target `net8.0` or later. Versions before 2.0 generated a nested converter for every target framework.
 
 ## ASP.NET Core validation
 
@@ -208,7 +208,64 @@ public System.Collections.Generic.IEnumerable<System.ComponentModel.DataAnnotati
 }
 ```
 
-Every attribute is evaluated so one result per failing attribute is returned, and a valid value returns an empty array without allocating. Attributes that require a `ValidationContext` (`STP005`) are evaluated here as well, with the context the caller passes, after the ordinary attributes or the hand-written `IsValueValid`; `Validate` is the one generated member that has a context to give them. Attributes deriving from `AsyncValidationAttribute` are not part of `Validate`. In ASP.NET Core validation the attribute errors on `Value` take precedence: `Validate` is only consulted when no member has failed, so the two never report the same failure twice. If the type already has a member named `Validate`, say a positional parameter of that name, the generated method implements `IValidatableObject.Validate` explicitly instead.
+Every attribute is evaluated so one result per failing attribute is returned, and a valid value returns an empty array without allocating. Attributes that require a `ValidationContext` (`STP005`) are evaluated here as well, with the context the caller passes, after the ordinary attributes or the hand-written `IsValueValid`; `Validate` is the one generated member that has a context to give them. Attributes deriving from `AsyncValidationAttribute` are not part of `Validate`; see [Async validation (.NET 11)](#async-validation-net-11). In ASP.NET Core validation the attribute errors on `Value` take precedence: `Validate` is only consulted when no member has failed, so the two never report the same failure twice. If the type already has a member named `Validate`, say a positional parameter of that name, the generated method implements `IValidatableObject.Validate` explicitly instead.
+
+### Async validation (.NET 11)
+
+.NET 11 adds `AsyncValidationAttribute` and `IAsyncValidatableObject` for constraints whose answer is only available asynchronously, such as a uniqueness check against a database. An async attribute on the positional parameter is **not part of the value invariant**: constructors, init accessors, `Parse`, `TryParse` and the JSON converter cannot await, so `IsValueValid` and `Validate` ignore it, and a value it would reject can still be constructed. To have it evaluated, declare `IAsyncValidatableObject` on your partial declaration:
+
+```csharp
+using System.ComponentModel.DataAnnotations;
+using Egil.StronglyTypedPrimitives;
+
+namespace Examples;
+
+public sealed class NotReservedAttribute() : AsyncValidationAttribute("The {0} field must not be reserved.")
+{
+    protected override async Task<ValidationResult?> IsValidAsync(object? value, ValidationContext validationContext, CancellationToken cancellationToken)
+    {
+        await Task.Yield(); // ask the database here
+        return string.Equals(value as string, "reserved", StringComparison.OrdinalIgnoreCase)
+            ? new ValidationResult(FormatErrorMessage(validationContext.DisplayName))
+            : ValidationResult.Success;
+    }
+
+    protected override ValidationResult? IsValid(object? value, ValidationContext validationContext)
+        => throw new NotSupportedException();
+}
+
+[StronglyTyped]
+public readonly partial record struct Username([StringLength(10, MinimumLength = 2), NotReserved] string Value) : IAsyncValidatableObject;
+```
+
+`IAsyncValidatableObject` extends `IValidatableObject`, so `Validate` is generated as described above, and next to it the generator adds one field per async attribute to the `ValueValidators` class and emits `ValidateAsync`:
+
+```csharp
+private static class ValueValidators
+{
+    public static readonly global::System.ComponentModel.DataAnnotations.StringLengthAttribute valueValidator0 = new global::System.ComponentModel.DataAnnotations.StringLengthAttribute(10) { MinimumLength = 2 };
+    public static readonly global::Examples.NotReservedAttribute asyncValueValidator0 = new global::Examples.NotReservedAttribute();
+
+    public static global::System.ComponentModel.DataAnnotations.ValidationContext CreateInvariantContext()
+        => new global::System.ComponentModel.DataAnnotations.ValidationContext(new object(), "Value", null, null) { MemberName = "Value" };
+}
+
+public async System.Collections.Generic.IAsyncEnumerable<System.ComponentModel.DataAnnotations.ValidationResult> ValidateAsync(System.ComponentModel.DataAnnotations.ValidationContext validationContext, [System.Runtime.CompilerServices.EnumeratorCancellation] System.Threading.CancellationToken cancellationToken)
+{
+    foreach (var result in Validate(validationContext))
+    {
+        yield return result;
+    }
+
+    var asyncResult0 = await ValueValidators.asyncValueValidator0.GetValidationResultAsync(this.Value, validationContext, cancellationToken).ConfigureAwait(false);
+    if (asyncResult0 is not null && asyncResult0 != System.ComponentModel.DataAnnotations.ValidationResult.Success) yield return asyncResult0;
+}
+```
+
+`ValidateAsync` yields everything `Validate` reports first, then awaits every async attribute in declaration order so one call reports all failures, forwarding the cancellation token it was given to each attribute. This is what `Validator.TryValidateObjectAsync` and other `IAsyncValidatableObject` consumers see. The rules for `Validate` apply unchanged: the generator never adds the interface itself, a `ValidateAsync` you write, implicitly or as an explicit interface implementation, is left alone, and when the type already has a member named `ValidateAsync` the generated method implements `IAsyncValidatableObject.ValidateAsync` explicitly.
+
+In ASP.NET Core validation on .NET 11 an async attribute on the positional parameter is treated like a synchronous one: the validation source generator sees it on `Value` and evaluates it itself, so an invalid `Name` property of type `Username` is rejected with a 400 whose problem details carry the attribute's message under `Name.Value`, exactly once. Without a declared `IAsyncValidatableObject` that ASP.NET Core path still works, but nothing this generator emits evaluates the attribute (`IsValueValid` and `Validate` cannot await) and `Validator.TryValidateObjectAsync` has no `ValidateAsync` to call; warning `STP003` points this out.
+
 ## Generator output for int without constraints
 
 Given this type declaration:
