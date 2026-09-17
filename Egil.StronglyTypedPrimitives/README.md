@@ -9,6 +9,8 @@ it easy to avoid the primitive obsession anti pattern.
 
 - **Any generated method or property can be overridden by the user**. Don't like the generated code, just declare the method or property in the type and the generator will not generate it.
 
+- **Constraints from DataAnnotations attributes**. Declare `System.ComponentModel.DataAnnotations` validation attributes on the positional parameter, for example `[EmailAddress, StringLength(254)] string Value`, and the generator writes `IsValueValid` from them. See [Getting started](#getting-started).
+
 - **Interoperable with other source generators**. The "Value" property is visible to them and can be used in their generated code.
 
 - **Generates implementation of the following interfaces**, if the underlying type supports them:
@@ -96,6 +98,22 @@ Assert.Equal(StronglyTypedIntWithConstraints.Empty, default(StronglyTypedIntWith
 Assert.Throws<ArgumentException>(() => new StronglyTypedIntWithConstraints(tooLowValue));
 Assert.Throws<ArgumentException>(() => StronglyTypedIntWithConstraints.Empty with { Value = tooLowValue });
 ```
+
+Instead of writing `IsValueValid` by hand, declare validation attributes from `System.ComponentModel.DataAnnotations` on the positional parameter and the generator writes the method for you:
+
+```csharp
+using System.ComponentModel.DataAnnotations;
+using Egil.StronglyTypedPrimitives;
+
+namespace Examples;
+
+[StronglyTyped]
+public readonly partial record struct Email([EmailAddress, StringLength(254, MinimumLength = 3)] string Value);
+```
+
+Every attribute deriving from `ValidationAttribute` that targets the parameter itself is evaluated in declaration order. An invalid value throws a `ValidationException` whose message lists the error message of every failing attribute, one per line, and whose `Value` is the rejected value; `TryParse` and JSON deserialization return `false`/`Empty` as with a hand-written `IsValueValid`. See [Generator output for string with validation attributes](#generator-output-for-string-with-validation-attributes) for the generated code.
+
+A hand-written `IsValueValid` still wins: when the type declares the method, the attributes are not evaluated and the generator reports warning `STP002` on each of them. Attributes deriving from `AsyncValidationAttribute` (.NET 11) cannot run inside the synchronous `IsValueValid` and are left out with warning `STP003`.
 
 ## System.Text.Json
 
@@ -353,6 +371,54 @@ public readonly partial record struct StronglyTypedIntWithConstraints : Egil.Str
     // remaining cut for brevity. same as first example above ...
 }
 ```
+
+## Generator output for string with validation attributes
+
+Given this type declaration:
+
+```csharp
+using System.ComponentModel.DataAnnotations;
+using Egil.StronglyTypedPrimitives;
+
+namespace Examples;
+
+[StronglyTyped]
+public readonly partial record struct Email([EmailAddress, StringLength(254, MinimumLength = 3)] string Value);
+```
+
+The `Value` property and `ThrowIfValueIsInvalid` are generated exactly as in the constraints example above, and `IsValueValid` is generated from the attributes:
+
+```csharp
+private static readonly System.ComponentModel.DataAnnotations.EmailAddressAttribute valueValidator0 = new System.ComponentModel.DataAnnotations.EmailAddressAttribute();
+private static readonly System.ComponentModel.DataAnnotations.StringLengthAttribute valueValidator1 = new System.ComponentModel.DataAnnotations.StringLengthAttribute(254) { MinimumLength = 3 };
+
+public static bool IsValueValid(string value, bool throwIfInvalid)
+{
+    string? error0 = null;
+    string? error1 = null;
+
+    if (!valueValidator0.IsValid(value))
+    {
+        if (!throwIfInvalid) return false;
+        error0 = valueValidator0.FormatErrorMessage("Value");
+    }
+
+    if (!valueValidator1.IsValid(value))
+    {
+        if (!throwIfInvalid) return false;
+        error1 = valueValidator1.FormatErrorMessage("Value");
+    }
+
+    if (error0 is null && error1 is null) return true;
+
+    var message = string.Empty;
+    if (error0 is not null) message = error0;
+    if (error1 is not null) message = message.Length == 0 ? error1 : message + System.Environment.NewLine + error1;
+    throw new System.ComponentModel.DataAnnotations.ValidationException(message, null, value);
+}
+```
+
+With `throwIfInvalid: false` the method returns at the first failing attribute. With `throwIfInvalid: true` every attribute is evaluated so the exception reports all of them at once. The name passed to `FormatErrorMessage` is the name of the positional parameter.
 
 ## .NET 9 OpenAPI support
 
