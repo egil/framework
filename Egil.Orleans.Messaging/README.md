@@ -142,6 +142,12 @@ state = this.RegisterStateManager("state", storage,
     loaded => loaded.Tracker.RegisterTimeProvider(timeProvider));
 ```
 
+A state type can carry that need itself instead, by implementing
+`IConfigurableState` — see [Injecting the manager](#injecting-the-manager). Prefer
+it when every grain holding the state needs the same wiring, which is the usual
+case: no call site can then forget it. When both are present the state type's own
+configuration runs first and the callback layers on top.
+
 This callback configures runtime dependencies; it must not change business data
 or perform storage I/O. It is deferred during constructor registration. The manager
 and raw storage facet expose the adopted snapshot before the callback runs. If the
@@ -170,6 +176,70 @@ State types must be reference types and implement `IEquatable<T>`. For
 non-trivial state graphs, inherit from `VersionedState` so the recovery path
 compares a library-stamped version rather than relying on structural
 collection equality.
+
+### Injecting the manager
+
+A grain can inject `IStateManager<T>` directly on its `[PersistentState]` parameter,
+in place of `IPersistentState<T>`:
+
+```csharp
+public sealed class OrderGrain(
+    [PersistentState("state", "Default")] IStateManager<OrderState> state)
+    : Grain, IOrderGrain
+{
+    public Task RenameAsync(string name, CancellationToken cancellationToken) =>
+        state.WriteAsync(state.State with { Name = name }, cancellationToken);
+}
+```
+
+The facet is built underneath exactly as it is for `IPersistentState<T>`, so the
+state still hydrates before `OnActivateAsync` and still takes part in the migration
+handoff. The attribute keeps naming both the state record and the storage provider,
+and the provider name now also selects the keyed `IStateManagerFactory` — so it can
+no longer drift from a name repeated at a registration call.
+
+No extra registration is needed: every `AddDefaultStateManager`,
+`AddStateManagerFactory`, and `AddAzureStorageStateManager` overload enables this.
+Call `services.AddStateManagerFacet()` directly only when registering an
+`IStateManagerFactory` by hand. Grains that inject `IPersistentState<T>` are
+unaffected.
+
+Because there is no call site, a state factory and a configuration callback are
+expressed on the state type instead. Both are optional:
+
+```csharp
+[GenerateSerializer]
+public sealed record OrderState : IStateDefault<OrderState>, IConfigurableState
+{
+    [NonSerialized] private TimeProvider? clock;
+
+    [Id(0)] public Guid Id { get; init; }
+    [Id(1)] public MessageTracker Tracker { get; init; } = new();
+
+    // Replaces the createInitialState factory. Not written to storage.
+    public static OrderState CreateDefault(IGrainContext context) =>
+        new() { Id = context.GrainId.GetGuidKey() };
+
+    // Replaces the configureState callback. Runs on every adopted instance.
+    public void Configure(IGrainContext context)
+    {
+        clock = context.ActivationServices.GetRequiredService<TimeProvider>();
+        Tracker.RegisterTimeProvider(clock);
+    }
+}
+```
+
+`IGrainContext.ActivationServices` is the same DI scope the grain's own constructor
+is resolved from, so anything the grain could inject — keyed services included — is
+reachable from `Configure` and `CreateDefault`, alongside the grain key and grain
+type.
+
+Both contracts apply however the manager was obtained, so a grain that keeps using
+`RegisterStateManager` gets them too. A `createInitialState` factory passed there
+overrides `CreateDefault`, and a `configureState` callback runs after `Configure`.
+A state type implementing neither resolves an absent record to `new TState()`; one
+that also has no public parameterless constructor fails at activation with a message
+naming the state type and the grain.
 
 ### Deferred writes
 
@@ -891,6 +961,26 @@ guaranteed; use a System.Text.Json serializer or the Orleans binary serializer.
 This package is messaging infrastructure, not an event-sourcing or CQRS framework. It wraps Orleans state, outbox dispatch, receiver deduplication, and stream subscription management while leaving domain modeling, read models, transport targets, and operational policy to the application.
 
 ## Beta API changes
+
+A grain can now inject `IStateManager<T>` on its `[PersistentState]` constructor
+parameter instead of `IPersistentState<T>`, and a state type can supply its own
+default and runtime configuration through the new `IStateDefault<TSelf>` and
+`IConfigurableState` interfaces — see
+[Injecting the manager](#injecting-the-manager)
+([issue #190](https://github.com/egil/framework/issues/190)). Existing grains need
+no change; `RegisterStateManager` keeps working and gains the same state-type
+contracts.
+
+Two `RegisterStateManager` overloads are **binary breaking**. The ones that take no
+state factory — `RegisterStateManager(storage)` and
+`RegisterStateManager(storageName, storage)` — gained an optional `configureState`
+parameter, so runtime configuration no longer forces a caller to also supply a
+factory. An optional parameter preserves source compatibility but not the emitted
+method signature, so assemblies compiled against an earlier version must be rebuilt.
+
+Those two overloads also change behaviour for a state type implementing
+`IStateDefault<TSelf>`: an absent record now resolves through `CreateDefault` rather
+than `new TState()`. Nothing changes for a state type that does not implement it.
 
 `OutboxProcessorOptions<T>` renames two members so the post-dispatch callbacks
 read as one pair:

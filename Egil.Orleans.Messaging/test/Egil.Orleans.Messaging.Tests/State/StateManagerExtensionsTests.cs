@@ -12,7 +12,7 @@ public sealed class StateManagerExtensionsTests
         var storage = new FakePersistentState(new TestState("initial"));
 
         var manager = StateManagerExtensions.RegisterStateManagerCore(
-            provider,
+            new FakeGrainContext(provider),
             storageName,
             storage,
             typeof(StateManagerExtensionsTests), static () => new TestState("default"));
@@ -30,7 +30,7 @@ public sealed class StateManagerExtensionsTests
         var storage = new FakePersistentState(new TestState("initial"));
 
         var manager = StateManagerExtensions.RegisterStateManagerCore(
-            provider,
+            new FakeGrainContext(provider),
             storageName: null,
             storage,
             typeof(StateManagerExtensionsTests), static () => new TestState("default"));
@@ -51,7 +51,7 @@ public sealed class StateManagerExtensionsTests
 
         var ex = Assert.Throws<InvalidOperationException>(() =>
             StateManagerExtensions.RegisterStateManagerCore(
-                provider,
+                new FakeGrainContext(provider),
                 storageName: null,
                 storage,
                 typeof(StateManagerExtensionsTests), static () => new TestState("default")));
@@ -68,7 +68,7 @@ public sealed class StateManagerExtensionsTests
 
         var ex = Assert.Throws<InvalidOperationException>(() =>
             StateManagerExtensions.RegisterStateManagerCore(
-                provider,
+                new FakeGrainContext(provider),
                 "missing",
                 storage,
                 typeof(StateManagerExtensionsTests), static () => new TestState("default")));
@@ -110,6 +110,49 @@ public sealed class StateManagerExtensionsTests
             grain.RegisterStateManager<TestGrainBase, TestState>("state", null!, static () => new TestState("default")));
 
         Assert.Equal("storage", ex.ParamName);
+    }
+
+    // RegisterStateManagerCore reads only ActivationServices off the context; the rest of
+    // IGrainContext is runtime surface these registration tests never reach.
+    private sealed class FakeGrainContext(IServiceProvider services) : IGrainContext
+    {
+        public IServiceProvider ActivationServices { get; } = services;
+
+        public GrainReference GrainReference => throw new NotSupportedException();
+        public GrainId GrainId => throw new NotSupportedException();
+        public object? GrainInstance => null;
+        public ActivationId ActivationId => throw new NotSupportedException();
+        public GrainAddress Address => throw new NotSupportedException();
+        public IGrainLifecycle ObservableLifecycle => throw new NotSupportedException();
+        public IWorkItemScheduler Scheduler => throw new NotSupportedException();
+        public Task Deactivated => throw new NotSupportedException();
+
+        public void Activate(Dictionary<string, object>? requestContext, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public void Deactivate(DeactivationReason deactivationReason, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public void Migrate(Dictionary<string, object>? requestContext, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public void ReceiveMessage(object message) => throw new NotSupportedException();
+
+        public void Rehydrate(IRehydrationContext context) => throw new NotSupportedException();
+
+        public void SetComponent<TComponent>(TComponent? value) where TComponent : class
+            => throw new NotSupportedException();
+
+        public TComponent? GetComponent<TComponent>() where TComponent : class
+            => throw new NotSupportedException();
+
+        public TTarget GetTarget<TTarget>() where TTarget : class => throw new NotSupportedException();
+
+        public object GetComponent(Type componentType) => throw new NotSupportedException();
+
+        public object GetTarget() => throw new NotSupportedException();
+
+        public bool Equals(IGrainContext? other) => ReferenceEquals(this, other);
     }
 
     private sealed record TestState(string Value) : IEquatable<TestState>;
