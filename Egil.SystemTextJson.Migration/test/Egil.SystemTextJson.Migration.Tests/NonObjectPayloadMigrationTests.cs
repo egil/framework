@@ -483,6 +483,19 @@ public class NonObjectPayloadMigrationTests
         Assert.Equal("from-elem-v1", result.Source);
     }
 
+    [Fact]
+    public void Element_discriminator_matching_honours_configured_property_name()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.AddJsonMigrationSupport(static builder => builder.SetTypeDiscriminatorPropertyName("kind"));
+        var json = """[{"kind":"elem-v2","data":"x"}]""";
+
+        var result = JsonSerializer.Deserialize<TwoMigratableElementState>(json, options);
+
+        Assert.NotNull(result);
+        Assert.Equal("from-elem-v2", result.Source);
+    }
+
     // --- Test types ---
 
     [JsonMigratable]

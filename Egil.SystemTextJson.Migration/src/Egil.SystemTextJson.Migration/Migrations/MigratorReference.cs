@@ -6,7 +6,8 @@ internal sealed record MigratorReference(
     Type SourceType,
     TypeMetadata SourceMetadata,
     JsonTypeInfo SourceTypeInfo,
-    IMigratorInvoker Invoker)
+    IMigratorInvoker Invoker,
+    TypeMetadata? ElementMetadata)
 {
     // Pre-encoded discriminator value for zero-allocation matching via Utf8JsonReader.ValueTextEquals.
     public byte[] DiscriminatorUtf8 { get; } = System.Text.Encoding.UTF8.GetBytes(SourceMetadata.Discriminator);
@@ -43,15 +44,16 @@ internal sealed record MigratorReference(
         ? SourceValueShapes.GetValueType(SourceType, SourceTypeInfo.Kind)
         : typeof(object);
 
-    // Element discriminators are resolved and UTF-8 encoded once so collection disambiguation
-    // performs no attribute lookups or allocations while reading.
-    public byte[]? ElementDiscriminatorPropertyNameUtf8 { get; } = ElementMetadata(SourceType, SourceTypeInfo.Kind) is { } metadata
-        ? System.Text.Encoding.UTF8.GetBytes(metadata.DiscriminatorPropertyName)
-        : null;
+    // Element discriminators come from the registry (so builder-configured resolvers and
+    // property names apply) and are UTF-8 encoded once, so collection disambiguation performs
+    // no attribute lookups or allocations while reading.
+    public byte[]? ElementDiscriminatorPropertyNameUtf8 { get; } = ElementMetadata is null
+        ? null
+        : System.Text.Encoding.UTF8.GetBytes(ElementMetadata.DiscriminatorPropertyName);
 
-    public byte[]? ElementDiscriminatorUtf8 { get; } = ElementMetadata(SourceType, SourceTypeInfo.Kind) is { } metadata
-        ? System.Text.Encoding.UTF8.GetBytes(metadata.Discriminator)
-        : null;
+    public byte[]? ElementDiscriminatorUtf8 { get; } = ElementMetadata is null
+        ? null
+        : System.Text.Encoding.UTF8.GetBytes(ElementMetadata.Discriminator);
 
     // An overridden element converter, or a union element (.NET 11) whose classifier may accept
     // any token, can read any element shape, so the collection is excluded from element-based
@@ -81,14 +83,18 @@ internal sealed record MigratorReference(
     private static System.Text.Json.Serialization.JsonNumberHandling EffectiveElementNumberHandling(JsonTypeInfo sourceTypeInfo)
         => sourceTypeInfo.NumberHandling ?? sourceTypeInfo.Options.NumberHandling;
 
-    private static TypeMetadata? ElementMetadata(Type sourceType, JsonTypeInfoKind kind)
+    /// <summary>
+    /// Resolves the registry metadata of a collection source's migratable element type, or
+    /// <see langword="null"/> when the source is not a collection or its elements are not migratable.
+    /// </summary>
+    public static TypeMetadata? ResolveElementMetadata(Type sourceType, JsonTypeInfo sourceTypeInfo, JsonMigrationRegistry registry)
     {
-        if (kind is not (JsonTypeInfoKind.Enumerable or JsonTypeInfoKind.Dictionary))
+        if (sourceTypeInfo.Kind is not (JsonTypeInfoKind.Enumerable or JsonTypeInfoKind.Dictionary))
         {
             return null;
         }
 
-        Type elementType = SourceValueShapes.GetValueType(sourceType, kind);
-        return JsonMigratableTypes.IsMigratable(elementType) ? TypeMetadata.FromType(elementType) : null;
+        Type elementType = SourceValueShapes.GetValueType(sourceType, sourceTypeInfo.Kind);
+        return JsonMigratableTypes.IsMigratable(elementType) ? registry.GetTypeMetadata(elementType) : null;
     }
 }

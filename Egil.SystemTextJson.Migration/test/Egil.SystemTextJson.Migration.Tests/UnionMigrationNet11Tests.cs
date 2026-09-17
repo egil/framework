@@ -586,6 +586,17 @@ public partial class UnionMigrationTests
         Assert.Equal(1, alone!.Count);
     }
 
+    [Fact]
+    public void Union_overridden_dictionary_interface_source_keeps_its_discriminator_route()
+    {
+        var options = CreateOptions();
+        options.Converters.Add(new TaggedReadOnlyDictionaryConverter());
+
+        var value = JsonSerializer.Deserialize<ReadOnlyTalliedOrLabel>($$"""{"$type":"{{typeof(IReadOnlyDictionary<string, int>).FullName}}","a":1}""", options);
+
+        Assert.Equal(1, Assert.IsType<ReadOnlyTallied>(value.Value).Count);
+    }
+
     private static JsonSerializerOptions CreateOptions(Action<JsonMigrationBuilder>? configure = null)
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
@@ -754,6 +765,40 @@ public partial class UnionMigrationTests
     }
 
     public union TalliedOrLabel(Tallied, string);
+
+    public sealed class TaggedReadOnlyDictionaryConverter : JsonConverter<IReadOnlyDictionary<string, int>>
+    {
+        public override IReadOnlyDictionary<string, int> Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            var result = new Dictionary<string, int>(StringComparer.Ordinal);
+            while (reader.Read() && reader.TokenType is not JsonTokenType.EndObject)
+            {
+                var key = reader.GetString()!;
+                reader.Read();
+                if (reader.TokenType is JsonTokenType.Number)
+                {
+                    result[key] = reader.GetInt32();
+                }
+            }
+
+            return result;
+        }
+
+        public override void Write(Utf8JsonWriter writer, IReadOnlyDictionary<string, int> value, JsonSerializerOptions options)
+            => writer.WriteNullValue();
+    }
+
+    [JsonMigratable(TypeDiscriminator = "readonly-tallied")]
+    public record class ReadOnlyTallied(int Count) : IMigrateFrom<IReadOnlyDictionary<string, int>, ReadOnlyTallied>
+    {
+        public static bool TryMigrateFrom(IReadOnlyDictionary<string, int> source, out ReadOnlyTallied result)
+        {
+            result = new ReadOnlyTallied(source.Count);
+            return true;
+        }
+    }
+
+    public union ReadOnlyTalliedOrLabel(ReadOnlyTallied, string);
 
     public union CounterOrInt(Counter, int);
 

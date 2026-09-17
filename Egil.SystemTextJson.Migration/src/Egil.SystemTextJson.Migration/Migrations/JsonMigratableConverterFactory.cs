@@ -103,11 +103,13 @@ internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry regis
 
         foreach (ExternalMigratorRegistration registration in registry.GetForTarget(targetType))
         {
+            JsonTypeInfo sourceTypeInfo = GetRequiredTypeInfo(metadataOptions, registration.SourceType);
             var migrator = new MigratorReference(
                 registration.SourceType,
                 registration.SourceMetadata,
-                GetRequiredTypeInfo(metadataOptions, registration.SourceType),
-                registration.Invoker);
+                sourceTypeInfo,
+                registration.Invoker,
+                MigratorReference.ResolveElementMetadata(registration.SourceType, sourceTypeInfo, registry));
 
             AddMigratorCandidate(
                 migrators,
@@ -122,11 +124,13 @@ internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry regis
             Type sourceType = contract.SourceType;
             TypeMetadata sourceMetadata = registry.GetTypeMetadata(sourceType);
 
+            JsonTypeInfo sourceTypeInfo = GetRequiredTypeInfo(metadataOptions, sourceType);
             var migrator = new MigratorReference(
                 sourceType,
                 sourceMetadata,
-                GetRequiredTypeInfo(metadataOptions, sourceType),
-                MigratorInvokerFactory.CreateStaticInvoker(sourceType, targetType, contract.Method));
+                sourceTypeInfo,
+                MigratorInvokerFactory.CreateStaticInvoker(sourceType, targetType, contract.Method),
+                MigratorReference.ResolveElementMetadata(sourceType, sourceTypeInfo, registry));
 
             AddMigratorCandidate(
                 migrators,

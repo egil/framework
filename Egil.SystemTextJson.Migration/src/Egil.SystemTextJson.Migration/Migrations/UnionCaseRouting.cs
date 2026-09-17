@@ -375,16 +375,16 @@ internal sealed class UnionCaseRouting
     // Dictionaries serialize as JSON objects and can therefore carry a discriminator.
     private static bool IsDictionaryLike(Type type)
     {
-        if (typeof(System.Collections.IDictionary).IsAssignableFrom(type))
+        if (typeof(System.Collections.IDictionary).IsAssignableFrom(type) || IsDictionaryInterface(type))
         {
             return true;
         }
 
+        // GetInterfaces() does not include the type itself, so an interface-typed source such as
+        // IReadOnlyDictionary<string, int> is checked above and its bases here.
         foreach (Type @interface in type.GetInterfaces())
         {
-            if (@interface.IsGenericType
-                && @interface.GetGenericTypeDefinition() is var definition
-                && (definition == typeof(IDictionary<,>) || definition == typeof(IReadOnlyDictionary<,>)))
+            if (IsDictionaryInterface(@interface))
             {
                 return true;
             }
@@ -392,6 +392,11 @@ internal sealed class UnionCaseRouting
 
         return false;
     }
+
+    private static bool IsDictionaryInterface(Type type)
+        => type.IsGenericType
+            && type.GetGenericTypeDefinition() is var definition
+            && (definition == typeof(IDictionary<,>) || definition == typeof(IReadOnlyDictionary<,>));
 
     private static void AddDiscriminator(
         Type unionType,
