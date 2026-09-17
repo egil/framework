@@ -37,8 +37,16 @@ public static class StreamSequenceTokenJsonConverters
     /// <typeparam name="TToken">The concrete token type handled by the converter.</typeparam>
     /// <param name="typeDescriptor">Stable discriminator written to the token JSON envelope.</param>
     /// <param name="converter">The converter that reads and writes the token payload.</param>
+    /// <remarks>
+    /// Re-registering the same descriptor with the same token type and converter type
+    /// is a no-op. Several registrars legitimately want the same converter in place —
+    /// a silo provider setup, a test fixture on in-memory storage, an offline grain
+    /// state reader — and throwing on that would make the order they run in
+    /// significant. Only a genuine conflict, where a different converter claims a
+    /// descriptor someone else already owns, throws.
+    /// </remarks>
     /// <exception cref="InvalidOperationException">
-    /// Thrown when another converter already owns the same type descriptor.
+    /// Thrown when a different converter already owns the same type descriptor.
     /// </exception>
     public static void Register<TToken>(
         string typeDescriptor,
@@ -48,7 +56,13 @@ public static class StreamSequenceTokenJsonConverters
         ArgumentException.ThrowIfNullOrWhiteSpace(typeDescriptor);
         ArgumentNullException.ThrowIfNull(converter);
 
-        Register(Registration.Create(typeDescriptor, converter));
+        var registration = Registration.Create(typeDescriptor, converter);
+        if (!TryRegister(registration, out var conflicting))
+        {
+            throw new InvalidOperationException(
+                $"A stream sequence token JSON converter for '{registration.TypeDescriptor}' is already registered by " +
+                $"'{conflicting.ConverterType.FullName}'.");
+        }
     }
 
     /// <summary>
@@ -58,10 +72,62 @@ public static class StreamSequenceTokenJsonConverters
     /// <typeparam name="TToken">The concrete token type handled by the converter.</typeparam>
     /// <typeparam name="TConverter">The converter type.</typeparam>
     /// <param name="typeDescriptor">Stable discriminator written to the token JSON envelope.</param>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when a different converter already owns the same type descriptor.
+    /// </exception>
     public static void Register<TToken, TConverter>(string typeDescriptor)
         where TToken : StreamSequenceToken
         where TConverter : JsonConverter<TToken>, new() =>
         Register(typeDescriptor, new TConverter());
+
+    /// <summary>
+    /// Registers a converter for a concrete stream sequence token type unless a
+    /// different converter already owns the type descriptor.
+    /// </summary>
+    /// <typeparam name="TToken">The concrete token type handled by the converter.</typeparam>
+    /// <param name="typeDescriptor">Stable discriminator written to the token JSON envelope.</param>
+    /// <param name="converter">The converter that reads and writes the token payload.</param>
+    /// <returns>
+    /// <see langword="true"/> when the registry holds an equivalent converter for
+    /// <paramref name="typeDescriptor"/> once this call returns, whether it was added
+    /// now or an identical registration was already present; <see langword="false"/>
+    /// when a different converter owns the descriptor and was left in place.
+    /// </returns>
+    /// <remarks>
+    /// The return value answers "does the registry now hold my converter for this
+    /// descriptor?", not "did this call mutate the registry". That lets a caller treat
+    /// <see langword="false"/> as a genuine conflict worth reporting, while an
+    /// identical re-registration stays a silent success, exactly as with
+    /// <see cref="Register{TToken}(string, JsonConverter{TToken})"/>.
+    /// </remarks>
+    public static bool TryRegister<TToken>(
+        string typeDescriptor,
+        JsonConverter<TToken> converter)
+        where TToken : StreamSequenceToken
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(typeDescriptor);
+        ArgumentNullException.ThrowIfNull(converter);
+
+        return TryRegister(Registration.Create(typeDescriptor, converter), out _);
+    }
+
+    /// <summary>
+    /// Registers a converter with a public parameterless constructor for a concrete
+    /// stream sequence token type unless a different converter already owns the type
+    /// descriptor.
+    /// </summary>
+    /// <typeparam name="TToken">The concrete token type handled by the converter.</typeparam>
+    /// <typeparam name="TConverter">The converter type.</typeparam>
+    /// <param name="typeDescriptor">Stable discriminator written to the token JSON envelope.</param>
+    /// <returns>
+    /// <see langword="true"/> when the registry holds an equivalent converter for
+    /// <paramref name="typeDescriptor"/> once this call returns; <see langword="false"/>
+    /// when a different converter owns the descriptor and was left in place.
+    /// </returns>
+    public static bool TryRegister<TToken, TConverter>(string typeDescriptor)
+        where TToken : StreamSequenceToken
+        where TConverter : JsonConverter<TToken>, new() =>
+        TryRegister<TToken>(typeDescriptor, new TConverter());
 
     internal static void Write(Utf8JsonWriter writer, StreamSequenceToken token, JsonSerializerOptions options)
     {
@@ -182,7 +248,9 @@ public static class StreamSequenceTokenJsonConverters
     internal static NotSupportedException CreateUnsupportedTokenException(string tokenIdentifier) =>
         new(CreateUnsupportedTokenMessage(tokenIdentifier));
 
-    private static void Register(Registration registration)
+    private static bool TryRegister(
+        Registration registration,
+        [NotNullWhen(false)] out Registration? conflicting)
     {
         lock (Sync)
         {
@@ -190,18 +258,23 @@ public static class StreamSequenceTokenJsonConverters
             if (existing is null)
             {
                 registrations = registrations.Add(registration);
-                return;
+                conflicting = null;
+                return true;
             }
 
+            // An identical re-registration keeps the registration already in the array
+            // rather than replacing it. Readers see the same behaviour either way, and
+            // not touching the array keeps concurrent lock-free readers on a snapshot
+            // they are already iterating.
             if (existing.TokenType == registration.TokenType
                 && existing.ConverterType == registration.ConverterType)
             {
-                return;
+                conflicting = null;
+                return true;
             }
 
-            throw new InvalidOperationException(
-                $"A stream sequence token JSON converter for '{registration.TypeDescriptor}' is already registered by " +
-                $"'{existing.ConverterType.FullName}'.");
+            conflicting = existing;
+            return false;
         }
     }
 
