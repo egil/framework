@@ -18,6 +18,28 @@ public partial class NumericSourceMigrationTests
     }
 
     [Fact]
+    public void Migrate_from_decimal32_to_custom_type()
+    {
+        var options = CreateOptions();
+
+        var result = JsonSerializer.Deserialize<NumericState<Decimal32>>("1.5", options);
+
+        Assert.NotNull(result);
+        Assert.Equal((Decimal32)1.5m, result.Value);
+    }
+
+    [Fact]
+    public void Migrate_from_decimal128_to_custom_type()
+    {
+        var options = CreateOptions();
+
+        var result = JsonSerializer.Deserialize<NumericState<Decimal128>>("12345678901234567890.5", options);
+
+        Assert.NotNull(result);
+        Assert.Equal(Decimal128.Parse("12345678901234567890.5", System.Globalization.CultureInfo.InvariantCulture), result.Value);
+    }
+
+    [Fact]
     public void Migrate_from_bfloat16_to_custom_type()
     {
         var options = CreateOptions();
