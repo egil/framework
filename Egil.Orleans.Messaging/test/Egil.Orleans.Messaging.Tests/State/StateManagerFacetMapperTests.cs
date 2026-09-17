@@ -47,6 +47,42 @@ public sealed class StateManagerFacetMapperTests
         Assert.NotNull(StateContract<FacetState>.CreateInstance);
     }
 
+    [Fact]
+    public void An_abstract_state_type_is_not_treated_as_constructible()
+    {
+        // An abstract type can declare a public parameterless constructor, but
+        // Activator.CreateInstance cannot call it. Counting it as constructible turns the
+        // undefaultable-state guard into a MissingMethodException at activation.
+        Assert.Null(StateContract<AbstractState>.CreateInstance);
+
+        var mapper = new StateManagerFacetMapper(new PersistentStateAttributeMapper());
+        var parameter = ParameterOf<AbstractStateGrain>();
+
+        var ex = Assert.Throws<ArgumentException>(() =>
+            mapper.GetFactory(parameter, new PersistentStateAttribute("state", "Default")));
+
+        Assert.Contains(typeof(AbstractState).FullName!, ex.Message, StringComparison.Ordinal);
+    }
+
+    public abstract class AbstractState : IEquatable<AbstractState>
+    {
+        public AbstractState()
+        {
+        }
+
+        public bool Equals(AbstractState? other) => ReferenceEquals(this, other);
+
+        public override bool Equals(object? obj) => Equals(obj as AbstractState);
+
+        public override int GetHashCode() => 0;
+    }
+
+    public sealed class AbstractStateGrain(
+        [PersistentState("state", "Default")] IStateManager<AbstractState> state)
+    {
+        public IStateManager<AbstractState> State { get; } = state;
+    }
+
     private static ParameterInfo ParameterOf<TGrain>() =>
         typeof(TGrain).GetConstructors().Single().GetParameters().Single();
 

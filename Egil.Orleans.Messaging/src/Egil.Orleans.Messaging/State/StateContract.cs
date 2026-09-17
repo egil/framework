@@ -23,6 +23,19 @@ internal static class StateContract
             contract.IsGenericType
             && contract.GetGenericTypeDefinition() == typeof(IStateDefault<>)
             && contract.GenericTypeArguments[0] == stateType);
+
+    /// <summary>
+    /// Reports whether <paramref name="stateType"/> can be created through a public
+    /// parameterless constructor.
+    /// </summary>
+    /// <remarks>
+    /// An abstract type may declare a public parameterless constructor, but nothing can
+    /// call it to produce an instance. Counting one as constructible would turn the
+    /// undefaultable-state guard into a <see cref="MissingMethodException"/> raised later,
+    /// during activation.
+    /// </remarks>
+    public static bool HasParameterlessConstructor(Type stateType)
+        => !stateType.IsAbstract && stateType.GetConstructor(Type.EmptyTypes) is not null;
 }
 
 /// <summary>
@@ -59,9 +72,9 @@ internal static class StateContract<T>
     /// <see langword="null"/> when the state type has none.
     /// </summary>
     public static readonly Func<T>? CreateInstance =
-        typeof(T).GetConstructor(Type.EmptyTypes) is null
-            ? null
-            : static () => Activator.CreateInstance<T>();
+        StateContract.HasParameterlessConstructor(typeof(T))
+            ? static () => Activator.CreateInstance<T>()
+            : null;
 
     private static Func<IGrainContext, T>? BuildCreateDefault()
     {

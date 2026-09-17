@@ -53,16 +53,22 @@ internal sealed class StateManagerFacetMapper(IAttributeToFactoryMapper<Persiste
         // Orleans falls back to the parameter name when the attribute omits the state name;
         // mirror that so a manager and a raw facet name their record the same way.
         var stateName = string.IsNullOrEmpty(attribute.StateName) ? parameter.Name! : attribute.StateName;
-        var configuration = new FacetConfiguration(stateName, attribute.StorageName);
+
+        // Orleans reads a blank storage name as "the default provider" when it builds the
+        // facet, so the manager lookup has to agree. Forwarding the raw value would send the
+        // facet to default storage and then hunt for a keyed factory registered under an
+        // empty string.
+        var storageName = string.IsNullOrWhiteSpace(attribute.StorageName) ? null : attribute.StorageName;
+        var configuration = new FacetConfiguration(stateName, storageName);
         var grainType = parameter.Member.DeclaringType!;
         var createManager = CreateManagerMethod.MakeGenericMethod(stateType);
 
-        return context => createManager.Invoke(null, [context, configuration, attribute.StorageName, grainType])!;
+        return context => createManager.Invoke(null, [context, configuration, storageName, grainType])!;
     }
 
     private static bool CanCreateDefault(Type stateType)
         => StateContract.ImplementsStateDefault(stateType)
-           || stateType.GetConstructor(Type.EmptyTypes) is not null;
+           || StateContract.HasParameterlessConstructor(stateType);
 
     private static object CreateManager<T>(
         IGrainContext context,

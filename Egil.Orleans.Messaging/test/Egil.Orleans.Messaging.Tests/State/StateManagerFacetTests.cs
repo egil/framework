@@ -41,6 +41,17 @@ public sealed class StateManagerFacetTests(StateManagerFacetFixture fixture)
     }
 
     [Fact]
+    public async Task Attribute_with_a_blank_storage_name_resolves_the_unkeyed_factory()
+    {
+        // Orleans reads a blank storage name as "the default provider" when it builds the
+        // facet, so the manager lookup has to agree rather than hunt for a keyed factory
+        // registered under an empty string.
+        var grain = fixture.GrainFactory.GetGrain<IFacetBlankStorageGrain>(Guid.NewGuid());
+
+        Assert.Equal("facet-default", await grain.GetValueAsync());
+    }
+
+    [Fact]
     public async Task Raw_persistent_state_facet_is_unaffected()
     {
         var grain = fixture.GrainFactory.GetGrain<IFacetRawGrain>(Guid.NewGuid());
@@ -197,6 +208,17 @@ public interface IFacetUnkeyedGrain : IGrainWithGuidKey
 
 public sealed class FacetUnkeyedGrain(
     [PersistentState("unkeyed")] IStateManager<FacetState> state) : Grain, IFacetUnkeyedGrain
+{
+    public Task<string> GetValueAsync() => Task.FromResult(state.State.Value);
+}
+
+public interface IFacetBlankStorageGrain : IGrainWithGuidKey
+{
+    Task<string> GetValueAsync();
+}
+
+public sealed class FacetBlankStorageGrain(
+    [PersistentState("blank", "")] IStateManager<FacetState> state) : Grain, IFacetBlankStorageGrain
 {
     public Task<string> GetValueAsync() => Task.FromResult(state.State.Value);
 }
