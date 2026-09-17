@@ -84,14 +84,34 @@ internal static class SourceValueShapes
     }
 
     /// <summary>
-    /// Whether the effective number handling lets a numeric converter read a JSON string:
-    /// <see cref="JsonNumberHandling.AllowReadingFromString"/> for any number and
-    /// <see cref="JsonNumberHandling.AllowNamedFloatingPointLiterals"/> for "NaN", "Infinity"
-    /// and "-Infinity". The converter still validates the string, so routing only needs to know
-    /// that a string may be a number.
+    /// Whether the effective number handling lets the converter for <paramref name="type"/> read
+    /// a JSON string: <see cref="JsonNumberHandling.AllowReadingFromString"/> for any number and
+    /// <see cref="JsonNumberHandling.AllowNamedFloatingPointLiterals"/> only for IEEE floating-point
+    /// types, whose converters accept "NaN", "Infinity" and "-Infinity". The converter still
+    /// validates the string, so routing only needs to know that a string may be a number.
     /// </summary>
-    public static bool AllowsQuotedNumbers(JsonNumberHandling numberHandling)
-        => (numberHandling & (JsonNumberHandling.AllowReadingFromString | JsonNumberHandling.AllowNamedFloatingPointLiterals)) != 0;
+    public static bool AllowsQuotedNumbers(JsonNumberHandling numberHandling, Type type)
+    {
+        if ((numberHandling & JsonNumberHandling.AllowReadingFromString) != 0)
+        {
+            return true;
+        }
+
+        return (numberHandling & JsonNumberHandling.AllowNamedFloatingPointLiterals) != 0 && IsIeeeFloatingPoint(type);
+    }
+
+    private static bool IsIeeeFloatingPoint(Type type)
+    {
+        type = Nullable.GetUnderlyingType(type) ?? type;
+        return type == typeof(float) || type == typeof(double) || type == typeof(Half)
+#if NET11_0_OR_GREATER
+            || type == typeof(System.Numerics.BFloat16)
+            || type == typeof(System.Numerics.Decimal32)
+            || type == typeof(System.Numerics.Decimal64)
+            || type == typeof(System.Numerics.Decimal128)
+#endif
+            ;
+    }
 
     /// <param name="allowQuotedNumbers">
     /// Whether a JSON string may also satisfy a numeric shape, as with

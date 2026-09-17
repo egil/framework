@@ -179,7 +179,7 @@ internal sealed class UnionCaseRouting
                     // or AllowNamedFloatingPointLiterals the numeric converter also accepts a JSON
                     // string. A string-shaped case still wins string payloads; numeric cases only
                     // take them when no such case exists.
-                    if (SourceValueShapes.AllowsQuotedNumbers(options.GetTypeInfo(shapeType).NumberHandling ?? options.NumberHandling))
+                    if (SourceValueShapes.AllowsQuotedNumbers(options.GetTypeInfo(shapeType).NumberHandling ?? options.NumberHandling, shapeType))
                     {
                         AddCase(quotedNumberCases, caseType);
                     }

@@ -142,7 +142,7 @@ internal sealed partial class JsonMigratableConverter<T>
                 continue;
             }
 
-            if (!SourceValueShapes.IsTokenCompatible(valueToken, migrator.ElementShape, allowQuotedNumbers && migrator.AllowsQuotedNumbers))
+            if (!SourceValueShapes.IsTokenCompatible(valueToken, migrator.ElementShape, allowQuotedNumbers && migrator.ElementAllowsQuotedNumbers))
             {
                 continue;
             }

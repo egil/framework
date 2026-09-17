@@ -529,8 +529,11 @@ public partial class UnionMigrationTests
         options.AddJsonMigrationSupport();
 
         var value = JsonSerializer.Deserialize<ShapeOrDouble>("\"Infinity\"", options);
+        var mixed = JsonSerializer.Deserialize<CounterOrDouble>("\"NaN\"", options);
 
+        // Only the floating-point case takes named literals; the int-sourced case does not compete.
         Assert.Equal(double.PositiveInfinity, value.Value);
+        Assert.True(double.IsNaN(Assert.IsType<double>(mixed.Value)));
     }
 
     [Fact]
@@ -730,6 +733,8 @@ public partial class UnionMigrationTests
     public union CounterOrNote(Counter, Note);
 
     public union ShapeOrDouble(CircleV2, double);
+
+    public union CounterOrDouble(Counter, double);
 
     [JsonConverter(typeof(JsonStringEnumConverter<Colour>))]
     public enum Colour

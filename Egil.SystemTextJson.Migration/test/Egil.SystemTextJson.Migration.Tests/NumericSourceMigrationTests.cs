@@ -133,6 +133,15 @@ public partial class NumericSourceMigrationTests
     }
 
     [Fact]
+    public void Named_floating_point_literal_does_not_reach_integer_source()
+    {
+        var options = new JsonSerializerOptions { NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals };
+        options.AddJsonMigrationSupport();
+
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<NumericState<int>>("\"NaN\"", options));
+    }
+
+    [Fact]
     public void Quoted_number_is_not_treated_as_numeric_source_under_strict_number_handling()
     {
         var options = new JsonSerializerOptions();
