@@ -358,8 +358,8 @@ timestamp across retries and reactivation. No sender identity is stored in the o
 
 `OutboxAccessor` returns the current `Outbox<T>` snapshot.
 `AcknowledgePostedAsync` and `AcknowledgeFailuresAsync` receive its original
-stored `OutboxMessageEnvelope<T>` values. Acknowledgement receives exactly the
-successfully delivered items, which need not be a contiguous prefix. Remove them
+stored `OutboxMessageEnvelope<T>` values. `AcknowledgePostedAsync` receives
+exactly the successfully delivered items, which need not be a contiguous prefix. Remove them
 by passing the envelopes directly to `RemoveRange`; never remove by position or count. Equal payloads
 can represent different messages and retain distinct stored IDs.
 
@@ -447,8 +447,8 @@ respect to the owning grain. Inline lambda postmen may read activation-local
 state, but should not write it; durable changes belong in
 `AcknowledgePostedAsync` or `AcknowledgeFailuresAsync`.
 Postmen run on Orleans' activation scheduler, not on the .NET thread pool.
-Acknowledgement and failure callbacks are non-interleaving by default, so they
-do not interleave with normal grain calls unless
+Both acknowledgement callbacks are non-interleaving by default: they do not
+interleave with normal grain calls unless
 `InterleaveAcknowledgementCallbacks` is enabled. Reentrant grains can still
 interleave according to Orleans' normal scheduling rules.
 Pending items in a post run are dispatched concurrently. Successful items are
