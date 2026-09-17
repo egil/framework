@@ -124,7 +124,10 @@ internal sealed class UnionCaseRouting
         {
             // A migratable source has a custom converter (Kind None), so its shape cannot be
             // read from the contract; it is always identified by its discriminator.
-            if (JsonMigratableTypes.IsMigratable(sourceType))
+            // Object sources are identified by their discriminator even when a converter
+            // override reads them, exactly as the case's own converter does for standalone
+            // payloads; the override only matters for shape-routed (non-object) sources.
+            if (JsonMigratableTypes.IsMigratable(sourceType) || IsObjectContract(sourceType, options))
             {
                 AddDiscriminator(context.DeclaringType, entriesByPropertyName, caseByDiscriminator, knownDiscriminators, sourceMetadata, caseType);
                 return;
@@ -134,12 +137,6 @@ internal sealed class UnionCaseRouting
             if (HasConverterOverride(sourceType, options))
             {
                 unknownShapeCase ??= caseType;
-                return;
-            }
-
-            if (options.GetTypeInfo(sourceType).Kind is JsonTypeInfoKind.Object)
-            {
-                AddDiscriminator(context.DeclaringType, entriesByPropertyName, caseByDiscriminator, knownDiscriminators, sourceMetadata, caseType);
                 return;
             }
 
@@ -321,6 +318,21 @@ internal sealed class UnionCaseRouting
         {
             cases.Add(caseType);
         }
+    }
+
+    // A source with a converter override reports Kind None, so the object shape is read from
+    // the contract STJ would build without the override.
+    private static bool IsObjectContract(Type sourceType, JsonSerializerOptions options)
+    {
+        if (options.GetTypeInfo(sourceType).Kind is JsonTypeInfoKind.Object)
+        {
+            return true;
+        }
+
+        return HasConverterOverride(sourceType, options)
+            && sourceType is { IsPrimitive: false, IsEnum: false }
+            && SourceValueShapes.Classify(sourceType) is SourceValueShape.Unknown
+            && !typeof(System.Collections.IEnumerable).IsAssignableFrom(sourceType);
     }
 
     private static bool HasConverterOverride(Type caseType, JsonSerializerOptions options)

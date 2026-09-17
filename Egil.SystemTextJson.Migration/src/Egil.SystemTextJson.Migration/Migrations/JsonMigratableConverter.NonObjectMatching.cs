@@ -86,7 +86,14 @@ internal sealed partial class JsonMigratableConverter<T>
             ThrowAmbiguousNonObjectMigrators(typeof(T));
         }
 
-        MigratorReference? match = MatchByPrimitiveElementType(kind, valueToken.Value);
+        // Same precedence as top-level primitives: exact element shapes first, then quoted
+        // numbers for numeric element types when number handling allows reading from strings.
+        MigratorReference? match = MatchByPrimitiveElementType(kind, valueToken.Value, allowQuotedNumbers: false);
+
+        if (match is null && valueToken is JsonTokenType.String)
+        {
+            match = MatchByPrimitiveElementType(kind, valueToken.Value, allowQuotedNumbers: true);
+        }
 
         if (match is null)
         {
@@ -120,7 +127,7 @@ internal sealed partial class JsonMigratableConverter<T>
         return singleCandidate;
     }
 
-    private MigratorReference? MatchByPrimitiveElementType(JsonTypeInfoKind kind, JsonTokenType valueToken)
+    private MigratorReference? MatchByPrimitiveElementType(JsonTypeInfoKind kind, JsonTokenType valueToken, bool allowQuotedNumbers)
     {
         MigratorReference? match = null;
         foreach (MigratorReference migrator in context.Migrators)
@@ -130,7 +137,7 @@ internal sealed partial class JsonMigratableConverter<T>
                 continue;
             }
 
-            if (!SourceValueShapes.IsTokenCompatible(valueToken, migrator.ElementShape))
+            if (!SourceValueShapes.IsTokenCompatible(valueToken, migrator.ElementShape, allowQuotedNumbers && migrator.AllowsQuotedNumbers))
             {
                 continue;
             }

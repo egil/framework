@@ -506,6 +506,19 @@ public partial class UnionMigrationTests
         Assert.Contains("ambiguous", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void Union_object_source_with_converter_override_routes_by_discriminator()
+    {
+        var options = CreateOptions();
+
+        // A non-migratable source is identified by its default discriminator, the type's full name.
+        var value = JsonSerializer.Deserialize<BoxedOrLabel>($$"""{"$type":"{{typeof(LegacyBox).FullName}}","payload":"x"}""", options);
+        var label = JsonSerializer.Deserialize<BoxedOrLabel>("\"plain\"", options);
+
+        Assert.Equal("x", Assert.IsType<Boxed>(value.Value).Content);
+        Assert.Equal("plain", label.Value);
+    }
+
     private static JsonSerializerOptions CreateOptions(Action<JsonMigrationBuilder>? configure = null)
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
@@ -578,6 +591,55 @@ public partial class UnionMigrationTests
     }
 
     public union PaintOrLabel(Paint, string);
+
+    [JsonConverter(typeof(LegacyBoxConverter))]
+    public sealed class LegacyBox
+    {
+        public string Payload { get; set; } = string.Empty;
+    }
+
+    // Reads {"$type":"<full name>","payload":"..."} by hand so the source has a converter override.
+    public sealed class LegacyBoxConverter : JsonConverter<LegacyBox>
+    {
+        public override LegacyBox Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            var box = new LegacyBox();
+            while (reader.Read() && reader.TokenType is not JsonTokenType.EndObject)
+            {
+                if (reader.ValueTextEquals("payload"u8))
+                {
+                    reader.Read();
+                    box.Payload = reader.GetString()!;
+                }
+                else
+                {
+                    reader.Skip();
+                }
+            }
+
+            return box;
+        }
+
+        public override void Write(Utf8JsonWriter writer, LegacyBox value, JsonSerializerOptions options)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("$type", typeof(LegacyBox).FullName);
+            writer.WriteString("payload", value.Payload);
+            writer.WriteEndObject();
+        }
+    }
+
+    [JsonMigratable(TypeDiscriminator = "boxed")]
+    public record class Boxed(string Content) : IMigrateFrom<LegacyBox, Boxed>
+    {
+        public static bool TryMigrateFrom(LegacyBox source, out Boxed result)
+        {
+            result = new Boxed(source.Payload);
+            return true;
+        }
+    }
+
+    public union BoxedOrLabel(Boxed, string);
 
     public union CounterOrInt(Counter, int);
 

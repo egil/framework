@@ -140,6 +140,27 @@ public partial class NumericSourceMigrationTests
     }
 
     [Fact]
+    public void Quoted_number_elements_are_ambiguous_between_numeric_collection_sources()
+    {
+        var options = CreateOptions();
+
+        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<IntOrLongListState>("[\"42\"]", options));
+
+        Assert.Contains("ambiguous", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Quoted_number_elements_reach_numeric_collection_source_without_string_alternative()
+    {
+        var options = CreateOptions();
+
+        var result = JsonSerializer.Deserialize<IntOrItemListState>("[\"42\"]", options);
+
+        Assert.NotNull(result);
+        Assert.Equal("from-int-list", result.Source);
+    }
+
+    [Fact]
     public void BigInteger_source_is_not_a_numeric_shape()
     {
         // BigInteger implements INumberBase<T> but has no built-in STJ converter, so it must not
@@ -191,6 +212,44 @@ public partial class NumericSourceMigrationTests
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
         options.AddJsonMigrationSupport();
         return options;
+    }
+
+    public record class Item(string Name);
+
+    [JsonMigratable]
+    public record class IntOrLongListState(string Source)
+        : IMigrateFrom<List<int>, IntOrLongListState>,
+          IMigrateFrom<List<long>, IntOrLongListState>
+    {
+        public static bool TryMigrateFrom(List<int> source, out IntOrLongListState result)
+        {
+            result = new IntOrLongListState("from-int-list");
+            return true;
+        }
+
+        public static bool TryMigrateFrom(List<long> source, out IntOrLongListState result)
+        {
+            result = new IntOrLongListState("from-long-list");
+            return true;
+        }
+    }
+
+    [JsonMigratable]
+    public record class IntOrItemListState(string Source)
+        : IMigrateFrom<List<int>, IntOrItemListState>,
+          IMigrateFrom<List<Item>, IntOrItemListState>
+    {
+        public static bool TryMigrateFrom(List<int> source, out IntOrItemListState result)
+        {
+            result = new IntOrItemListState("from-int-list");
+            return true;
+        }
+
+        public static bool TryMigrateFrom(List<Item> source, out IntOrItemListState result)
+        {
+            result = new IntOrItemListState("from-item-list");
+            return true;
+        }
     }
 
     [JsonMigratable]
