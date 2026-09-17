@@ -36,7 +36,7 @@ public class ValidationAttributeDiagnosticTest
     }
 
     [Fact]
-    public void Warns_when_an_async_validation_attribute_cannot_be_part_of_the_value_invariant()
+    public void Warns_when_an_async_validation_attribute_has_no_ValidateAsync_to_run_in()
     {
         var input = $$"""
             using Egil.StronglyTypedPrimitives;
@@ -52,7 +52,7 @@ public class ValidationAttributeDiagnosticTest
                 }
             }
 
-            {{ValidationAttributeTestBase.FakeAsyncValidationAttribute}}
+            {{ValidationAttributeTestBase.FakeAsyncValidationApi}}
             """;
 
         var result = SnapshotTestHelper.RunGenerator<StronglyTypedPrimitiveGenerator>(input, out var compilation);
@@ -61,9 +61,35 @@ public class ValidationAttributeDiagnosticTest
         Assert.Equal("STP003", diagnostic.Id);
         Assert.Equal(DiagnosticSeverity.Warning, diagnostic.Severity);
         Assert.Equal(
-            "The async validation attribute 'SomeNamespace.RemoteCheckAttribute' on 'Value' is not evaluated by the generated IsValueValid because async validation cannot run as part of the value invariant of 'Foo'",
+            "The async validation attribute 'SomeNamespace.RemoteCheckAttribute' on 'Value' is not evaluated by the generated IsValueValid or Validate of 'Foo' because async validation cannot run as part of the value invariant. ASP.NET Core validation still evaluates it on the 'Value' property; for it to run through ValidateAsync, for example under Validator.TryValidateObjectAsync, declare System.ComponentModel.DataAnnotations.IAsyncValidatableObject on the partial declaration of 'Foo'.",
             diagnostic.GetMessage(CultureInfo.InvariantCulture));
         Assert.Equal("RemoteCheck", diagnostic.Location.SourceTree?.GetText(TestContext.Current.CancellationToken).ToString(diagnostic.Location.SourceSpan));
+        Assert.Empty(compilation.GetDiagnostics(TestContext.Current.CancellationToken).Where(d => d.Severity > DiagnosticSeverity.Warning));
+    }
+
+    [Fact]
+    public void Does_not_warn_about_an_async_validation_attribute_when_IAsyncValidatableObject_is_declared()
+    {
+        var input = $$"""
+            using Egil.StronglyTypedPrimitives;
+            using System.ComponentModel.DataAnnotations;
+
+            namespace SomeNamespace
+            {
+                [StronglyTyped]
+                public readonly partial record struct Foo([Required, RemoteCheck] string Value) : IAsyncValidatableObject;
+
+                public sealed class RemoteCheckAttribute : AsyncValidationAttribute
+                {
+                }
+            }
+
+            {{ValidationAttributeTestBase.FakeAsyncValidationApi}}
+            """;
+
+        var result = SnapshotTestHelper.RunGenerator<StronglyTypedPrimitiveGenerator>(input, out var compilation);
+
+        Assert.Empty(result.Diagnostics);
         Assert.Empty(compilation.GetDiagnostics(TestContext.Current.CancellationToken).Where(d => d.Severity > DiagnosticSeverity.Warning));
     }
 

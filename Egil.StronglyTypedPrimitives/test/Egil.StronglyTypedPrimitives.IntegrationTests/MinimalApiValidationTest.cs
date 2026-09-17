@@ -155,6 +155,53 @@ namespace Egil.StronglyTypedPrimitives
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         }
 
+#if NET11_0_OR_GREATER
+        // On .NET 11 the validation source generator treats an async attribute on the positional
+        // parameter like a synchronous one: it evaluates the attribute itself on Value, so the
+        // failure is reported once under Name.Value, and the generated ValidateAsync (consulted
+        // only when no member has failed) never duplicates it.
+        [Fact]
+        public async Task Async_attribute_constrained_body_property_with_an_async_invalid_value_is_rejected()
+        {
+            await using var app = await StartApp();
+            using var client = app.GetTestClient();
+
+            using var response = await client.PostAsJsonAsync("/usernames", new { name = NotReservedAttribute.ReservedValue }, TestContext.Current.CancellationToken);
+
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            var problem = await ReadValidationProblem(response);
+            var error = Assert.Single(problem.Errors);
+            Assert.Equal("Name.Value", error.Key);
+            Assert.Equal([new NotReservedAttribute().FormatErrorMessage("Value")], error.Value);
+        }
+
+        [Fact]
+        public async Task Async_attribute_constrained_body_property_with_a_sync_invalid_value_is_rejected()
+        {
+            await using var app = await StartApp();
+            using var client = app.GetTestClient();
+
+            using var response = await client.PostAsJsonAsync("/usernames", new { name = "a" }, TestContext.Current.CancellationToken);
+
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            var problem = await ReadValidationProblem(response);
+            var error = Assert.Single(problem.Errors);
+            Assert.Equal("Name.Value", error.Key);
+            Assert.Equal([new StringLengthAttribute(10) { MinimumLength = 2 }.FormatErrorMessage("Value")], error.Value);
+        }
+
+        [Fact]
+        public async Task Async_attribute_constrained_body_property_with_a_valid_value_is_accepted()
+        {
+            await using var app = await StartApp();
+            using var client = app.GetTestClient();
+
+            using var response = await client.PostAsJsonAsync("/usernames", new { name = "egil" }, TestContext.Current.CancellationToken);
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
+#endif
+
         private static async Task<HttpValidationProblemDetails> ReadValidationProblem(HttpResponseMessage response)
         {
             var problem = await response.Content.ReadFromJsonAsync<HttpValidationProblemDetails>(TestContext.Current.CancellationToken);
@@ -178,6 +225,9 @@ namespace Egil.StronglyTypedPrimitives
             app.MapPost("/constrained-orders", (ConstrainedOrderDto dto) => Results.Ok());
             app.MapGet("/constrained-orders/{quantity}", (StronglyTypedIntWithConstraintsAndValidate quantity) => Results.Ok());
             app.MapPost("/unaware-constrained-orders", (UnawareConstrainedOrderDto dto) => Results.Ok());
+#if NET11_0_OR_GREATER
+            app.MapPost("/usernames", (UsernameDto dto) => Results.Ok());
+#endif
             await app.StartAsync(TestContext.Current.CancellationToken);
             return app;
         }
@@ -201,6 +251,13 @@ namespace Egil.StronglyTypedPrimitives
         {
             public StronglyTypedIntWithConstraints Quantity { get; set; }
         }
+
+#if NET11_0_OR_GREATER
+        public sealed class UsernameDto
+        {
+            public StronglyTypedUsername Name { get; set; }
+        }
+#endif
     }
 }
 #endif

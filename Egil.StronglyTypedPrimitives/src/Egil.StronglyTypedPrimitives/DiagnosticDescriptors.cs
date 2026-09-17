@@ -36,15 +36,18 @@ internal static class DiagnosticDescriptors
     /// <summary>
     /// The value invariant is checked synchronously in constructors, init accessors, Parse and the
     /// JSON converter, so an attribute that can only validate asynchronously cannot be part of it.
+    /// The only generated member that can await it is ValidateAsync, which exists when the type
+    /// declares IAsyncValidatableObject. The warning is about this generator's output only:
+    /// ASP.NET Core validation still evaluates the attribute on the compiler-synthesized property.
     /// </summary>
     public static readonly DiagnosticDescriptor AsyncValidationAttributeNotPartOfValueInvariant = new(
         id: "STP003",
-        title: "Async validation attributes are not part of the value invariant",
-        messageFormat: "The async validation attribute '{0}' on '{1}' is not evaluated by the generated IsValueValid because async validation cannot run as part of the value invariant of '{2}'",
+        title: "Async validation attributes are not evaluated by the generated IsValueValid and Validate",
+        messageFormat: "The async validation attribute '{0}' on '{1}' is not evaluated by the generated IsValueValid or Validate of '{2}' because async validation cannot run as part of the value invariant. ASP.NET Core validation still evaluates it on the '{1}' property; for it to run through ValidateAsync, for example under Validator.TryValidateObjectAsync, declare System.ComponentModel.DataAnnotations.IAsyncValidatableObject on the partial declaration of '{2}'.",
         category: Category,
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
-        description: "Attributes deriving from AsyncValidationAttribute are excluded from the generated IsValueValid method.");
+        description: "Attributes deriving from AsyncValidationAttribute are excluded from the generated IsValueValid and Validate; the generator evaluates them in ValidateAsync when the type declares IAsyncValidatableObject.");
 
     /// <summary>
     /// The shared converter lives in the net8.0+ assets of the Abstractions assembly only, so a
