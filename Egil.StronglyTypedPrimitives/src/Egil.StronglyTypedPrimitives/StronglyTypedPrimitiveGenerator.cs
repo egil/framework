@@ -55,15 +55,12 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             )
             .Where(static x => x is not null);
 
-        // The System.Text.Json source generator requires contexts to derive directly from
-        // JsonSerializerContext, so a base list naming that type is a cheap syntactic filter
-        // before the semantic check confirms it.
+        // Any class with a base list is a candidate: the base type can be spelled through a using
+        // alias, so matching on the written name would miss contexts. The semantic check decides.
         var hasJsonSerializerContext = context.SyntaxProvider
             .CreateSyntaxProvider(
                 predicate: static (node, _) =>
-                    node is ClassDeclarationSyntax { BaseList.Types: var baseTypes }
-                    && baseTypes.Any(static baseType => baseType.Type is IdentifierNameSyntax { Identifier.Text: "JsonSerializerContext" }
-                        or QualifiedNameSyntax { Right.Identifier.Text: "JsonSerializerContext" }),
+                    node is ClassDeclarationSyntax { BaseList.Types.Count: > 0 },
                 transform: static (context, cancellationToken) =>
                     context.SemanticModel.GetDeclaredSymbol((ClassDeclarationSyntax)context.Node, cancellationToken) is INamedTypeSymbol symbol
                     && Parser.DerivesFromJsonSerializerContext(symbol))

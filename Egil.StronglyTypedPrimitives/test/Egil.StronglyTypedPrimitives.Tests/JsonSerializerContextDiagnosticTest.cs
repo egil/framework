@@ -5,10 +5,20 @@ namespace Egil.StronglyTypedPrimitives;
 
 public class JsonSerializerContextDiagnosticTest
 {
+    // The ways a context can spell its base type. The System.Text.Json source generator accepts
+    // all of them, so the STP001 detection must not depend on how the base type is written.
+    public static TheoryData<string, string> BaseTypeSpellings { get; } = new()
+    {
+        { "using System.Text.Json.Serialization;", "JsonSerializerContext" },
+        { "", "System.Text.Json.Serialization.JsonSerializerContext" },
+        { "", "global::System.Text.Json.Serialization.JsonSerializerContext" },
+        { "using ContextAlias = System.Text.Json.Serialization.JsonSerializerContext;", "ContextAlias" },
+    };
+
     // A hand-written stand-in for what the System.Text.Json source generator would emit; the
     // generator only needs a class deriving from JsonSerializerContext to exist in the compilation.
-    private const string JsonSerializerContext = """
-        public partial class AppJsonContext : System.Text.Json.Serialization.JsonSerializerContext
+    private static string JsonSerializerContext(string baseType) => $$"""
+        public partial class AppJsonContext : {{baseType}}
         {
             public AppJsonContext() : base(null) { }
 
@@ -18,18 +28,19 @@ public class JsonSerializerContextDiagnosticTest
         }
         """;
 
-    [Fact]
-    public void Warns_when_a_JsonSerializerContext_cannot_see_the_generated_converter()
+    [Theory, MemberData(nameof(BaseTypeSpellings))]
+    public void Warns_when_a_JsonSerializerContext_cannot_see_the_generated_converter(string usings, string baseType)
     {
         var input = $$"""
             using Egil.StronglyTypedPrimitives;
+            {{usings}}
 
             namespace SomeNamespace;
 
             [StronglyTyped]
             public readonly partial record struct Foo(int Value);
 
-            {{JsonSerializerContext}}
+            {{JsonSerializerContext(baseType)}}
             """;
 
         var result = SnapshotTestHelper.RunGenerator<StronglyTypedPrimitiveGenerator>(input, out var compilation);
@@ -56,7 +67,7 @@ public class JsonSerializerContextDiagnosticTest
             [System.Text.Json.Serialization.JsonConverter(typeof(StronglyTypedJsonConverter<Foo, int>))]
             public readonly partial record struct Foo(int Value);
 
-            {{JsonSerializerContext}}
+            {{JsonSerializerContext("System.Text.Json.Serialization.JsonSerializerContext")}}
             """;
 
         var result = SnapshotTestHelper.RunGenerator<StronglyTypedPrimitiveGenerator>(input, out var compilation);
@@ -75,6 +86,26 @@ public class JsonSerializerContextDiagnosticTest
 
             [StronglyTyped]
             public readonly partial record struct Foo(int Value);
+            """;
+
+        var result = SnapshotTestHelper.RunGenerator<StronglyTypedPrimitiveGenerator>(input, out var compilation);
+
+        Assert.Empty(result.Diagnostics);
+        Assert.Empty(compilation.GetDiagnostics(TestContext.Current.CancellationToken).Where(d => d.Severity > DiagnosticSeverity.Warning));
+    }
+
+    [Fact]
+    public void Does_not_warn_for_a_class_with_an_unrelated_base_type()
+    {
+        var input = """
+            using Egil.StronglyTypedPrimitives;
+
+            namespace SomeNamespace;
+
+            [StronglyTyped]
+            public readonly partial record struct Foo(int Value);
+
+            public class NotAContext : System.Exception;
             """;
 
         var result = SnapshotTestHelper.RunGenerator<StronglyTypedPrimitiveGenerator>(input, out var compilation);
