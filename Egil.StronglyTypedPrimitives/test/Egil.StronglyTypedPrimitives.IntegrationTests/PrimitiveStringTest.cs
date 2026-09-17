@@ -116,12 +116,19 @@ namespace Egil.StronglyTypedPrimitives
         [Fact]
         public void JsonSerialization_with_type_resolver()
         {
-            var options = new JsonSerializerOptions { TypeInfoResolver = TypedStringJsonSerializerContext.Default };
+            // The context cannot see the generated [JsonConverter] attribute, so the factory is
+            // what makes it serialize the strongly typed string as a plain JSON string.
+            var options = new JsonSerializerOptions
+            {
+                TypeInfoResolver = TypedStringJsonSerializerContext.Default,
+                Converters = { new StronglyTypedJsonConverterFactory() },
+            };
             var dto = new StringDto(new StronglyTypedString("42"), [new("Bar"), new("Baz")]);
 
             var json = JsonSerializer.Serialize(dto, options);
             var dtoFromJson = JsonSerializer.Deserialize<StringDto>(json, options);
 
+            Assert.Equal("""{"Id":"42","PetNames":["Bar","Baz"]}""", json);
             Assert.Equivalent(dto, dtoFromJson);
         }
     }

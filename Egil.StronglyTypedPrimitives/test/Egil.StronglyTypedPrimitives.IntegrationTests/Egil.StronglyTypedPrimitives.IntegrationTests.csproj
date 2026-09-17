@@ -17,13 +17,6 @@
     <LangVersion>preview</LangVersion>
     <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
     <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
-    <!--
-      STP001 warns when a JsonSerializerContext shares a compilation with strongly typed
-      primitives that rely on the generated [JsonConverter] attribute. This project does that on
-      purpose: it exercises both the runtime StronglyTypedJsonConverterFactory path and the
-      user-declared attribute path (StronglyTypedIntWithExplicitJsonConverter) against contexts.
-    -->
-    <NoWarn>$(NoWarn);STP001</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
