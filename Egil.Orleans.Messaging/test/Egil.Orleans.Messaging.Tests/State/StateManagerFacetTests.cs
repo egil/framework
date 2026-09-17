@@ -75,6 +75,20 @@ public sealed class StateManagerFacetTests(StateManagerFacetFixture fixture)
     }
 
     [Fact]
+    public async Task A_missing_factory_registration_reports_its_own_diagnostic()
+    {
+        var grain = fixture.GrainFactory.GetGrain<IFacetUnmanagedStorageGrain>(Guid.NewGuid());
+
+        var ex = await Assert.ThrowsAnyAsync<Exception>(() => grain.GetValueAsync());
+
+        // The mapper builds the manager through a generic method. Reaching it with
+        // MethodInfo.Invoke would wrap this diagnostic in a TargetInvocationException and
+        // bury the one sentence that says what to register.
+        Assert.Contains("No keyed IStateManagerFactory", ex.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain(nameof(System.Reflection.TargetInvocationException), ex.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Raw_persistent_state_facet_is_unaffected()
     {
         var grain = fixture.GrainFactory.GetGrain<IFacetRawGrain>(Guid.NewGuid());
@@ -298,6 +312,19 @@ public sealed class ConfigureFailureGrain(
     }
 }
 
+// Storage provider exists, but no IStateManagerFactory is keyed to it.
+public interface IFacetUnmanagedStorageGrain : IGrainWithGuidKey
+{
+    Task<string> GetValueAsync();
+}
+
+public sealed class FacetUnmanagedStorageGrain(
+    [PersistentState("unmanaged", "Unmanaged")] IStateManager<FacetState> state)
+    : Grain, IFacetUnmanagedStorageGrain
+{
+    public Task<string> GetValueAsync() => Task.FromResult(state.State.Value);
+}
+
 public interface IFacetWhitespaceStorageGrain : IGrainWithGuidKey
 {
     Task<string> GetValueAsync();
@@ -395,6 +422,7 @@ public sealed class StateManagerFacetFixture : IAsyncLifetime
         builder.ConfigureSilo((_, siloBuilder) =>
         {
             siloBuilder.AddMemoryGrainStorage("Default");
+            siloBuilder.AddMemoryGrainStorage("Unmanaged");
             siloBuilder.ConfigureServices(services =>
             {
                 services.AddSingleton<TimeProvider>(TimeProvider);

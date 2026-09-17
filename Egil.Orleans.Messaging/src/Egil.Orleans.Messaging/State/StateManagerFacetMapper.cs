@@ -62,9 +62,15 @@ internal sealed class StateManagerFacetMapper(IAttributeToFactoryMapper<Persiste
         var storageName = string.IsNullOrWhiteSpace(attribute.StorageName) ? null : attribute.StorageName;
         var configuration = new FacetConfiguration(stateName, storageName);
         var grainType = parameter.Member.DeclaringType!;
-        var createManager = CreateManagerMethod.MakeGenericMethod(stateType);
 
-        return context => createManager.Invoke(null, [context, configuration, storageName, grainType])!;
+        // Bound as a delegate rather than invoked through MethodInfo: MethodInfo.Invoke
+        // wraps whatever the target throws in a TargetInvocationException, which would bury
+        // the diagnostics for a missing factory or storage provider one level down.
+        var createManager = (ManagerFactory)CreateManagerMethod
+            .MakeGenericMethod(stateType)
+            .CreateDelegate(typeof(ManagerFactory));
+
+        return context => createManager(context, configuration, storageName, grainType);
     }
 
     private static bool CanCreateDefault(Type stateType)
@@ -96,6 +102,12 @@ internal sealed class StateManagerFacetMapper(IAttributeToFactoryMapper<Persiste
             configureState: null,
             lifecycle: context.ObservableLifecycle);
     }
+
+    private delegate object ManagerFactory(
+        IGrainContext context,
+        IPersistentStateConfiguration configuration,
+        string? storageName,
+        Type grainType);
 
     private sealed record FacetConfiguration(string StateName, string? StorageName) : IPersistentStateConfiguration;
 }
