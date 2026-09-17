@@ -62,6 +62,17 @@ public sealed class OutboxStreamProviderBuilder<TOutbox> where TOutbox : notnull
         return this;
     }
 
+    // Unlike the overloads above, this forward names its type arguments. Inferred, it would
+    // match both the processor's two-type-parameter projection overload and its enriching one.
+    /// <summary>Enriches each payload from its delivery token before publishing it to the selected stream.</summary>
+    public OutboxStreamProviderBuilder<TOutbox> AddStreamPostman<TSub>(
+        Func<TSub, StreamId> streamId, Func<TSub, OutboxSequenceToken, TSub> project)
+        where TSub : TOutbox
+    {
+        processor.AddStreamPostman<TSub, TSub>(streamProviderName, streamId, project);
+        return this;
+    }
+
     /// <summary>Selects streams and projects payloads using their delivery tokens.</summary>
     public OutboxStreamProviderBuilder<TOutbox> AddStreamPostman<TSub, TEvent>(
         Func<TSub, OutboxSequenceToken, StreamId> streamId,
@@ -69,6 +80,16 @@ public sealed class OutboxStreamProviderBuilder<TOutbox> where TOutbox : notnull
         where TSub : TOutbox
     {
         processor.AddStreamPostman(streamProviderName, streamId, project);
+        return this;
+    }
+
+    /// <summary>Selects the stream and enriches the payload, both using the delivery token.</summary>
+    public OutboxStreamProviderBuilder<TOutbox> AddStreamPostman<TSub>(
+        Func<TSub, OutboxSequenceToken, StreamId> streamId,
+        Func<TSub, OutboxSequenceToken, TSub> project)
+        where TSub : TOutbox
+    {
+        processor.AddStreamPostman<TSub, TSub>(streamProviderName, streamId, project);
         return this;
     }
 }
