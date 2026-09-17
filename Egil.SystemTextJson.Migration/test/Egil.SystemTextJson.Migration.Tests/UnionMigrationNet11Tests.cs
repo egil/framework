@@ -261,17 +261,37 @@ public partial class UnionMigrationTests
     }
 
     [Fact]
-    public void Union_with_nested_union_case_routes_discriminator_less_object_to_sole_migratable_case()
+    public void Union_with_nested_union_case_refuses_shape_fallback_for_discriminator_less_object()
     {
-        // A nested union cannot carry a discriminator and is not a plain object case, so the
-        // lone migratable case receives the payload under legacy-payload semantics.
+        // The nested union could accept the object itself, so routing it elsewhere would
+        // silently drop data; only discriminated payloads are classified.
         var options = CreateOptions();
 
-        var value = JsonSerializer.Deserialize<ShapeOrNestedUnion>("""{"radius":4}""", options);
+        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<ShapeOrNestedUnion>("""{"text":"hello"}""", options));
+
+        Assert.Contains(nameof(ShapeOrNote), exception.Message, StringComparison.Ordinal);
+        Assert.Contains("circle-v2", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Union_with_nested_union_case_refuses_shape_fallback_for_primitives()
+    {
+        var options = CreateOptions();
+
+        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<ShapeOrNestedUnion>("\"hello\"", options));
+
+        Assert.Contains(nameof(ShapeOrNote), exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Union_with_nested_union_case_still_routes_discriminated_payloads()
+    {
+        var options = CreateOptions();
+
+        var value = JsonSerializer.Deserialize<ShapeOrNestedUnion>("""{"$type":"circle-v1","r":4}""", options);
 
         var circle = Assert.IsType<CircleV2>(value.Value);
         Assert.Equal(4, circle.Radius);
-        Assert.True(circle.MigratedDuringDeserialization);
     }
 
     [Fact]

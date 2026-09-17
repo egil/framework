@@ -18,6 +18,7 @@ internal sealed class UnionCaseRouting
     private readonly DiscriminatorPropertyGroup[] discriminatorGroups;
     private readonly string knownDiscriminatorList;
     private readonly Type? undiscriminatedCase;
+    private readonly Type? unknownShapeCase;
     private readonly ShapeRoute objectRoute;
     private readonly ShapeRoute legacyObjectRoute;
     private readonly ShapeRoute arrayRoute;
@@ -30,6 +31,7 @@ internal sealed class UnionCaseRouting
         DiscriminatorPropertyGroup[] discriminatorGroups,
         string knownDiscriminatorList,
         Type? undiscriminatedCase,
+        Type? unknownShapeCase,
         ShapeRoute objectRoute,
         ShapeRoute legacyObjectRoute,
         ShapeRoute arrayRoute,
@@ -41,6 +43,7 @@ internal sealed class UnionCaseRouting
         this.discriminatorGroups = discriminatorGroups;
         this.knownDiscriminatorList = knownDiscriminatorList;
         this.undiscriminatedCase = undiscriminatedCase;
+        this.unknownShapeCase = unknownShapeCase;
         this.objectRoute = objectRoute;
         this.legacyObjectRoute = legacyObjectRoute;
         this.arrayRoute = arrayRoute;
@@ -55,6 +58,7 @@ internal sealed class UnionCaseRouting
         var caseByDiscriminator = new Dictionary<(string PropertyName, string Discriminator), Type>();
         var knownDiscriminators = new List<string>();
         Type? undiscriminatedCase = null;
+        Type? unknownShapeCase = null;
         var plainObjectCases = new List<Type>();
         var migratableCases = new List<Type>();
         var arrayCases = new List<Type>();
@@ -122,8 +126,11 @@ internal sealed class UnionCaseRouting
                     plainObjectCases.Add(caseType);
                     break;
                 default:
-                    // Nested unions and custom converters with unknown shapes are only reachable
-                    // through a discriminator, which they cannot carry; report that at read time.
+                    // A nested union or a custom converter can accept any JSON shape, so no
+                    // shape-based fallback is safe while such a case exists: routing a
+                    // discriminator-less object to another case could silently drop the data
+                    // the nested case would have read. Discriminated payloads still route.
+                    unknownShapeCase ??= caseType;
                     break;
             }
         }
@@ -137,6 +144,7 @@ internal sealed class UnionCaseRouting
             groups,
             string.Join(", ", knownDiscriminators.Select(static discriminator => $"'{discriminator}'")),
             undiscriminatedCase,
+            unknownShapeCase,
             ShapeRoute.From(plainObjectCases),
             ShapeRoute.From(migratableCases),
             ShapeRoute.From(arrayCases),
@@ -207,6 +215,11 @@ internal sealed class UnionCaseRouting
             return undiscriminatedCase;
         }
 
+        if (unknownShapeCase is not null)
+        {
+            ThrowUnknownShapeCase("object");
+        }
+
         if (objectRoute.Kind is RouteKind.Single)
         {
             return objectRoute.CaseType!;
@@ -223,6 +236,11 @@ internal sealed class UnionCaseRouting
 
     private Type Resolve(ShapeRoute route, string shape)
     {
+        if (unknownShapeCase is not null)
+        {
+            ThrowUnknownShapeCase(shape);
+        }
+
         if (route.Kind is RouteKind.Single)
         {
             return route.CaseType!;
@@ -283,6 +301,14 @@ internal sealed class UnionCaseRouting
     {
         throw new JsonException(
             $"Object payload for union '{unionType.FullName}' has no leading type discriminator and more than one case accepts JSON objects, so the case is ambiguous. Known discriminators: {knownDiscriminatorList}.");
+    }
+
+    [DoesNotReturn]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private void ThrowUnknownShapeCase(string shape)
+    {
+        throw new JsonException(
+            $"Union '{unionType.FullName}' cannot classify a JSON {shape} without a leading type discriminator because case '{unknownShapeCase!.FullName}' may accept any JSON shape. Known discriminators: {knownDiscriminatorList}.");
     }
 
     [DoesNotReturn]
