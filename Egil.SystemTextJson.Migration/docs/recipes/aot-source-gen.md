@@ -32,7 +32,7 @@ options.TypeInfoResolverChain.Add(AppJsonContext.Default);
 
 ## What the library does at runtime
 
-Migration itself is driven by `static abstract` interface methods and the type metadata your `JsonSerializerContext` provides; the JSON read and write paths do not use reflection.
+Migration itself is driven by `static abstract` interface methods and the type metadata your `JsonSerializerContext` provides; once a type's converter has been created, the library's own read and write paths do not use reflection (System.Text.Json's converter and metadata resolution behaves as it does without the library).
 
 Discovery does. When a converter is created for a `[JsonMigratable]` type — once per type per `JsonSerializerOptions` — the library inspects the type's `IMigrateFrom<,>` interfaces and attributes, instantiates the generic converter and migrator invokers for the discovered source/target pairs, and activates registered external migrators through the configured `IServiceProvider` or a parameterless constructor. `RegisterMigratorsFromAssembly` additionally enumerates every type in the assembly. No reflection emit is used.
 
