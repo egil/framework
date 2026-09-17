@@ -6,6 +6,7 @@ namespace Egil.Orleans.Messaging.Tests.Outboxes;
 
 public sealed class OutboxTraceContextTests : IDisposable
 {
+    private const string ProducerTraceParent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
     private readonly ActivitySource source = new("test." + Guid.NewGuid().ToString("N"));
 
     public void Dispose() => source.Dispose();
@@ -67,6 +68,68 @@ public sealed class OutboxTraceContextTests : IDisposable
 
         Assert.Equal(caller!.Id, outbox.Envelopes[0].Id.TraceParent);
         Assert.Equal(caller.Id, outbox.Envelopes[1].Id.TraceParent);
+    }
+
+    [Fact]
+    public void Restore_does_not_capture_the_active_trace_context()
+    {
+        // The bug this method exists to prevent: rebuilding stored history runs under
+        // whatever activity is current — for a migration inside grain-state
+        // deserialization, the activation — and that activity did not produce these
+        // messages. Linking a delivery span to it is worse than not linking at all,
+        // because a wrong link is indistinguishable from a right one in a trace viewer.
+        using var listener = StartListener(ActivitySamplingResult.AllDataAndRecorded);
+        using var migration = source.StartActivity("migration");
+
+        var restored = Outbox<string>.Restore([("first", DateTimeOffset.UnixEpoch), ("second", DateTimeOffset.UnixEpoch)]);
+
+        Assert.NotNull(migration);
+        Assert.All(restored.Envelopes, envelope => Assert.Null(envelope.Id.TraceParent));
+    }
+
+    [Fact]
+    public void Restore_with_a_shared_timestamp_does_not_capture_the_active_trace_context()
+    {
+        using var listener = StartListener(ActivitySamplingResult.AllDataAndRecorded);
+        using var migration = source.StartActivity("migration");
+
+        var restored = Outbox<string>.Restore(["first", "second"], DateTimeOffset.UnixEpoch);
+
+        Assert.NotNull(migration);
+        Assert.All(restored.Envelopes, envelope => Assert.Null(envelope.Id.TraceParent));
+    }
+
+    [Fact]
+    public void Restore_from_envelopes_does_not_overwrite_traceparents_with_the_active_one()
+    {
+        using var listener = StartListener(ActivitySamplingResult.AllDataAndRecorded);
+        using var migration = source.StartActivity("migration");
+        OutboxMessageEnvelope<string>[] envelopes =
+        [
+            new(new OutboxMessageId(1, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, ProducerTraceParent), "first"),
+            new(new OutboxMessageId(2, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch), "second")
+        ];
+
+        var restored = Outbox<string>.Restore(envelopes);
+
+        Assert.Equal(ProducerTraceParent, restored.Envelopes[0].Id.TraceParent);
+        Assert.NotEqual(migration!.Id, restored.Envelopes[0].Id.TraceParent);
+        Assert.Null(restored.Envelopes[1].Id.TraceParent);
+    }
+
+    [Fact]
+    public void Json_omits_the_property_for_restored_messages_with_no_trace_context()
+    {
+        // Suppression has to reach the bytes, not just the in-memory id: every pending
+        // envelope is rewritten on each WriteStateAsync for as long as it stays pending.
+        using var listener = StartListener(ActivitySamplingResult.AllDataAndRecorded);
+        using var migration = source.StartActivity("migration");
+        var restored = Outbox<string>.Restore([("first", DateTimeOffset.UnixEpoch)]);
+
+        var json = JsonSerializer.Serialize(restored);
+
+        Assert.NotNull(migration);
+        Assert.DoesNotContain("TraceParent", json, StringComparison.Ordinal);
     }
 
     [Fact]

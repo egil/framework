@@ -63,7 +63,9 @@ public sealed record OutboxMessageEnvelope<T>
 
     /// <summary>
     /// The sender-free identity of this stored message. Assigned by
-    /// <see cref="Outbox{T}.Add(T)"/> — never user-constructed.
+    /// <see cref="Outbox{T}.Add(T)"/> when the message is produced, or supplied by
+    /// the caller through <see cref="Outbox{T}.Restore(IEnumerable{OutboxMessageEnvelope{T}})"/>
+    /// when stored history is reconstructed.
     /// </summary>
     [Id(0)]
     public required OutboxMessageId Id { get; init; }
