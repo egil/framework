@@ -242,14 +242,27 @@ public partial class NumericSourceMigrationTests
     }
 
     [Fact]
-    public void Collection_with_overridden_element_converter_is_not_shape_matched()
+    public void Collection_with_overridden_element_converter_makes_element_disambiguation_ambiguous()
+    {
+        // The overridden element converter may accept any element, so neither list can be
+        // chosen by element shape.
+        var options = CreateOptions();
+        options.Converters.Add(new JsonStringEnumConverter());
+
+        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<ColourListOrItemListState>("""[{"name":"x"}]""", options));
+
+        Assert.Contains("ambiguous", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Collection_with_overridden_element_converter_alone_is_still_selected()
     {
         var options = CreateOptions();
         options.Converters.Add(new JsonStringEnumConverter());
 
-        var result = JsonSerializer.Deserialize<ColourListOrItemListState>("""[{"name":"x"}]""", options);
+        var result = JsonSerializer.Deserialize<ColourListState>("""["Green"]""", options);
 
-        Assert.Equal("from-item-list", result!.Source);
+        Assert.Equal(Colour.Green, result!.Colours[0]);
     }
 
     [Fact]
@@ -327,6 +340,16 @@ public partial class NumericSourceMigrationTests
             }
 
             return System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateValueInfo<Colour>(options, new ColourNameConverter());
+        }
+    }
+
+    [JsonMigratable]
+    public record class ColourListState(List<Colour> Colours) : IMigrateFrom<List<Colour>, ColourListState>
+    {
+        public static bool TryMigrateFrom(List<Colour> source, out ColourListState result)
+        {
+            result = new ColourListState(source);
+            return true;
         }
     }
 

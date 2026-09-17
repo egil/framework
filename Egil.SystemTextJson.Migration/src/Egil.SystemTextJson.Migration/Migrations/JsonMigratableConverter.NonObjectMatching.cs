@@ -78,6 +78,13 @@ internal sealed partial class JsonMigratableConverter<T>
             return singleCandidate;
         }
 
+        // A candidate whose element converter is overridden may accept any element, so no
+        // other candidate can be chosen safely by element shape.
+        if (HasOverriddenElementCandidate(kind))
+        {
+            ThrowAmbiguousNonObjectMigrators(typeof(T));
+        }
+
         // Multiple candidates — peek at the first value/element token to disambiguate.
         JsonTokenType? valueToken = PeekFirstValueToken(ref reader, kind);
         if (valueToken is null)
@@ -101,6 +108,19 @@ internal sealed partial class JsonMigratableConverter<T>
         }
 
         return match ?? singleCandidate;
+    }
+
+    private bool HasOverriddenElementCandidate(JsonTypeInfoKind kind)
+    {
+        foreach (MigratorReference migrator in context.Migrators)
+        {
+            if (IsCollectionCandidate(migrator, kind) && migrator.ElementConverterOverridden)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     // byte[] reports Kind Enumerable but is read from a base64 string, so scalar-shaped sources
@@ -189,7 +209,7 @@ internal sealed partial class JsonMigratableConverter<T>
                 continue;
             }
 
-            if (migrator.ElementShape is not SourceValueShape.Unknown || migrator.ElementConverterOverridden)
+            if (migrator.ElementShape is not SourceValueShape.Unknown)
             {
                 continue;
             }

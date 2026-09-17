@@ -21,9 +21,12 @@ namespace Egil.SystemTextJson.Migration;
 /// <para>
 /// Object payloads are routed by their first property: a known discriminator selects the case it belongs to.
 /// Without a recognized leading discriminator, the payload goes to the single case that declares
-/// <see cref="JsonMigratableAttribute.UndiscriminatedSourceType"/>, otherwise to the single case whose contract
-/// is a JSON object and that is not migratable, and finally to the single migratable case (legacy payload
-/// semantics). Arrays, strings, numbers and booleans are routed to the single case with that JSON shape.
+/// <see cref="JsonMigratableAttribute.UndiscriminatedSourceType"/>, otherwise to the single object-accepting case
+/// (a non-migratable object or dictionary case, or a migratable case that migrates from a dictionary source), and
+/// finally to the single migratable case (legacy payload semantics). Arrays, strings, numbers and booleans are
+/// routed to the single case with that JSON shape, including migratable cases that migrate from a source of that
+/// shape. A case that is a nested union or uses a converter override may accept any shape, so such a union
+/// classifies discriminated payloads only.
 /// Any other situation is reported as a <see cref="JsonException"/> rather than a silent pick.
 /// </para>
 /// </remarks>
