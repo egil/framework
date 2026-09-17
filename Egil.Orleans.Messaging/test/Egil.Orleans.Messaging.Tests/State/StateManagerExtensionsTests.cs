@@ -90,6 +90,35 @@ public sealed class StateManagerExtensionsTests
     }
 
     [Fact]
+    public void A_null_second_argument_still_selects_the_state_factory_overload()
+    {
+        // The overloads that take no state factory gained an optional Action<TState>, which
+        // makes them applicable to calls that previously only matched the Func<TState>
+        // overload. Overload resolution still prefers the factory overload, so an existing
+        // RegisterStateManager(storage, null) keeps meaning "null state factory" and keeps
+        // failing the same way, rather than silently becoming "null configuration".
+        var grain = new FakeGrainBase();
+        var storage = new FakePersistentState(new TestState("initial"));
+
+        var ex = Assert.Throws<ArgumentNullException>(() =>
+            grain.RegisterStateManager<TestGrainBase, TestState>(storage, null!));
+
+        Assert.Equal("createInitialState", ex.ParamName);
+    }
+
+    [Fact]
+    public void A_null_third_argument_still_selects_the_state_factory_overload()
+    {
+        var grain = new FakeGrainBase();
+        var storage = new FakePersistentState(new TestState("initial"));
+
+        var ex = Assert.Throws<ArgumentNullException>(() =>
+            grain.RegisterStateManager<TestGrainBase, TestState>("state", storage, null!));
+
+        Assert.Equal("createInitialState", ex.ParamName);
+    }
+
+    [Fact]
     public void RegisterStateManager_throws_for_empty_storage_name()
     {
         var grain = new FakeGrainBase();
