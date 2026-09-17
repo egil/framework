@@ -432,6 +432,32 @@ public partial class UnionMigrationTests
         Assert.Contains(nameof(PlainColour), exception.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Union_routes_non_object_migrator_sources_by_shape()
+    {
+        var options = CreateOptions();
+
+        var number = JsonSerializer.Deserialize<ShapeOrCounter>("42", options);
+        var list = JsonSerializer.Deserialize<ShapeOrCounter>("[1,2,3]", options);
+        var dictionary = JsonSerializer.Deserialize<ShapeOrCounter>("""{"a":1,"b":2}""", options);
+        var text = JsonSerializer.Deserialize<ShapeOrCounter>("\"seven\"", options);
+
+        Assert.Equal(42, Assert.IsType<Counter>(number.Value).Value);
+        Assert.Equal(3, Assert.IsType<Counter>(list.Value).Value);
+        Assert.Equal(2, Assert.IsType<Counter>(dictionary.Value).Value);
+        Assert.Equal("seven", text.Value);
+    }
+
+    [Fact]
+    public void Union_migrator_source_shape_conflicting_with_plain_case_is_ambiguous()
+    {
+        var options = CreateOptions();
+
+        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<CounterOrInt>("42", options));
+
+        Assert.Contains("ambiguous", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static JsonSerializerOptions CreateOptions(Action<JsonMigrationBuilder>? configure = null)
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
@@ -465,6 +491,36 @@ public partial class UnionMigrationTests
     public union PointOrNestedUnion(PointV2, ShapeOrNote);
 
     public union ShapeOrScalars(CircleV2, DateTimeOffset, Note);
+
+    [JsonMigratable(TypeDiscriminator = "counter")]
+    public record class Counter(int Value)
+        : IMigrateFrom<int, Counter>,
+          IMigrateFrom<long, Counter>,
+          IMigrateFrom<List<int>, Counter>,
+          IMigrateFrom<Dictionary<string, int>, Counter>
+    {
+        public static bool TryMigrateFrom(int source, out Counter result)
+        {
+            result = new Counter(source);
+            return true;
+        }
+
+        public static bool TryMigrateFrom(List<int> source, out Counter result)
+        {
+            result = new Counter(source.Count);
+            return true;
+        }
+
+        public static bool TryMigrateFrom(Dictionary<string, int> source, out Counter result)
+        {
+            result = new Counter(source.Count);
+            return true;
+        }
+    }
+
+    public union ShapeOrCounter(Counter, string);
+
+    public union CounterOrInt(Counter, int);
 
     [JsonConverter(typeof(JsonStringEnumConverter<Colour>))]
     public enum Colour

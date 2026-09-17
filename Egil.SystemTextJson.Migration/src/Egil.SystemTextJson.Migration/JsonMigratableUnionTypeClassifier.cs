@@ -72,7 +72,7 @@ public sealed class JsonMigratableUnionTypeClassifier : JsonTypeClassifierFactor
         if (registry is null)
         {
             throw new InvalidOperationException(
-                $"'{context.DeclaringType.FullName}' uses {nameof(JsonMigratableUnionTypeClassifier)}, but the serializer options have no migration support. Call options.AddJsonMigrationSupport() before serializing.");
+                $"'{context.DeclaringType.FullName}' uses {nameof(JsonMigratableUnionTypeClassifier)}, but the serializer options have no migration support. Call options.AddJsonMigrationSupport() before serializing or deserializing this union.");
         }
 
         var routing = UnionCaseRouting.Build(context, registry, options);

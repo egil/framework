@@ -65,6 +65,17 @@ public partial class NumericSourceMigrationTests
     }
 
     [Fact]
+    public void Migrate_from_uint128_to_custom_type()
+    {
+        var options = CreateOptions();
+
+        var result = JsonSerializer.Deserialize<NumericState<UInt128>>("340282366920938463463374607431768211455", options);
+
+        Assert.NotNull(result);
+        Assert.Equal(UInt128.MaxValue, result.Value);
+    }
+
+    [Fact]
     public void Migrate_from_nullable_int_to_custom_type()
     {
         var options = CreateOptions();

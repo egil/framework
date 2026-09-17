@@ -78,15 +78,16 @@ internal sealed class UnionCaseRouting
                 AddDiscriminator(context.DeclaringType, entriesByPropertyName, caseByDiscriminator, knownDiscriminators, targetMetadata, caseType);
 
                 // Every source type that migrates into this case is routed here too, so the
-                // case's own converter can perform the migration.
+                // case's own converter can perform the migration. Object sources carry a
+                // discriminator; array, dictionary and primitive sources are routed by shape.
                 foreach (Type sourceType in StaticMigratorContracts.GetSourceTypes(caseType))
                 {
-                    AddDiscriminator(context.DeclaringType, entriesByPropertyName, caseByDiscriminator, knownDiscriminators, registry.GetTypeMetadata(sourceType), caseType);
+                    AddSourceRoute(sourceType, registry.GetTypeMetadata(sourceType), caseType);
                 }
 
                 foreach (ExternalMigratorRegistration registration in registry.GetForTarget(caseType))
                 {
-                    AddDiscriminator(context.DeclaringType, entriesByPropertyName, caseByDiscriminator, knownDiscriminators, registration.SourceMetadata, caseType);
+                    AddSourceRoute(registration.SourceType, registration.SourceMetadata, caseType);
                 }
 
                 if (targetMetadata.UndiscriminatedSourceType is not null)
@@ -112,28 +113,46 @@ internal sealed class UnionCaseRouting
                 continue;
             }
 
-            switch (SourceValueShapes.Classify(caseType))
+            AddShapeRoute(caseType, caseType);
+        }
+
+        void AddSourceRoute(Type sourceType, TypeMetadata sourceMetadata, Type caseType)
+        {
+            // A migratable source has a custom converter (Kind None), so its shape cannot be
+            // read from the contract; it is always identified by its discriminator.
+            if (JsonMigratableTypes.IsMigratable(sourceType) || options.GetTypeInfo(sourceType).Kind is JsonTypeInfoKind.Object)
+            {
+                AddDiscriminator(context.DeclaringType, entriesByPropertyName, caseByDiscriminator, knownDiscriminators, sourceMetadata, caseType);
+                return;
+            }
+
+            AddShapeRoute(sourceType, caseType);
+        }
+
+        void AddShapeRoute(Type shapeType, Type caseType)
+        {
+            switch (SourceValueShapes.Classify(shapeType))
             {
                 case SourceValueShape.String:
-                    stringCases.Add(caseType);
-                    continue;
+                    AddCase(stringCases, caseType);
+                    return;
                 case SourceValueShape.Number:
-                    numberCases.Add(caseType);
-                    continue;
+                    AddCase(numberCases, caseType);
+                    return;
                 case SourceValueShape.Boolean:
-                    booleanCases.Add(caseType);
-                    continue;
+                    AddCase(booleanCases, caseType);
+                    return;
             }
 
             // Dictionaries serialize as JSON objects, so they compete with object cases.
-            switch (options.GetTypeInfo(caseType).Kind)
+            switch (options.GetTypeInfo(shapeType).Kind)
             {
                 case JsonTypeInfoKind.Enumerable:
-                    arrayCases.Add(caseType);
+                    AddCase(arrayCases, caseType);
                     break;
                 case JsonTypeInfoKind.Object:
                 case JsonTypeInfoKind.Dictionary:
-                    plainObjectCases.Add(caseType);
+                    AddCase(plainObjectCases, caseType);
                     break;
                 default:
                     // A nested union or a custom converter can accept any JSON shape, so no
@@ -217,7 +236,9 @@ internal sealed class UnionCaseRouting
             }
         }
 
-        // No leading discriminator: prefer the case explicitly configured for undiscriminated
+        // No leading discriminator. Shape-based fallback is refused outright while a case may
+        // accept any shape (nested union or converter override), because that case might be the
+        // right one. Otherwise prefer the case explicitly configured for undiscriminated
         // objects, then the plain object cases (they can never carry a discriminator), and only
         // then fall back to a lone migratable case, mirroring the converter's legacy-payload rule.
         if (unknownShapeCase is not null)
@@ -263,6 +284,16 @@ internal sealed class UnionCaseRouting
 
         ThrowNoCase(shape);
         return null!;
+    }
+
+    // Several sources of one case may share a shape; the case's own converter disambiguates
+    // between them, so the union only needs one route per case.
+    private static void AddCase(List<Type> cases, Type caseType)
+    {
+        if (!cases.Contains(caseType))
+        {
+            cases.Add(caseType);
+        }
     }
 
     private static bool HasConverterOverride(Type caseType, JsonSerializerOptions options)
