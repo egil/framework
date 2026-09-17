@@ -458,6 +458,19 @@ public partial class UnionMigrationTests
         Assert.Contains("ambiguous", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void Union_migrator_source_with_converter_override_only_routes_through_discriminator()
+    {
+        var options = CreateOptions();
+        options.Converters.Add(new JsonStringEnumConverter());
+
+        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<PaintOrLabel>("\"Green\"", options));
+        var paint = JsonSerializer.Deserialize<PaintOrLabel>("""{"$type":"paint","colour":"Red"}""", options);
+
+        Assert.Contains(nameof(Paint), exception.Message, StringComparison.Ordinal);
+        Assert.IsType<Paint>(paint.Value);
+    }
+
     private static JsonSerializerOptions CreateOptions(Action<JsonMigrationBuilder>? configure = null)
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
@@ -518,6 +531,18 @@ public partial class UnionMigrationTests
     }
 
     public union ShapeOrCounter(Counter, string);
+
+    [JsonMigratable(TypeDiscriminator = "paint")]
+    public record class Paint(PlainColour Colour) : IMigrateFrom<PlainColour, Paint>
+    {
+        public static bool TryMigrateFrom(PlainColour source, out Paint result)
+        {
+            result = new Paint(source);
+            return true;
+        }
+    }
+
+    public union PaintOrLabel(Paint, string);
 
     public union CounterOrInt(Counter, int);
 

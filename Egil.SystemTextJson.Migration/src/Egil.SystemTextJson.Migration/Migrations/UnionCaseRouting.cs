@@ -120,7 +120,20 @@ internal sealed class UnionCaseRouting
         {
             // A migratable source has a custom converter (Kind None), so its shape cannot be
             // read from the contract; it is always identified by its discriminator.
-            if (JsonMigratableTypes.IsMigratable(sourceType) || options.GetTypeInfo(sourceType).Kind is JsonTypeInfoKind.Object)
+            if (JsonMigratableTypes.IsMigratable(sourceType))
+            {
+                AddDiscriminator(context.DeclaringType, entriesByPropertyName, caseByDiscriminator, knownDiscriminators, sourceMetadata, caseType);
+                return;
+            }
+
+            // Same rule as for union cases: an overridden converter may read any token family.
+            if (HasConverterOverride(sourceType, options))
+            {
+                unknownShapeCase ??= caseType;
+                return;
+            }
+
+            if (options.GetTypeInfo(sourceType).Kind is JsonTypeInfoKind.Object)
             {
                 AddDiscriminator(context.DeclaringType, entriesByPropertyName, caseByDiscriminator, knownDiscriminators, sourceMetadata, caseType);
                 return;
