@@ -49,7 +49,7 @@ public class JsonSupportRequiresNet8DiagnosticTest
         var result = SnapshotTestHelper.RunGenerator<StronglyTypedPrimitiveGenerator>(input, out var compilation, referenceAbstractions: false);
 
         var diagnostic = Assert.Single(result.Diagnostics);
-        Assert.Equal("STP002", diagnostic.Id);
+        Assert.Equal("STP004", diagnostic.Id);
         Assert.Equal(DiagnosticSeverity.Warning, diagnostic.Severity);
         Assert.Contains("requires targeting net8.0 or later", diagnostic.GetMessage(CultureInfo.InvariantCulture));
         Assert.Equal("Foo", diagnostic.Location.SourceTree?.GetText(TestContext.Current.CancellationToken).ToString(diagnostic.Location.SourceSpan));

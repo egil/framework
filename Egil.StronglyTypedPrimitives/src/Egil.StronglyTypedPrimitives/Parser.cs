@@ -309,6 +309,6 @@ internal enum JsonConverterSupport
     /// <summary>The shared converter is available; emit the JsonConverter attribute.</summary>
     GenerateAttribute,
 
-    /// <summary>System.Text.Json is referenced but the shared converter is not (netstandard2.0 asset); report STP002.</summary>
+    /// <summary>System.Text.Json is referenced but the shared converter is not (netstandard2.0 asset); report STP004.</summary>
     SharedConverterUnavailable,
 }

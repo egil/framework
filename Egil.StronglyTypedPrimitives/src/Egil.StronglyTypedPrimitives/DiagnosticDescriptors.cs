@@ -26,7 +26,7 @@ internal static class DiagnosticDescriptors
     /// the generated [JsonConverter] attribute. Reported so the missing JSON support is visible.
     /// </summary>
     public static readonly DiagnosticDescriptor JsonSupportRequiresNet8 = new(
-        id: "STP002",
+        id: "STP004",
         title: "System.Text.Json support for strongly typed primitives requires net8.0 or later",
         messageFormat: "No JsonConverter attribute is generated for '{0}' because Egil.StronglyTypedPrimitives.StronglyTypedJsonConverter<,> is not available to this compilation. System.Text.Json support for strongly typed primitives requires targeting net8.0 or later; on earlier targets declare a JsonConverter attribute on the partial declaration of '{0}' yourself.",
         category: Category,
