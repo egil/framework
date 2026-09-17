@@ -660,6 +660,18 @@ public partial class UnionMigrationTests
         Assert.IsType<Paint>(Assert.IsType<PaintOrLabel>(paint.Value).Value);
     }
 
+    [Fact]
+    public void Union_typed_migrator_source_is_not_advertised_as_a_route()
+    {
+        // WrappedShape migrates from the Shape union; the migration converter cannot identify a
+        // union payload by discriminator, so the outer union must not forward Shape's cases.
+        var options = CreateOptions();
+
+        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<WrappedShapeOrLabel>("""{"$type":"circle-v2","radius":1}""", options));
+
+        Assert.Contains("No case", exception.Message, StringComparison.Ordinal);
+    }
+
     private static JsonSerializerOptions CreateOptions(Action<JsonMigrationBuilder>? configure = null)
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
@@ -697,6 +709,18 @@ public partial class UnionMigrationTests
     public union TwoNestedShapes(Shape, ShapeAgain);
 
     public union NoteOrPaintUnion(Note, PaintOrLabel);
+
+    [JsonMigratable(TypeDiscriminator = "wrapped-shape")]
+    public record class WrappedShape(string Kind) : IMigrateFrom<Shape, WrappedShape>
+    {
+        public static bool TryMigrateFrom(Shape source, out WrappedShape result)
+        {
+            result = new WrappedShape(source.Value?.GetType().Name ?? "none");
+            return true;
+        }
+    }
+
+    public union WrappedShapeOrLabel(WrappedShape, string);
 
     public union PointOrNestedUnion(PointV2, ShapeOrNote);
 

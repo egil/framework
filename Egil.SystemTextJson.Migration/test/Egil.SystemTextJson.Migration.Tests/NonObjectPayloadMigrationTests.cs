@@ -509,6 +509,18 @@ public class NonObjectPayloadMigrationTests
         Assert.Contains("ambiguous", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void Null_first_element_is_ambiguous_between_collection_migrators()
+    {
+        var options = CreateOptions();
+
+        var array = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<MultiEnumerableState>("[null]", options));
+        var dictionary = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<MultiDictState>("""{"a":null}""", options));
+
+        Assert.Contains("ambiguous", array.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("ambiguous", dictionary.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     // --- Test types ---
 
     [JsonMigratable]

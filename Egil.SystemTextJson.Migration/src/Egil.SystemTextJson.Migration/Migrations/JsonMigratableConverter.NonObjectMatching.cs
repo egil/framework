@@ -119,6 +119,13 @@ internal sealed partial class JsonMigratableConverter<T>
             match = MatchByComplexElementType(kind, valueToken);
         }
 
+        // A null first value says nothing about the element type, so it cannot pick one of
+        // several candidates; registration order must not decide.
+        if (match is null && valueToken is JsonTokenType.Null)
+        {
+            ThrowAmbiguousNonObjectMigrators(typeof(T));
+        }
+
         return match ?? singleCandidate;
     }
 

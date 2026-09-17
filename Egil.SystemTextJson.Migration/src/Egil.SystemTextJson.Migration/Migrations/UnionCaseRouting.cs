@@ -164,13 +164,27 @@ internal sealed class UnionCaseRouting
 
             // A migratable source is served by the migration converter (Kind None) and is always
             // identified by its discriminator, like any object source.
-            if (JsonMigratableTypes.IsMigratable(sourceType) || options.GetTypeInfo(sourceType).Kind is JsonTypeInfoKind.Object)
+            if (JsonMigratableTypes.IsMigratable(sourceType))
             {
                 AddDiscriminator(context.DeclaringType, entriesByPropertyName, caseByDiscriminator, knownDiscriminators, sourceMetadata, caseType);
                 return;
             }
 
-            AddShapeRoute(sourceType, caseType);
+            switch (options.GetTypeInfo(sourceType).Kind)
+            {
+                case JsonTypeInfoKind.Object:
+                    AddDiscriminator(context.DeclaringType, entriesByPropertyName, caseByDiscriminator, knownDiscriminators, sourceMetadata, caseType);
+                    return;
+                case JsonTypeInfoKind.Union:
+                    // The migration converter identifies a source by the source type's own
+                    // discriminator, which a union payload never carries, so a union-typed source
+                    // cannot be selected; it only guards against shape-based fallback.
+                    unknownShapeCase ??= caseType;
+                    return;
+                default:
+                    AddShapeRoute(sourceType, caseType);
+                    return;
+            }
         }
 
         void AddShapeRoute(Type shapeType, Type caseType)
