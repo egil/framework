@@ -47,7 +47,7 @@ All code samples are extracted from the [samples project](../../samples/Egil.Sys
 - [Migrating discriminator-less object payloads from a source type](legacy-adoption.md#migrating-discriminator-less-object-payloads-from-a-source-type)
 - [Discriminator not in first position](legacy-adoption.md#discriminator-not-in-first-position)
 
-## AOT & source generation
+## Source generation & AOT
 
 - [Using with source-generated `JsonSerializerContext`](aot-source-gen.md#using-with-source-generated-jsonserializercontext)
 - [What the library does at runtime](aot-source-gen.md#what-the-library-does-at-runtime)

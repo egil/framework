@@ -14,7 +14,7 @@
     <Company>Egil Hansen</Company>
     <Authors>Egil Hansen</Authors>
     <Description>
-      Version-aware JSON migration helpers for System.Text.Json with explicit migrator registration and AOT-friendly defaults.
+      Version-aware JSON migration helpers for System.Text.Json with explicit migrator registration and source-generation support.
     </Description>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageTags>system-text-json,json,migration,egil</PackageTags>

@@ -290,7 +290,7 @@ options.AddJsonMigrationSupport(builder =>
 
 ### Source-generated `JsonSerializerContext`
 
-For AOT scenarios, register both old and current types in a source-generated context:
+To avoid System.Text.Json's reflection-based metadata, register both old and current types in a source-generated context (this does not make trimmed or NativeAOT publishing supported; see the [AOT recipe](https://github.com/egil/framework/tree/main/Egil.SystemTextJson.Migration/docs/recipes/aot-source-gen.md#nativeaot-and-trimming)):
 
 <!-- snippet: source_gen_context -->
 <a id='snippet-source_gen_context'></a>
