@@ -103,13 +103,18 @@ internal sealed partial class JsonMigratableConverter<T>
         return match ?? singleCandidate;
     }
 
+    // byte[] reports Kind Enumerable but is read from a base64 string, so scalar-shaped sources
+    // never compete for array or dictionary payloads.
+    private static bool IsCollectionCandidate(MigratorReference migrator, JsonTypeInfoKind kind)
+        => migrator.SourceTypeInfo.Kind == kind && migrator.SourceShape is SourceValueShape.Unknown;
+
     private MigratorReference? FindSingleCandidateByKind(JsonTypeInfoKind kind, out bool hasMultiple)
     {
         MigratorReference? singleCandidate = null;
         hasMultiple = false;
         foreach (MigratorReference migrator in context.Migrators)
         {
-            if (migrator.SourceTypeInfo.Kind != kind)
+            if (!IsCollectionCandidate(migrator, kind))
             {
                 continue;
             }
@@ -132,7 +137,7 @@ internal sealed partial class JsonMigratableConverter<T>
         MigratorReference? match = null;
         foreach (MigratorReference migrator in context.Migrators)
         {
-            if (migrator.SourceTypeInfo.Kind != kind)
+            if (!IsCollectionCandidate(migrator, kind))
             {
                 continue;
             }
@@ -179,7 +184,7 @@ internal sealed partial class JsonMigratableConverter<T>
         MigratorReference? match = null;
         foreach (MigratorReference migrator in context.Migrators)
         {
-            if (migrator.SourceTypeInfo.Kind != kind)
+            if (!IsCollectionCandidate(migrator, kind))
             {
                 continue;
             }
@@ -297,7 +302,7 @@ internal sealed partial class JsonMigratableConverter<T>
         MigratorReference? match = null;
         foreach (MigratorReference migrator in context.Migrators)
         {
-            if (migrator.SourceTypeInfo.Kind != kind)
+            if (!IsCollectionCandidate(migrator, kind))
             {
                 continue;
             }

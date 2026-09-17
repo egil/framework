@@ -185,6 +185,18 @@ public partial class NumericSourceMigrationTests
     }
 
     [Fact]
+    public void Byte_array_source_does_not_compete_for_array_payloads()
+    {
+        var options = CreateOptions();
+
+        var fromArray = JsonSerializer.Deserialize<BytesOrIntListState>("[1,2]", options);
+        var fromBase64 = JsonSerializer.Deserialize<BytesOrIntListState>("\"AQID\"", options);
+
+        Assert.Equal("from-int-list", fromArray!.Source);
+        Assert.Equal("from-bytes", fromBase64!.Source);
+    }
+
+    [Fact]
     public void Migrate_from_guid_string_to_custom_type()
     {
         var options = CreateOptions();
@@ -215,6 +227,24 @@ public partial class NumericSourceMigrationTests
     }
 
     public record class Item(string Name);
+
+    [JsonMigratable]
+    public record class BytesOrIntListState(string Source)
+        : IMigrateFrom<byte[], BytesOrIntListState>,
+          IMigrateFrom<List<int>, BytesOrIntListState>
+    {
+        public static bool TryMigrateFrom(byte[] source, out BytesOrIntListState result)
+        {
+            result = new BytesOrIntListState("from-bytes");
+            return true;
+        }
+
+        public static bool TryMigrateFrom(List<int> source, out BytesOrIntListState result)
+        {
+            result = new BytesOrIntListState("from-int-list");
+            return true;
+        }
+    }
 
     [JsonMigratable]
     public record class IntOrLongListState(string Source)
