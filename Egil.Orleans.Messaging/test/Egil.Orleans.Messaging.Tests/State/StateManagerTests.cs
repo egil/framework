@@ -532,9 +532,312 @@ public sealed class StateManagerTests
         Assert.Same(loaded, storage.State);
     }
 
+    [Fact]
+    public void Assigning_State_publishes_the_snapshot_without_writing_to_storage()
+    {
+        var storage = new FakePersistentState(new TestState("stored"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        var staged = new TestState("staged");
+
+        manager.State = staged;
+
+        Assert.Same(staged, manager.State);
+        Assert.Same(staged, storage.State);
+        Assert.True(manager.HasUnsavedChanges);
+        Assert.Equal(0, storage.WriteCount);
+    }
+
+    [Fact]
+    public void Assigning_null_to_State_is_rejected()
+    {
+        var storage = new FakePersistentState(new TestState("stored"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+
+        Assert.Throws<ArgumentNullException>(() => manager.State = null!);
+    }
+
+    [Fact]
+    public void Assigning_State_runs_runtime_configuration_on_the_new_instance()
+    {
+        var configured = new List<TestState>();
+        var storage = new FakePersistentState(new TestState("stored"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), configured.Add);
+        var staged = new TestState("staged");
+
+        manager.State = staged;
+
+        Assert.Same(staged, configured[^1]);
+    }
+
+    [Fact]
+    public async Task SaveChangesAsync_persists_the_current_snapshot_once()
+    {
+        var storage = new FakePersistentState(new TestState("stored"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        manager.State = new TestState("first");
+        var last = new TestState("last");
+        manager.State = last;
+
+        await manager.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        Assert.Same(last, manager.State);
+        Assert.Same(last, storage.State);
+        Assert.False(manager.HasUnsavedChanges);
+        Assert.Equal(1, storage.WriteCount);
+    }
+
+    [Fact]
+    public async Task SaveChangesAsync_without_unsaved_changes_does_not_reach_storage_or_observe_cancellation()
+    {
+        var storage = new FakePersistentState(new TestState("stored"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        await manager.SaveChangesAsync(cancellation.Token);
+
+        Assert.Equal(0, storage.WriteCount);
+        Assert.Equal(new TestState("stored"), manager.State);
+    }
+
+    [Fact]
+    public async Task WriteAsync_with_a_new_state_supersedes_the_unsaved_snapshot()
+    {
+        var storage = new FakePersistentState(new TestState("stored"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        manager.State = new TestState("staged");
+        var next = new TestState("next");
+
+        await manager.WriteAsync(next, TestContext.Current.CancellationToken);
+
+        Assert.Same(next, manager.State);
+        Assert.False(manager.HasUnsavedChanges);
+        Assert.Equal(1, storage.WriteCount);
+    }
+
+    [Fact]
+    public async Task Assigning_State_does_not_stamp_a_version_but_the_following_write_does()
+    {
+        var storage = new FakePersistentVersionedState(new VersionedTestState("stored"));
+        var manager = new DefaultStateManager<VersionedTestState>(storage, static () => new("default"));
+        var staged = new VersionedTestState("staged") { Version = Guid.Empty };
+
+        manager.State = staged;
+
+        Assert.Equal(Guid.Empty, staged.Version);
+
+        await manager.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        Assert.NotEqual(Guid.Empty, staged.Version);
+    }
+
+    [Fact]
+    public async Task Write_that_definitely_did_not_persist_discards_the_unsaved_snapshot()
+    {
+        var stored = new TestState("stored");
+        var storage = new FakePersistentState(stored) { WriteException = new TimeoutException("write rejected") };
+        var manager = new RejectingStateManager(storage, static () => new("default"));
+        manager.State = new TestState("staged");
+
+        await Assert.ThrowsAsync<TimeoutException>(() => manager.SaveChangesAsync(TestContext.Current.CancellationToken));
+
+        Assert.Same(stored, manager.State);
+        Assert.Same(stored, storage.State);
+        Assert.False(manager.HasUnsavedChanges);
+    }
+
+    [Fact]
+    public async Task Repeated_assignment_does_not_drift_the_value_a_failed_write_reverts_to()
+    {
+        var stored = new TestState("stored");
+        var storage = new FakePersistentState(stored);
+        var manager = new RejectingStateManager(storage, static () => new("default"));
+        manager.State = new TestState("first");
+        manager.State = new TestState("second");
+        storage.WriteException = new TimeoutException("write rejected");
+
+        await Assert.ThrowsAsync<TimeoutException>(() => manager.SaveChangesAsync(TestContext.Current.CancellationToken));
+
+        Assert.Same(stored, manager.State);
+        Assert.False(manager.HasUnsavedChanges);
+    }
+
+    [Fact]
+    public async Task Ambiguous_write_confirmed_by_read_back_clears_the_unsaved_marker()
+    {
+        var staged = new TestState("staged");
+        var storage = new FakePersistentState(new TestState("stored"))
+        {
+            WriteException = new TimeoutException("write timeout"),
+            OnRead = state => state.State = new TestState("staged")
+        };
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        manager.State = staged;
+
+        await manager.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(staged, manager.State);
+        Assert.False(manager.HasUnsavedChanges);
+    }
+
+    [Fact]
+    public async Task Ambiguous_write_contradicted_by_read_back_adopts_storage_and_clears_the_unsaved_marker()
+    {
+        var persisted = new TestState("persisted");
+        var storage = new FakePersistentState(new TestState("stored"))
+        {
+            WriteException = new TimeoutException("write timeout"),
+            OnRead = state => state.State = persisted
+        };
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        manager.State = new TestState("staged");
+
+        await Assert.ThrowsAsync<TimeoutException>(() => manager.SaveChangesAsync(TestContext.Current.CancellationToken));
+
+        Assert.Same(persisted, manager.State);
+        Assert.False(manager.HasUnsavedChanges);
+    }
+
+    [Fact]
+    public async Task Write_that_fails_together_with_its_recovery_read_discards_the_unsaved_snapshot()
+    {
+        var stored = new TestState("stored");
+        var storage = new FakePersistentState(stored)
+        {
+            WriteException = new TimeoutException("write timeout"),
+            ReadException = new InvalidOperationException("read failed")
+        };
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        manager.State = new TestState("staged");
+
+        await Assert.ThrowsAsync<TimeoutException>(() => manager.SaveChangesAsync(TestContext.Current.CancellationToken));
+
+        Assert.Same(stored, manager.State);
+        Assert.Same(stored, storage.State);
+        Assert.False(manager.HasUnsavedChanges);
+    }
+
+    [Fact]
+    public async Task ReadAsync_discards_unsaved_changes()
+    {
+        // Assignment mirrors into the facet, so the fake must replay what storage holds on
+        // read the way a real provider does, instead of returning the staged value.
+        var storage = new FakePersistentState(new TestState("stored"))
+        {
+            OnRead = state => state.State = new TestState("stored")
+        };
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        manager.State = new TestState("staged");
+
+        await manager.ReadAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(new TestState("stored"), manager.State);
+        Assert.False(manager.HasUnsavedChanges);
+    }
+
+    [Fact]
+    public async Task ClearAsync_discards_unsaved_changes()
+    {
+        var storage = new FakePersistentState(new TestState("stored"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        manager.State = new TestState("staged");
+
+        await manager.ClearAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(new TestState("default"), manager.State);
+        Assert.False(manager.HasUnsavedChanges);
+    }
+
+    [Fact]
+    public async Task Clear_whose_default_factory_fails_still_clears_the_unsaved_marker()
+    {
+        var storage = new FakePersistentState(new TestState("stored"));
+        var failFactory = false;
+        var manager = new DefaultStateManager<TestState>(
+            storage,
+            () => failFactory ? throw new InvalidOperationException("factory failed") : new TestState("default"));
+        manager.State = new TestState("staged");
+        failFactory = true;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => manager.ClearAsync(TestContext.Current.CancellationToken));
+
+        // Storage was deleted before the factory ran. If the marker survived, the
+        // documented deactivation flush would write the staged value straight back over
+        // the record the grain just asked to delete.
+        Assert.False(manager.HasUnsavedChanges);
+
+        await manager.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, storage.WriteCount);
+    }
+
+    [Fact]
+    public async Task Assignment_during_an_in_flight_write_loses_to_the_write_it_interleaved_with()
+    {
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var next = new TestState("next");
+        var storage = new FakePersistentState(new TestState("stored")) { WriteCompletion = completion.Task };
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+
+        var write = manager.WriteAsync(next, TestContext.Current.CancellationToken);
+        manager.State = new TestState("staged");
+        completion.SetResult();
+        await write;
+
+        // Only reachable in a [Reentrant] grain or with interleaved reconciliation. The
+        // staged value never reached storage, so adopting it would mark a value storage
+        // never saw as durable and lose this write's fence. Discarding it costs one
+        // redelivery, which the next post run corrects.
+        Assert.Same(next, manager.State);
+        Assert.Same(next, storage.State);
+        Assert.False(manager.HasUnsavedChanges);
+
+        // The durable value, not just the fence. Assignment mirrors into the facet, and the
+        // facet is the same GrainState the provider still holds: replacing the value under
+        // an unfinished write would persist the staged snapshot in place of this write.
+        Assert.Same(next, storage.Persisted);
+    }
+
+    [Fact]
+    public async Task Read_that_cannot_resolve_its_loaded_state_still_clears_the_unsaved_marker()
+    {
+        var storage = new FakePersistentState(new TestState("stored"))
+        {
+            OnRead = state => state.State = null!
+        };
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        manager.State = new TestState("staged");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => manager.ReadAsync(TestContext.Current.CancellationToken));
+
+        // Storage answered, so the staged question is settled even though resolving the
+        // value failed. A surviving marker would let a later flush write the staged value
+        // back on top of the state that was just read.
+        Assert.False(manager.HasUnsavedChanges);
+
+        // And the staged value must not stay visible either: with the marker cleared it
+        // would be indistinguishable from durable state.
+        Assert.Equal(new TestState("stored"), manager.State);
+
+        await manager.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, storage.WriteCount);
+    }
+
     private sealed record TestState(string Value);
 
     private sealed record VersionedTestState(string Value) : VersionedState, IEquatable<VersionedTestState>;
+
+    // DefaultStateManager classifies every write failure as UnknownOutcome, which routes
+    // through read-back recovery. The DidNotPersist branch skips that, so it needs a
+    // manager that reports it.
+    private sealed class RejectingStateManager(IPersistentState<TestState> storage, Func<TestState> createInitialState)
+        : StateManagerBase<TestState>(storage, createInitialState)
+    {
+        protected override StorageFailureKind ClassifyWriteFailure(Exception exception) => StorageFailureKind.DidNotPersist;
+
+        protected override StorageFailureKind ClassifyClearFailure(Exception exception) => StorageFailureKind.DidNotPersist;
+    }
 
     private sealed class FakePersistentState : IPersistentState<TestState>
     {
@@ -549,6 +852,7 @@ public sealed class StateManagerTests
         public Exception? ClearException { get; set; }
         public Task? WriteCompletion { get; init; }
         public int WriteCount { get; private set; }
+        public TestState? Persisted { get; private set; }
         public Action<FakePersistentState>? OnRead { get; set; }
         public Action<FakePersistentState>? OnWrite { get; set; }
         public Action<FakePersistentState>? OnClear { get; set; }
@@ -577,7 +881,22 @@ public sealed class StateManagerTests
                 throw WriteException;
             }
 
-            return WriteCompletion ?? Task.CompletedTask;
+            if (WriteCompletion is null)
+            {
+                Persisted = State;
+                return Task.CompletedTask;
+            }
+
+            return CompleteAsync();
+
+            async Task CompleteAsync()
+            {
+                await WriteCompletion;
+
+                // A provider that serializes its GrainState after its first await sees
+                // whatever is in the facet by then, not what was there at the call.
+                Persisted = State;
+            }
         }
 
         public Task ClearStateAsync()

@@ -45,6 +45,30 @@ public sealed class StateManagerActivationTests(MessagingTestClusterFixture fixt
     }
 
     [Fact]
+    public async Task Deactivation_does_not_persist_unsaved_changes_on_its_own()
+    {
+        var grain = fixture.GrainFactory.GetGrain<IStagedStateGrain>(Guid.NewGuid());
+        await grain.SaveAsync("stored");
+
+        await grain.ChangeAndDeactivateAsync("staged");
+
+        // The library deliberately has no automatic flush: a lifecycle observer never sees
+        // the DeactivationReason, so it cannot tell an idle deactivation from a failure.
+        Assert.Equal("stored", await grain.GetValueAsync());
+    }
+
+    [Fact]
+    public async Task Grain_that_saves_on_deactivation_persists_its_unsaved_changes()
+    {
+        var grain = fixture.GrainFactory.GetGrain<IStagedStateFlushingGrain>(Guid.NewGuid());
+        await grain.SaveAsync("stored");
+
+        await grain.ChangeAndDeactivateAsync("staged");
+
+        Assert.Equal("staged", await grain.GetValueAsync());
+    }
+
+    [Fact]
     public async Task Constructor_registered_manager_uses_persisted_state_on_reactivation()
     {
         var grain = fixture.GrainFactory.GetGrain<IStateManagerActivationGrain>(Guid.NewGuid());
@@ -157,5 +181,78 @@ public sealed class StateManagerActivationGrain : Grain, IStateManagerActivation
     {
         await manager.WriteAsync(manager.State with { Value = value });
         DeactivateOnIdle();
+    }
+}
+
+public interface IStagedStateGrain : IGrainWithGuidKey
+{
+    Task SaveAsync(string value);
+    Task ChangeAndDeactivateAsync(string value);
+    Task<string> GetValueAsync();
+}
+
+public interface IStagedStateFlushingGrain : IGrainWithGuidKey
+{
+    Task SaveAsync(string value);
+    Task ChangeAndDeactivateAsync(string value);
+    Task<string> GetValueAsync();
+}
+
+public sealed class StagedStateGrain : Grain, IStagedStateGrain
+{
+    private readonly IStateManager<ActivationManagedState> manager;
+
+    public StagedStateGrain([PersistentState("state", "Default")] IPersistentState<ActivationManagedState> storage)
+        => manager = this.RegisterStateManager("Default", storage, static () => new() { Value = "default" });
+
+    public Task SaveAsync(string value) => manager.WriteAsync(manager.State with { Value = value });
+
+    public Task ChangeAndDeactivateAsync(string value)
+    {
+        manager.State = manager.State with { Value = value };
+        DeactivateOnIdle();
+        return Task.CompletedTask;
+    }
+
+    public Task<string> GetValueAsync() => Task.FromResult(manager.State.Value);
+}
+
+public sealed class StagedStateFlushingGrain : Grain, IStagedStateFlushingGrain
+{
+    private readonly IStateManager<ActivationManagedState> manager;
+
+    public StagedStateFlushingGrain([PersistentState("state", "Default")] IPersistentState<ActivationManagedState> storage)
+        => manager = this.RegisterStateManager("Default", storage, static () => new() { Value = "default" });
+
+    public Task SaveAsync(string value) => manager.WriteAsync(manager.State with { Value = value });
+
+    public Task ChangeAndDeactivateAsync(string value)
+    {
+        manager.State = manager.State with { Value = value };
+        DeactivateOnIdle();
+        return Task.CompletedTask;
+    }
+
+    public Task<string> GetValueAsync() => Task.FromResult(manager.State.Value);
+
+    public override async Task OnDeactivateAsync(DeactivationReason reason, CancellationToken cancellationToken)
+    {
+        // The idiom documented on IStateManager<T>.Stage. Deny-list rather than allow-list:
+        // an allow-list would silently drop staged data on ShuttingDown, which is an
+        // orderly, expected event on every deployment. Guarded because deactivation is
+        // not retried and its token can already be canceled on a forced shutdown.
+        if (reason.ReasonCode is not DeactivationReasonCode.Migrating)
+        {
+            try
+            {
+                await manager.SaveChangesAsync(cancellationToken);
+            }
+            catch (Exception)
+            {
+                // A real grain logs here; losing the staged value costs a redelivery.
+            }
+        }
+
+        await base.OnDeactivateAsync(reason, cancellationToken);
     }
 }

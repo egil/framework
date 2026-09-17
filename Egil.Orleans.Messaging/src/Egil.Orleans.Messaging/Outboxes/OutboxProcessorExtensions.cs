@@ -41,8 +41,10 @@ public static class OutboxProcessorExtensions
         ///         OutboxAccessor = () => stateManager.State.Outbox,
         ///         AcknowledgePostedAsync = async (items, ct) =>
         ///         {
-        ///             // remove exactly the delivered items (match items or their
-        ///             // stored IDs, never positions) and persist
+        ///             // Remove exactly the delivered items — match items or their stored
+        ///             // IDs, never positions — and persist. Or assign State and let
+        ///             // the next business write carry it; see OutboxProcessorOptions
+        ///             // &lt;TOutbox&gt;.AcknowledgePostedAsync for what deferring costs.
         ///         },
         ///         ReconcileFailedAsync = async (failures, ct) =>
         ///         {

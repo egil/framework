@@ -11,11 +11,15 @@ namespace Egil.Orleans.Messaging.State;
 /// <remarks>
 /// <para>
 /// <b>Committed-state fence:</b> <see cref="State"/> returns the last
-/// committed value, or the configured default when no record exists. During
-/// <see cref="WriteAsync"/>, the underlying
-/// <see cref="IPersistentState{T}"/>.State is mutated, but the caller's view
-/// is updated only after the write succeeds. On failure, the recovery path
-/// re-reads from storage to determine whether the write actually landed.
+/// committed value, the configured default when no record exists, or a value
+/// deliberately published by <see cref="State"/>. It never returns an
+/// in-flight write candidate: during <see cref="WriteAsync(T, CancellationToken)"/>
+/// the underlying <see cref="IPersistentState{T}"/>.State is mutated, but the
+/// caller's view is updated only after the write succeeds. On failure, the
+/// recovery path re-reads from storage to determine whether the write actually
+/// landed. An unsaved value is not a write candidate — its durability is knowingly
+/// deferred rather than unknown — which is why it is exposed and flagged instead
+/// of fenced. See the deferred-writes note below.
 /// </para>
 /// <para>
 /// <b>Version stamping:</b> If <typeparamref name="T"/> derives from
@@ -49,11 +53,21 @@ namespace Egil.Orleans.Messaging.State;
 /// </item>
 /// <item>
 ///   <term>Write throws, re-read also throws</term>
-///   <description>Double failure. <c>State</c> reverts to pre-write snapshot.
+///   <description>Double failure. <c>State</c> reverts to the last stored snapshot.
 ///   Original exception rethrown. Caller must call <see cref="ReadAsync"/>
 ///   before the next write to re-sync.</description>
 /// </item>
 /// </list>
+/// </para>
+/// <para>
+/// <b>Deferred writes:</b> the manager tracks two snapshots. <see cref="State"/> is what the
+/// grain sees and may hold a value published by <see cref="State"/>; alongside it
+/// the manager keeps the last value known to correspond to storage, which is what
+/// every recovery path above reverts to. Keeping them apart is what lets
+/// <see cref="State"/> be called repeatedly with no intervening write without the
+/// recovery baseline drifting onto a value storage never accepted. With nothing
+/// unsaved the two are the same reference, so every path behaves exactly as it does
+/// without deferred writes.
 /// </para>
 /// <para>
 /// <b>Concurrency:</b> Uses the storage provider's optimistic concurrency
@@ -61,9 +75,18 @@ namespace Egil.Orleans.Messaging.State;
 /// <c>InconsistentStateException</c>.
 /// </para>
 /// <para>
-/// <b>Thread safety:</b> Relies on Orleans turn-based concurrency. Not safe
-/// for <c>[Reentrant]</c> grains unless <see cref="State"/> is only read
-/// (never written) from interleaved calls.
+/// <b>Thread safety:</b> Relies on Orleans turn-based concurrency. In a
+/// <c>[Reentrant]</c> grain, do not let two storage mutations —
+/// <see cref="WriteAsync(T, CancellationToken)"/>, <see cref="ClearAsync"/> or
+/// <see cref="ReadAsync"/> — overlap; they share the storage facet and its ETag,
+/// and the manager does not serialize them.
+/// <see cref="State"/> is the exception, because it touches no storage: a
+/// stage that interleaves an in-flight write has a defined outcome, which is that
+/// the write adopts the value it wrote and the stage is discarded. That costs a
+/// redelivery for an outbox acknowledgement, never a lost write. Such a stage also
+/// leaves the storage facet alone until the operation finishes, because the provider
+/// may not have serialized it yet. Interleaved <em>reads</em> of <see cref="State"/>
+/// are always safe.
 /// </para>
 /// </remarks>
 /// <typeparam name="T">
@@ -76,6 +99,9 @@ public abstract class StateManagerBase<T> : IStateManager<T>
     private readonly Func<T> createInitialState;
     private readonly Action<T>? configureState;
     private T state;
+    private T lastStored;
+    private bool hasUnsavedChanges;
+    private bool operationInProgress;
 
     /// <summary>
     /// Initializes the manager over the grain's persistent state facet,
@@ -89,10 +115,12 @@ public abstract class StateManagerBase<T> : IStateManager<T>
     {
         ArgumentNullException.ThrowIfNull(storage);
         ArgumentNullException.ThrowIfNull(createInitialState);
+        ThrowIfFacetCannotBeReadBack(storage);
         this.storage = storage;
         this.createInitialState = createInitialState;
         this.configureState = configureState;
         state = ResolveLoadedState();
+        lastStored = state;
         storage.State = state;
         configureState?.Invoke(state);
     }
@@ -101,15 +129,57 @@ public abstract class StateManagerBase<T> : IStateManager<T>
     public T State
     {
         get => state;
+        set
+        {
+            ArgumentNullException.ThrowIfNull(value);
+
+            // Assignment is Adopt without the durability claim: the snapshot moves forward
+            // but lastStored keeps pointing at what storage holds, so repeated assignment
+            // never drifts the value a failed write falls back to.
+            //
+            // The facet is left alone while an operation is in progress. It holds the
+            // GrainState the provider was handed and a provider may serialize it after its
+            // first await, so replacing the value there would persist this snapshot instead
+            // of the one being written. It is also what ResolveLoadedState reads back, so an
+            // unsaved value left there would be adopted as if storage had returned it. The
+            // operation's own completion path re-establishes the facet either way, and an
+            // assignment that raced it is discarded. Only reachable under reentrancy or
+            // interleaved reconciliation.
+            hasUnsavedChanges = true;
+            Publish(value, mirrorToFacet: !operationInProgress);
+        }
     }
+
+    /// <inheritdoc/>
+    public bool HasUnsavedChanges => hasUnsavedChanges;
 
     /// <inheritdoc/>
     public async Task ReadAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        await storage.ReadStateAsync(cancellationToken);
-        Adopt(ResolveLoadedState());
+    // The guard spans the storage call and the reconciliation that follows it, not just
+    // the await. Adoption reads the facet back — ResolveLoadedState and the recovery
+    // comparison both do — so an assignment that slipped in between the two would be mistaken
+    // for what storage returned. Only assignment observes this, and only under reentrancy or
+    // interleaved reconciliation.
+        operationInProgress = true;
+        try
+        {
+            await storage.ReadStateAsync(cancellationToken);
+            AdoptLoadedState();
+        }
+        finally
+        {
+            operationInProgress = false;
+        }
     }
+
+    /// <inheritdoc/>
+    public Task SaveChangesAsync(CancellationToken cancellationToken = default)
+        // Deliberately does not observe the token when there is nothing to write: this
+        // method exists to be called unconditionally from deactivation hooks, where the
+        // token is routinely already canceled.
+        => hasUnsavedChanges ? WriteAsync(state, cancellationToken) : Task.CompletedTask;
 
     /// <inheritdoc/>
     public async Task WriteAsync(T newState, CancellationToken cancellationToken = default)
@@ -117,13 +187,29 @@ public abstract class StateManagerBase<T> : IStateManager<T>
         ArgumentNullException.ThrowIfNull(newState);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var previousState = state;
-
         if (newState is VersionedState versioned)
         {
             versioned.Version = Guid.CreateVersion7();
         }
 
+        // The guard spans the storage call and the reconciliation that follows it, not just
+        // the await. Adoption reads the facet back — ResolveLoadedState and the recovery
+        // comparison both do — so an assignment that slipped in between the two would be mistaken
+        // for what storage returned. Only assignment observes this, and only under reentrancy or
+        // interleaved reconciliation.
+        operationInProgress = true;
+        try
+        {
+            await WriteCoreAsync(newState, cancellationToken);
+        }
+        finally
+        {
+            operationInProgress = false;
+        }
+    }
+
+    private async Task WriteCoreAsync(T newState, CancellationToken cancellationToken)
+    {
         storage.State = newState;
 
         try
@@ -137,11 +223,11 @@ public abstract class StateManagerBase<T> : IStateManager<T>
             {
                 // Provider-specific classification says the write never reached durable storage.
                 // Revert our local fence immediately and rethrow the original write error.
-                RestoreState(previousState);
+                RestoreState();
                 throw;
             }
 
-            if (!await TryReadForRecoveryAsync(previousState, cancellationToken))
+            if (!await TryReadForRecoveryAsync(cancellationToken))
             {
                 throw;
             }
@@ -149,7 +235,7 @@ public abstract class StateManagerBase<T> : IStateManager<T>
             // The read succeeded. Validation and user configuration are not storage
             // failures: let them propagate instead of hiding them behind the write error.
             T? persisted = storage.State;
-            Adopt(ResolveLoadedState());
+            AdoptLoadedState();
             if (ex is not InconsistentStateException && storage.RecordExists && IsEquivalent(persisted, newState))
             {
                 return;
@@ -161,16 +247,32 @@ public abstract class StateManagerBase<T> : IStateManager<T>
             throw;
         }
 
-        // The write is complete. A callback failure must not trigger another storage
-        // read or be mistaken for a lost response and silently retried.
-        Adopt(storage.State);
+        // The write is complete, so newState is what storage holds. Adopting it rather
+        // than re-reading the facet matters when an assignment interleaved with the await:
+        // the facet would then hold the unsaved value, and adopting that would mark a
+        // value storage never saw as durable and lose this write's fence.
+        // A callback failure must not trigger another storage read or be mistaken for
+        // a lost response and silently retried.
+        Adopt(newState);
     }
 
     /// <inheritdoc/>
     public async Task ClearAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var previousState = state;
+        operationInProgress = true;
+        try
+        {
+            await ClearCoreAsync(cancellationToken);
+        }
+        finally
+        {
+            operationInProgress = false;
+        }
+    }
+
+    private async Task ClearCoreAsync(CancellationToken cancellationToken)
+    {
         try
         {
             await storage.ClearStateAsync(cancellationToken);
@@ -179,18 +281,18 @@ public abstract class StateManagerBase<T> : IStateManager<T>
         {
             if (ClassifyClearFailure(ex) is StorageFailureKind.DidNotPersist)
             {
-                RestoreState(previousState);
+                RestoreState();
                 throw;
             }
 
-            if (!await TryReadForRecoveryAsync(previousState, cancellationToken))
+            if (!await TryReadForRecoveryAsync(cancellationToken))
             {
                 throw;
             }
 
             // Once storage has returned a record (or confirmed its absence), state
             // validation and configuration failures belong to the caller, not recovery.
-            Adopt(ResolveLoadedState());
+            AdoptLoadedState();
             if (ex is not InconsistentStateException && !storage.RecordExists)
             {
                 return;
@@ -206,10 +308,14 @@ public abstract class StateManagerBase<T> : IStateManager<T>
         // requested deletion. A valid, non-null default is the caller's contract;
         // if it is violated, no usable-state guarantee applies to this manager.
         // In particular, its previous snapshot must not be treated as persisted data.
+        // The unsaved question is settled first, before the factory can throw: a
+        // deactivation flush must never write an unsaved value back over a record the
+        // grain just asked to delete.
+        hasUnsavedChanges = false;
         Adopt(CreateInitialState());
     }
 
-    private async Task<bool> TryReadForRecoveryAsync(T previousState, CancellationToken cancellationToken)
+    private async Task<bool> TryReadForRecoveryAsync(CancellationToken cancellationToken)
     {
         try
         {
@@ -223,7 +329,7 @@ public abstract class StateManagerBase<T> : IStateManager<T>
         {
             // Only a failed storage read leaves durability unknown. Restore the local
             // snapshot and let the caller rethrow the original write/clear exception.
-            RestoreState(previousState);
+            RestoreState();
             return false;
         }
     }
@@ -244,7 +350,7 @@ public abstract class StateManagerBase<T> : IStateManager<T>
 
     /// <summary>
     /// Decides whether a read-back state proves an ambiguous write actually
-    /// landed (the "lost response" case in <see cref="WriteAsync"/>).
+    /// landed (the "lost response" case in <see cref="WriteAsync(T, CancellationToken)"/>).
     /// </summary>
     /// <remarks>
     /// For non-<see cref="VersionedState"/> types this delegates to the state
@@ -273,6 +379,59 @@ public abstract class StateManagerBase<T> : IStateManager<T>
         return persisted.Equals(attempted);
     }
 
+    private static void ThrowIfFacetCannotBeReadBack(IPersistentState<T> storage)
+    {
+        // Orleans.Journaling's DurableState<T> is an IPersistentState<T> whose
+        // ReadStateAsync is a no-op: a journal is replayed at activation rather than
+        // re-read on demand. This manager resolves an ambiguous write by reading the
+        // record back, so against a journaled facet it would compare the attempted value
+        // with itself, find them equal, and report a failed write as a successful one.
+        // No configuration makes that combination safe, so refuse it at construction.
+        //
+        // Matched by interface name rather than by type: IJournaledState is public in
+        // that package while DurableState<T> is internal, and this library does not
+        // reference it. A rename upstream costs us the detection, never a false positive.
+        foreach (var contract in storage.GetType().GetInterfaces())
+        {
+            if (!string.Equals(contract.FullName, "Orleans.Journaling.IJournaledState", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            throw new NotSupportedException(
+                $"'{storage.GetType().FullName}' is a journaled state. Its ReadStateAsync does not re-read " +
+                $"storage, and {nameof(IStateManager<T>)}<T> resolves an ambiguous write by reading the record " +
+                "back, so it would report a failed write as a successful one. Use the journal's own durability " +
+                "rather than wrapping it, or supply a facet backed by an IGrainStorage provider.");
+        }
+    }
+
+    private void AdoptLoadedState()
+    {
+        // Storage has answered, so the unsaved question is settled whatever resolving the
+        // value does next. Clearing first means an invalid record or a throwing default
+        // factory cannot leave a stale unsaved value behind for a later flush to write
+        // back, on top of the state it just read.
+        hasUnsavedChanges = false;
+
+        T loaded;
+        try
+        {
+            loaded = ResolveLoadedState();
+        }
+        catch
+        {
+            // The answer could not be turned into a usable state. Fall back to the last
+            // stored value rather than leaving an unsaved one visible: with the marker
+            // already cleared it would be indistinguishable from durable state, which is
+            // the one thing worse than reporting the failure.
+            RestoreState();
+            throw;
+        }
+
+        Adopt(loaded);
+    }
+
     private T ResolveLoadedState() => storage.RecordExists
         ? storage.State ?? throw new InvalidOperationException("An existing state record contained null.")
         : CreateInitialState();
@@ -282,18 +441,34 @@ public abstract class StateManagerBase<T> : IStateManager<T>
 
     private void Adopt(T value)
     {
+        // The value is known to match storage, so it becomes the baseline recovery falls
+        // back to and settles the durability question for anything assigned before it.
+        lastStored = value;
+        hasUnsavedChanges = false;
+        Publish(value, mirrorToFacet: true);
+    }
+
+    private void Publish(T value, bool mirrorToFacet)
+    {
         // Publish the new snapshot before invoking caller code: a callback may read
         // the manager or raw facet as well as its argument. If configuration fails,
-        // keep the adopted durable snapshot visible and report the callback failure.
-        storage.State = value;
+        // keep the published snapshot visible and report the callback failure.
+        if (mirrorToFacet)
+        {
+            storage.State = value;
+        }
+
         state = value;
         configureState?.Invoke(value);
     }
 
-    private void RestoreState(T previousState)
+    private void RestoreState()
     {
-        state = previousState;
-
-        storage.State = previousState;
+        // A resolved failure discards unsaved work rather than preserving it: the fence
+        // must fall back to a value storage actually holds. For an outbox that costs a
+        // redelivery of the already-delivered batch, which the next post run corrects.
+        state = lastStored;
+        storage.State = lastStored;
+        hasUnsavedChanges = false;
     }
 }
