@@ -22,6 +22,45 @@ public sealed class StateManagerExtensionsTests
     }
 
     [Fact]
+    public void RegisterStateManagerCore_resolves_the_default_factory_when_no_name_is_given()
+    {
+        var services = new ServiceCollection();
+        services.AddDefaultStateManager();
+        var provider = services.BuildServiceProvider();
+        var storage = new FakePersistentState(new TestState("initial"));
+
+        var manager = StateManagerExtensions.RegisterStateManagerCore(
+            provider,
+            storageName: null,
+            storage,
+            typeof(StateManagerExtensionsTests), static () => new TestState("default"));
+
+        Assert.NotNull(manager);
+        Assert.Equal(new TestState("initial"), manager.State);
+    }
+
+    [Fact]
+    public void RegisterStateManagerCore_throws_for_a_missing_default_registration()
+    {
+        // A keyed registration does not satisfy the nameless path: the whole point of
+        // naming is to pick one of several, and guessing which would be worse than saying so.
+        var services = new ServiceCollection();
+        services.AddDefaultStateManager("Default");
+        var provider = services.BuildServiceProvider();
+        var storage = new FakePersistentState(new TestState("initial"));
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            StateManagerExtensions.RegisterStateManagerCore(
+                provider,
+                storageName: null,
+                storage,
+                typeof(StateManagerExtensionsTests), static () => new TestState("default")));
+
+        Assert.Contains("No default IStateManagerFactory", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("AddDefaultStateManager()", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void RegisterStateManagerCore_throws_for_missing_keyed_registration()
     {
         var provider = new ServiceCollection().BuildServiceProvider();
