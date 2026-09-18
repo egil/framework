@@ -39,20 +39,18 @@ public sealed class StronglyTypedSchemaTransformerTest(OpenApiDocumentFixture fi
         Assert.Equal(primitive.ToJsonString(), stronglyTyped.ToJsonString());
     }
 
-    [Fact]
-    public void Nullable_value_type_property_admits_null_and_is_documented_like_its_primitive()
+    [Theory]
+    [InlineData("nullableIntValue", "integer", "int32")]
+    [InlineData("nullableStringValue", "string", null)]
+    public void Nullable_property_admits_null_and_is_documented_like_its_primitive(string property, string type, string? format)
     {
-        var schema = fixture.PropertySchema<StronglyTypedScalars>("nullableIntValue");
+        var stronglyTyped = fixture.SplitNullable(fixture.PropertySchema<StronglyTypedScalars>(property));
+        var primitive = fixture.SplitNullable(fixture.PropertySchema<PlainScalars>(property));
 
-        AssertNullablePrimitiveSchema(schema, "integer", "int32");
-    }
-
-    [Fact]
-    public void Nullable_reference_type_property_admits_null_and_is_documented_like_its_primitive()
-    {
-        var schema = fixture.PropertySchema<StronglyTypedScalars>("nullableStringValue");
-
-        AssertNullablePrimitiveSchema(schema, "string", null);
+        Assert.True(stronglyTyped.AdmitsNull);
+        Assert.True(primitive.AdmitsNull);
+        AssertPrimitiveSchema(stronglyTyped.Value, type, format);
+        Assert.Equal(primitive.Value.ToJsonString(), stronglyTyped.Value.ToJsonString());
     }
 
     [Theory]
@@ -128,23 +126,6 @@ public sealed class StronglyTypedSchemaTransformerTest(OpenApiDocumentFixture fi
         Assert.Contains(type, types);
         Assert.Equal(format, schema["format"]?.GetValue<string>());
         Assert.Null(schema["properties"]);
-    }
-
-    // OpenAPI 3.0 (.NET 9) marks the schema itself with "nullable": true, while 3.1 and later
-    // (.NET 10 onwards) wrap the wrapper's reference in oneOf: [{ "type": "null" }, { "$ref": ... }].
-    private void AssertNullablePrimitiveSchema(JsonNode schema, string type, string? format)
-    {
-        if (schema["oneOf"] is JsonArray alternatives)
-        {
-            Assert.Contains(alternatives, alternative => alternative?["type"]?.GetValue<string>() == "null");
-            var value = Assert.Single(alternatives, alternative => alternative?["type"]?.GetValue<string>() != "null");
-            AssertPrimitiveSchema(fixture.Resolve(value!), type, format);
-        }
-        else
-        {
-            Assert.True(schema["nullable"]?.GetValue<bool>());
-            AssertPrimitiveSchema(schema, type, format);
-        }
     }
 }
 
@@ -263,4 +244,40 @@ public sealed class OpenApiDocumentFixture : IAsyncLifetime
         => schema["$ref"] is { } reference
             ? document["components"]!["schemas"]![reference.GetValue<string>().Split('/')[^1]]!
             : schema;
+
+    // The framework spells "may be null" three ways, and a strongly typed property and its plain
+    // twin do not always get the same one: OpenAPI 3.0 (.NET 9) sets "nullable": true on the schema
+    // (inline for a plain primitive, on a NullableOfX component for a wrapper); 3.1 and later
+    // (.NET 10 onwards) add "null" to a plain primitive's "type" array but wrap a component
+    // reference as oneOf: [{ "type": "null" }, { "$ref": ... }]. Splitting the null marker off
+    // leaves the value schema, which must match the primitive's exactly.
+    public (JsonNode Value, bool AdmitsNull) SplitNullable(JsonNode schema)
+    {
+        if (schema["oneOf"] is JsonArray alternatives)
+        {
+            var admitsNull = alternatives.Count == 2 && alternatives.Any(IsNullSchema);
+            var referenced = alternatives.Single(alternative => !IsNullSchema(alternative));
+            return (Resolve(referenced!).DeepClone(), admitsNull);
+        }
+
+        var value = schema.DeepClone().AsObject();
+
+        if (value["nullable"]?.GetValue<bool>() == true)
+        {
+            value.Remove("nullable");
+            return (value, true);
+        }
+
+        if (value["type"] is JsonArray types && types.Any(type => type!.GetValue<string>() == "null"))
+        {
+            var remaining = types.Where(type => type!.GetValue<string>() != "null").Select(type => type!.GetValue<string>()).ToList();
+            value["type"] = remaining.Count == 1 ? remaining[0] : new JsonArray(remaining.Select(type => (JsonNode)type).ToArray());
+            return (value, true);
+        }
+
+        return (value, false);
+    }
+
+    private static bool IsNullSchema(JsonNode? schema)
+        => schema?["type"]?.GetValue<string>() == "null";
 }
