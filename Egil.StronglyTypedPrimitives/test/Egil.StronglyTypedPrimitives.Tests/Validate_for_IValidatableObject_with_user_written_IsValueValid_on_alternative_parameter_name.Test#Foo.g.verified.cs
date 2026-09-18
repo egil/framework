@@ -128,7 +128,7 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
     {
         try
         {
-            if (IsValueValid(Data, throwIfInvalid: true)) return System.Array.Empty<System.ComponentModel.DataAnnotations.ValidationResult>();
+            if (IsValueValid(this.Data, throwIfInvalid: true)) return System.Array.Empty<System.ComponentModel.DataAnnotations.ValidationResult>();
         }
         catch (System.Exception ex) when (ex is System.ArgumentException or System.ComponentModel.DataAnnotations.ValidationException)
         {

@@ -25,18 +25,20 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
         return value;
     }
 
-    private readonly int @value = ThrowIfValueIsInvalid(Value);
+    private readonly int @validationcontext = ThrowIfValueIsInvalid(validationContext);
 
-    public int Value
+    public int validationContext
     {
-        get => @value;
+        get => @validationcontext;
         init
         {
-            @value = ThrowIfValueIsInvalid(value);
+            @validationcontext = ThrowIfValueIsInvalid(value);
         }
     }
 
-    public override string ToString() => Value.ToString();
+    int Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<SomeNamespace.Foo, int>.Value => validationContext;
+
+    public override string ToString() => validationContext.ToString();
 
     public static Foo Parse(string s, System.IFormatProvider? provider)
     {
@@ -96,7 +98,7 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
     }
     
     public int CompareTo(SomeNamespace.Foo other)
-        => Value.CompareTo(other.Value);
+        => validationContext.CompareTo(other.validationContext);
     
     public int CompareTo(object? obj)
     {
@@ -107,30 +109,30 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
 
         if (obj is Foo other)
         {
-            return Value.CompareTo(other.Value);
+            return validationContext.CompareTo(other.validationContext);
         }
 
-        return ((System.IComparable)Value).CompareTo(obj);
+        return ((System.IComparable)validationContext).CompareTo(obj);
     }
     
     public string ToString(string? format, System.IFormatProvider? formatProvider)
-        => Value.ToString(format, formatProvider);
+        => validationContext.ToString(format, formatProvider);
     
     public bool TryFormat(System.Span<char> destination, out int charsWritten, System.ReadOnlySpan<char> format, System.IFormatProvider? provider)
-        => ((System.ISpanFormattable)Value).TryFormat(destination, out charsWritten, format, provider);
+        => ((System.ISpanFormattable)validationContext).TryFormat(destination, out charsWritten, format, provider);
     
     public bool TryFormat(System.Span<byte> utf8Destination, out int bytesWritten, System.ReadOnlySpan<char> format, System.IFormatProvider? provider)
-        => ((System.IUtf8SpanFormattable)Value).TryFormat(utf8Destination, out bytesWritten, format, provider);
+        => ((System.IUtf8SpanFormattable)validationContext).TryFormat(utf8Destination, out bytesWritten, format, provider);
 
-    public System.Collections.Generic.IEnumerable<System.ComponentModel.DataAnnotations.ValidationResult> Validate(System.ComponentModel.DataAnnotations.ValidationContext validationContext)
+    public System.Collections.Generic.IEnumerable<System.ComponentModel.DataAnnotations.ValidationResult> Validate(System.ComponentModel.DataAnnotations.ValidationContext validationContext_)
     {
         try
         {
-            if (IsValueValid(this.Value, throwIfInvalid: true)) return System.Array.Empty<System.ComponentModel.DataAnnotations.ValidationResult>();
+            if (IsValueValid(this.validationContext, throwIfInvalid: true)) return System.Array.Empty<System.ComponentModel.DataAnnotations.ValidationResult>();
         }
-        catch (System.Exception ex) when (ex is System.ArgumentException or System.ComponentModel.DataAnnotations.ValidationException)
+        catch (System.Exception ex_) when (ex_ is System.ArgumentException or System.ComponentModel.DataAnnotations.ValidationException)
         {
-            return new[] { new System.ComponentModel.DataAnnotations.ValidationResult(ex.Message) };
+            return new[] { new System.ComponentModel.DataAnnotations.ValidationResult(ex_.Message) };
         }
         return new[] { new System.ComponentModel.DataAnnotations.ValidationResult("Value is not valid.") };
     }

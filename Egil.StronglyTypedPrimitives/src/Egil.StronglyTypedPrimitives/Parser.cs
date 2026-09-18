@@ -65,7 +65,7 @@ internal static class Parser
         {
             parameterSymbol.ContainingType.Name,
         };
-        var validatorsTypeName = GetUnusedMemberName(ValidationAttributeModel.PreferredValidatorsTypeName, reservedNames);
+        var validatorsTypeName = GetUnusedName(ValidationAttributeModel.PreferredValidatorsTypeName, reservedNames);
         var attributes = ImmutableArray.CreateBuilder<ValidationAttributeInfo>();
         var asyncAttributes = ImmutableArray.CreateBuilder<ValidationAttributeInfo>();
         var contextAttributes = ImmutableArray.CreateBuilder<ValidationAttributeInfo>();
@@ -117,7 +117,7 @@ internal static class Parser
         var name = SymbolDisplay.FormatLiteral(parameterName, quote: true);
 
         return new InvariantContextInfo(
-            GetUnusedMemberName(ValidationAttributeModel.PreferredInvariantContextFactoryName, holderMemberNames),
+            GetUnusedName(ValidationAttributeModel.PreferredInvariantContextFactoryName, holderMemberNames),
             hasTrimSafeConstructor
                 ? $"new global::{ValidationContextTypeName}(new object(), {name}, null, null) {{ MemberName = {name} }}"
                 : $"new global::{ValidationContextTypeName}(new object()) {{ MemberName = {name}, DisplayName = {name} }}",
@@ -151,8 +151,10 @@ internal static class Parser
         return false;
     }
 
-    // Appending underscores keeps the name recognisable and deterministic.
-    private static string GetUnusedMemberName(string preferredName, HashSet<string> reservedNames)
+    // Appending underscores keeps the name recognisable and deterministic; the chosen name is
+    // reserved as well so a later name cannot land on it. Shared with the generated Validate,
+    // whose parameter and locals must stay clear of the positional parameter and user members.
+    internal static string GetUnusedName(string preferredName, HashSet<string> reservedNames)
     {
         var name = preferredName;
         while (!reservedNames.Add(name))
