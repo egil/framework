@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -85,6 +87,11 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
                 var generated = GenerateStronglyTypedSource(stronglyTypedInfo, compilation);
                 spc.AddSource($"{stronglyTypedInfo.Target.Identifier.Text}.g.cs", generated.Source);
 
+                foreach (var diagnostic in generated.Diagnostics)
+                {
+                    spc.ReportDiagnostic(diagnostic);
+                }
+
                 if (compilationHasJsonSerializerContext && generated.JsonConverterSupport is JsonConverterSupport.GenerateAttribute)
                 {
                     spc.ReportDiagnostic(Diagnostic.Create(
@@ -109,7 +116,12 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         => attribute.AttributeClass?.Name == "StronglyTyped"
         || attribute.AttributeClass?.Name == "StronglyTypedAttribute";
 
-    private sealed record GeneratedSource(string Source, JsonConverterSupport JsonConverterSupport, string TargetTypeName, string UnderlyingTypeName);
+    private sealed record GeneratedSource(
+        string Source,
+        JsonConverterSupport JsonConverterSupport,
+        string TargetTypeName,
+        string UnderlyingTypeName,
+        ImmutableArray<Diagnostic> Diagnostics);
 
     private static GeneratedSource GenerateStronglyTypedSource(StronglyTypedTypeInfo info, Compilation compilation)
     {
@@ -180,6 +192,9 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         var targetTypeName = targetTypeSymbol.ToDisplayString();
         var underlyingTypeName = underlyingTypeSymbol.WithNullableAnnotation(NullableAnnotation.None).ToDisplayString();
 
+        var validationAttributes = Parser.GetValidationAttributes(info.Parameter, semanticModel, targetTypeMembers);
+        var diagnostics = GetValidationAttributeDiagnostics(info, validationAttributes, hasUserDeclaredIsValueValid);
+
         string?[] typeParts = [
             CodeHeader,
             GetNamespaceDefinition(info),
@@ -189,10 +204,10 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             "{",
             .. GetEmptyProperty(info, targetTypeMembers, underlyingTypeSymbol),
             .. GetCreateMethod(info, targetTypeMembers, targetTypeSymbol, selfInterface, underlyingTypeSymbol),
-            .. GetValueProperty(info, targetTypeMembers, underlyingTypeSymbol, isCSharp14OrGreater, hasUserDeclaredIsValueValid),
+            .. GetValueProperty(info, targetTypeMembers, underlyingTypeSymbol, isCSharp14OrGreater, hasUserDeclaredIsValueValid, validationAttributes),
             .. GetSelfInterfaceValueProperty(info, targetTypeMembers, selfInterface, underlyingTypeSymbol),
             .. GetToStringMethod(info, targetTypeMembers, underlyingTypeSymbol),
-            .. GetIsValueValidMethod(underlyingTypeSymbol, hasUserDeclaredIsValueValid),
+            .. GetIsValueValidMethod(info, underlyingTypeSymbol, hasUserDeclaredIsValueValid, validationAttributes),
             .. GetInterfaceSymbols(info, unimplementedSymbols, underlyingTypeSymbol),
             .. GetOperatorOverloads(info, targetTypeSymbol, targetTypeMembers),
             "}"
@@ -202,7 +217,40 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             string.Join("\n", typeParts.OfType<string>()),
             jsonConverterSupport,
             targetTypeName,
-            underlyingTypeName);
+            underlyingTypeName,
+            diagnostics);
+    }
+
+    private static ImmutableArray<Diagnostic> GetValidationAttributeDiagnostics(StronglyTypedTypeInfo info, ValidationAttributeModel validationAttributes, bool hasUserDeclaredIsValueValid)
+    {
+        var diagnostics = ImmutableArray.CreateBuilder<Diagnostic>();
+        var typeName = info.Target.Identifier.Text;
+        var parameterName = info.Parameter.Identifier.Text;
+
+        if (hasUserDeclaredIsValueValid)
+        {
+            foreach (var attribute in validationAttributes.Attributes)
+            {
+                diagnostics.Add(Diagnostic.Create(
+                    DiagnosticDescriptors.ValidationAttributesIgnoredByUserIsValueValid,
+                    attribute.Location,
+                    attribute.AttributeTypeName,
+                    parameterName,
+                    typeName));
+            }
+        }
+
+        foreach (var attribute in validationAttributes.AsyncAttributes)
+        {
+            diagnostics.Add(Diagnostic.Create(
+                DiagnosticDescriptors.AsyncValidationAttributeNotPartOfValueInvariant,
+                attribute.Location,
+                attribute.AttributeTypeName,
+                parameterName,
+                typeName));
+        }
+
+        return diagnostics.ToImmutable();
     }
 
     internal static string? GetNamespaceDefinition(StronglyTypedTypeInfo info)
@@ -277,26 +325,80 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
                    && (secondParameterType is null || m.Parameters[1].Type.Equals(secondParameterType, SymbolEqualityComparer.Default))
                    && m.ReturnType.Equals(returnType, SymbolEqualityComparer.Default));
 
-    private static IEnumerable<string> GetIsValueValidMethod(ITypeSymbol underlyingTypeSymbol, bool hasUserDeclaredIsValueValid)
+    private static IEnumerable<string> GetIsValueValidMethod(StronglyTypedTypeInfo info, ITypeSymbol underlyingTypeSymbol, bool hasUserDeclaredIsValueValid, ValidationAttributeModel validationAttributes)
     {
         if (hasUserDeclaredIsValueValid)
         {
             yield break;
         }
 
-        yield return $$"""
+        if (validationAttributes.Attributes.IsEmpty)
+        {
+            yield return $$"""
 
-            [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-            public static bool IsValueValid({{underlyingTypeSymbol.ToDisplayString()}} value, bool throwIfInvalid)
-                => true;
-        """;
+                [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+                public static bool IsValueValid({{underlyingTypeSymbol.ToDisplayString()}} value, bool throwIfInvalid)
+                    => true;
+            """;
+            yield break;
+        }
+
+        // Each attribute gets its own field, check and error local so the method stays a flat
+        // sequence of statements: no collections, loops or helpers to trim or allocate. With
+        // throwIfInvalid the checks keep going after a failure so the exception can report every
+        // violated attribute at once; without it the first failure is the answer.
+        var attributes = validationAttributes.Attributes;
+        var parameterName = info.Parameter.Identifier.Text;
+        var source = new StringBuilder();
+
+        foreach (var attribute in attributes)
+        {
+            source.Append($"\n    private static readonly {attribute.AttributeTypeName} {attribute.FieldName} = {attribute.CreationExpression};");
+        }
+
+        source.Append($"\n\n    public static bool IsValueValid({underlyingTypeSymbol.ToDisplayString()} value, bool throwIfInvalid)\n    {{");
+
+        foreach (var attribute in attributes)
+        {
+            source.Append($"\n        string? error{attribute.Index} = null;");
+        }
+
+        source.Append('\n');
+
+        foreach (var attribute in attributes)
+        {
+            source.Append($$"""
+
+                        if (!{{attribute.FieldName}}.IsValid(value))
+                        {
+                            if (!throwIfInvalid) return false;
+                            error{{attribute.Index}} = {{attribute.FieldName}}.FormatErrorMessage("{{parameterName}}");
+                        }
+
+                """);
+        }
+
+        source.Append($"\n        if ({string.Join(" && ", attributes.Select(attribute => $"error{attribute.Index} is null"))}) return true;");
+        source.Append("\n\n        var message = string.Empty;");
+
+        foreach (var attribute in attributes)
+        {
+            source.Append(attribute.Index == 0
+                ? $"\n        if (error0 is not null) message = error0;"
+                : $"\n        if (error{attribute.Index} is not null) message = message.Length == 0 ? error{attribute.Index} : message + System.Environment.NewLine + error{attribute.Index};");
+        }
+
+        source.Append("\n        throw new System.ComponentModel.DataAnnotations.ValidationException(message, null, value);\n    }");
+
+        yield return source.ToString();
     }
 
-    internal static IEnumerable<string> GetValueProperty(StronglyTypedTypeInfo info, IEnumerable<ISymbol> targetTypeMembers, ITypeSymbol underlyingTypeSymbol, bool isCSharp14OrGreater, bool hasUserDeclaredIsValueValid)
+    internal static IEnumerable<string> GetValueProperty(StronglyTypedTypeInfo info, IEnumerable<ISymbol> targetTypeMembers, ITypeSymbol underlyingTypeSymbol, bool isCSharp14OrGreater, bool hasUserDeclaredIsValueValid, ValidationAttributeModel validationAttributes)
     {
-        // The generated IsValueValid accepts everything, so the validating property wrapper is
-        // only worth generating when the user supplied their own IsValueValid.
-        if (!hasUserDeclaredIsValueValid)
+        // Without a user-written IsValueValid or validation attributes every value is valid, so
+        // the positional property is left to the compiler instead of routing it through a check
+        // that always passes.
+        if (!hasUserDeclaredIsValueValid && validationAttributes.Attributes.IsEmpty)
         {
             yield break;
         }

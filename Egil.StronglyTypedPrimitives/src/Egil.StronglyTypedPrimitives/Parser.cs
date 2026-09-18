@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -6,6 +7,13 @@ namespace Egil.StronglyTypedPrimitives;
 
 internal static class Parser
 {
+    private const string ValidationAttributeTypeName = "System.ComponentModel.DataAnnotations.ValidationAttribute";
+
+    // Only exists from .NET 11 on. Matching on the base type name means a compilation that cannot
+    // see the type simply has no async attributes, without a separate lookup that has to be
+    // tolerant of the type being absent.
+    private const string AsyncValidationAttributeTypeName = "System.ComponentModel.DataAnnotations.AsyncValidationAttribute";
+
     internal static string? GetNamespace(RecordDeclarationSyntax structSymbol)
     {
         SyntaxNode? potentialNamespaceParent = structSymbol.Parent;
@@ -36,229 +44,111 @@ internal static class Parser
         return null;
     }
 
-    internal static bool HasExistingIsValueValidMethod(StronglyTypedTypeInfo info, SemanticModel semanticModel)
+    // Only attributes applied to the parameter itself take part. That is the default target on a
+    // positional record parameter and the parameter symbol is what carries them, so attributes the
+    // user redirected with property: or field: never show up here.
+    internal static ValidationAttributeModel GetValidationAttributes(ParameterSyntax parameter, SemanticModel semanticModel, IEnumerable<ISymbol> targetTypeMembers)
     {
-        var typeSymbol = semanticModel.GetDeclaredSymbol(info.Target)!;
-        var underlyingTypeSymbol = semanticModel.GetTypeInfo(info.UnderlyingType).Type;
-        return typeSymbol.GetMembers()
-            .OfType<IMethodSymbol>()
-            .Any(m => m.Name == "IsValueValid"
-                && m.IsStatic
-                && m.Parameters.Length == 2
-                && m.Parameters[0].Type.Equals(underlyingTypeSymbol, SymbolEqualityComparer.Default)
-                && m.Parameters[1].Type.SpecialType == SpecialType.System_Boolean
-                && m.Parameters[1].Name == "throwIfInvalid");
-    }
-
-    internal static (bool HasParse, bool HasTryParse) HasExistingIParsableImplementation(StronglyTypedTypeInfo info, SemanticModel semanticModel)
-    {
-        var typeSymbol = semanticModel.GetDeclaredSymbol(info.Target);
-        bool hasParse = false;
-        bool hasTryParse = false;
-
-        if (typeSymbol is null)
+        if (semanticModel.GetDeclaredSymbol(parameter) is not { } parameterSymbol)
         {
-            return (hasParse, hasTryParse);
+            return ValidationAttributeModel.Empty;
         }
 
-        var iformatProviderTypeSymbol = semanticModel.Compilation.GetTypeByMetadataName("System.IFormatProvider");
-
-        foreach (var member in typeSymbol.GetMembers())
-        {
-            if (member is IMethodSymbol method && method.IsStatic && method.MethodKind == MethodKind.Ordinary)
-            {
-                if (method.Name == "Parse" &&
-                    method.Parameters.Length == 2 &&
-                    method.Parameters[0].Type.SpecialType == SpecialType.System_String &&
-                    method.Parameters[1].Type.Equals(iformatProviderTypeSymbol, SymbolEqualityComparer.Default))
-                {
-                    hasParse = true;
-                }
-                else if (method.Name == "TryParse" &&
-                         method.Parameters.Length == 3 &&
-                         method.Parameters[0].Type.SpecialType == SpecialType.System_String &&
-                         method.Parameters[1].Type.Equals(iformatProviderTypeSymbol, SymbolEqualityComparer.Default) &&
-                         method.Parameters[2].RefKind == RefKind.Out &&
-                         method.Parameters[2].Type.Equals(typeSymbol, SymbolEqualityComparer.Default))
-                {
-                    hasTryParse = true;
-                }
-            }
-        }
-
-        return (hasParse, hasTryParse);
-    }
-
-    internal static (bool HasToString, bool HasToStringWithFormat, bool HasToStringWithFormatProvider) HasExistingIFormattableImplementation(StronglyTypedTypeInfo info, SemanticModel semanticModel)
-    {
-        var iformatProviderTypeSymbol = semanticModel.Compilation.GetTypeByMetadataName("System.IFormatProvider");
-        var typeSymbol = semanticModel.GetDeclaredSymbol(info.Target);
-        bool hasToString = false;
-        bool hasToStringWithFormat = false;
-        bool hasToStringWithFormatProvider = false;
-
-        if (typeSymbol is null)
-        {
-            return (hasToString, hasToStringWithFormat, hasToStringWithFormatProvider);
-        }
-
-        foreach (var member in typeSymbol.GetMembers())
-        {
-            if (member is IMethodSymbol method && method.MethodKind == MethodKind.Ordinary)
-            {
-                if (method.Name == "ToString" && method.Parameters.Length == 0 && method.IsOverride && !method.IsImplicitlyDeclared)
-                {
-                    hasToString = true;
-                }
-                else if (method.Name == "ToString" && method.Parameters.Length == 1 && method.Parameters[0].Type.SpecialType == SpecialType.System_String)
-                {
-                    hasToStringWithFormat = true;
-                }
-                else if (method.Name == "ToString" && method.Parameters.Length == 2 && method.Parameters[0].Type.SpecialType == SpecialType.System_String && method.Parameters[1].Type.Equals(iformatProviderTypeSymbol, SymbolEqualityComparer.Default))
-                {
-                    hasToStringWithFormatProvider = true;
-                }
-            }
-        }
-
-        return (hasToString, hasToStringWithFormat, hasToStringWithFormatProvider);
-    }
-
-    internal static IEnumerable<string> GetValidationAttributes(ParameterSyntax parameter, SemanticModel semanticModel)
-    {
-        var parameterSymbol = semanticModel.GetDeclaredSymbol(parameter);
-        if (parameterSymbol is null)
-            yield break;
+        // The generated fields share the type with whatever the user declared in their partial
+        // declaration, so a name is only used when no existing member already has it.
+        var reservedNames = new HashSet<string>(targetTypeMembers.Select(member => member.Name), StringComparer.Ordinal);
+        var attributes = ImmutableArray.CreateBuilder<ValidationAttributeInfo>();
+        var asyncAttributes = ImmutableArray.CreateBuilder<ValidationAttributeInfo>();
 
         foreach (var attribute in parameterSymbol.GetAttributes())
         {
-            if (!IsValidationAttribute(attribute))
+            if (attribute.AttributeClass is not { } attributeClass || !DerivesFrom(attributeClass, ValidationAttributeTypeName))
             {
                 continue;
             }
 
-            var constructorArgs = GetAttributeConstructorArgs(attribute);
-            var namedArgs = string.Join(", ", attribute.NamedArguments.Select(na => $"{na.Key} = {na.Value.ToCSharpString()}"));
-            var args = string.Join(", ", new[] { constructorArgs, namedArgs }.Where(s => !string.IsNullOrEmpty(s)));
-            yield return $"new global::{attribute.AttributeClass!.ToDisplayString()}({args})";
+            var isAsync = DerivesFrom(attributeClass, AsyncValidationAttributeTypeName);
+            var target = isAsync ? asyncAttributes : attributes;
+            var index = target.Count;
+            target.Add(new ValidationAttributeInfo(
+                index,
+                GetUnusedFieldName(isAsync ? $"asyncValueValidator{index}" : $"valueValidator{index}", reservedNames),
+                attributeClass.ToDisplayString(),
+                string.Join(", ", attribute.ConstructorArguments.Select(FormatAttributeArgument)),
+                FormatNamedArguments(attribute.NamedArguments),
+                attribute.ApplicationSyntaxReference?.GetSyntax().GetLocation() ?? parameter.Identifier.GetLocation()));
         }
+
+        return new ValidationAttributeModel(attributes.ToImmutable(), asyncAttributes.ToImmutable());
     }
 
-    internal static string GetAttributeConstructorArgs(AttributeData attribute)
+    // Appending underscores keeps the name recognisable and deterministic; the chosen name is
+    // reserved as well so a later attribute cannot land on it.
+    private static string GetUnusedFieldName(string preferredName, HashSet<string> reservedNames)
     {
-        var constructor = attribute.AttributeConstructor;
-        if (constructor == null)
-            return string.Empty;
-
-        var args = new List<string>();
-        var paramsParameter = constructor.Parameters.FirstOrDefault(p => p.IsParams);
-
-        if (paramsParameter == null)
+        var name = preferredName;
+        while (!reservedNames.Add(name))
         {
-            // No params parameter, handle normally
-            return string.Join(", ", attribute.ConstructorArguments.Select(arg => arg.ToCSharpString()));
+            name += "_";
         }
 
-        // Handle regular arguments before params array
-        var paramsArrayStart = constructor.Parameters.IndexOf(paramsParameter);
-        for (var i = 0; i < paramsArrayStart; i++)
-        {
-            args.Add(attribute.ConstructorArguments[i].ToCSharpString());
-        }
-
-        // Handle params array
-        if (attribute.ConstructorArguments.Length > paramsArrayStart)
-        {
-            var paramsArg = attribute.ConstructorArguments[paramsArrayStart];
-            if (paramsArg.Kind == TypedConstantKind.Array)
-            {
-                // If we have multiple values, create an array
-                var values = paramsArg.Values.Select(v => v.ToCSharpString());
-                if (values.Any())
-                {
-                    if (values.Count() > 1)
-                    {
-                        args.Add($"new [] {{{string.Join(", ", values)}}}");
-                    }
-                    else
-                    {
-                        args.Add(values.First());
-                    }
-                }
-            }
-            else
-            {
-                // Single argument passed to params
-                args.Add(paramsArg.ToCSharpString());
-            }
-        }
-
-        return string.Join(", ", args);
+        return name;
     }
 
-    internal static bool IsValidationAttribute(AttributeData attribute)
+    // Attribute arguments are re-emitted as C# so the generated field constructs the attribute
+    // exactly as the user declared it. ToCSharpString already quotes strings, qualifies enum
+    // members and writes typeof(...), but it prints an array as a bare initializer and a number
+    // without any type information, so Range(1.0, 2.0) would come back as Range(1, 2) and bind to
+    // the int overload, and AllowedValues(1L) would box an int instead of a long.
+    private static string FormatAttributeArgument(TypedConstant argument)
     {
-        var baseType = attribute.AttributeClass?.BaseType;
-        while (baseType is not null)
+        if (argument.IsNull)
         {
-            if (baseType.ToDisplayString() == "System.ComponentModel.DataAnnotations.ValidationAttribute")
-            {
-                return true;
-            }
-
-            baseType = baseType.BaseType;
-        }
-        return false;
-    }
-
-    internal static bool IsUnderlyingTypeIParsableOrString(SemanticModel semanticModel, ITypeSymbol underlyingTypeSymbol)
-    {
-        var iParsableInterface = semanticModel.Compilation.GetTypeByMetadataName("System.IParsable`1");
-        bool includeIParsable = false;
-
-        if (underlyingTypeSymbol.SpecialType == SpecialType.System_String)
-        {
-            includeIParsable = true;
-        }
-        else if (iParsableInterface is not null)
-        {
-            includeIParsable = underlyingTypeSymbol.AllInterfaces.Any(i => i.OriginalDefinition.Equals(iParsableInterface, SymbolEqualityComparer.Default));
+            return "null";
         }
 
-        return includeIParsable;
-    }
-
-    internal static bool IsUnderlyingTypeString(StronglyTypedTypeInfo info, SemanticModel semanticModel)
-    {
-        var underlyingTypeSymbol = semanticModel.GetTypeInfo(info.UnderlyingType).Type;
-        var isStringType = underlyingTypeSymbol?.SpecialType == SpecialType.System_String;
-        return isStringType;
-    }
-
-    internal static IEnumerable<ISymbol> GetUnimplementedSymbols<TInterface>(INamedTypeSymbol target, SemanticModel semanticModel)
-    {
-        var interfaceType = semanticModel.Compilation.GetTypeByMetadataName(typeof(TInterface).FullName!)
-            ?? throw new InvalidOperationException($"Type symbol not found for {typeof(TInterface).FullName}.");
-
-        var targetMembers = target.GetMembers().ToHashSet(SymbolEqualityComparer.Default);
-
-        foreach (var interfaceMember in interfaceType.GetMembers())
+        return argument.Kind switch
         {
-            if (!targetMembers.Contains(interfaceMember, SymbolEqualityComparer.Default))
-            {
-                yield return interfaceMember;
-            }
-        }
+            TypedConstantKind.Array => $"new {argument.Type!.ToDisplayString()} {{ {string.Join(", ", argument.Values.Select(FormatAttributeArgument))} }}",
+            TypedConstantKind.Primitive when RequiresTypedLiteral(argument.Type!) => FormatTypedPrimitive(argument),
+            _ => argument.ToCSharpString(),
+        };
     }
 
-    internal static bool IsTypeImplementing<TInterface>(ITypeSymbol target, SemanticModel semanticModel)
+    // int, bool, char and string literals already carry their type; every other numeric type is
+    // written as a cast of the literal so the constant keeps the type it had on the attribute.
+    private static bool RequiresTypedLiteral(ITypeSymbol type)
+        => type.SpecialType is SpecialType.System_Single
+            or SpecialType.System_Double
+            or SpecialType.System_Int64
+            or SpecialType.System_UInt64
+            or SpecialType.System_UInt32
+            or SpecialType.System_Int16
+            or SpecialType.System_UInt16
+            or SpecialType.System_Byte
+            or SpecialType.System_SByte;
+
+    private static string FormatTypedPrimitive(TypedConstant argument)
     {
-        var interfaceType = semanticModel.Compilation.GetTypeByMetadataName(typeof(TInterface).FullName!)
-            ?? throw new InvalidOperationException($"Type symbol not found for {typeof(TInterface).FullName}.");
+        // ToCSharpString prints NaN and the infinities in a form that is not a C# literal.
+        var literal = argument.Value switch
+        {
+            double d when double.IsNaN(d) => "double.NaN",
+            double d when double.IsPositiveInfinity(d) => "double.PositiveInfinity",
+            double d when double.IsNegativeInfinity(d) => "double.NegativeInfinity",
+            float f when float.IsNaN(f) => "float.NaN",
+            float f when float.IsPositiveInfinity(f) => "float.PositiveInfinity",
+            float f when float.IsNegativeInfinity(f) => "float.NegativeInfinity",
+            _ => argument.ToCSharpString(),
+        };
 
-        return target.AllInterfaces.Contains(interfaceType, SymbolEqualityComparer.Default);
+        return $"({argument.Type!.ToDisplayString()}){literal}";
     }
 
+    private static string FormatNamedArguments(ImmutableArray<KeyValuePair<string, TypedConstant>> namedArguments)
+        => namedArguments.Length == 0
+            ? string.Empty
+            : $"{{ {string.Join(", ", namedArguments.Select(argument => $"{argument.Key} = {FormatAttributeArgument(argument.Value)}"))} }}";
 
     // The attribute is only emitted when both System.Text.Json and the shared converter from the
     // Abstractions assembly are visible to the compilation. The netstandard2.0 asset of the
@@ -285,10 +175,13 @@ internal static class Parser
     }
 
     internal static bool DerivesFromJsonSerializerContext(INamedTypeSymbol type)
+        => DerivesFrom(type, "System.Text.Json.Serialization.JsonSerializerContext");
+
+    private static bool DerivesFrom(INamedTypeSymbol type, string baseTypeName)
     {
         for (var baseType = type.BaseType; baseType is not null; baseType = baseType.BaseType)
         {
-            if (baseType.ToDisplayString() == "System.Text.Json.Serialization.JsonSerializerContext")
+            if (baseType.ToDisplayString() == baseTypeName)
             {
                 return true;
             }

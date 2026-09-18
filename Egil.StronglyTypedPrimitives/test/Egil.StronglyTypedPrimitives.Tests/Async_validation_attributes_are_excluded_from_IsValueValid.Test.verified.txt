@@ -1,0 +1,15 @@
+{
+  Diagnostics: [
+    {
+      Id: STP003,
+      Title: Async validation attributes are not part of the value invariant,
+      Severity: Warning,
+      WarningLevel: 1,
+      Location: Program.cs: (6,57)-(6,91),
+      Description: Attributes deriving from AsyncValidationAttribute are excluded from the generated IsValueValid method.,
+      MessageFormat: The async validation attribute '{0}' on '{1}' is not evaluated by the generated IsValueValid because async validation cannot run as part of the value invariant of '{2}',
+      Message: The async validation attribute 'SomeNamespace.RemoteCheckAttribute' on 'Value' is not evaluated by the generated IsValueValid because async validation cannot run as part of the value invariant of 'Foo',
+      Category: Egil.StronglyTypedPrimitives
+    }
+  ]
+}

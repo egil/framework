@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -13,6 +14,12 @@ public readonly partial record struct OrderId(int Value);
 [StronglyTyped]
 [JsonConverter(typeof(StronglyTypedJsonConverter<Price, decimal>))]
 public readonly partial record struct Price(decimal Value);
+
+// Validation attributes make the generator emit a static field per attribute and an IsValueValid
+// that calls IsValid and FormatErrorMessage on them; this proves that code is trim/AOT clean too.
+[StronglyTyped]
+[JsonConverter(typeof(StronglyTypedJsonConverter<CustomerEmail, string>))]
+public readonly partial record struct CustomerEmail([EmailAddress, StringLength(254, MinimumLength = 3)] string Value);
 
 // Relies on the generated [JsonConverter] attribute instead, so the build also proves that the
 // generated attribute itself is trim/AOT clean. STP001 is expected here: a JsonSerializerContext
