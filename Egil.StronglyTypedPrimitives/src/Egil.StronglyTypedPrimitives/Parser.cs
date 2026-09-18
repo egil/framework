@@ -260,11 +260,55 @@ internal static class Parser
     }
 
 
-    internal static bool ShouldGenerateJsonConverter(Compilation compilation, INamedTypeSymbol targetTypeSymbol)
+    // The attribute is only emitted when both System.Text.Json and the shared converter from the
+    // Abstractions assembly are visible to the compilation. The netstandard2.0 asset of the
+    // Abstractions assembly has no converter, so such consumers are told instead of silently
+    // losing JSON support.
+    internal static JsonConverterSupport GetJsonConverterSupport(Compilation compilation, INamedTypeSymbol targetTypeSymbol)
     {
         var jsonConverterAttributeType = compilation.GetTypeByMetadataName("System.Text.Json.Serialization.JsonConverterAttribute");
+        if (jsonConverterAttributeType is null)
+        {
+            return JsonConverterSupport.NotApplicable;
+        }
+
         var hasJsonConverterAttribute = targetTypeSymbol.GetAttributes().Any(a => a.AttributeClass?.Equals(jsonConverterAttributeType, SymbolEqualityComparer.Default) == true);
-        var generateJsonConverter = jsonConverterAttributeType is not null && !hasJsonConverterAttribute;
-        return generateJsonConverter;
+        if (hasJsonConverterAttribute)
+        {
+            return JsonConverterSupport.NotApplicable;
+        }
+
+        var sharedJsonConverterType = compilation.GetTypeByMetadataName("Egil.StronglyTypedPrimitives.StronglyTypedJsonConverter`2");
+        return sharedJsonConverterType is not null
+            ? JsonConverterSupport.GenerateAttribute
+            : JsonConverterSupport.SharedConverterUnavailable;
     }
+
+    internal static bool DerivesFromJsonSerializerContext(INamedTypeSymbol type)
+    {
+        for (var baseType = type.BaseType; baseType is not null; baseType = baseType.BaseType)
+        {
+            if (baseType.ToDisplayString() == "System.Text.Json.Serialization.JsonSerializerContext")
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+}
+
+/// <summary>
+/// What the generator can do about System.Text.Json for a strongly typed primitive.
+/// </summary>
+internal enum JsonConverterSupport
+{
+    /// <summary>System.Text.Json is not referenced, or the user declared a JsonConverter attribute themselves.</summary>
+    NotApplicable,
+
+    /// <summary>The shared converter is available; emit the JsonConverter attribute.</summary>
+    GenerateAttribute,
+
+    /// <summary>System.Text.Json is referenced but the shared converter is not (netstandard2.0 asset); report STP004.</summary>
+    SharedConverterUnavailable,
 }

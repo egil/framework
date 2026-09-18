@@ -23,6 +23,10 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
 
     private static string IStronglyTypedPrimitive => $"{StronglyTypedPrimitivesNamespace}.IStronglyTypedPrimitive`1";
 
+    private static string IStronglyTypedPrimitiveOfSelf => $"{StronglyTypedPrimitivesNamespace}.IStronglyTypedPrimitive`2";
+
+    private static string StronglyTypedJsonConverter => $"{StronglyTypedPrimitivesNamespace}.StronglyTypedJsonConverter";
+
     private static string GeneratedCodeConstructor => $@"System.CodeDom.Compiler.GeneratedCodeAttribute(""{typeof(StronglyTypedPrimitiveGenerator).Assembly.FullName}"", ""{typeof(StronglyTypedPrimitiveGenerator).Assembly.GetName().Version}"")";
 
     private static string GeneratedCodeAttribute => $"[{GeneratedCodeConstructor}]";
@@ -51,11 +55,26 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             )
             .Where(static x => x is not null);
 
-        var compilationAndRecords = context.CompilationProvider.Combine(recordCandidates.Collect());
+        // Any class with a base list is a candidate: the base type can be spelled through a using
+        // alias, so matching on the written name would miss contexts. The semantic check decides.
+        var hasJsonSerializerContext = context.SyntaxProvider
+            .CreateSyntaxProvider(
+                predicate: static (node, _) =>
+                    node is ClassDeclarationSyntax { BaseList.Types.Count: > 0 },
+                transform: static (context, cancellationToken) =>
+                    context.SemanticModel.GetDeclaredSymbol((ClassDeclarationSyntax)context.Node, cancellationToken) is INamedTypeSymbol symbol
+                    && Parser.DerivesFromJsonSerializerContext(symbol))
+            .Where(static x => x)
+            .Collect()
+            .Select(static (contexts, _) => contexts.Length > 0);
+
+        var compilationAndRecords = context.CompilationProvider
+            .Combine(recordCandidates.Collect())
+            .Combine(hasJsonSerializerContext);
 
         context.RegisterSourceOutput(compilationAndRecords, (spc, source) =>
         {
-            var (compilation, stronglyTypedInfos) = source;
+            var ((compilation, stronglyTypedInfos), compilationHasJsonSerializerContext) = source;
             foreach (var stronglyTypedInfo in stronglyTypedInfos)
             {
                 if (stronglyTypedInfo is null)
@@ -63,8 +82,25 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
                     continue;
                 }
 
-                var generatedSource = GenerateStronglyTypedSource(stronglyTypedInfo, compilation);
-                spc.AddSource($"{stronglyTypedInfo.Target.Identifier.Text}.g.cs", generatedSource);
+                var generated = GenerateStronglyTypedSource(stronglyTypedInfo, compilation);
+                spc.AddSource($"{stronglyTypedInfo.Target.Identifier.Text}.g.cs", generated.Source);
+
+                if (compilationHasJsonSerializerContext && generated.JsonConverterSupport is JsonConverterSupport.GenerateAttribute)
+                {
+                    spc.ReportDiagnostic(Diagnostic.Create(
+                        DiagnosticDescriptors.JsonSerializerContextCannotSeeGeneratedConverter,
+                        stronglyTypedInfo.Target.Identifier.GetLocation(),
+                        generated.TargetTypeName,
+                        generated.UnderlyingTypeName));
+                }
+
+                if (generated.JsonConverterSupport is JsonConverterSupport.SharedConverterUnavailable)
+                {
+                    spc.ReportDiagnostic(Diagnostic.Create(
+                        DiagnosticDescriptors.JsonSupportRequiresNet8,
+                        stronglyTypedInfo.Target.Identifier.GetLocation(),
+                        generated.TargetTypeName));
+                }
             }
         });
     }
@@ -73,7 +109,9 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         => attribute.AttributeClass?.Name == "StronglyTyped"
         || attribute.AttributeClass?.Name == "StronglyTypedAttribute";
 
-    private static string GenerateStronglyTypedSource(StronglyTypedTypeInfo info, Compilation compilation)
+    private sealed record GeneratedSource(string Source, JsonConverterSupport JsonConverterSupport, string TargetTypeName, string UnderlyingTypeName);
+
+    private static GeneratedSource GenerateStronglyTypedSource(StronglyTypedTypeInfo info, Compilation compilation)
     {
         const int CSharp13 = 1300;
         var isCSharp14OrGreater = compilation is CSharpCompilation cSharpCompilation && (int)cSharpCompilation.LanguageVersion > CSharp13;
@@ -107,11 +145,16 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             .OfType<INamedTypeSymbol>()
             .Where(genericInterface => semanticModel.IsTypeImplementingInterface(underlyingTypeSymbol, genericInterface));
 
+        var selfInterface = semanticModel.Compilation
+            .GetTypeByMetadataName(IStronglyTypedPrimitiveOfSelf)
+            ?.Construct(targetTypeSymbol, underlyingTypeSymbol);
+
         var alwaysImplementInterfaces = new[]
         {
             semanticModel.Compilation
                 .GetTypeByMetadataName(IStronglyTypedPrimitive)
                 ?.Construct(underlyingTypeSymbol),
+            selfInterface,
         };
 
         var interfacesToImplement = alwaysImplementInterfaces
@@ -120,29 +163,46 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             .Concat(supportedInterfaces)
             .ToArray();
 
+        // The members of IStronglyTypedPrimitive<TSelf, TPrimitive> (Value and Create) have
+        // dedicated generators below because they must also exist on target frameworks where the
+        // interface cannot declare them (no static abstract members before net7.0).
+        // IsValueValid is likewise generated from the user's members rather than from the interface:
+        // the netstandard2.0 asset cannot declare it as a static abstract member, yet the generated
+        // constructor validation calls it.
         var unimplementedSymbols = interfacesToImplement
+            .Where(@interface => !SymbolEqualityComparer.Default.Equals(@interface, selfInterface))
             .SelectMany(@interface => semanticModel.GetUnimplementedSymbols(targetTypeMembers, @interface))
+            .Where(symbol => symbol.Name != "IsValueValid")
             .ToList();
+        var hasUserDeclaredIsValueValid = HasPublicStaticMethod(targetTypeMembers, "IsValueValid", underlyingTypeSymbol, compilation.GetSpecialType(SpecialType.System_Boolean), compilation.GetSpecialType(SpecialType.System_Boolean));
 
-        var generateJsonConverter = Parser.ShouldGenerateJsonConverter(compilation, targetTypeSymbol);
+        var jsonConverterSupport = Parser.GetJsonConverterSupport(compilation, targetTypeSymbol);
+        var targetTypeName = targetTypeSymbol.ToDisplayString();
+        var underlyingTypeName = underlyingTypeSymbol.WithNullableAnnotation(NullableAnnotation.None).ToDisplayString();
 
         string?[] typeParts = [
             CodeHeader,
             GetNamespaceDefinition(info),
             GeneratedCodeAttribute,
-            .. GetJsonConverterAttribute(info, generateJsonConverter),
+            .. GetJsonConverterAttribute(jsonConverterSupport, targetTypeName, underlyingTypeName),
             GetPartialRecordStructDefinition(info, interfacesToImplement),
             "{",
             .. GetEmptyProperty(info, targetTypeMembers, underlyingTypeSymbol),
-            .. GetValueProperty(info, targetTypeMembers, underlyingTypeSymbol, isCSharp14OrGreater, unimplementedSymbols),
+            .. GetCreateMethod(info, targetTypeMembers, targetTypeSymbol, selfInterface, underlyingTypeSymbol),
+            .. GetValueProperty(info, targetTypeMembers, underlyingTypeSymbol, isCSharp14OrGreater, hasUserDeclaredIsValueValid),
+            .. GetSelfInterfaceValueProperty(info, targetTypeMembers, selfInterface, underlyingTypeSymbol),
             .. GetToStringMethod(info, targetTypeMembers, underlyingTypeSymbol),
+            .. GetIsValueValidMethod(underlyingTypeSymbol, hasUserDeclaredIsValueValid),
             .. GetInterfaceSymbols(info, unimplementedSymbols, underlyingTypeSymbol),
             .. GetOperatorOverloads(info, targetTypeSymbol, targetTypeMembers),
-            .. GetJsonConverter(info, generateJsonConverter, semanticModel),
             "}"
         ];
 
-        return string.Join("\n", typeParts.OfType<string>());
+        return new GeneratedSource(
+            string.Join("\n", typeParts.OfType<string>()),
+            jsonConverterSupport,
+            targetTypeName,
+            underlyingTypeName);
     }
 
     internal static string? GetNamespaceDefinition(StronglyTypedTypeInfo info)
@@ -168,9 +228,75 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             """;
     }
 
-    internal static IEnumerable<string> GetValueProperty(StronglyTypedTypeInfo info, IEnumerable<ISymbol> targetTypeMembers, ITypeSymbol underlyingTypeSymbol, bool isCSharp14OrGreater, IEnumerable<ISymbol> unimplementedSymbols)
+    // Only a public Create(TPrimitive) satisfies IStronglyTypedPrimitive<TSelf, TPrimitive>.Create
+    // implicitly. A non-public one with the same signature would clash with a generated public one,
+    // so the interface member is then implemented explicitly instead (where the interface has it).
+    internal static IEnumerable<string> GetCreateMethod(StronglyTypedTypeInfo info, IEnumerable<ISymbol> targetTypeMembers, INamedTypeSymbol targetTypeSymbol, INamedTypeSymbol? selfInterface, ITypeSymbol underlyingTypeSymbol)
     {
-        if (unimplementedSymbols.Any(x => x.Name == "IsValueValid"))
+        var interfaceCreateMethod = selfInterface?.GetMembers("Create").OfType<IMethodSymbol>().FirstOrDefault();
+        var hasExplicitCreateMethod = interfaceCreateMethod is not null && targetTypeMembers
+            .OfType<IMethodSymbol>()
+            .Any(m => m.ExplicitInterfaceImplementations.Any(e => e.Equals(interfaceCreateMethod, SymbolEqualityComparer.Default)));
+        if (hasExplicitCreateMethod || HasPublicStaticMethod(targetTypeMembers, "Create", underlyingTypeSymbol, targetTypeSymbol))
+        {
+            yield break;
+        }
+
+        var hasNonPublicCreateMethod = targetTypeMembers
+            .OfType<IMethodSymbol>()
+            .Any(m => m.Name == "Create"
+                   && m.IsStatic && m.Parameters.Length == 1
+                   && m.Parameters[0].Type.Equals(underlyingTypeSymbol, SymbolEqualityComparer.Default));
+        if (hasNonPublicCreateMethod)
+        {
+            if (interfaceCreateMethod is not null)
+            {
+                yield return $$"""
+
+                        static {{info.Target.Identifier}} {{selfInterface!.ToDisplayString()}}.Create({{underlyingTypeSymbol.ToDisplayString()}} value) => new {{info.Target.Identifier}}(value);
+                    """;
+            }
+
+            yield break;
+        }
+
+        yield return $$"""
+
+                public static {{info.Target.Identifier}} Create({{underlyingTypeSymbol.ToDisplayString()}} value) => new {{info.Target.Identifier}}(value);
+            """;
+    }
+
+    private static bool HasPublicStaticMethod(IEnumerable<ISymbol> targetTypeMembers, string name, ITypeSymbol firstParameterType, ITypeSymbol returnType, ITypeSymbol? secondParameterType = null)
+        => targetTypeMembers
+            .OfType<IMethodSymbol>()
+            .Any(m => m.Name == name
+                   && m.IsStatic
+                   && m.DeclaredAccessibility == Accessibility.Public
+                   && m.Parameters.Length == (secondParameterType is null ? 1 : 2)
+                   && m.Parameters[0].Type.Equals(firstParameterType, SymbolEqualityComparer.Default)
+                   && (secondParameterType is null || m.Parameters[1].Type.Equals(secondParameterType, SymbolEqualityComparer.Default))
+                   && m.ReturnType.Equals(returnType, SymbolEqualityComparer.Default));
+
+    private static IEnumerable<string> GetIsValueValidMethod(ITypeSymbol underlyingTypeSymbol, bool hasUserDeclaredIsValueValid)
+    {
+        if (hasUserDeclaredIsValueValid)
+        {
+            yield break;
+        }
+
+        yield return $$"""
+
+            [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+            public static bool IsValueValid({{underlyingTypeSymbol.ToDisplayString()}} value, bool throwIfInvalid)
+                => true;
+        """;
+    }
+
+    internal static IEnumerable<string> GetValueProperty(StronglyTypedTypeInfo info, IEnumerable<ISymbol> targetTypeMembers, ITypeSymbol underlyingTypeSymbol, bool isCSharp14OrGreater, bool hasUserDeclaredIsValueValid)
+    {
+        // The generated IsValueValid accepts everything, so the validating property wrapper is
+        // only worth generating when the user supplied their own IsValueValid.
+        if (!hasUserDeclaredIsValueValid)
         {
             yield break;
         }
@@ -239,6 +365,31 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
                 }
             """;
         }
+    }
+
+    // IStronglyTypedPrimitive<TSelf, TPrimitive>.Value is implemented implicitly by the positional
+    // property when the parameter is named Value; any other name needs an explicit implementation
+    // so the shared JSON converter can read the wrapped value through the interface.
+    internal static IEnumerable<string> GetSelfInterfaceValueProperty(StronglyTypedTypeInfo info, IEnumerable<ISymbol> targetTypeMembers, INamedTypeSymbol? selfInterface, ITypeSymbol underlyingTypeSymbol)
+    {
+        if (selfInterface?.GetMembers("Value").OfType<IPropertySymbol>().FirstOrDefault() is not { } interfaceValueProperty)
+        {
+            yield break;
+        }
+
+        var isImplemented = targetTypeMembers
+            .OfType<IPropertySymbol>()
+            .Any(p => (p.Name == "Value" && !p.IsStatic && p.GetMethod is { DeclaredAccessibility: Accessibility.Public } && p.Type.Equals(underlyingTypeSymbol, SymbolEqualityComparer.Default))
+                   || p.ExplicitInterfaceImplementations.Any(e => e.Equals(interfaceValueProperty, SymbolEqualityComparer.Default)));
+        if (isImplemented)
+        {
+            yield break;
+        }
+
+        yield return $$"""
+
+                {{underlyingTypeSymbol.ToDisplayString()}} {{selfInterface.ToDisplayString()}}.Value => {{info.Parameter.Identifier}};
+            """;
     }
 
     internal static IEnumerable<string> GetToStringMethod(StronglyTypedTypeInfo info, IEnumerable<ISymbol> targetTypeMembers, ITypeSymbol underlyingTypeSymbol)
@@ -316,7 +467,6 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
 
             yield return method switch
             {
-                { Name: "IsValueValid" } => GetIsValueValid(info, underlyingTypeSymbol),
 
                 { Name: "Parse", Parameters: { Length: 2 } } when underlyingTypeSymbol.SpecialType is SpecialType.System_String => GetStringParse(info, method, underlyingTypeSymbol),
                 { Name: "TryParse", Parameters: { Length: 3 } } when underlyingTypeSymbol.SpecialType is SpecialType.System_String => GetStringTryParse(info, method, underlyingTypeSymbol),
@@ -337,13 +487,6 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         }
     }
 
-    private static string GetIsValueValid(StronglyTypedTypeInfo info, ITypeSymbol underlyingTypeSymbol)
-        => $$"""
-
-            [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-            public static bool IsValueValid({{underlyingTypeSymbol.ToDisplayString()}} value, bool throwIfInvalid)
-                => true;
-        """;
 
     private static string GetParse(StronglyTypedTypeInfo info, IMethodSymbol method, ITypeSymbol underlyingTypeSymbol)
         => $$"""
@@ -480,51 +623,18 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             => (({{method.ContainingType.ToDisplayString()}}){{info.Parameter.Identifier}}).TryFormat({{method.Parameters[0].Name}}, out {{method.Parameters[1].Name}}, {{method.Parameters[2].Name}}, {{method.Parameters[3].Name}});
     """;
 
-    private static IEnumerable<string> GetJsonConverterAttribute(StronglyTypedTypeInfo info, bool generateJsonConverter)
+    // The converter is declared by attribute instead of being emitted per type so the generated
+    // code stays trim/AOT clean, and so the same converter can be declared by hand for types that
+    // are serialized through a JsonSerializerContext.
+    private static IEnumerable<string> GetJsonConverterAttribute(JsonConverterSupport jsonConverterSupport, string targetTypeName, string underlyingTypeName)
     {
-        if (!generateJsonConverter)
+        if (jsonConverterSupport is not JsonConverterSupport.GenerateAttribute)
         {
             yield break;
         }
 
         yield return $$"""
-            [System.Text.Json.Serialization.JsonConverterAttribute(typeof({{info.Target.Identifier}}JsonConverter))]
+            [System.Text.Json.Serialization.JsonConverterAttribute(typeof({{StronglyTypedJsonConverter}}<{{targetTypeName}}, {{underlyingTypeName}}>))]
             """;
-    }
-
-    private static IEnumerable<string> GetJsonConverter(StronglyTypedTypeInfo info, bool generateJsonConverter, SemanticModel semanticModel)
-    {
-        if (!generateJsonConverter)
-        {
-            yield break;
-        }
-
-        var nullCheckString = semanticModel.CanTypeBeNull(info.UnderlyingType)
-            ? "rawValue is not null && "
-            : "";
-
-        yield return $$"""
-
-            public sealed class {{info.Target.Identifier}}JsonConverter : System.Text.Json.Serialization.JsonConverter<{{info.Target.Identifier}}>
-            {
-                public override {{info.Target.Identifier}} Read(ref System.Text.Json.Utf8JsonReader reader, System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
-                {
-                    var rawValue = System.Text.Json.JsonSerializer.Deserialize<{{info.UnderlyingType}}>(ref reader, options);
-                    
-                    return {{nullCheckString}}{{info.Target.Identifier}}.IsValueValid(rawValue, throwIfInvalid: false)
-                        ? new {{info.Target.Identifier}}(rawValue)
-                        : {{info.Target.Identifier}}.Empty;
-                }
-
-                public override void Write(System.Text.Json.Utf8JsonWriter writer, {{info.Target.Identifier}} value, System.Text.Json.JsonSerializerOptions options)
-                    => System.Text.Json.JsonSerializer.Serialize(writer, value.{{info.Parameter.Identifier}}, options);
-
-                public override {{info.Target.Identifier}} ReadAsPropertyName(ref System.Text.Json.Utf8JsonReader reader, System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
-                    => {{info.Target.Identifier}}.Parse(reader.GetString()!, null);
-
-                public override void WriteAsPropertyName(System.Text.Json.Utf8JsonWriter writer, [System.Diagnostics.CodeAnalysis.DisallowNull] {{info.Target.Identifier}} value, System.Text.Json.JsonSerializerOptions options)
-                    => writer.WritePropertyName(value.ToString());
-            }
-        """;
     }
 }

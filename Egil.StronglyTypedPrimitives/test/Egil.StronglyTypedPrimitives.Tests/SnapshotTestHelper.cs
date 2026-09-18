@@ -31,21 +31,58 @@ public static class SnapshotTestHelper
         string? parameterText = null)
         where TGenerator : IIncrementalGenerator, new()
     {
+        generatedAssemblies = [];
+
+        var driver = RunGenerator<TGenerator>(source, languageVersion, includeTypesAssembly, out compilation);
+
+        var verification = Verifier.Verify(driver)
+            .ScrubLinesWithReplace(x => Regex.Replace(x, @"\d+\.\d+\.\d+\.\d+", "x.x.x.x"));
+
+        if (!string.IsNullOrWhiteSpace(parameterText))
+        {
+            verification = verification.UseTextForParameters(parameterText);
+        }
+
+        return verification;
+    }
+
+    /// <summary>
+    /// Runs the generator over <paramref name="source"/> and returns the run result, which carries
+    /// the diagnostics the generator reported (as opposed to the compilation's own diagnostics).
+    /// </summary>
+    /// <param name="referenceAbstractions">
+    /// When false the Abstractions assembly is left out of the compilation, which stands in for a
+    /// consumer on its netstandard2.0 asset: System.Text.Json is referenced but none of the
+    /// Abstractions types are, so the source must declare the [StronglyTyped] attribute itself.
+    /// </param>
+    public static GeneratorDriverRunResult RunGenerator<TGenerator>(string source, out Compilation compilation, bool referenceAbstractions = true)
+        where TGenerator : IIncrementalGenerator, new()
+        => RunGenerator<TGenerator>(source, LanguageVersion.LatestMajor, [], out compilation, referenceAbstractions).GetRunResult();
+
+    private static GeneratorDriver RunGenerator<TGenerator>(
+        string source,
+        LanguageVersion languageVersion,
+        IEnumerable<Type> includeTypesAssembly,
+        out Compilation compilation,
+        bool referenceAbstractions = true)
+        where TGenerator : IIncrementalGenerator, new()
+    {
         var parseOptions = new CSharpParseOptions(languageVersion);
+        var abstractionsAssembly = typeof(StronglyTypedAttribute).Assembly;
         var references = AppDomain.CurrentDomain.GetAssemblies()
             .Where(assembly => !assembly.IsDynamic && !string.IsNullOrWhiteSpace(assembly.Location))
+            .Where(assembly => referenceAbstractions || assembly != abstractionsAssembly)
             .Select(assembly => MetadataReference.CreateFromFile(assembly.Location))
             .Concat(
             [
                 MetadataReference.CreateFromFile(typeof(TGenerator).Assembly.Location),
-                MetadataReference.CreateFromFile(typeof(StronglyTypedAttribute).Assembly.Location),
                 MetadataReference.CreateFromFile(typeof(System.Text.Json.JsonSerializer).Assembly.Location)
             ])
+            .Concat(referenceAbstractions ? [MetadataReference.CreateFromFile(abstractionsAssembly.Location)] : [])
             .Concat(includeTypesAssembly.Select(x => MetadataReference.CreateFromFile(x.Assembly.Location)))
             .ToList();
 
         var additionalTexts = new List<AdditionalText>();
-        generatedAssemblies = [];
 
         var inputCompilation = CSharpCompilation.Create("StronglyTypedPrimitivesSample",
             [CSharpSyntaxTree.ParseText(source, options: parseOptions, path: "Program.cs")],
@@ -57,15 +94,7 @@ public static class SnapshotTestHelper
             additionalTexts: additionalTexts,
             parseOptions: parseOptions);
 
-        var verification = Verifier.Verify(driver.RunGeneratorsAndUpdateCompilation(inputCompilation, out compilation, out var _))
-            .ScrubLinesWithReplace(x => Regex.Replace(x, @"\d+\.\d+\.\d+\.\d+", "x.x.x.x"));
-
-        if (!string.IsNullOrWhiteSpace(parameterText))
-        {
-            verification = verification.UseTextForParameters(parameterText);
-        }
-
-        return verification;
+        return driver.RunGeneratorsAndUpdateCompilation(inputCompilation, out compilation, out var _);
     }
 
     public static string GetParameterText(string typeName, LanguageVersion languageVersion)

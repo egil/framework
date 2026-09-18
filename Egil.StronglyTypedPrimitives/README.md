@@ -37,9 +37,9 @@ it easy to avoid the primitive obsession anti pattern.
   - `TimeSpan`
   - `byte`
     
-- All types are marked with `IStronglyTypedPrimitive<TPrimitiveType>` and `IStronglyTypedPrimitive`.
+- All types are marked with `IStronglyTypedPrimitive`, `IStronglyTypedPrimitive<TPrimitiveType>` and `IStronglyTypedPrimitive<TSelf, TPrimitiveType>`.
 
-- **Generates JsonConverter for System.Text.Json**, if the target type is in an assembly that references `System.Text.Json` and the type does not already have a `JsonConverter` attribute declared on it.
+- **System.Text.Json support**. Every type is declared with a `[JsonConverter]` pointing at the shared, trim/AOT-safe `StronglyTypedJsonConverter<TSelf, TPrimitiveType>`, if the target type is in an assembly that references `System.Text.Json` and the type does not already have a `JsonConverter` attribute declared on it. The converter serializes the type as its primitive value, also when used as a dictionary key, and dictionary keys are culture invariant. See [System.Text.Json](#systemtextjson) for how to use it with a `JsonSerializerContext`.
 
 - **.NET 9 OpenAPI support**. The library includes a custom schema transformer that will ensure strongly typed types have the right OpenAPI schema definition.
 
@@ -97,6 +97,36 @@ Assert.Throws<ArgumentException>(() => new StronglyTypedIntWithConstraints(tooLo
 Assert.Throws<ArgumentException>(() => StronglyTypedIntWithConstraints.Empty with { Value = tooLowValue });
 ```
 
+## System.Text.Json
+
+How a strongly typed primitive is serialized depends on how you use `System.Text.Json`:
+
+1. **Reflection-based serialization** (`JsonSerializer.Serialize(value)` without a context): nothing to do. The generated `[JsonConverter]` attribute is picked up automatically.
+
+2. **`JsonSerializerContext` on a JIT runtime**: the `System.Text.Json` source generator cannot see attributes emitted by other source generators, so it would serialize the type as an object (`{"Value":7}`). Register the factory in the options and the context will use the shared converter for every strongly typed primitive:
+
+   ```csharp
+   var options = new JsonSerializerOptions
+   {
+       TypeInfoResolver = AppJsonContext.Default,
+       Converters = { new StronglyTypedJsonConverterFactory() },
+   };
+   ```
+
+3. **`JsonSerializerContext` with trimming or Native AOT**: the factory closes the generic converter with reflection, so declare the converter on your own partial declaration instead. The generator then emits nothing JSON-related for that type:
+
+   ```csharp
+   [StronglyTyped]
+   [JsonConverter(typeof(StronglyTypedJsonConverter<StronglyTypedInt, int>))]
+   public readonly partial record struct StronglyTypedInt(int Value);
+   ```
+
+The generator reports warning `STP001` for every strongly typed primitive without a user-declared `[JsonConverter]` when the compilation also contains a `JsonSerializerContext`, so the object-shaped output from option 2 and 3 does not go unnoticed.
+
+### Compatibility
+
+`StronglyTypedJsonConverter<TSelf, TPrimitiveType>` and `StronglyTypedJsonConverterFactory` ship in the `net8.0`, `net9.0` and `net10.0` assets of the package only. Projects that pick the `netstandard2.0` asset (for example .NET Framework or .NET Standard class libraries) get no generated JSON support, even when they reference `System.Text.Json`: the generator emits no `[JsonConverter]` attribute for them and reports warning `STP004` instead. Declare your own `[JsonConverter]` on the partial declaration to serialize the type there, or target `net8.0` or later. Versions before 2.0 generated a nested converter for every target framework.
+
 ## Generator output for int without constraints
 
 Given this type declaration:
@@ -117,11 +147,13 @@ The following code is generated:
 
 namespace Examples;
 
-[System.CodeDom.Compiler.GeneratedCodeAttribute("Egil.StronglyTypedPrimitives, Version=1.9.0.0, Culture=neutral, PublicKeyToken=null", "1.9.0.0")]
-[System.Text.Json.Serialization.JsonConverterAttribute(typeof(StronglyTypedIntJsonConverter))]
-public readonly partial record struct StronglyTypedInt : Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<int>, System.IParsable<Examples.StronglyTypedInt>, System.ISpanParsable<Examples.StronglyTypedInt>, System.IUtf8SpanParsable<Examples.StronglyTypedInt>, System.IComparable<Examples.StronglyTypedInt>, System.IComparable, System.IFormattable, System.ISpanFormattable, System.IUtf8SpanFormattable
+[System.CodeDom.Compiler.GeneratedCodeAttribute("Egil.StronglyTypedPrimitives, Version=1.14.0.0, Culture=neutral, PublicKeyToken=null", "1.14.0.0")]
+[System.Text.Json.Serialization.JsonConverterAttribute(typeof(Egil.StronglyTypedPrimitives.StronglyTypedJsonConverter<Examples.StronglyTypedInt, int>))]
+public readonly partial record struct StronglyTypedInt : Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<int>, Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<Examples.StronglyTypedInt, int>, System.IParsable<Examples.StronglyTypedInt>, System.ISpanParsable<Examples.StronglyTypedInt>, System.IUtf8SpanParsable<Examples.StronglyTypedInt>, System.IComparable<Examples.StronglyTypedInt>, System.IComparable, System.IFormattable, System.ISpanFormattable, System.IUtf8SpanFormattable
 {
     public static readonly StronglyTypedInt Empty = default;
+
+    public static StronglyTypedInt Create(int value) => new StronglyTypedInt(value);
 
     public override string ToString() => Value.ToString();
 
@@ -220,31 +252,12 @@ public readonly partial record struct StronglyTypedInt : Egil.StronglyTypedPrimi
     public static bool operator >=(StronglyTypedInt a, StronglyTypedInt b) => a.CompareTo(b) >= 0;
     
     public static bool operator <=(StronglyTypedInt a, StronglyTypedInt b) => a.CompareTo(b) <= 0;
-
-    public sealed class StronglyTypedIntJsonConverter : System.Text.Json.Serialization.JsonConverter<StronglyTypedInt>
-    {
-        public override StronglyTypedInt Read(ref System.Text.Json.Utf8JsonReader reader, System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
-        {
-            var rawValue = System.Text.Json.JsonSerializer.Deserialize<int>(ref reader, options);
-            
-            return StronglyTypedInt.IsValueValid(rawValue, throwIfInvalid: false)
-                ? new StronglyTypedInt(rawValue)
-                : StronglyTypedInt.Empty;
-        }
-
-        public override void Write(System.Text.Json.Utf8JsonWriter writer, StronglyTypedInt value, System.Text.Json.JsonSerializerOptions options)
-            => System.Text.Json.JsonSerializer.Serialize(writer, value.Value, options);
-
-        public override StronglyTypedInt ReadAsPropertyName(ref System.Text.Json.Utf8JsonReader reader, System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
-            => StronglyTypedInt.Parse(reader.GetString()!, null);
-
-        public override void WriteAsPropertyName(System.Text.Json.Utf8JsonWriter writer, [System.Diagnostics.CodeAnalysis.DisallowNull] StronglyTypedInt value, System.Text.Json.JsonSerializerOptions options)
-            => writer.WritePropertyName(value.ToString());
-    }
 }
 ```
 
-See more examples in https://github.com/egil/framework/tree/main/Egil.StronglyTypedPrimitives/test/Egil.StronglyTypedPrimitives.Tests/snapshots
+When the positional parameter is not named `Value`, an explicit implementation of `IStronglyTypedPrimitive<TSelf, TPrimitiveType>.Value` is generated as well, for example `int Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<Examples.StronglyTypedInt, int>.Value => Data;`.
+
+See more examples in https://github.com/egil/framework/tree/main/Egil.StronglyTypedPrimitives/test/Egil.StronglyTypedPrimitives.Tests
 
 ## Generator output for int with constraints
 
@@ -278,11 +291,13 @@ The following code is generated when using C# 13 or below:
 
 namespace Examples;
 
-[System.CodeDom.Compiler.GeneratedCodeAttribute("Egil.StronglyTypedPrimitives, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null", "1.0.0.0")]
-[System.Text.Json.Serialization.JsonConverterAttribute(typeof(StronglyTypedIntWithConstraintsJsonConverter))]
-public readonly partial record struct StronglyTypedIntWithConstraints : Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<int>, System.IParsable<Examples.StronglyTypedIntWithConstraints>, System.ISpanParsable<Examples.StronglyTypedIntWithConstraints>, System.IUtf8SpanParsable<Examples.StronglyTypedIntWithConstraints>, System.IComparable<Examples.StronglyTypedIntWithConstraints>, System.IComparable, System.IFormattable, System.ISpanFormattable, System.IUtf8SpanFormattable
+[System.CodeDom.Compiler.GeneratedCodeAttribute("Egil.StronglyTypedPrimitives, Version=1.14.0.0, Culture=neutral, PublicKeyToken=null", "1.14.0.0")]
+[System.Text.Json.Serialization.JsonConverterAttribute(typeof(Egil.StronglyTypedPrimitives.StronglyTypedJsonConverter<Examples.StronglyTypedIntWithConstraints, int>))]
+public readonly partial record struct StronglyTypedIntWithConstraints : Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<int>, Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<Examples.StronglyTypedIntWithConstraints, int>, System.IParsable<Examples.StronglyTypedIntWithConstraints>, System.ISpanParsable<Examples.StronglyTypedIntWithConstraints>, System.IUtf8SpanParsable<Examples.StronglyTypedIntWithConstraints>, System.IComparable<Examples.StronglyTypedIntWithConstraints>, System.IComparable, System.IFormattable, System.ISpanFormattable, System.IUtf8SpanFormattable
 {
     public static readonly StronglyTypedIntWithConstraints Empty = default;
+
+    public static StronglyTypedIntWithConstraints Create(int value) => new StronglyTypedIntWithConstraints(value);
 
     private static int ThrowIfValueIsInvalid(int value)
     {
@@ -290,11 +305,11 @@ public readonly partial record struct StronglyTypedIntWithConstraints : Egil.Str
         return value;
     }
 
-    private readonly string @value = ThrowIfValueIsInvalid(Value);       
+    private readonly int @value = ThrowIfValueIsInvalid(Value);
 
-    public string Value
+    public int Value
     {
-        get => @value ?? string.Empty;
+        get => @value;
         init
         {
             @value = ThrowIfValueIsInvalid(value);
@@ -312,11 +327,13 @@ The following code is generated when using C# 14 or higher:
 
 namespace Examples;
 
-[System.CodeDom.Compiler.GeneratedCodeAttribute("Egil.StronglyTypedPrimitives, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null", "1.0.0.0")]
-[System.Text.Json.Serialization.JsonConverterAttribute(typeof(StronglyTypedIntWithConstraintsJsonConverter))]
-public readonly partial record struct StronglyTypedIntWithConstraints : Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<int>, System.IParsable<Examples.StronglyTypedIntWithConstraints>, System.ISpanParsable<Examples.StronglyTypedIntWithConstraints>, System.IUtf8SpanParsable<Examples.StronglyTypedIntWithConstraints>, System.IComparable<Examples.StronglyTypedIntWithConstraints>, System.IComparable, System.IFormattable, System.ISpanFormattable, System.IUtf8SpanFormattable
+[System.CodeDom.Compiler.GeneratedCodeAttribute("Egil.StronglyTypedPrimitives, Version=1.14.0.0, Culture=neutral, PublicKeyToken=null", "1.14.0.0")]
+[System.Text.Json.Serialization.JsonConverterAttribute(typeof(Egil.StronglyTypedPrimitives.StronglyTypedJsonConverter<Examples.StronglyTypedIntWithConstraints, int>))]
+public readonly partial record struct StronglyTypedIntWithConstraints : Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<int>, Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<Examples.StronglyTypedIntWithConstraints, int>, System.IParsable<Examples.StronglyTypedIntWithConstraints>, System.ISpanParsable<Examples.StronglyTypedIntWithConstraints>, System.IUtf8SpanParsable<Examples.StronglyTypedIntWithConstraints>, System.IComparable<Examples.StronglyTypedIntWithConstraints>, System.IComparable, System.IFormattable, System.ISpanFormattable, System.IUtf8SpanFormattable
 {
     public static readonly StronglyTypedIntWithConstraints Empty = default;
+
+    public static StronglyTypedIntWithConstraints Create(int value) => new StronglyTypedIntWithConstraints(value);
 
     private static int ThrowIfValueIsInvalid(int value)
     {

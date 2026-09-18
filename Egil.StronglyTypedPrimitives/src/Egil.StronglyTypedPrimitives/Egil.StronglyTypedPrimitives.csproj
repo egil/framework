@@ -54,6 +54,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Release tracking for the STP diagnostics; RS2008 fails the build without these. -->
+    <AdditionalFiles Include="AnalyzerReleases.Shipped.md" />
+    <AdditionalFiles Include="AnalyzerReleases.Unshipped.md" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Include="..\..\..\LICENSE">
       <Pack>True</Pack>
       <PackagePath>\</PackagePath>
