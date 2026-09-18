@@ -124,9 +124,9 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
 
     public System.Collections.Generic.IEnumerable<System.ComponentModel.DataAnnotations.ValidationResult> Validate(System.ComponentModel.DataAnnotations.ValidationContext validationContext)
     {
-        var result0 = valueValidator0.GetValidationResult(Value, validationContext);
+        var result0 = valueValidator0.GetValidationResult(this.Value, validationContext);
         if (result0 == System.ComponentModel.DataAnnotations.ValidationResult.Success) result0 = null;
-        var result1 = valueValidator1.GetValidationResult(Value, validationContext);
+        var result1 = valueValidator1.GetValidationResult(this.Value, validationContext);
         if (result1 == System.ComponentModel.DataAnnotations.ValidationResult.Success) result1 = null;
 
         if (result0 is null && result1 is null) return System.Array.Empty<System.ComponentModel.DataAnnotations.ValidationResult>();

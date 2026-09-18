@@ -72,7 +72,7 @@ internal static class Parser
             var index = target.Count;
             target.Add(new ValidationAttributeInfo(
                 index,
-                GetUnusedFieldName(isAsync ? $"asyncValueValidator{index}" : $"valueValidator{index}", reservedNames),
+                GetUnusedName(isAsync ? $"asyncValueValidator{index}" : $"valueValidator{index}", reservedNames),
                 attributeClass.ToDisplayString(),
                 string.Join(", ", attribute.ConstructorArguments.Select(FormatAttributeArgument)),
                 FormatNamedArguments(attribute.NamedArguments),
@@ -83,8 +83,9 @@ internal static class Parser
     }
 
     // Appending underscores keeps the name recognisable and deterministic; the chosen name is
-    // reserved as well so a later attribute cannot land on it.
-    private static string GetUnusedFieldName(string preferredName, HashSet<string> reservedNames)
+    // reserved as well so a later attribute cannot land on it. Shared with the generated Validate,
+    // whose parameter and locals must stay clear of the positional parameter and user members.
+    internal static string GetUnusedName(string preferredName, HashSet<string> reservedNames)
     {
         var name = preferredName;
         while (!reservedNames.Add(name))

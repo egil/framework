@@ -93,6 +93,53 @@ public class Validate_for_IValidatableObject_on_alternative_parameter_name : Val
             """);
 }
 
+public class Validate_for_IValidatableObject_with_parameter_named_like_a_result_local : ValidationAttributeTestBase
+{
+    [Fact]
+    public Task Test()
+        => VerifyGeneratedSource("""
+            using Egil.StronglyTypedPrimitives;
+            using System.ComponentModel.DataAnnotations;
+
+            namespace SomeNamespace;
+
+            [StronglyTyped]
+            public readonly partial record struct Foo([Range(1, 10), AllowedValues(2, 4)] int result0) : IValidatableObject
+            {
+                public int results => 0;
+            }
+            """);
+}
+
+public class Validate_for_IValidatableObject_with_parameter_named_validationContext : ValidationAttributeTestBase
+{
+    [Fact]
+    public Task Test()
+        => VerifyGeneratedSource("""
+            using Egil.StronglyTypedPrimitives;
+            using System.ComponentModel.DataAnnotations;
+
+            namespace SomeNamespace;
+
+            [StronglyTyped]
+            public readonly partial record struct Foo(int validationContext) : IValidatableObject
+            {
+                public static bool IsValueValid(int value, bool throwIfInvalid)
+                {
+                    if (value > 5)
+                        return true;
+
+                    if (throwIfInvalid)
+                        throw new System.ArgumentException("Value must be larger than 5", nameof(value));
+
+                    return false;
+                }
+
+                public int ex => 0;
+            }
+            """);
+}
+
 public class Validate_is_not_generated_when_the_user_writes_Validate : ValidationAttributeTestBase
 {
     [Fact]

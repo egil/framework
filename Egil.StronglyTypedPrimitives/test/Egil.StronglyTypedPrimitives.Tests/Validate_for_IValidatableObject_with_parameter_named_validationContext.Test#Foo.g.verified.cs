@@ -25,39 +25,20 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
         return value;
     }
 
-    private readonly int @data = ThrowIfValueIsInvalid(Data);
+    private readonly int @validationcontext = ThrowIfValueIsInvalid(validationContext);
 
-    public int Data
+    public int validationContext
     {
-        get => @data;
+        get => @validationcontext;
         init
         {
-            @data = ThrowIfValueIsInvalid(value);
+            @validationcontext = ThrowIfValueIsInvalid(value);
         }
     }
 
-    int Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<SomeNamespace.Foo, int>.Value => Data;
+    int Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<SomeNamespace.Foo, int>.Value => validationContext;
 
-    public override string ToString() => Data.ToString();
-
-    private static readonly System.ComponentModel.DataAnnotations.RangeAttribute valueValidator0 = new System.ComponentModel.DataAnnotations.RangeAttribute(1, 10);
-
-    public static bool IsValueValid(int value, bool throwIfInvalid)
-    {
-        string? error0 = null;
-
-        if (!valueValidator0.IsValid(value))
-        {
-            if (!throwIfInvalid) return false;
-            error0 = valueValidator0.FormatErrorMessage("Data");
-        }
-
-        if (error0 is null) return true;
-
-        var message = string.Empty;
-        if (error0 is not null) message = error0;
-        throw new System.ComponentModel.DataAnnotations.ValidationException(message, null, value);
-    }
+    public override string ToString() => validationContext.ToString();
 
     public static Foo Parse(string s, System.IFormatProvider? provider)
     {
@@ -117,7 +98,7 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
     }
     
     public int CompareTo(SomeNamespace.Foo other)
-        => Data.CompareTo(other.Data);
+        => validationContext.CompareTo(other.validationContext);
     
     public int CompareTo(object? obj)
     {
@@ -128,32 +109,32 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
 
         if (obj is Foo other)
         {
-            return Data.CompareTo(other.Data);
+            return validationContext.CompareTo(other.validationContext);
         }
 
-        return ((System.IComparable)Data).CompareTo(obj);
+        return ((System.IComparable)validationContext).CompareTo(obj);
     }
     
     public string ToString(string? format, System.IFormatProvider? formatProvider)
-        => Data.ToString(format, formatProvider);
+        => validationContext.ToString(format, formatProvider);
     
     public bool TryFormat(System.Span<char> destination, out int charsWritten, System.ReadOnlySpan<char> format, System.IFormatProvider? provider)
-        => ((System.ISpanFormattable)Data).TryFormat(destination, out charsWritten, format, provider);
+        => ((System.ISpanFormattable)validationContext).TryFormat(destination, out charsWritten, format, provider);
     
     public bool TryFormat(System.Span<byte> utf8Destination, out int bytesWritten, System.ReadOnlySpan<char> format, System.IFormatProvider? provider)
-        => ((System.IUtf8SpanFormattable)Data).TryFormat(utf8Destination, out bytesWritten, format, provider);
+        => ((System.IUtf8SpanFormattable)validationContext).TryFormat(utf8Destination, out bytesWritten, format, provider);
 
-    public System.Collections.Generic.IEnumerable<System.ComponentModel.DataAnnotations.ValidationResult> Validate(System.ComponentModel.DataAnnotations.ValidationContext validationContext)
+    public System.Collections.Generic.IEnumerable<System.ComponentModel.DataAnnotations.ValidationResult> Validate(System.ComponentModel.DataAnnotations.ValidationContext validationContext_)
     {
-        var result0 = valueValidator0.GetValidationResult(this.Data, validationContext);
-        if (result0 == System.ComponentModel.DataAnnotations.ValidationResult.Success) result0 = null;
-
-        if (result0 is null) return System.Array.Empty<System.ComponentModel.DataAnnotations.ValidationResult>();
-
-        var results = new System.ComponentModel.DataAnnotations.ValidationResult[(result0 is null ? 0 : 1)];
-        var index = 0;
-        if (result0 is not null) results[index++] = result0;
-        return results;
+        try
+        {
+            if (IsValueValid(this.validationContext, throwIfInvalid: true)) return System.Array.Empty<System.ComponentModel.DataAnnotations.ValidationResult>();
+        }
+        catch (System.Exception ex_) when (ex_ is System.ArgumentException or System.ComponentModel.DataAnnotations.ValidationException)
+        {
+            return new[] { new System.ComponentModel.DataAnnotations.ValidationResult(ex_.Message) };
+        }
+        return new[] { new System.ComponentModel.DataAnnotations.ValidationResult("Value is not valid.") };
     }
     
     public static bool operator > (Foo a, Foo b) => a.CompareTo(b) > 0;                
