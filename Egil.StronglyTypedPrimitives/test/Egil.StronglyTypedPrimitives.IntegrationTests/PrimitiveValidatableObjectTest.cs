@@ -42,6 +42,15 @@ namespace Egil.StronglyTypedPrimitives
         }
 
         [Fact]
+        public void ValidationException_message_from_a_user_written_IsValueValid_is_reported()
+        {
+            var results = Validate(StronglyTypedIntWithValidationExceptionAndValidate.Empty);
+
+            var result = Assert.Single(results);
+            Assert.Equal("Value must be larger than 5", result.ErrorMessage);
+        }
+
+        [Fact]
         public void User_written_IsValueValid_that_returns_false_without_throwing_is_reported()
         {
             var results = Validate(StronglyTypedOddIntWithValidate.Empty);
