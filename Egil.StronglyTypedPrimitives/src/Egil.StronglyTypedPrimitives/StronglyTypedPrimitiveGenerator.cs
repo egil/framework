@@ -193,6 +193,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         var underlyingTypeName = underlyingTypeSymbol.WithNullableAnnotation(NullableAnnotation.None).ToDisplayString();
 
         var validationAttributes = Parser.GetValidationAttributes(info.Parameter, semanticModel, targetTypeMembers);
+        var generatesValidate = Parser.ShouldGenerateValidate(compilation, targetTypeSymbol);
         var diagnostics = GetValidationAttributeDiagnostics(info, validationAttributes, hasUserDeclaredIsValueValid);
 
         string?[] typeParts = [
@@ -209,6 +210,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             .. GetToStringMethod(info, targetTypeMembers, underlyingTypeSymbol),
             .. GetIsValueValidMethod(info, underlyingTypeSymbol, hasUserDeclaredIsValueValid, validationAttributes),
             .. GetInterfaceSymbols(info, unimplementedSymbols, underlyingTypeSymbol),
+            .. GetValidateMethod(info, targetTypeMembers, generatesValidate, hasUserDeclaredIsValueValid, validationAttributes),
             .. GetOperatorOverloads(info, targetTypeSymbol, targetTypeMembers),
             "}"
         ];
@@ -432,7 +434,11 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             yield break;
         }
 
-        var fieldName = isCSharp14OrGreater ? "field" : $"@{info.Parameter.Identifier.ToString().ToLowerInvariant()}";
+        // Before the field keyword the backing field is the parameter name in lower case, which is
+        // the parameter's own name when the user wrote it in lower case already (int value, int
+        // result0), so the same underscore suffixing as the validator fields keeps it distinct.
+        var reservedFieldNames = new HashSet<string>(targetTypeMembers.Select(member => member.Name), StringComparer.Ordinal);
+        var fieldName = isCSharp14OrGreater ? "field" : $"@{Parser.GetUnusedName(info.Parameter.Identifier.Text.ToLowerInvariant(), reservedFieldNames)}";
         var getMethodImplementation = underlyingTypeSymbol.SpecialType is SpecialType.System_String
             ? $"{fieldName} ?? string.Empty;"
             : $"{fieldName};";
@@ -589,6 +595,98 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         }
     }
 
+
+    private const string ValidationResultTypeName = "System.ComponentModel.DataAnnotations.ValidationResult";
+
+    // Validate reports the failures IsValueValid throws for as ValidationResults, so ASP.NET Core
+    // validation can answer with a 400 instead of an exception. It is only emitted when the user
+    // declared IValidatableObject themselves (see Parser.ShouldGenerateValidate). By the time it
+    // runs, the JSON converter or TryParse has already replaced an invalid payload with Empty, so
+    // the value being validated is usually the default value, and it is reported like any other.
+    //
+    // The wrapped value is always read as this.<parameter> and every name the method introduces
+    // is kept clear of the positional parameter and the user's members, so a parameter called
+    // validationContext or result0 neither shadows nor is shadowed by them.
+    private static IEnumerable<string> GetValidateMethod(StronglyTypedTypeInfo info, IEnumerable<ISymbol> targetTypeMembers, bool generatesValidate, bool hasUserDeclaredIsValueValid, ValidationAttributeModel validationAttributes)
+    {
+        if (!generatesValidate)
+        {
+            yield break;
+        }
+
+        var parameterName = info.Parameter.Identifier.Text;
+        var value = $"this.{parameterName}";
+        var reservedNames = new HashSet<string>(targetTypeMembers.Select(member => member.Name), StringComparer.Ordinal) { parameterName };
+        var contextName = Parser.GetUnusedName("validationContext", reservedNames);
+        var signature = $"public System.Collections.Generic.IEnumerable<{ValidationResultTypeName}> Validate(System.ComponentModel.DataAnnotations.ValidationContext {contextName})";
+        var emptyResults = $"System.Array.Empty<{ValidationResultTypeName}>()";
+
+        if (!hasUserDeclaredIsValueValid && validationAttributes.Attributes.IsEmpty)
+        {
+            yield return $"""
+
+                    {signature}
+                        => {emptyResults};
+                """;
+            yield break;
+        }
+
+        if (hasUserDeclaredIsValueValid)
+        {
+            // A hand-written IsValueValid only explains a failure through its exception, so the
+            // throwing overload is the one whose message is reported. ArgumentException is what
+            // the README shows users throwing; ValidationException is what the attribute-generated
+            // method throws and what a user copying it would use. Anything else is a bug in the
+            // user's method and is left to propagate. The fallback message is the documented
+            // literal, whatever the positional parameter is called.
+            var exceptionName = Parser.GetUnusedName("ex", reservedNames);
+            yield return $$"""
+
+                    {{signature}}
+                    {
+                        try
+                        {
+                            if (IsValueValid({{value}}, throwIfInvalid: true)) return {{emptyResults}};
+                        }
+                        catch (System.Exception {{exceptionName}}) when ({{exceptionName}} is System.ArgumentException or System.ComponentModel.DataAnnotations.ValidationException)
+                        {
+                            return new[] { new {{ValidationResultTypeName}}({{exceptionName}}.Message) };
+                        }
+                        return new[] { new {{ValidationResultTypeName}}("Value is not valid.") };
+                    }
+                """;
+            yield break;
+        }
+
+        // Same flat layout as the attribute-generated IsValueValid: one local per attribute and
+        // every attribute evaluated so a single round trip reports all failures. The result array
+        // is sized exactly and only created on failure, so a valid value allocates nothing.
+        var attributes = validationAttributes.Attributes;
+        var resultNames = attributes.Select(attribute => Parser.GetUnusedName($"result{attribute.Index}", reservedNames)).ToArray();
+        var resultsName = Parser.GetUnusedName("results", reservedNames);
+        var indexName = Parser.GetUnusedName("index", reservedNames);
+        var source = new StringBuilder();
+        source.Append($"\n    {signature}\n    {{");
+
+        foreach (var attribute in attributes)
+        {
+            source.Append($"\n        var {resultNames[attribute.Index]} = {attribute.FieldName}.GetValidationResult({value}, {contextName});");
+            source.Append($"\n        if ({resultNames[attribute.Index]} == {ValidationResultTypeName}.Success) {resultNames[attribute.Index]} = null;");
+        }
+
+        source.Append($"\n\n        if ({string.Join(" && ", resultNames.Select(name => $"{name} is null"))}) return {emptyResults};");
+        source.Append($"\n\n        var {resultsName} = new {ValidationResultTypeName}[{string.Join(" + ", resultNames.Select(name => $"({name} is null ? 0 : 1)"))}];");
+        source.Append($"\n        var {indexName} = 0;");
+
+        foreach (var name in resultNames)
+        {
+            source.Append($"\n        if ({name} is not null) {resultsName}[{indexName}++] = {name};");
+        }
+
+        source.Append($"\n        return {resultsName};\n    }}");
+
+        yield return source.ToString();
+    }
 
     private static string GetParse(StronglyTypedTypeInfo info, IMethodSymbol method, ITypeSymbol underlyingTypeSymbol)
         => $$"""

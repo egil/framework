@@ -72,7 +72,7 @@ internal static class Parser
             var index = target.Count;
             target.Add(new ValidationAttributeInfo(
                 index,
-                GetUnusedFieldName(isAsync ? $"asyncValueValidator{index}" : $"valueValidator{index}", reservedNames),
+                GetUnusedName(isAsync ? $"asyncValueValidator{index}" : $"valueValidator{index}", reservedNames),
                 attributeClass.ToDisplayString(),
                 string.Join(", ", attribute.ConstructorArguments.Select(FormatAttributeArgument)),
                 FormatNamedArguments(attribute.NamedArguments),
@@ -83,8 +83,9 @@ internal static class Parser
     }
 
     // Appending underscores keeps the name recognisable and deterministic; the chosen name is
-    // reserved as well so a later attribute cannot land on it.
-    private static string GetUnusedFieldName(string preferredName, HashSet<string> reservedNames)
+    // reserved as well so a later attribute cannot land on it. Shared with the generated Validate,
+    // whose parameter and locals must stay clear of the positional parameter and user members.
+    internal static string GetUnusedName(string preferredName, HashSet<string> reservedNames)
     {
         var name = preferredName;
         while (!reservedNames.Add(name))
@@ -172,6 +173,23 @@ internal static class Parser
         return sharedJsonConverterType is not null
             ? JsonConverterSupport.GenerateAttribute
             : JsonConverterSupport.SharedConverterUnavailable;
+    }
+
+    // Generators cannot see each other's output, and the ASP.NET Core validation generator decides
+    // whether a type is validatable by looking for IValidatableObject on the type symbol. Adding
+    // the interface from here would therefore be invisible to it, so Validate is only filled in
+    // when the user's own declaration names the interface, and a Validate the user wrote (implicit
+    // or explicit) wins like every other generated member.
+    internal static bool ShouldGenerateValidate(Compilation compilation, INamedTypeSymbol targetTypeSymbol)
+    {
+        var validatableObjectType = compilation.GetTypeByMetadataName("System.ComponentModel.DataAnnotations.IValidatableObject");
+        if (validatableObjectType is null || !targetTypeSymbol.AllInterfaces.Contains(validatableObjectType, SymbolEqualityComparer.Default))
+        {
+            return false;
+        }
+
+        var validateMethod = validatableObjectType.GetMembers("Validate").OfType<IMethodSymbol>().FirstOrDefault();
+        return validateMethod is not null && targetTypeSymbol.FindImplementationForInterfaceMember(validateMethod) is null;
     }
 
     internal static bool DerivesFromJsonSerializerContext(INamedTypeSymbol type)

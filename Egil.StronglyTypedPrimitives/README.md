@@ -11,6 +11,8 @@ it easy to avoid the primitive obsession anti pattern.
 
 - **Constraints from DataAnnotations attributes**. Declare `System.ComponentModel.DataAnnotations` validation attributes on the positional parameter, for example `[EmailAddress, StringLength(254)] string Value`, and the generator writes `IsValueValid` from them. See [Getting started](#getting-started).
 
+- **ASP.NET Core validation**. Declare `IValidatableObject` on the partial declaration and the generator writes `Validate` from the constraints, so a hand-written `IsValueValid` is reported by ASP.NET Core validation as a 400 instead of slipping through. See [ASP.NET Core validation](#aspnet-core-validation).
+
 - **Interoperable with other source generators**. The "Value" property is visible to them and can be used in their generated code.
 
 - **Generates implementation of the following interfaces**, if the underlying type supports them:
@@ -145,6 +147,66 @@ The generator reports warning `STP001` for every strongly typed primitive withou
 
 `StronglyTypedJsonConverter<TSelf, TPrimitiveType>` and `StronglyTypedJsonConverterFactory` ship in the `net8.0`, `net9.0` and `net10.0` assets of the package only. Projects that pick the `netstandard2.0` asset (for example .NET Framework or .NET Standard class libraries) get no generated JSON support, even when they reference `System.Text.Json`: the generator emits no `[JsonConverter]` attribute for them and reports warning `STP004` instead. Declare your own `[JsonConverter]` on the partial declaration to serialize the type there, or target `net8.0` or later. Versions before 2.0 generated a nested converter for every target framework.
 
+## ASP.NET Core validation
+
+An invalid value in a request body is deserialized to `Empty` by the JSON converter rather than failing the request, so the bound object carries the default value and only validation can reject it. A route or query value that fails `TryParse` is different: that is a binding failure, and ASP.NET Core answers 400 before the handler runs, with an empty body. When validation is registered (`builder.Services.AddValidation()`, .NET 10) the endpoint filter pipeline still runs with the parameter at its default, so that 400 carries the validation problem details for `Empty` instead. Which constraints validation sees depends on how they are expressed, because its validation source generator only sees your own declarations, never the partial this generator adds:
+
+- **Validation attributes** on the positional parameter are visible to it on the `Value` property, so it validates them itself. An invalid `Quantity` property of type `StronglyTypedQuantity([Range(6, 100)] int Value)` is reported under `Quantity.Value` with the attribute's message. Nothing extra is needed.
+
+- **A hand-written `IsValueValid`** is invisible to it, so the type is not validated at all. To fix that, declare `System.ComponentModel.DataAnnotations.IValidatableObject` on your partial declaration:
+
+  ```csharp
+  [StronglyTyped]
+  public readonly partial record struct StronglyTypedIntWithConstraints(int Value) : IValidatableObject
+  {
+      public static bool IsValueValid(int value, bool throwIfInvalid)
+      {
+          if (value > 5)
+              return true;
+
+          if (throwIfInvalid)
+              throw new ArgumentException("Value must be larger than 5", nameof(value));
+
+          return false;
+      }
+  }
+  ```
+
+  The generator fills in `Validate`, which calls `IsValueValid(Value, throwIfInvalid: true)` and reports the message of the `ArgumentException` or `ValidationException` it throws as a `ValidationResult` (or `"Value is not valid."` when the method returns `false` without throwing). Because the runtime calls `Validate` without a member name, .NET 10 records the result under the empty key in the problem details.
+
+The generator never adds `IValidatableObject` on its own: the validation source generator would not see it, so the declaration has to be yours. A `Validate` you write yourself, implicitly or as an explicit interface implementation, is left alone like every other generated member. `Validate` is generated for every type that declares the interface, so a type with validation attributes gets one that evaluates the attributes, which is what `Validator.TryValidateObject` and other `IValidatableObject` consumers see. Given:
+
+```csharp
+using System.ComponentModel.DataAnnotations;
+using Egil.StronglyTypedPrimitives;
+
+namespace Examples;
+
+[StronglyTyped]
+public readonly partial record struct Email([EmailAddress, StringLength(254, MinimumLength = 3)] string Value) : IValidatableObject;
+```
+
+the following `Validate` is generated next to the `IsValueValid` shown in [Generator output for string with validation attributes](#generator-output-for-string-with-validation-attributes):
+
+```csharp
+public System.Collections.Generic.IEnumerable<System.ComponentModel.DataAnnotations.ValidationResult> Validate(System.ComponentModel.DataAnnotations.ValidationContext validationContext)
+{
+    var result0 = valueValidator0.GetValidationResult(Value, validationContext);
+    if (result0 == System.ComponentModel.DataAnnotations.ValidationResult.Success) result0 = null;
+    var result1 = valueValidator1.GetValidationResult(Value, validationContext);
+    if (result1 == System.ComponentModel.DataAnnotations.ValidationResult.Success) result1 = null;
+
+    if (result0 is null && result1 is null) return System.Array.Empty<System.ComponentModel.DataAnnotations.ValidationResult>();
+
+    var results = new System.ComponentModel.DataAnnotations.ValidationResult[(result0 is null ? 0 : 1) + (result1 is null ? 0 : 1)];
+    var index = 0;
+    if (result0 is not null) results[index++] = result0;
+    if (result1 is not null) results[index++] = result1;
+    return results;
+}
+```
+
+Every attribute is evaluated so one result per failing attribute is returned, and a valid value returns an empty array without allocating. Attributes deriving from `AsyncValidationAttribute` are not part of `Validate`. In ASP.NET Core validation the attribute errors on `Value` take precedence: `Validate` is only consulted when no member has failed, so the two never report the same failure twice.
 ## Generator output for int without constraints
 
 Given this type declaration:
