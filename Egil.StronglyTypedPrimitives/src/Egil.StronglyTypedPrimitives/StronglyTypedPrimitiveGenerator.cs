@@ -166,10 +166,15 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         // The members of IStronglyTypedPrimitive<TSelf, TPrimitive> (Value and Create) have
         // dedicated generators below because they must also exist on target frameworks where the
         // interface cannot declare them (no static abstract members before net7.0).
+        // IsValueValid is likewise generated from the user's members rather than from the interface:
+        // the netstandard2.0 asset cannot declare it as a static abstract member, yet the generated
+        // constructor validation calls it.
         var unimplementedSymbols = interfacesToImplement
             .Where(@interface => !SymbolEqualityComparer.Default.Equals(@interface, selfInterface))
             .SelectMany(@interface => semanticModel.GetUnimplementedSymbols(targetTypeMembers, @interface))
+            .Where(symbol => symbol.Name != "IsValueValid")
             .ToList();
+        var hasUserDeclaredIsValueValid = HasPublicStaticMethod(targetTypeMembers, "IsValueValid", underlyingTypeSymbol, compilation.GetSpecialType(SpecialType.System_Boolean), compilation.GetSpecialType(SpecialType.System_Boolean));
 
         var jsonConverterSupport = Parser.GetJsonConverterSupport(compilation, targetTypeSymbol);
         var targetTypeName = targetTypeSymbol.ToDisplayString();
@@ -183,10 +188,11 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             GetPartialRecordStructDefinition(info, interfacesToImplement),
             "{",
             .. GetEmptyProperty(info, targetTypeMembers, underlyingTypeSymbol),
-            .. GetCreateMethod(info, targetTypeMembers, targetTypeSymbol, underlyingTypeSymbol),
-            .. GetValueProperty(info, targetTypeMembers, underlyingTypeSymbol, isCSharp14OrGreater, unimplementedSymbols),
+            .. GetCreateMethod(info, targetTypeMembers, targetTypeSymbol, selfInterface, underlyingTypeSymbol),
+            .. GetValueProperty(info, targetTypeMembers, underlyingTypeSymbol, isCSharp14OrGreater, hasUserDeclaredIsValueValid),
             .. GetSelfInterfaceValueProperty(info, targetTypeMembers, selfInterface, underlyingTypeSymbol),
             .. GetToStringMethod(info, targetTypeMembers, underlyingTypeSymbol),
+            .. GetIsValueValidMethod(underlyingTypeSymbol, hasUserDeclaredIsValueValid),
             .. GetInterfaceSymbols(info, unimplementedSymbols, underlyingTypeSymbol),
             .. GetOperatorOverloads(info, targetTypeSymbol, targetTypeMembers),
             "}"
@@ -222,16 +228,35 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             """;
     }
 
-    internal static IEnumerable<string> GetCreateMethod(StronglyTypedTypeInfo info, IEnumerable<ISymbol> targetTypeMembers, INamedTypeSymbol targetTypeSymbol, ITypeSymbol underlyingTypeSymbol)
+    // Only a public Create(TPrimitive) satisfies IStronglyTypedPrimitive<TSelf, TPrimitive>.Create
+    // implicitly. A non-public one with the same signature would clash with a generated public one,
+    // so the interface member is then implemented explicitly instead (where the interface has it).
+    internal static IEnumerable<string> GetCreateMethod(StronglyTypedTypeInfo info, IEnumerable<ISymbol> targetTypeMembers, INamedTypeSymbol targetTypeSymbol, INamedTypeSymbol? selfInterface, ITypeSymbol underlyingTypeSymbol)
     {
-        var hasCreateMethod = targetTypeMembers
+        var interfaceCreateMethod = selfInterface?.GetMembers("Create").OfType<IMethodSymbol>().FirstOrDefault();
+        var hasExplicitCreateMethod = interfaceCreateMethod is not null && targetTypeMembers
+            .OfType<IMethodSymbol>()
+            .Any(m => m.ExplicitInterfaceImplementations.Any(e => e.Equals(interfaceCreateMethod, SymbolEqualityComparer.Default)));
+        if (hasExplicitCreateMethod || HasPublicStaticMethod(targetTypeMembers, "Create", underlyingTypeSymbol, targetTypeSymbol))
+        {
+            yield break;
+        }
+
+        var hasNonPublicCreateMethod = targetTypeMembers
             .OfType<IMethodSymbol>()
             .Any(m => m.Name == "Create"
                    && m.IsStatic && m.Parameters.Length == 1
-                   && m.Parameters[0].Type.Equals(underlyingTypeSymbol, SymbolEqualityComparer.Default)
-                   && m.ReturnType.Equals(targetTypeSymbol, SymbolEqualityComparer.Default));
-        if (hasCreateMethod)
+                   && m.Parameters[0].Type.Equals(underlyingTypeSymbol, SymbolEqualityComparer.Default));
+        if (hasNonPublicCreateMethod)
         {
+            if (interfaceCreateMethod is not null)
+            {
+                yield return $$"""
+
+                        static {{info.Target.Identifier}} {{selfInterface!.ToDisplayString()}}.Create({{underlyingTypeSymbol.ToDisplayString()}} value) => new {{info.Target.Identifier}}(value);
+                    """;
+            }
+
             yield break;
         }
 
@@ -241,9 +266,37 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             """;
     }
 
-    internal static IEnumerable<string> GetValueProperty(StronglyTypedTypeInfo info, IEnumerable<ISymbol> targetTypeMembers, ITypeSymbol underlyingTypeSymbol, bool isCSharp14OrGreater, IEnumerable<ISymbol> unimplementedSymbols)
+    private static bool HasPublicStaticMethod(IEnumerable<ISymbol> targetTypeMembers, string name, ITypeSymbol firstParameterType, ITypeSymbol returnType, ITypeSymbol? secondParameterType = null)
+        => targetTypeMembers
+            .OfType<IMethodSymbol>()
+            .Any(m => m.Name == name
+                   && m.IsStatic
+                   && m.DeclaredAccessibility == Accessibility.Public
+                   && m.Parameters.Length == (secondParameterType is null ? 1 : 2)
+                   && m.Parameters[0].Type.Equals(firstParameterType, SymbolEqualityComparer.Default)
+                   && (secondParameterType is null || m.Parameters[1].Type.Equals(secondParameterType, SymbolEqualityComparer.Default))
+                   && m.ReturnType.Equals(returnType, SymbolEqualityComparer.Default));
+
+    private static IEnumerable<string> GetIsValueValidMethod(ITypeSymbol underlyingTypeSymbol, bool hasUserDeclaredIsValueValid)
     {
-        if (unimplementedSymbols.Any(x => x.Name == "IsValueValid"))
+        if (hasUserDeclaredIsValueValid)
+        {
+            yield break;
+        }
+
+        yield return $$"""
+
+            [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+            public static bool IsValueValid({{underlyingTypeSymbol.ToDisplayString()}} value, bool throwIfInvalid)
+                => true;
+        """;
+    }
+
+    internal static IEnumerable<string> GetValueProperty(StronglyTypedTypeInfo info, IEnumerable<ISymbol> targetTypeMembers, ITypeSymbol underlyingTypeSymbol, bool isCSharp14OrGreater, bool hasUserDeclaredIsValueValid)
+    {
+        // The generated IsValueValid accepts everything, so the validating property wrapper is
+        // only worth generating when the user supplied their own IsValueValid.
+        if (!hasUserDeclaredIsValueValid)
         {
             yield break;
         }
@@ -326,7 +379,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
 
         var isImplemented = targetTypeMembers
             .OfType<IPropertySymbol>()
-            .Any(p => (p.Name == "Value" && !p.IsStatic && p.GetMethod is not null && p.DeclaredAccessibility == Accessibility.Public && p.Type.Equals(underlyingTypeSymbol, SymbolEqualityComparer.Default))
+            .Any(p => (p.Name == "Value" && !p.IsStatic && p.GetMethod is { DeclaredAccessibility: Accessibility.Public } && p.Type.Equals(underlyingTypeSymbol, SymbolEqualityComparer.Default))
                    || p.ExplicitInterfaceImplementations.Any(e => e.Equals(interfaceValueProperty, SymbolEqualityComparer.Default)));
         if (isImplemented)
         {
@@ -414,7 +467,6 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
 
             yield return method switch
             {
-                { Name: "IsValueValid" } => GetIsValueValid(info, underlyingTypeSymbol),
 
                 { Name: "Parse", Parameters: { Length: 2 } } when underlyingTypeSymbol.SpecialType is SpecialType.System_String => GetStringParse(info, method, underlyingTypeSymbol),
                 { Name: "TryParse", Parameters: { Length: 3 } } when underlyingTypeSymbol.SpecialType is SpecialType.System_String => GetStringTryParse(info, method, underlyingTypeSymbol),
@@ -435,13 +487,6 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         }
     }
 
-    private static string GetIsValueValid(StronglyTypedTypeInfo info, ITypeSymbol underlyingTypeSymbol)
-        => $$"""
-
-            [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-            public static bool IsValueValid({{underlyingTypeSymbol.ToDisplayString()}} value, bool throwIfInvalid)
-                => true;
-        """;
 
     private static string GetParse(StronglyTypedTypeInfo info, IMethodSymbol method, ITypeSymbol underlyingTypeSymbol)
         => $$"""

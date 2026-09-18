@@ -62,3 +62,65 @@ public class Custom_JsonConverter
         );
     }
 }
+
+public class Custom_Create_non_public
+{
+    [Fact]
+    public async Task Test()
+    {
+        var input = """
+            using Egil.StronglyTypedPrimitives;
+
+            namespace SomeNamespace;
+
+            [StronglyTyped]
+            public readonly partial record struct Foo(int Value)
+            {
+                private static Foo Create(int value) => new Foo(value);
+            }
+            """;
+
+        await SnapshotTestHelper.Verify<StronglyTypedPrimitiveGenerator>(
+            input,
+            LanguageVersion.LatestMajor,
+            out var compilation
+        );
+
+        Assert.Empty(
+            compilation
+                .GetDiagnostics(TestContext.Current.CancellationToken)
+                .Where(d => d.Severity > DiagnosticSeverity.Warning)
+        );
+    }
+}
+
+public class Custom_Value_with_non_public_getter
+{
+    [Fact]
+    public async Task Test()
+    {
+        var input = """
+            using Egil.StronglyTypedPrimitives;
+
+            namespace SomeNamespace;
+
+            [StronglyTyped]
+            public readonly partial record struct Foo(int Value)
+            {
+                public int Value { private get; init; } = Value;
+            }
+            """;
+
+        await SnapshotTestHelper.Verify<StronglyTypedPrimitiveGenerator>(
+            input,
+            LanguageVersion.LatestMajor,
+            out var compilation
+        );
+
+        Assert.Empty(
+            compilation
+                .GetDiagnostics(TestContext.Current.CancellationToken)
+                .Where(d => d.Severity > DiagnosticSeverity.Warning)
+        );
+    }
+}
