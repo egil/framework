@@ -39,7 +39,17 @@ jobs:
             9.x
             10.x
 
+      # Separate step so "preview" quality only applies to the 11.x request: it would otherwise
+      # also resolve the released majors above to their latest preview builds.
+      # TODO: fold 11.x into the step above once .NET 11 is generally available.
+      - name: Setup .NET 11 (release candidate)
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 11.x
+          dotnet-quality: preview
+
       - run: |
+          dotnet build ./Egil.StronglyTypedPrimitives/src/Egil.StronglyTypedPrimitives.Abstractions/Egil.StronglyTypedPrimitives.Abstractions.csproj -c Release -f net11.0
           dotnet build ./Egil.StronglyTypedPrimitives/src/Egil.StronglyTypedPrimitives.Abstractions/Egil.StronglyTypedPrimitives.Abstractions.csproj -c Release -f net10.0
           dotnet build ./Egil.StronglyTypedPrimitives/src/Egil.StronglyTypedPrimitives.Abstractions/Egil.StronglyTypedPrimitives.Abstractions.csproj -c Release -f net9.0
           dotnet build ./Egil.StronglyTypedPrimitives/src/Egil.StronglyTypedPrimitives.Abstractions/Egil.StronglyTypedPrimitives.Abstractions.csproj -c Release -f net8.0
@@ -95,6 +105,13 @@ jobs:
             8.x
             9.x
             10.x
+
+      # See the create-nuget job for why 11.x is requested in its own step.
+      - name: Setup .NET 11 (release candidate)
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 11.x
+          dotnet-quality: preview
 
       - name: Run tests
         run: |

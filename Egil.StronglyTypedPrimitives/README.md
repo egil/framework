@@ -337,9 +337,9 @@ public readonly partial record struct StronglyTypedIntWithConstraints : Egil.Str
 }
 ```
 
-## .NET 9 OpenAPI support
+## OpenAPI support (.NET 9 and later)
 
-The library includes a custom schema transformer that will ensure strongly typed types have the right OpenAPI schema definition. To use it, add the following to your OpenApi options:
+The library includes a custom schema transformer that documents strongly typed types with the OpenAPI schema of the primitive they wrap, wherever they appear: as body properties, as array items and dictionary values, and as route or query parameters. To use it, add the following to your OpenApi options:
 
 ```csharp
 using Egil.StronglyTypedPrimitives;
