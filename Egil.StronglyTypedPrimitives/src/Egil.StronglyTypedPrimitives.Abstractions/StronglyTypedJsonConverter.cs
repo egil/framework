@@ -75,7 +75,20 @@ public sealed class StronglyTypedJsonConverter<TSelf, TPrimitive> : JsonConverte
     }
 
     public override void WriteAsPropertyName(Utf8JsonWriter writer, [DisallowNull] TSelf value, JsonSerializerOptions options)
-        => GetPrimitiveConverter(options).WriteAsPropertyName(writer, value.Value!, options);
+    {
+        var rawValue = value.Value;
+
+        // A default instance of a string-based primitive wraps null. The primitive converters reject
+        // a null property name, so it is written as the empty name, which is also what the
+        // per-type converter generated before 2.0 did (it used ToString(), which maps null to "").
+        if (rawValue is null)
+        {
+            writer.WritePropertyName(string.Empty);
+            return;
+        }
+
+        GetPrimitiveConverter(options).WriteAsPropertyName(writer, rawValue, options);
+    }
 
     private static JsonConverter<TPrimitive> GetPrimitiveConverter(JsonSerializerOptions options)
     {

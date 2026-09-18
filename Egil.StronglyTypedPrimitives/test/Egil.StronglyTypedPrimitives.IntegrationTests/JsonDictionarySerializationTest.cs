@@ -53,6 +53,18 @@ namespace Egil.StronglyTypedPrimitives
         }
 
         [Fact]
+        public void Default_string_key_is_written_as_the_empty_property_name()
+        {
+            var dict = new Dictionary<StronglyTypedString, string> { [default] = "a", [new("b")] = "c" };
+
+            var json = JsonSerializer.Serialize(dict);
+            var dictFromJson = JsonSerializer.Deserialize<Dictionary<StronglyTypedString, string>>(json);
+
+            Assert.Equal("""{"":"a","b":"c"}""", json);
+            Assert.Equal(["", "b"], dictFromJson!.Keys.Select(key => key.ToString()));
+        }
+
+        [Fact]
         public void Decimal_dictionary_key_is_culture_invariant()
         {
             using var danishCulture = CultureScope.Use("da-DK");
