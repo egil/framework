@@ -2,346 +2,66 @@
 
 using Microsoft.AspNetCore.OpenApi;
 using Microsoft.OpenApi.Models;
+using System.Text.Json.Serialization.Metadata;
 
 namespace Egil.StronglyTypedPrimitives;
 
-public sealed class StronglyTypedSchemaTransformer : IOpenApiSchemaTransformer
+public sealed partial class StronglyTypedSchemaTransformer
 {
+    // ASP.NET Core 9 offers no way to ask the OpenAPI pipeline for another type's schema
+    // (OpenApiSchemaTransformerContext.GetOrCreateSchemaAsync arrived in .NET 10), so the
+    // type/format pairs the framework emits for each primitive are replicated here.
+    private static readonly Dictionary<Type, (string Type, string? Format)> SchemaByPrimitive = new()
+    {
+        [typeof(bool)] = ("boolean", null),
+        [typeof(byte)] = ("integer", "uint8"),
+        [typeof(byte[])] = ("string", "byte"),
+        [typeof(short)] = ("integer", "int16"),
+        [typeof(ushort)] = ("integer", "uint16"),
+        [typeof(int)] = ("integer", "int32"),
+        [typeof(uint)] = ("integer", "uint32"),
+        [typeof(long)] = ("integer", "int64"),
+        [typeof(ulong)] = ("integer", "uint64"),
+        [typeof(float)] = ("number", "float"),
+        [typeof(double)] = ("number", "double"),
+        [typeof(decimal)] = ("number", "double"),
+        [typeof(char)] = ("string", "char"),
+        [typeof(string)] = ("string", null),
+        [typeof(Guid)] = ("string", "uuid"),
+        [typeof(Uri)] = ("string", "uri"),
+        [typeof(DateTime)] = ("string", "date-time"),
+        [typeof(DateTimeOffset)] = ("string", "date-time"),
+        [typeof(DateOnly)] = ("string", "date"),
+        [typeof(TimeOnly)] = ("string", "time"),
+    };
+
     public Task TransformAsync(OpenApiSchema schema, OpenApiSchemaTransformerContext context, CancellationToken cancellationToken)
     {
-        if (schema.Type != "array" && !context.JsonTypeInfo.Type.IsAssignableTo(typeof(IStronglyTypedPrimitive)))
+        if ((GetPrimitiveType(context.JsonTypeInfo.Type) ?? GetParameterPrimitiveType(context)) is { } primitiveType
+            && SchemaByPrimitive.TryGetValue(primitiveType, out var primitiveSchema))
         {
-            return Task.CompletedTask;
-        }
-
-        if (schema.Type == "array" && context.JsonTypeInfo.ElementType?.IsAssignableTo(typeof(IStronglyTypedPrimitive)) == false)
-        {
-            return Task.CompletedTask;
-        }
-
-        if (context.JsonTypeInfo.Type.IsAssignableTo(typeof(IStronglyTypedPrimitive<bool>)))
-        {
-            schema.Type = "boolean";
+            schema.Type = primitiveSchema.Type;
+            schema.Format = primitiveSchema.Format;
             schema.Properties.Clear();
-            return Task.CompletedTask;
+            schema.Required.Clear();
         }
-
-        if (schema.Type == "array" && context.JsonTypeInfo.ElementType?.IsAssignableTo(typeof(IStronglyTypedPrimitive<bool>)) == true)
+        else if (GetElementPrimitiveType(context.JsonTypeInfo) is { } elementPrimitiveType
+            && SchemaByPrimitive.TryGetValue(elementPrimitiveType, out var elementSchema))
         {
-            schema.Items ??= new OpenApiSchema();
-            schema.Items.Type = "boolean";
-            schema.Items.Properties.Clear();
-            return Task.CompletedTask;
-        }
+            var element = new OpenApiSchema { Type = elementSchema.Type, Format = elementSchema.Format };
 
-        if (context.JsonTypeInfo.Type.IsAssignableTo(typeof(IStronglyTypedPrimitive<byte>)))
-        {
-            schema.Type = "integer";
-            schema.Format = "uint8";
-            schema.Properties.Clear();
-            return Task.CompletedTask;
-        }
-
-        if (schema.Type == "array" && context.JsonTypeInfo.ElementType?.IsAssignableTo(typeof(IStronglyTypedPrimitive<byte>)) == true)
-        {
-            schema.Items ??= new OpenApiSchema();
-            schema.Items.Type = "integer";
-            schema.Items.Format = "uint8";
-            schema.Items.Properties.Clear();
-            return Task.CompletedTask;
-        }
-
-        if (context.JsonTypeInfo.Type.IsAssignableTo(typeof(IStronglyTypedPrimitive<byte[]>)))
-        {
-            schema.Type = "string";
-            schema.Format = "byte";
-            schema.Properties.Clear();
-            return Task.CompletedTask;
-        }
-
-        if (schema.Type == "array" && context.JsonTypeInfo.ElementType?.IsAssignableTo(typeof(IStronglyTypedPrimitive<byte[]>)) == true)
-        {
-            schema.Items ??= new OpenApiSchema();
-            schema.Items.Type = "string";
-            schema.Items.Format = "byte";
-            schema.Items.Properties.Clear();
-            return Task.CompletedTask;
-        }
-
-        if (context.JsonTypeInfo.Type.IsAssignableTo(typeof(IStronglyTypedPrimitive<int>)))
-        {
-            schema.Type = "integer";
-            schema.Format = "int32";
-            schema.Properties.Clear();
-            return Task.CompletedTask;
-        }
-
-        if (schema.Type == "array" && context.JsonTypeInfo.ElementType?.IsAssignableTo(typeof(IStronglyTypedPrimitive<int>)) == true)
-        {
-            schema.Items ??= new OpenApiSchema();
-            schema.Items.Type = "integer";
-            schema.Items.Format = "int32";
-            schema.Items.Properties.Clear();
-            return Task.CompletedTask;
-        }
-
-        if (context.JsonTypeInfo.Type.IsAssignableTo(typeof(IStronglyTypedPrimitive<uint>)))
-        {
-            schema.Type = "integer";
-            schema.Format = "uint32";
-            schema.Properties.Clear();
-            return Task.CompletedTask;
-        }
-
-        if (schema.Type == "array" && context.JsonTypeInfo.ElementType?.IsAssignableTo(typeof(IStronglyTypedPrimitive<uint>)) == true)
-        {
-            schema.Items ??= new OpenApiSchema();
-            schema.Items.Type = "integer";
-            schema.Items.Format = "uint32";
-            schema.Items.Properties.Clear();
-            return Task.CompletedTask;
-        }
-
-        if (context.JsonTypeInfo.Type.IsAssignableTo(typeof(IStronglyTypedPrimitive<long>)))
-        {
-            schema.Type = "integer";
-            schema.Format = "int64";
-            schema.Properties.Clear();
-            return Task.CompletedTask;
-        }
-
-        if (schema.Type == "array" && context.JsonTypeInfo.ElementType?.IsAssignableTo(typeof(IStronglyTypedPrimitive<long>)) == true)
-        {
-            schema.Items ??= new OpenApiSchema();
-            schema.Items.Type = "integer";
-            schema.Items.Format = "int64";
-            schema.Items.Properties.Clear();
-            return Task.CompletedTask;
-        }
-
-        if (context.JsonTypeInfo.Type.IsAssignableTo(typeof(IStronglyTypedPrimitive<ulong>)))
-        {
-            schema.Type = "integer";
-            schema.Format = "uint64";
-            schema.Properties.Clear();
-            return Task.CompletedTask;
-        }
-
-        if (schema.Type == "array" && context.JsonTypeInfo.ElementType?.IsAssignableTo(typeof(IStronglyTypedPrimitive<ulong>)) == true)
-        {
-            schema.Items ??= new OpenApiSchema();
-            schema.Items.Type = "integer";
-            schema.Items.Format = "uint64";
-            schema.Items.Properties.Clear();
-            return Task.CompletedTask;
-        }
-
-        if (context.JsonTypeInfo.Type.IsAssignableTo(typeof(IStronglyTypedPrimitive<short>)))
-        {
-            schema.Type = "integer";
-            schema.Format = "int16";
-            schema.Properties.Clear();
-            return Task.CompletedTask;
-        }
-
-        if (schema.Type == "array" && context.JsonTypeInfo.ElementType?.IsAssignableTo(typeof(IStronglyTypedPrimitive<short>)) == true)
-        {
-            schema.Items ??= new OpenApiSchema();
-            schema.Items.Type = "integer";
-            schema.Items.Format = "int16";
-            schema.Items.Properties.Clear();
-            return Task.CompletedTask;
-        }
-
-        if (context.JsonTypeInfo.Type.IsAssignableTo(typeof(IStronglyTypedPrimitive<ushort>)))
-        {
-            schema.Type = "integer";
-            schema.Format = "uint16";
-            schema.Properties.Clear();
-            return Task.CompletedTask;
-        }
-
-        if (schema.Type == "array" && context.JsonTypeInfo.ElementType?.IsAssignableTo(typeof(IStronglyTypedPrimitive<ushort>)) == true)
-        {
-            schema.Items ??= new OpenApiSchema();
-            schema.Items.Type = "integer";
-            schema.Items.Format = "uint16";
-            schema.Items.Properties.Clear();
-            return Task.CompletedTask;
-        }
-
-        if (context.JsonTypeInfo.Type.IsAssignableTo(typeof(IStronglyTypedPrimitive<float>)))
-        {
-            schema.Type = "number";
-            schema.Format = "float";
-            schema.Properties.Clear();
-            return Task.CompletedTask;
-        }
-
-        if (schema.Type == "array" && context.JsonTypeInfo.ElementType?.IsAssignableTo(typeof(IStronglyTypedPrimitive<float>)) == true)
-        {
-            schema.Items ??= new OpenApiSchema();
-            schema.Items.Type = "number";
-            schema.Items.Format = "float";
-            schema.Items.Properties.Clear();
-            return Task.CompletedTask;
-        }
-
-        if (context.JsonTypeInfo.Type.IsAssignableTo(typeof(IStronglyTypedPrimitive<double>)))
-        {
-            schema.Type = "number";
-            schema.Format = "double";
-            schema.Properties.Clear();
-            return Task.CompletedTask;
-        }
-
-        if (schema.Type == "array" && context.JsonTypeInfo.ElementType?.IsAssignableTo(typeof(IStronglyTypedPrimitive<double>)) == true)
-        {
-            schema.Items ??= new OpenApiSchema();
-            schema.Items.Type = "number";
-            schema.Items.Format = "double";
-            schema.Items.Properties.Clear();
-            return Task.CompletedTask;
-        }
-
-        if (context.JsonTypeInfo.Type.IsAssignableTo(typeof(IStronglyTypedPrimitive<decimal>)))
-        {
-            schema.Type = "number";
-            schema.Format = "double";
-            schema.Properties.Clear();
-            return Task.CompletedTask;
-        }
-
-        if (schema.Type == "array" && context.JsonTypeInfo.ElementType?.IsAssignableTo(typeof(IStronglyTypedPrimitive<decimal>)) == true)
-        {
-            schema.Items ??= new OpenApiSchema();
-            schema.Items.Type = "number";
-            schema.Items.Format = "double";
-            schema.Items.Properties.Clear();
-            return Task.CompletedTask;
-        }
-
-        if (context.JsonTypeInfo.Type.IsAssignableTo(typeof(IStronglyTypedPrimitive<DateTime>)) ||
-            context.JsonTypeInfo.Type.IsAssignableTo(typeof(IStronglyTypedPrimitive<DateTimeOffset>)))
-        {
-            schema.Type = "string";
-            schema.Format = "date-time";
-            schema.Properties.Clear();
-            return Task.CompletedTask;
-        }
-
-        if (schema.Type == "array" &&
-            (context.JsonTypeInfo.ElementType?.IsAssignableTo(typeof(IStronglyTypedPrimitive<DateTime>)) == true ||
-             context.JsonTypeInfo.ElementType?.IsAssignableTo(typeof(IStronglyTypedPrimitive<DateTimeOffset>)) == true))
-        {
-            schema.Items ??= new OpenApiSchema();
-            schema.Items.Type = "string";
-            schema.Items.Format = "date-time";
-            schema.Items.Properties.Clear();
-            return Task.CompletedTask;
-        }
-
-        if (context.JsonTypeInfo.Type.IsAssignableTo(typeof(IStronglyTypedPrimitive<Guid>)))
-        {
-            schema.Type = "string";
-            schema.Format = "uuid";
-            schema.Properties.Clear();
-            return Task.CompletedTask;
-        }
-
-        if (schema.Type == "array" && context.JsonTypeInfo.ElementType?.IsAssignableTo(typeof(IStronglyTypedPrimitive<Guid>)) == true)
-        {
-            schema.Items ??= new OpenApiSchema();
-            schema.Items.Type = "string";
-            schema.Items.Format = "uuid";
-            schema.Items.Properties.Clear();
-            return Task.CompletedTask;
-        }
-
-        if (context.JsonTypeInfo.Type.IsAssignableTo(typeof(IStronglyTypedPrimitive<char>)))
-        {
-            schema.Type = "string";
-            schema.Format = "char";
-            schema.Properties.Clear();
-            return Task.CompletedTask;
-        }
-
-        if (schema.Type == "array" && context.JsonTypeInfo.ElementType?.IsAssignableTo(typeof(IStronglyTypedPrimitive<char>)) == true)
-        {
-            schema.Items ??= new OpenApiSchema();
-            schema.Items.Type = "string";
-            schema.Items.Format = "char";
-            schema.Items.Properties.Clear();
-            return Task.CompletedTask;
-        }
-
-        if (context.JsonTypeInfo.Type.IsAssignableTo(typeof(IStronglyTypedPrimitive<Uri>)))
-        {
-            schema.Type = "string";
-            schema.Format = "uri";
-            schema.Properties.Clear();
-            return Task.CompletedTask;
-        }
-
-        if (schema.Type == "array" && context.JsonTypeInfo.ElementType?.IsAssignableTo(typeof(IStronglyTypedPrimitive<Uri>)) == true)
-        {
-            schema.Items ??= new OpenApiSchema();
-            schema.Items.Type = "string";
-            schema.Items.Format = "uri";
-            schema.Items.Properties.Clear();
-            return Task.CompletedTask;
-        }
-
-        if (context.JsonTypeInfo.Type.IsAssignableTo(typeof(IStronglyTypedPrimitive<string>)))
-        {
-            schema.Type = "string";
-            schema.Properties.Clear();
-            return Task.CompletedTask;
-        }
-
-        if (schema.Type == "array" && context.JsonTypeInfo.ElementType?.IsAssignableTo(typeof(IStronglyTypedPrimitive<string>)) == true)
-        {
-            schema.Items ??= new OpenApiSchema();
-            schema.Items.Type = "string";
-            schema.Items.Properties.Clear();
-            return Task.CompletedTask;
-        }
-
-        if (context.JsonTypeInfo.Type.IsAssignableTo(typeof(IStronglyTypedPrimitive<TimeOnly>)))
-        {
-            schema.Type = "string";
-            schema.Format = "time";
-            schema.Properties.Clear();
-            return Task.CompletedTask;
-        }
-
-        if (schema.Type == "array" && context.JsonTypeInfo.ElementType?.IsAssignableTo(typeof(IStronglyTypedPrimitive<TimeOnly>)) == true)
-        {
-            schema.Items ??= new OpenApiSchema();
-            schema.Items.Type = "string";
-            schema.Items.Format = "time";
-            schema.Items.Properties.Clear();
-            return Task.CompletedTask;
-        }
-
-        if (context.JsonTypeInfo.Type.IsAssignableTo(typeof(IStronglyTypedPrimitive<DateOnly>)))
-        {
-            schema.Type = "string";
-            schema.Format = "date";
-            schema.Properties.Clear();
-            return Task.CompletedTask;
-        }
-
-        if (schema.Type == "array" && context.JsonTypeInfo.ElementType?.IsAssignableTo(typeof(IStronglyTypedPrimitive<DateOnly>)) == true)
-        {
-            schema.Items ??= new OpenApiSchema();
-            schema.Items.Type = "string";
-            schema.Items.Format = "date";
-            schema.Items.Properties.Clear();
-            return Task.CompletedTask;
+            if (context.JsonTypeInfo.Kind == JsonTypeInfoKind.Dictionary)
+            {
+                schema.AdditionalProperties ??= element;
+            }
+            else
+            {
+                schema.Items ??= element;
+            }
         }
 
         return Task.CompletedTask;
     }
 }
+
 #endif

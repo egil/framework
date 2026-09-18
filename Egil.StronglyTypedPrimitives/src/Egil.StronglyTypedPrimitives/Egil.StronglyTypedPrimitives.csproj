@@ -77,6 +77,7 @@
     <None Include="..\Egil.StronglyTypedPrimitives.Abstractions\bin\Release\net8.0\*" Pack="true" PackagePath="lib/net8.0" Visible="false" />
     <None Include="..\Egil.StronglyTypedPrimitives.Abstractions\bin\Release\net9.0\*" Pack="true" PackagePath="lib/net9.0" Visible="false" />
     <None Include="..\Egil.StronglyTypedPrimitives.Abstractions\bin\Release\net10.0\*" Pack="true" PackagePath="lib/net10.0" Visible="false" />
+    <None Include="..\Egil.StronglyTypedPrimitives.Abstractions\bin\Release\net11.0\*" Pack="true" PackagePath="lib/net11.0" Visible="false" />
   </ItemGroup>
 
 </Project>

@@ -7,13 +7,13 @@
     <OutputType>Exe</OutputType>
     <RootNamespace>Egil.StronglyTypedPrimitives</RootNamespace>
     <!--
-      Multi-targeted on purpose: net9.0 exercises the net9.0 OpenAPI schema transformer
-      (StronglyTypedSchemaTransformer.net9.cs) against the Microsoft.OpenApi v1 API shipped in
-      lib/net9.0, while net10.0 exercises the net10.0 transformer against the Microsoft.OpenApi v2
-      API shipped in lib/net10.0. The transformer test uses conditional compilation to bridge the
-      v1/v2 API differences while sharing the test bodies.
+      Multi-targeted on purpose: each TFM exercises the OpenAPI schema transformer shipped in the
+      matching lib/<tfm> folder against the Microsoft.OpenApi major that TFM's
+      Microsoft.AspNetCore.OpenApi package depends on (v1 on net9.0, v2 on net10.0, v3 on net11.0).
+      The transformer test boots a real ASP.NET Core host and asserts on the emitted JSON document,
+      which is identical across the three, so the test bodies need no conditional compilation.
     -->
-    <TargetFrameworks>net9.0;net10.0</TargetFrameworks>
+    <TargetFrameworks>net9.0;net10.0;net11.0</TargetFrameworks>
     <LangVersion>preview</LangVersion>
     <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
     <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
@@ -32,12 +32,14 @@
   </ItemGroup>
 
   <!--
-    The minimal API validation tests need the ASP.NET Core shared framework, whose SDK analyzers
-    include the validation source generator that AddValidation() relies on, and a TestServer to
-    host the endpoints in-process. net10.0 only: that is where AddValidation() exists.
+    The OpenAPI transformer test and the minimal API validation tests host a minimal API
+    in-memory on a TestServer. The shared framework is needed on every TFM for the transformer
+    test; on net10.0 and later its SDK analyzers also include the validation source generator
+    that AddValidation() relies on.
   -->
-  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
+  <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
     <PackageReference Include="Microsoft.AspNetCore.TestHost" />
   </ItemGroup>
 
@@ -50,6 +52,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!--
+      The .NET 11 SDK adds System.Net.Http.Json to the implicit usings; declaring it here for every
+      TFM lets the minimal API tests compile identically on net10.0 and net11.0.
+    -->
+    <Using Include="System.Net.Http.Json" />
     <Using Include="Xunit" />
   </ItemGroup>
 
