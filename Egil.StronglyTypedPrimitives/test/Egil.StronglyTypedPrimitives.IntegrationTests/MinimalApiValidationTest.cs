@@ -18,6 +18,13 @@ namespace Egil.StronglyTypedPrimitives
     // validates those itself (keyed on Value, and IValidatableObject.Validate is not consulted once
     // a member has failed); a hand-written IsValueValid is invisible to it, so such a type is only
     // validated when the user declares IValidatableObject and the generated Validate runs.
+    //
+    // A route value that fails TryParse is a binding failure, not a validation failure:
+    // RequestDelegateFactory logs ParameterBindingFailed and sets 400 before the handler. With
+    // endpoint filters present it still runs the filter pipeline with the parameter at its default
+    // (see RequestDelegateFactory.HandleRequestBodyAndCompileRequestDelegateForFilters), so the
+    // validation filter validates Empty and the same 400 carries a validation problem body. The
+    // route tests assert that exact body, and the control without AddValidation pins the empty 400.
     public class MinimalApiValidationTest
     {
         [Fact]
@@ -46,7 +53,7 @@ namespace Egil.StronglyTypedPrimitives
         }
 
         [Fact]
-        public async Task Attribute_constrained_route_parameter_with_an_invalid_value_is_rejected()
+        public async Task Attribute_constrained_route_parameter_that_fails_to_parse_is_rejected_with_the_default_value_validated()
         {
             await using var app = await StartApp();
             using var client = app.GetTestClient();
@@ -55,8 +62,27 @@ namespace Egil.StronglyTypedPrimitives
 
             Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
             var problem = await ReadValidationProblem(response);
-            var messages = Assert.Contains("Value", problem.Errors);
-            Assert.Equal([new RangeAttribute(6, 100).FormatErrorMessage("Value")], messages);
+            Assert.Equal("One or more validation errors occurred.", problem.Title);
+            var error = Assert.Single(problem.Errors);
+            Assert.Equal("Value", error.Key);
+            Assert.Equal([new RangeAttribute(6, 100).FormatErrorMessage("Value")], error.Value);
+        }
+
+        [Fact]
+        public async Task Route_parameter_that_fails_to_parse_is_rejected_without_a_body_when_validation_is_not_registered()
+        {
+            var builder = WebApplication.CreateBuilder();
+            builder.WebHost.UseTestServer();
+            builder.Logging.ClearProviders();
+            await using var app = builder.Build();
+            app.MapGet("/orders/{quantity}", (StronglyTypedQuantityWithValidate quantity) => Results.Ok());
+            await app.StartAsync(TestContext.Current.CancellationToken);
+            using var client = app.GetTestClient();
+
+            using var response = await client.GetAsync("/orders/3", TestContext.Current.CancellationToken);
+
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            Assert.Equal(string.Empty, await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
         }
 
         [Fact]
@@ -101,7 +127,7 @@ namespace Egil.StronglyTypedPrimitives
         }
 
         [Fact]
-        public async Task Hand_written_IsValueValid_route_parameter_with_an_invalid_value_is_rejected()
+        public async Task Hand_written_IsValueValid_route_parameter_that_fails_to_parse_is_rejected_with_the_default_value_validated()
         {
             await using var app = await StartApp();
             using var client = app.GetTestClient();
@@ -110,8 +136,10 @@ namespace Egil.StronglyTypedPrimitives
 
             Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
             var problem = await ReadValidationProblem(response);
-            var messages = Assert.Contains(string.Empty, problem.Errors);
-            Assert.Equal([new ArgumentException("Value must be larger than 5", "value").Message], messages);
+            Assert.Equal("One or more validation errors occurred.", problem.Title);
+            var error = Assert.Single(problem.Errors);
+            Assert.Equal(string.Empty, error.Key);
+            Assert.Equal([new ArgumentException("Value must be larger than 5", "value").Message], error.Value);
         }
 
         // Documented limitation: without the declared interface nothing tells the validation
