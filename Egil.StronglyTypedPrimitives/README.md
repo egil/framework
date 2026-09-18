@@ -149,7 +149,7 @@ The generator reports warning `STP001` for every strongly typed primitive withou
 
 ## ASP.NET Core validation
 
-When a strongly typed primitive arrives in a request body or a route value with an invalid value, the JSON converter and `TryParse` turn it into `Empty` rather than throwing. Whether ASP.NET Core validation (`builder.Services.AddValidation()`, .NET 10) then rejects the request depends on how the constraint is expressed, because its validation source generator only sees your own declarations, never the partial this generator adds:
+An invalid value in a request body is deserialized to `Empty` by the JSON converter rather than failing the request, so the bound object carries the default value and only validation can reject it. A route or query value that fails `TryParse` is different: that is a binding failure, and ASP.NET Core answers 400 before the handler runs, with an empty body. When validation is registered (`builder.Services.AddValidation()`, .NET 10) the endpoint filter pipeline still runs with the parameter at its default, so that 400 carries the validation problem details for `Empty` instead. Which constraints validation sees depends on how they are expressed, because its validation source generator only sees your own declarations, never the partial this generator adds:
 
 - **Validation attributes** on the positional parameter are visible to it on the `Value` property, so it validates them itself. An invalid `Quantity` property of type `StronglyTypedQuantity([Range(6, 100)] int Value)` is reported under `Quantity.Value` with the attribute's message. Nothing extra is needed.
 
