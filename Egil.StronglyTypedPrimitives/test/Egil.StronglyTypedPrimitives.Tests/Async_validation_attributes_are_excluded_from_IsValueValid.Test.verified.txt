@@ -2,13 +2,13 @@
   Diagnostics: [
     {
       Id: STP003,
-      Title: Async validation attributes are not evaluated by the generated IsValueValid and Validate,
+      Title: Async validation attributes are not part of the value invariant,
       Severity: Warning,
       WarningLevel: 1,
       Location: Program.cs: (6,57)-(6,91),
-      Description: Attributes deriving from AsyncValidationAttribute are excluded from the generated IsValueValid and Validate; the generator evaluates them in ValidateAsync when the type declares IAsyncValidatableObject.,
-      MessageFormat: The async validation attribute '{0}' on '{1}' is not evaluated by the generated IsValueValid or Validate of '{2}' because async validation cannot run as part of the value invariant. ASP.NET Core validation still evaluates it on the '{1}' property; for it to run through ValidateAsync, for example under Validator.TryValidateObjectAsync, declare System.ComponentModel.DataAnnotations.IAsyncValidatableObject on the partial declaration of '{2}'.,
-      Message: The async validation attribute 'SomeNamespace.RemoteCheckAttribute' on 'Value' is not evaluated by the generated IsValueValid or Validate of 'Foo' because async validation cannot run as part of the value invariant. ASP.NET Core validation still evaluates it on the 'Value' property; for it to run through ValidateAsync, for example under Validator.TryValidateObjectAsync, declare System.ComponentModel.DataAnnotations.IAsyncValidatableObject on the partial declaration of 'Foo'.,
+      Description: Attributes deriving from AsyncValidationAttribute cannot be part of the synchronous value invariant, so no generated member evaluates them unless the type declares IAsyncValidatableObject; the generator then evaluates them in ValidateAsync.,
+      MessageFormat: The async validation attribute '{0}' on '{1}' is not part of the value invariant of '{2}' because async validation cannot run where the invariant is checked, so nothing this generator emits evaluates it. ASP.NET Core validation still evaluates it on the '{1}' property; for it to run through ValidateAsync, for example under Validator.TryValidateObjectAsync, declare System.ComponentModel.DataAnnotations.IAsyncValidatableObject on the partial declaration of '{2}'.,
+      Message: The async validation attribute 'SomeNamespace.RemoteCheckAttribute' on 'Value' is not part of the value invariant of 'Foo' because async validation cannot run where the invariant is checked, so nothing this generator emits evaluates it. ASP.NET Core validation still evaluates it on the 'Value' property; for it to run through ValidateAsync, for example under Validator.TryValidateObjectAsync, declare System.ComponentModel.DataAnnotations.IAsyncValidatableObject on the partial declaration of 'Foo'.,
       Category: Egil.StronglyTypedPrimitives
     }
   ]

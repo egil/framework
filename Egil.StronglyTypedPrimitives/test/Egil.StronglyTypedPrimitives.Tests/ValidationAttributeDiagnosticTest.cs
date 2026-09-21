@@ -61,7 +61,7 @@ public class ValidationAttributeDiagnosticTest
         Assert.Equal("STP003", diagnostic.Id);
         Assert.Equal(DiagnosticSeverity.Warning, diagnostic.Severity);
         Assert.Equal(
-            "The async validation attribute 'SomeNamespace.RemoteCheckAttribute' on 'Value' is not evaluated by the generated IsValueValid or Validate of 'Foo' because async validation cannot run as part of the value invariant. ASP.NET Core validation still evaluates it on the 'Value' property; for it to run through ValidateAsync, for example under Validator.TryValidateObjectAsync, declare System.ComponentModel.DataAnnotations.IAsyncValidatableObject on the partial declaration of 'Foo'.",
+            "The async validation attribute 'SomeNamespace.RemoteCheckAttribute' on 'Value' is not part of the value invariant of 'Foo' because async validation cannot run where the invariant is checked, so nothing this generator emits evaluates it. ASP.NET Core validation still evaluates it on the 'Value' property; for it to run through ValidateAsync, for example under Validator.TryValidateObjectAsync, declare System.ComponentModel.DataAnnotations.IAsyncValidatableObject on the partial declaration of 'Foo'.",
             diagnostic.GetMessage(CultureInfo.InvariantCulture));
         Assert.Equal("RemoteCheck", diagnostic.Location.SourceTree?.GetText(TestContext.Current.CancellationToken).ToString(diagnostic.Location.SourceSpan));
         Assert.Empty(compilation.GetDiagnostics(TestContext.Current.CancellationToken).Where(d => d.Severity > DiagnosticSeverity.Warning));
