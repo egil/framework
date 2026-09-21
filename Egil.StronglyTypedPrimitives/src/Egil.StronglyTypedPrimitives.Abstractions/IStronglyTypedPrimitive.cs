@@ -34,5 +34,17 @@ public interface IStronglyTypedPrimitive<TSelf, TPrimitiveType> : IStronglyTyped
     /// Creates an instance wrapping <paramref name="value"/>, validating it the same way the constructor does.
     /// </summary>
     static abstract TSelf Create(TPrimitiveType value);
+
+    /// <summary>
+    /// Gets the instance that stands in for a missing or invalid value, for example when
+    /// <c>TryParse</c> fails or JSON deserialization reads a value that is not valid.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to <c>default(TSelf)</c>, which is what the generated <c>Empty</c> field holds.
+    /// When a strongly typed primitive declares its own <c>Empty</c>, the generator forwards it
+    /// here so generic code such as <c>StronglyTypedJsonConverter&lt;TSelf, TPrimitive&gt;</c>
+    /// observes the replacement.
+    /// </remarks>
+    static virtual TSelf Empty => default!;
 #endif
 }

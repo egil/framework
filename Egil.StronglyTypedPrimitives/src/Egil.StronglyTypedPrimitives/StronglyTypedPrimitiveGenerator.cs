@@ -187,7 +187,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             .. GetJsonConverterAttribute(jsonConverterSupport, targetTypeName, underlyingTypeName),
             GetPartialRecordStructDefinition(info, interfacesToImplement),
             "{",
-            .. GetEmptyProperty(info, targetTypeMembers, underlyingTypeSymbol),
+            .. GetEmptyMember(info, targetTypeMembers, targetTypeSymbol, selfInterface),
             .. GetCreateMethod(info, targetTypeMembers, targetTypeSymbol, selfInterface, underlyingTypeSymbol),
             .. GetValueProperty(info, targetTypeMembers, underlyingTypeSymbol, isCSharp14OrGreater, hasUserDeclaredIsValueValid),
             .. GetSelfInterfaceValueProperty(info, targetTypeMembers, selfInterface, underlyingTypeSymbol),
@@ -215,16 +215,48 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         {info.Target.Modifiers} record struct {info.Target.Identifier} : {string.Join(", ", interfaces.Select(x => x.ToDisplayString()))}
         """;
 
-    internal static IEnumerable<string> GetEmptyProperty(StronglyTypedTypeInfo info, IEnumerable<ISymbol> targetTypeMembers, ITypeSymbol underlyingTypeSymbol)
+    // The generated Empty is a static field, so a user replaces it by declaring any static field or
+    // property of that name. Its type is deliberately not checked: the generated members reference
+    // Empty by name, so a differently typed member fails at those references with a clear error
+    // instead of colliding with a second Empty (CS0102).
+    internal static IEnumerable<string> GetEmptyMember(StronglyTypedTypeInfo info, IEnumerable<ISymbol> targetTypeMembers, INamedTypeSymbol targetTypeSymbol, INamedTypeSymbol? selfInterface)
     {
-        var hasEmptyProp = targetTypeMembers.OfType<IPropertySymbol>().Any(p => p.Name == "Empty" && p.IsStatic && p.Type.Equals(underlyingTypeSymbol, SymbolEqualityComparer.Default));
-        if (hasEmptyProp)
+        var userDeclaredEmpty = targetTypeMembers
+            .Where(m => m.Name == "Empty" && m.IsStatic)
+            .FirstOrDefault(m => m is IFieldSymbol or IPropertySymbol);
+        if (userDeclaredEmpty is null)
+        {
+            yield return $"""
+                    public static readonly {info.Target.Identifier} Empty = default;
+                """;
+            yield break;
+        }
+
+        // IStronglyTypedPrimitive<TSelf, TPrimitive>.Empty is a static virtual property whose default
+        // implementation returns default(TSelf), which is also what the generated field holds, so the
+        // generated field needs no forwarding. A user-declared public static property of the target
+        // type implements the interface member implicitly, but a field or a non-public property
+        // cannot, so the interface member is forwarded explicitly; otherwise generic code such as the
+        // shared JSON converter would see default(TSelf) instead of the user's Empty.
+        var interfaceEmptyProperty = selfInterface?.GetMembers("Empty").OfType<IPropertySymbol>().FirstOrDefault();
+        if (interfaceEmptyProperty is null)
         {
             yield break;
         }
 
-        yield return $"""
-                public static readonly {info.Target.Identifier} Empty = default;
+        var implementsInterfaceEmptyImplicitly = userDeclaredEmpty is IPropertySymbol { DeclaredAccessibility: Accessibility.Public } property
+            && property.Type.Equals(targetTypeSymbol, SymbolEqualityComparer.Default);
+        var hasExplicitInterfaceEmpty = targetTypeMembers
+            .OfType<IPropertySymbol>()
+            .Any(p => p.ExplicitInterfaceImplementations.Any(e => e.Equals(interfaceEmptyProperty, SymbolEqualityComparer.Default)));
+        if (implementsInterfaceEmptyImplicitly || hasExplicitInterfaceEmpty)
+        {
+            yield break;
+        }
+
+        yield return $$"""
+
+                static {{info.Target.Identifier}} {{selfInterface!.ToDisplayString()}}.Empty => Empty;
             """;
     }
 

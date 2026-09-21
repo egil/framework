@@ -124,3 +124,65 @@ public class Custom_Value_with_non_public_getter
         );
     }
 }
+
+public class Custom_Empty_field
+{
+    [Fact]
+    public async Task Test()
+    {
+        var input = """
+            using Egil.StronglyTypedPrimitives;
+
+            namespace SomeNamespace;
+
+            [StronglyTyped]
+            public readonly partial record struct Foo(int Value)
+            {
+                public static readonly Foo Empty = new(42);
+            }
+            """;
+
+        await SnapshotTestHelper.Verify<StronglyTypedPrimitiveGenerator>(
+            input,
+            LanguageVersion.LatestMajor,
+            out var compilation
+        );
+
+        Assert.Empty(
+            compilation
+                .GetDiagnostics(TestContext.Current.CancellationToken)
+                .Where(d => d.Severity > DiagnosticSeverity.Warning)
+        );
+    }
+}
+
+public class Custom_Empty_property
+{
+    [Fact]
+    public async Task Test()
+    {
+        var input = """
+            using Egil.StronglyTypedPrimitives;
+
+            namespace SomeNamespace;
+
+            [StronglyTyped]
+            public readonly partial record struct Foo(int Value)
+            {
+                public static Foo Empty => new(42);
+            }
+            """;
+
+        await SnapshotTestHelper.Verify<StronglyTypedPrimitiveGenerator>(
+            input,
+            LanguageVersion.LatestMajor,
+            out var compilation
+        );
+
+        Assert.Empty(
+            compilation
+                .GetDiagnostics(TestContext.Current.CancellationToken)
+                .Where(d => d.Severity > DiagnosticSeverity.Warning)
+        );
+    }
+}

@@ -32,21 +32,24 @@ public sealed class StronglyTypedJsonConverter<TSelf, TPrimitive> : JsonConverte
     public override TSelf Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
         // Converters for value types receive JSON null tokens (HandleNull defaults to true for
-        // structs). Mirror the serializer: null is the default instance for primitives that can
+        // structs). Mirror the serializer: null is the Empty instance for primitives that can
         // be null and an error for those that cannot, instead of letting the primitive converter
         // fail with a less descriptive reader exception.
         if (reader.TokenType == JsonTokenType.Null)
         {
             return default(TPrimitive) is null
-                ? default
+                ? TSelf.Empty
                 : throw new JsonException($"The JSON value could not be converted to {typeof(TSelf)}.");
         }
 
         var rawValue = GetPrimitiveConverter(options).Read(ref reader, typeof(TPrimitive), options);
 
+        // An invalid value maps to Empty rather than throwing, as the generated TryParse and the
+        // per-type converter generated before 2.0 do. Empty is the generated default instance
+        // unless the type declares its own, which is why this is not simply default.
         return rawValue is not null && TSelf.IsValueValid(rawValue, throwIfInvalid: false)
             ? TSelf.Create(rawValue)
-            : default;
+            : TSelf.Empty;
     }
 
     public override void Write(Utf8JsonWriter writer, TSelf value, JsonSerializerOptions options)
