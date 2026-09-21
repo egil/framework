@@ -169,15 +169,15 @@ internal sealed class UnionCaseRouting
                 return;
             }
 
-            // A migratable source is served by the migration converter (Kind None) and is always
-            // identified by its discriminator, like any object source.
-            if (JsonMigratableTypes.IsMigratable(sourceType))
+            // A migratable source (or a Nullable<T> of one) is served by the migration converter
+            // (Kind None) and is always identified by its discriminator, like any object source.
+            if (JsonMigratableTypes.GetMigratableType(sourceType) is not null)
             {
                 AddDiscriminator(context.DeclaringType, entriesByPropertyName, caseByDiscriminator, knownDiscriminators, sourceMetadata, caseType);
                 return;
             }
 
-            switch (options.GetTypeInfo(sourceType).Kind)
+            switch (options.GetTypeInfo(Nullable.GetUnderlyingType(sourceType) ?? sourceType).Kind)
             {
                 case JsonTypeInfoKind.Object:
                     AddDiscriminator(context.DeclaringType, entriesByPropertyName, caseByDiscriminator, knownDiscriminators, sourceMetadata, caseType);
@@ -277,7 +277,8 @@ internal sealed class UnionCaseRouting
                 return;
             }
 
-            if (JsonMigratableTypes.IsMigratable(sourceType) || options.GetTypeInfo(sourceType).Kind is JsonTypeInfoKind.Object)
+            if (JsonMigratableTypes.GetMigratableType(sourceType) is not null
+                || options.GetTypeInfo(Nullable.GetUnderlyingType(sourceType) ?? sourceType).Kind is JsonTypeInfoKind.Object)
             {
                 AddNestedDiscriminator(sourceMetadata, caseType, directClaims);
             }
@@ -467,12 +468,31 @@ internal sealed class UnionCaseRouting
         return null!;
     }
 
-    // Several sources of one case may share a shape; the case's own converter disambiguates
-    // between them, so the union only needs one route per case.
+    // A scalar cannot carry a discriminator whatever converter reads it. Numeric types without a
+    // built-in converter (BigInteger, Complex) are not shape-classified, so they are recognised
+    // through INumberBase<TSelf> here instead.
     private static bool IsScalarType(Type type)
     {
         Type underlying = Nullable.GetUnderlyingType(type) ?? type;
-        return underlying.IsPrimitive || underlying.IsEnum || SourceValueShapes.Classify(underlying) is not SourceValueShape.Unknown;
+        return underlying.IsPrimitive
+            || underlying.IsEnum
+            || SourceValueShapes.Classify(underlying) is not SourceValueShape.Unknown
+            || IsNumberBase(underlying);
+    }
+
+    private static bool IsNumberBase(Type type)
+    {
+        foreach (Type @interface in type.GetInterfaces())
+        {
+            if (@interface.IsGenericType
+                && @interface.GetGenericTypeDefinition() == typeof(System.Numerics.INumberBase<>)
+                && @interface.GetGenericArguments()[0] == type)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool IsMigrationConverter(JsonConverter converter)

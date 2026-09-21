@@ -718,6 +718,32 @@ public partial class UnionMigrationTests
         Assert.Equal("kept", Assert.IsType<LegacyBox>(inner.Value).Payload);
     }
 
+    [Fact]
+    public void Union_nullable_migratable_source_routes_by_the_underlying_discriminator()
+    {
+        var options = CreateOptions();
+
+        var value = JsonSerializer.Deserialize<WrappedLeafOrLabel>("""{"$type":"value-leaf","number":5}""", options);
+
+        Assert.Equal(5, Assert.IsType<WrappedLeaf>(value.Value).Number);
+    }
+
+    [Fact]
+    public void Union_overridden_numeric_struct_source_gets_no_discriminator_route()
+    {
+        // BigInteger has no built-in converter and is not shape-classified, but it is still a
+        // scalar: the custom converter reads numbers, so no object discriminator is advertised.
+        var options = CreateOptions();
+        options.Converters.Add(new BigIntegerConverter());
+
+        var unknown = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<BigCounterOrLabel>($$"""{"$type":"{{typeof(System.Numerics.BigInteger).FullName}}"}""", options));
+        var guarded = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<BigCounterOrLabel>("42", options));
+
+        Assert.Contains("No case", unknown.Message, StringComparison.Ordinal);
+        Assert.EndsWith("Known discriminators: 'big-counter'.", unknown.Message, StringComparison.Ordinal);
+        Assert.Contains(nameof(BigCounter), guarded.Message, StringComparison.Ordinal);
+    }
+
     private static JsonSerializerOptions CreateOptions(Action<JsonMigrationBuilder>? configure = null)
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
@@ -1169,6 +1195,39 @@ public partial class UnionMigrationTests
     public union LeafOrLegacyBox(Leaf, LegacyBox);
 
     public union LeafOrLegacyBoxOrLabel(LeafOrLegacyBox, string);
+
+    [JsonMigratable(TypeDiscriminator = "wrapped-leaf")]
+    public record class WrappedLeaf(int Number) : IMigrateFrom<ValueLeaf?, WrappedLeaf>
+    {
+        public static bool TryMigrateFrom(ValueLeaf? source, out WrappedLeaf result)
+        {
+            result = new WrappedLeaf(source?.Number ?? -1);
+            return true;
+        }
+    }
+
+    public union WrappedLeafOrLabel(WrappedLeaf, string);
+
+    [JsonMigratable(TypeDiscriminator = "big-counter")]
+    public record class BigCounter(string Value) : IMigrateFrom<System.Numerics.BigInteger, BigCounter>
+    {
+        public static bool TryMigrateFrom(System.Numerics.BigInteger source, out BigCounter result)
+        {
+            result = new BigCounter(source.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            return true;
+        }
+    }
+
+    public union BigCounterOrLabel(BigCounter, string);
+
+    public sealed class BigIntegerConverter : JsonConverter<System.Numerics.BigInteger>
+    {
+        public override System.Numerics.BigInteger Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+            => System.Numerics.BigInteger.Parse(reader.GetString()!, System.Globalization.CultureInfo.InvariantCulture);
+
+        public override void Write(Utf8JsonWriter writer, System.Numerics.BigInteger value, JsonSerializerOptions options)
+            => writer.WriteStringValue(value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+    }
 
     [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
     // The injected discriminator is a string property, so a context that would otherwise

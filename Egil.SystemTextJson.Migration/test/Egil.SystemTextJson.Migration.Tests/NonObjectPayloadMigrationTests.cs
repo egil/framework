@@ -397,6 +397,18 @@ public class NonObjectPayloadMigrationTests
     }
 
     [Fact]
+    public void Nullable_migratable_source_is_matched_by_the_underlying_discriminator()
+    {
+        var options = CreateOptions();
+        var json = """{"$type":"elem-v1","data":"x"}""";
+
+        var result = JsonSerializer.Deserialize<NullableSourceState>(json, options);
+
+        Assert.NotNull(result);
+        Assert.Equal("from-nullable-source:x", result.Source);
+    }
+
+    [Fact]
     public void Migrate_from_dictionary_to_custom_type()
     {
         var options = CreateOptions();
@@ -957,6 +969,16 @@ public class NonObjectPayloadMigrationTests
         public static bool TryMigrateFrom(Dictionary<string, OtherItem> source, out NullableDictValueState result)
         {
             result = new NullableDictValueState("from-other-item");
+            return true;
+        }
+    }
+
+    [JsonMigratable]
+    public record class NullableSourceState(string Source) : IMigrateFrom<StructElemV1?, NullableSourceState>
+    {
+        public static bool TryMigrateFrom(StructElemV1? source, out NullableSourceState result)
+        {
+            result = new NullableSourceState($"from-nullable-source:{source?.Data}");
             return true;
         }
     }
