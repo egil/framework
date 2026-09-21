@@ -59,6 +59,33 @@ public static class SnapshotTestHelper
         where TGenerator : IIncrementalGenerator, new()
         => RunGenerator<TGenerator>(source, LanguageVersion.LatestMajor, [], out compilation, referenceAbstractions).GetRunResult();
 
+    /// <summary>
+    /// Runs the generator against the framework reference assemblies this test project was
+    /// compiled with, as recorded by the WriteReferenceAssemblyPaths target in the project file,
+    /// instead of the implementation assemblies loaded in the test process. That is what a
+    /// consumer's build compiles against, and reference assemblies leave out members that do not
+    /// change a type's surface, such as an override that only changes behaviour, so a generator
+    /// that looks for such members sees a different picture there.
+    /// </summary>
+    public static GeneratorDriverRunResult RunGeneratorAgainstFrameworkReferenceAssemblies<TGenerator>(string source, out Compilation compilation)
+        where TGenerator : IIncrementalGenerator, new()
+    {
+        var referenceAssemblies = File.ReadAllLines(Path.Combine(AppContext.BaseDirectory, "ReferenceAssemblies.txt"))
+            .Where(path => path.Contains("microsoft.netcore.app.ref", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (referenceAssemblies.Count == 0)
+        {
+            throw new InvalidOperationException("No framework reference assemblies were recorded by the WriteReferenceAssemblyPaths target.");
+        }
+
+        var references = referenceAssemblies
+            .Select(path => MetadataReference.CreateFromFile(path))
+            .Append(MetadataReference.CreateFromFile(typeof(StronglyTypedAttribute).Assembly.Location))
+            .ToList();
+
+        return RunGenerator<TGenerator>(source, LanguageVersion.LatestMajor, references, out compilation).GetRunResult();
+    }
+
     private static GeneratorDriver RunGenerator<TGenerator>(
         string source,
         LanguageVersion languageVersion,
@@ -67,7 +94,6 @@ public static class SnapshotTestHelper
         bool referenceAbstractions = true)
         where TGenerator : IIncrementalGenerator, new()
     {
-        var parseOptions = new CSharpParseOptions(languageVersion);
         var abstractionsAssembly = typeof(StronglyTypedAttribute).Assembly;
         var references = AppDomain.CurrentDomain.GetAssemblies()
             .Where(assembly => !assembly.IsDynamic && !string.IsNullOrWhiteSpace(assembly.Location))
@@ -83,6 +109,17 @@ public static class SnapshotTestHelper
             .Concat(includeTypesAssembly.Select(x => MetadataReference.CreateFromFile(x.Assembly.Location)))
             .ToList();
 
+        return RunGenerator<TGenerator>(source, languageVersion, references, out compilation);
+    }
+
+    private static GeneratorDriver RunGenerator<TGenerator>(
+        string source,
+        LanguageVersion languageVersion,
+        IReadOnlyList<MetadataReference> references,
+        out Compilation compilation)
+        where TGenerator : IIncrementalGenerator, new()
+    {
+        var parseOptions = new CSharpParseOptions(languageVersion);
         var additionalTexts = new List<AdditionalText>();
 
         var inputCompilation = CSharpCompilation.Create("StronglyTypedPrimitivesSample",

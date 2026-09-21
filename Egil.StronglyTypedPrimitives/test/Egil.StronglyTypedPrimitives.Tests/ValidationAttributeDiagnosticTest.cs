@@ -124,6 +124,36 @@ public class ValidationAttributeDiagnosticTest
         Assert.DoesNotContain("CustomValidationAttribute", Assert.Single(result.GeneratedTrees).ToString());
     }
 
+    // The reference assemblies of the framework (net9.0 through net11.0) leave out the
+    // RequiresValidationContext override of CustomValidationAttribute that the implementation
+    // assembly has, and a consumer's build compiles against the reference assemblies. The
+    // generator therefore cannot rely on seeing the override for this attribute.
+    [Fact]
+    public void CustomValidation_requires_a_context_when_compiled_against_reference_assemblies()
+    {
+        var input = """
+            using Egil.StronglyTypedPrimitives;
+            using System.ComponentModel.DataAnnotations;
+
+            namespace SomeNamespace;
+
+            [StronglyTyped]
+            public readonly partial record struct Foo([CustomValidation(typeof(FooRules), nameof(FooRules.Validate))] string Value);
+
+            public static class FooRules
+            {
+                public static ValidationResult? Validate(string value, ValidationContext context) => ValidationResult.Success;
+            }
+            """;
+
+        var result = SnapshotTestHelper.RunGeneratorAgainstFrameworkReferenceAssemblies<StronglyTypedPrimitiveGenerator>(input, out var compilation);
+
+        var diagnostic = Assert.Single(result.Diagnostics);
+        Assert.Equal("STP005", diagnostic.Id);
+        Assert.Empty(compilation.GetDiagnostics(TestContext.Current.CancellationToken).Where(d => d.Severity > DiagnosticSeverity.Warning));
+        Assert.DoesNotContain("CustomValidationAttribute", Assert.Single(result.GeneratedTrees).ToString());
+    }
+
     [Fact]
     public void Does_not_warn_when_the_attributes_drive_the_generated_IsValueValid()
     {
