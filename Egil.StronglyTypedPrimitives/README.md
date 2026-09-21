@@ -193,9 +193,9 @@ the following `Validate` is generated next to the `IsValueValid` shown in [Gener
 ```csharp
 public System.Collections.Generic.IEnumerable<System.ComponentModel.DataAnnotations.ValidationResult> Validate(System.ComponentModel.DataAnnotations.ValidationContext validationContext)
 {
-    var result0 = valueValidator0.GetValidationResult(Value, validationContext);
+    var result0 = ValueValidators.valueValidator0.GetValidationResult(this.Value, validationContext);
     if (result0 == System.ComponentModel.DataAnnotations.ValidationResult.Success) result0 = null;
-    var result1 = valueValidator1.GetValidationResult(Value, validationContext);
+    var result1 = ValueValidators.valueValidator1.GetValidationResult(this.Value, validationContext);
     if (result1 == System.ComponentModel.DataAnnotations.ValidationResult.Success) result1 = null;
 
     if (result0 is null && result1 is null) return System.Array.Empty<System.ComponentModel.DataAnnotations.ValidationResult>();
@@ -208,7 +208,7 @@ public System.Collections.Generic.IEnumerable<System.ComponentModel.DataAnnotati
 }
 ```
 
-Every attribute is evaluated so one result per failing attribute is returned, and a valid value returns an empty array without allocating. Attributes deriving from `AsyncValidationAttribute` are not part of `Validate`. In ASP.NET Core validation the attribute errors on `Value` take precedence: `Validate` is only consulted when no member has failed, so the two never report the same failure twice.
+Every attribute is evaluated so one result per failing attribute is returned, and a valid value returns an empty array without allocating. Attributes that require a `ValidationContext` (`STP005`) are evaluated here as well, with the context the caller passes, after the ordinary attributes or the hand-written `IsValueValid`; `Validate` is the one generated member that has a context to give them. Attributes deriving from `AsyncValidationAttribute` are not part of `Validate`. In ASP.NET Core validation the attribute errors on `Value` take precedence: `Validate` is only consulted when no member has failed, so the two never report the same failure twice. If the type already has a member named `Validate`, say a positional parameter of that name, the generated method implements `IValidatableObject.Validate` explicitly instead.
 ## Generator output for int without constraints
 
 Given this type declaration:
