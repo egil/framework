@@ -64,6 +64,7 @@ internal static class Parser
         var validatorsTypeName = GetUnusedMemberName(ValidationAttributeModel.PreferredValidatorsTypeName, reservedNames);
         var attributes = ImmutableArray.CreateBuilder<ValidationAttributeInfo>();
         var asyncAttributes = ImmutableArray.CreateBuilder<ValidationAttributeInfo>();
+        var contextAttributes = ImmutableArray.CreateBuilder<ValidationAttributeInfo>();
 
         foreach (var attribute in parameterSymbol.GetAttributes())
         {
@@ -72,19 +73,37 @@ internal static class Parser
                 continue;
             }
 
-            var isAsync = DerivesFrom(attributeClass, AsyncValidationAttributeTypeName);
-            var target = isAsync ? asyncAttributes : attributes;
+            var (target, fieldPrefix) = DerivesFrom(attributeClass, AsyncValidationAttributeTypeName) ? (asyncAttributes, "asyncValueValidator")
+                : RequiresValidationContext(attributeClass) ? (contextAttributes, "contextValueValidator")
+                : (attributes, "valueValidator");
             var index = target.Count;
             target.Add(new ValidationAttributeInfo(
                 index,
-                isAsync ? $"asyncValueValidator{index}" : $"valueValidator{index}",
+                $"{fieldPrefix}{index}",
                 attributeClass.ToDisplayString(),
                 string.Join(", ", attribute.ConstructorArguments.Select(FormatAttributeArgument)),
                 FormatNamedArguments(attribute.NamedArguments),
                 attribute.ApplicationSyntaxReference?.GetSyntax().GetLocation() ?? parameter.Identifier.GetLocation()));
         }
 
-        return new ValidationAttributeModel(validatorsTypeName, attributes.ToImmutable(), asyncAttributes.ToImmutable());
+        return new ValidationAttributeModel(validatorsTypeName, attributes.ToImmutable(), asyncAttributes.ToImmutable(), contextAttributes.ToImmutable());
+    }
+
+    // RequiresValidationContext is virtual on ValidationAttribute and false there; the override can
+    // sit on any class between the attribute and that base, so the whole chain below it is
+    // searched. What the override returns is not evaluated: an attribute that bothers to override
+    // it is taken at its word.
+    private static bool RequiresValidationContext(INamedTypeSymbol attributeClass)
+    {
+        for (var type = attributeClass; type is not null && type.ToDisplayString() != ValidationAttributeTypeName; type = type.BaseType)
+        {
+            if (type.GetMembers("RequiresValidationContext").OfType<IPropertySymbol>().Any(property => property.IsOverride))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     // Appending underscores keeps the name recognisable and deterministic.

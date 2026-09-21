@@ -9,3 +9,4 @@ STP001 | Egil.StronglyTypedPrimitives | Warning | JsonSerializerContext cannot s
 STP002 | Egil.StronglyTypedPrimitives | Warning | Validation attributes are ignored when IsValueValid is declared
 STP003 | Egil.StronglyTypedPrimitives | Warning | Async validation attributes are not part of the value invariant
 STP004 | Egil.StronglyTypedPrimitives | Warning | System.Text.Json support for strongly typed primitives requires net8.0 or later
+STP005 | Egil.StronglyTypedPrimitives | Warning | Validation attributes that require a ValidationContext are not part of the value invariant

@@ -16,6 +16,27 @@ public abstract class ValidationAttributeTestBase
         }
         """;
 
+    // An attribute that can only validate against a ValidationContext, with the
+    // RequiresValidationContext override on a base class so the generator has to look past the
+    // attribute's own declaration to find it.
+    public const string FakeContextValidationAttribute = """
+        namespace SomeNamespace
+        {
+            public abstract class ContextAwareValidationAttribute : System.ComponentModel.DataAnnotations.ValidationAttribute
+            {
+                public override bool RequiresValidationContext => true;
+            }
+
+            public sealed class TenantScopedAttribute : ContextAwareValidationAttribute
+            {
+                protected override System.ComponentModel.DataAnnotations.ValidationResult? IsValid(object? value, System.ComponentModel.DataAnnotations.ValidationContext validationContext)
+                    => validationContext.Items.ContainsKey("tenant")
+                        ? System.ComponentModel.DataAnnotations.ValidationResult.Success
+                        : new System.ComponentModel.DataAnnotations.ValidationResult("No tenant");
+            }
+        }
+        """;
+
     protected static async Task VerifyGeneratedSource(string input)
     {
         await SnapshotTestHelper.Verify<StronglyTypedPrimitiveGenerator>(
@@ -73,12 +94,11 @@ public class Validation_attributes_with_typeof_argument : ValidationAttributeTes
             namespace SomeNamespace;
 
             [StronglyTyped]
-            public readonly partial record struct Foo([CustomValidation(typeof(FooRules), nameof(FooRules.Validate))] string Value);
+            public readonly partial record struct Foo([InstanceOf(typeof(string))] string Value);
 
-            public static class FooRules
+            public sealed class InstanceOfAttribute(System.Type type) : ValidationAttribute
             {
-                public static ValidationResult? Validate(string value)
-                    => value.StartsWith("x") ? ValidationResult.Success : new ValidationResult("Must start with x");
+                public override bool IsValid(object? value) => type.IsInstanceOfType(value);
             }
             """);
 }
@@ -203,6 +223,30 @@ public class Validation_attributes_targeting_the_property_are_ignored : Validati
 
             [StronglyTyped]
             public readonly partial record struct Foo([property: Required] string Value);
+            """);
+}
+
+public class Context_validation_attributes_are_excluded_from_IsValueValid : ValidationAttributeTestBase
+{
+    [Fact]
+    public Task Test()
+        => VerifyGeneratedSource($$"""
+            using Egil.StronglyTypedPrimitives;
+            using System.ComponentModel.DataAnnotations;
+
+            namespace SomeNamespace
+            {
+                [StronglyTyped]
+                public readonly partial record struct Foo([Required, TenantScoped, CustomValidation(typeof(FooRules), nameof(FooRules.Validate))] string Value);
+
+                public static class FooRules
+                {
+                    public static ValidationResult? Validate(string value, ValidationContext context)
+                        => value.StartsWith("x") ? ValidationResult.Success : new ValidationResult("Must start with x");
+                }
+            }
+
+            {{FakeContextValidationAttribute}}
             """);
 }
 

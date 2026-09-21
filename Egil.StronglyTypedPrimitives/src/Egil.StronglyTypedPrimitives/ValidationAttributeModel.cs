@@ -25,12 +25,18 @@ namespace Egil.StronglyTypedPrimitives;
 /// inside the synchronous <c>IsValueValid</c>, so they are kept separate for the members that can
 /// await them.
 /// </param>
+/// <param name="ContextAttributes">
+/// Attributes that override <c>RequiresValidationContext</c>, <c>CustomValidationAttribute</c>
+/// among them. <c>IsValueValid</c> has no <c>ValidationContext</c> to give them, so they are kept
+/// separate for the members that do (<c>IValidatableObject.Validate</c>).
+/// </param>
 internal sealed record ValidationAttributeModel(
     string ValidatorsTypeName,
     ImmutableArray<ValidationAttributeInfo> Attributes,
-    ImmutableArray<ValidationAttributeInfo> AsyncAttributes)
+    ImmutableArray<ValidationAttributeInfo> AsyncAttributes,
+    ImmutableArray<ValidationAttributeInfo> ContextAttributes)
 {
-    public static ValidationAttributeModel Empty { get; } = new(PreferredValidatorsTypeName, ImmutableArray<ValidationAttributeInfo>.Empty, ImmutableArray<ValidationAttributeInfo>.Empty);
+    public static ValidationAttributeModel Empty { get; } = new(PreferredValidatorsTypeName, ImmutableArray<ValidationAttributeInfo>.Empty, ImmutableArray<ValidationAttributeInfo>.Empty, ImmutableArray<ValidationAttributeInfo>.Empty);
 
     public const string PreferredValidatorsTypeName = "ValueValidators";
 }

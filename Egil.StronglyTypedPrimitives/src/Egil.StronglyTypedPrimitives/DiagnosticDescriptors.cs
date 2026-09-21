@@ -59,4 +59,19 @@ internal static class DiagnosticDescriptors
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
         description: "The shared StronglyTypedJsonConverter ships only in the net8.0 and later assets of the package, so compilations that use the netstandard2.0 asset get no generated JSON support.");
+
+    /// <summary>
+    /// IsValueValid has nothing but the value, so an attribute that overrides
+    /// RequiresValidationContext (CustomValidationAttribute among the built-in ones) cannot be
+    /// evaluated there: its IsValid(object) either throws or runs the context-taking override with
+    /// a null context. Such attributes are left to IValidatableObject.Validate, which has one.
+    /// </summary>
+    public static readonly DiagnosticDescriptor ContextValidationAttributeNotPartOfValueInvariant = new(
+        id: "STP005",
+        title: "Validation attributes that require a ValidationContext are not part of the value invariant",
+        messageFormat: "The validation attribute '{0}' on '{1}' is not part of the value invariant of '{2}' because it requires a ValidationContext. It is evaluated only through IValidatableObject.Validate when '{2}' declares that interface.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: "Attributes that override RequiresValidationContext, such as CustomValidationAttribute, are excluded from the generated IsValueValid because it has no ValidationContext to give them.");
 }
