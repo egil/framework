@@ -157,8 +157,13 @@ internal static class Parser
     // Every type name written into generated code is rooted with global::. The generated file
     // sits in the target type's namespace, so an unrooted System.ComponentModel... or Rules...
     // would bind to a nested SomeNamespace.System or SomeNamespace.Rules when the consumer has one.
+    // Nullable reference annotations are kept: the generated file is #nullable enable, so a
+    // `string?[]` written as `string[]` would make its null elements a CS8625 for the consumer.
+    private static readonly SymbolDisplayFormat GlobalNameFormat = SymbolDisplayFormat.FullyQualifiedFormat
+        .AddMiscellaneousOptions(SymbolDisplayMiscellaneousOptions.IncludeNullableReferenceTypeModifier);
+
     private static string GlobalName(ITypeSymbol type)
-        => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        => type.ToDisplayString(GlobalNameFormat);
 
     // Attribute arguments are re-emitted as C# so the generated field constructs the attribute
     // exactly as the user declared it. ToCSharpString already quotes strings and characters, but
@@ -169,25 +174,45 @@ internal static class Parser
     private static string FormatAttributeArgument(TypedConstant argument)
     {
         // A bare null is ambiguous between overloads such as Check(string?) and Check(Type?)
-        // (CS0121), so the constant keeps the type of the parameter it was bound to. Attribute
-        // parameters that accept null are all reference types, hence the `?`; the annotation is
-        // stripped first so an already annotated type does not end up as `string??`.
+        // (CS0121), so the constant keeps the type of the parameter it was bound to, annotated
+        // as nullable because the generated file is #nullable enable.
         if (argument.IsNull)
         {
             return argument.Type is { } type
-                ? $"({GlobalName(type.WithNullableAnnotation(NullableAnnotation.None))}?)null"
+                ? $"({GlobalName(AsNullable(type))})null"
                 : "null";
         }
 
         return argument.Kind switch
         {
-            TypedConstantKind.Array => $"new {GlobalName(argument.Type!)} {{ {string.Join(", ", argument.Values.Select(FormatAttributeArgument))} }}",
+            TypedConstantKind.Array => FormatArray(argument),
             TypedConstantKind.Primitive when RequiresTypedLiteral(argument.Type!) => FormatTypedPrimitive(argument),
             TypedConstantKind.Enum => FormatEnum(argument),
             TypedConstantKind.Type => $"typeof({GlobalName((ITypeSymbol)argument.Value!)})",
             _ => argument.ToCSharpString(),
         };
     }
+
+    // The element type is spelled out on the array so the elements need no casts of their own: a
+    // null element is written as a plain null, and makes the element type nullable, since the
+    // constant's own type carries no annotation to tell `string[]` from `string?[]`.
+    private static string FormatArray(TypedConstant argument)
+    {
+        var elementType = ((IArrayTypeSymbol)argument.Type!).ElementType;
+        if (argument.Values.Any(element => element.IsNull))
+        {
+            elementType = AsNullable(elementType);
+        }
+
+        var elements = argument.Values.Select(element => element.IsNull ? "null" : FormatAttributeArgument(element));
+        return $"new {GlobalName(elementType)}[] {{ {string.Join(", ", elements)} }}";
+    }
+
+    // Only reference types are annotated: attribute arguments cannot be Nullable<T>, so a null
+    // constant or element always has a reference type, and annotating a value type would turn it
+    // into Nullable<T>.
+    private static ITypeSymbol AsNullable(ITypeSymbol type)
+        => type.IsReferenceType ? type.WithNullableAnnotation(NullableAnnotation.Annotated) : type;
 
     // A value that matches a single member is written by name; anything else (a flags combination
     // or a value the enum does not declare) is a cast of the underlying constant, which is valid

@@ -38,7 +38,10 @@ public abstract class ValidationAttributeTestBase
         """;
 
     // The compile check comes first: a compile error in the generated code explains a snapshot
-    // difference far better than the snapshot diff does.
+    // difference far better than the snapshot diff does. Generated code is held to a higher bar
+    // than the test input: consumers build with warnings as errors and nullable analysis on, so
+    // any warning in a generated tree (a CS86xx from a mis-annotated array type, say) is a
+    // failure here, while the input source only has to be free of errors.
     protected static async Task VerifyGeneratedSource(string input)
     {
         var verification = SnapshotTestHelper.Verify<StronglyTypedPrimitiveGenerator>(
@@ -47,11 +50,9 @@ public abstract class ValidationAttributeTestBase
             out var compilation
         );
 
-        Assert.Empty(
-            compilation
-                .GetDiagnostics(TestContext.Current.CancellationToken)
-                .Where(d => d.Severity > DiagnosticSeverity.Warning)
-        );
+        var diagnostics = compilation.GetDiagnostics(TestContext.Current.CancellationToken);
+        Assert.Empty(diagnostics.Where(d => d.Severity > DiagnosticSeverity.Warning));
+        Assert.Empty(diagnostics.Where(d => d.Severity >= DiagnosticSeverity.Warning && d.Location.SourceTree?.FilePath != "Program.cs"));
 
         await verification;
     }
