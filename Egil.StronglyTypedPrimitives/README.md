@@ -191,16 +191,16 @@ public readonly partial record struct Email([EmailAddress, StringLength(254, Min
 the following `Validate` is generated next to the `IsValueValid` shown in [Generator output for string with validation attributes](#generator-output-for-string-with-validation-attributes):
 
 ```csharp
-public System.Collections.Generic.IEnumerable<System.ComponentModel.DataAnnotations.ValidationResult> Validate(System.ComponentModel.DataAnnotations.ValidationContext validationContext)
+public global::System.Collections.Generic.IEnumerable<global::System.ComponentModel.DataAnnotations.ValidationResult> Validate(global::System.ComponentModel.DataAnnotations.ValidationContext validationContext)
 {
     var result0 = ValueValidators.valueValidator0.GetValidationResult(this.Value, validationContext);
-    if (result0 == System.ComponentModel.DataAnnotations.ValidationResult.Success) result0 = null;
+    if (result0 == global::System.ComponentModel.DataAnnotations.ValidationResult.Success) result0 = null;
     var result1 = ValueValidators.valueValidator1.GetValidationResult(this.Value, validationContext);
-    if (result1 == System.ComponentModel.DataAnnotations.ValidationResult.Success) result1 = null;
+    if (result1 == global::System.ComponentModel.DataAnnotations.ValidationResult.Success) result1 = null;
 
-    if (result0 is null && result1 is null) return System.Array.Empty<System.ComponentModel.DataAnnotations.ValidationResult>();
+    if (result0 is null && result1 is null) return global::System.Array.Empty<global::System.ComponentModel.DataAnnotations.ValidationResult>();
 
-    var results = new System.ComponentModel.DataAnnotations.ValidationResult[(result0 is null ? 0 : 1) + (result1 is null ? 0 : 1)];
+    var results = new global::System.ComponentModel.DataAnnotations.ValidationResult[(result0 is null ? 0 : 1) + (result1 is null ? 0 : 1)];
     var index = 0;
     if (result0 is not null) results[index++] = result0;
     if (result1 is not null) results[index++] = result1;
@@ -250,7 +250,7 @@ private static class ValueValidators
         => new global::System.ComponentModel.DataAnnotations.ValidationContext(new object(), "Value", null, null) { MemberName = "Value" };
 }
 
-public async System.Collections.Generic.IAsyncEnumerable<System.ComponentModel.DataAnnotations.ValidationResult> ValidateAsync(System.ComponentModel.DataAnnotations.ValidationContext validationContext, [System.Runtime.CompilerServices.EnumeratorCancellation] System.Threading.CancellationToken cancellationToken = default)
+public async global::System.Collections.Generic.IAsyncEnumerable<global::System.ComponentModel.DataAnnotations.ValidationResult> ValidateAsync(global::System.ComponentModel.DataAnnotations.ValidationContext validationContext, [global::System.Runtime.CompilerServices.EnumeratorCancellation] global::System.Threading.CancellationToken cancellationToken = default)
 {
     foreach (var result in Validate(validationContext))
     {
@@ -258,7 +258,7 @@ public async System.Collections.Generic.IAsyncEnumerable<System.ComponentModel.D
     }
 
     var asyncResult0 = await ValueValidators.asyncValueValidator0.GetValidationResultAsync(this.Value, validationContext, cancellationToken).ConfigureAwait(false);
-    if (asyncResult0 is not null && asyncResult0 != System.ComponentModel.DataAnnotations.ValidationResult.Success) yield return asyncResult0;
+    if (asyncResult0 is not null && asyncResult0 != global::System.ComponentModel.DataAnnotations.ValidationResult.Success) yield return asyncResult0;
 }
 ```
 
@@ -288,9 +288,9 @@ The following code is generated:
 
 namespace Examples;
 
-[System.CodeDom.Compiler.GeneratedCodeAttribute("Egil.StronglyTypedPrimitives, Version=1.14.0.0, Culture=neutral, PublicKeyToken=null", "1.14.0.0")]
-[System.Text.Json.Serialization.JsonConverterAttribute(typeof(Egil.StronglyTypedPrimitives.StronglyTypedJsonConverter<Examples.StronglyTypedInt, int>))]
-public readonly partial record struct StronglyTypedInt : Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<int>, Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<Examples.StronglyTypedInt, int>, System.IParsable<Examples.StronglyTypedInt>, System.ISpanParsable<Examples.StronglyTypedInt>, System.IUtf8SpanParsable<Examples.StronglyTypedInt>, System.IComparable<Examples.StronglyTypedInt>, System.IComparable, System.IFormattable, System.ISpanFormattable, System.IUtf8SpanFormattable
+[global::System.CodeDom.Compiler.GeneratedCodeAttribute("Egil.StronglyTypedPrimitives, Version=1.14.0.0, Culture=neutral, PublicKeyToken=null", "1.14.0.0")]
+[global::System.Text.Json.Serialization.JsonConverterAttribute(typeof(global::Egil.StronglyTypedPrimitives.StronglyTypedJsonConverter<global::Examples.StronglyTypedInt, int>))]
+public readonly partial record struct StronglyTypedInt : global::Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<int>, global::Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<global::Examples.StronglyTypedInt, int>, global::System.IParsable<global::Examples.StronglyTypedInt>, global::System.ISpanParsable<global::Examples.StronglyTypedInt>, global::System.IUtf8SpanParsable<global::Examples.StronglyTypedInt>, global::System.IComparable<global::Examples.StronglyTypedInt>, global::System.IComparable, global::System.IFormattable, global::System.ISpanFormattable, global::System.IUtf8SpanFormattable
 {
     public static readonly StronglyTypedInt Empty = default;
 
@@ -298,18 +298,18 @@ public readonly partial record struct StronglyTypedInt : Egil.StronglyTypedPrimi
 
     public override string ToString() => Value.ToString();
 
-    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+    [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
     public static bool IsValueValid(int value, bool throwIfInvalid)
         => true;
 
-    public static StronglyTypedInt Parse(string s, System.IFormatProvider? provider)
+    public static StronglyTypedInt Parse(string s, global::System.IFormatProvider? provider)
     {
         var rawValue = int.Parse(s, provider);
         IsValueValid(rawValue, throwIfInvalid: true);
         return new StronglyTypedInt(rawValue);
     }
 
-    public static bool TryParse(string? s, System.IFormatProvider? provider, [System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out Examples.StronglyTypedInt result)
+    public static bool TryParse(string? s, global::System.IFormatProvider? provider, [global::System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out global::Examples.StronglyTypedInt result)
     {
         if (int.TryParse(s, provider, out var rawValue) && IsValueValid(rawValue, throwIfInvalid: false))
         {
@@ -321,14 +321,14 @@ public readonly partial record struct StronglyTypedInt : Egil.StronglyTypedPrimi
         return false;
     }
 
-    public static StronglyTypedInt Parse(System.ReadOnlySpan<char> s, System.IFormatProvider? provider)
+    public static StronglyTypedInt Parse(global::System.ReadOnlySpan<char> s, global::System.IFormatProvider? provider)
     {
         var rawValue = int.Parse(s, provider);
         IsValueValid(rawValue, throwIfInvalid: true);
         return new StronglyTypedInt(rawValue);
     }
 
-    public static bool TryParse(System.ReadOnlySpan<char> s, System.IFormatProvider? provider, [System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out Examples.StronglyTypedInt result)
+    public static bool TryParse(global::System.ReadOnlySpan<char> s, global::System.IFormatProvider? provider, [global::System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out global::Examples.StronglyTypedInt result)
     {
         if (int.TryParse(s, provider, out var rawValue) && IsValueValid(rawValue, throwIfInvalid: false))
         {
@@ -340,14 +340,14 @@ public readonly partial record struct StronglyTypedInt : Egil.StronglyTypedPrimi
         return false;
     }
 
-    public static StronglyTypedInt Parse(System.ReadOnlySpan<byte> utf8Text, System.IFormatProvider? provider)
+    public static StronglyTypedInt Parse(global::System.ReadOnlySpan<byte> utf8Text, global::System.IFormatProvider? provider)
     {
         var rawValue = int.Parse(utf8Text, provider);
         IsValueValid(rawValue, throwIfInvalid: true);
         return new StronglyTypedInt(rawValue);
     }
 
-    public static bool TryParse(System.ReadOnlySpan<byte> utf8Text, System.IFormatProvider? provider, [System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out Examples.StronglyTypedInt result)
+    public static bool TryParse(global::System.ReadOnlySpan<byte> utf8Text, global::System.IFormatProvider? provider, [global::System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out global::Examples.StronglyTypedInt result)
     {
         if (int.TryParse(utf8Text, provider, out var rawValue) && IsValueValid(rawValue, throwIfInvalid: false))
         {
@@ -359,7 +359,7 @@ public readonly partial record struct StronglyTypedInt : Egil.StronglyTypedPrimi
         return false;
     }
     
-    public int CompareTo(Examples.StronglyTypedInt other)
+    public int CompareTo(global::Examples.StronglyTypedInt other)
         => Value.CompareTo(other.Value);
     
     public int CompareTo(object? obj)
@@ -374,17 +374,17 @@ public readonly partial record struct StronglyTypedInt : Egil.StronglyTypedPrimi
             return Value.CompareTo(other.Value);
         }
 
-        return ((System.IComparable)Value).CompareTo(obj);
+        return ((global::System.IComparable)Value).CompareTo(obj);
     }
     
-    public string ToString(string? format, System.IFormatProvider? formatProvider)
+    public string ToString(string? format, global::System.IFormatProvider? formatProvider)
         => Value.ToString(format, formatProvider);
     
-    public bool TryFormat(System.Span<char> destination, out int charsWritten, System.ReadOnlySpan<char> format, System.IFormatProvider? provider)
-        => ((System.ISpanFormattable)Value).TryFormat(destination, out charsWritten, format, provider);
+    public bool TryFormat(global::System.Span<char> destination, out int charsWritten, global::System.ReadOnlySpan<char> format, global::System.IFormatProvider? provider)
+        => ((global::System.ISpanFormattable)Value).TryFormat(destination, out charsWritten, format, provider);
     
-    public bool TryFormat(System.Span<byte> utf8Destination, out int bytesWritten, System.ReadOnlySpan<char> format, System.IFormatProvider? provider)
-        => ((System.IUtf8SpanFormattable)Value).TryFormat(utf8Destination, out bytesWritten, format, provider);
+    public bool TryFormat(global::System.Span<byte> utf8Destination, out int bytesWritten, global::System.ReadOnlySpan<char> format, global::System.IFormatProvider? provider)
+        => ((global::System.IUtf8SpanFormattable)Value).TryFormat(utf8Destination, out bytesWritten, format, provider);
     
     public static bool operator > (StronglyTypedInt a, StronglyTypedInt b) => a.CompareTo(b) > 0;                
 
@@ -396,7 +396,7 @@ public readonly partial record struct StronglyTypedInt : Egil.StronglyTypedPrimi
 }
 ```
 
-When the positional parameter is not named `Value`, an explicit implementation of `IStronglyTypedPrimitive<TSelf, TPrimitiveType>.Value` is generated as well, for example `int Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<Examples.StronglyTypedInt, int>.Value => Data;`.
+When the positional parameter is not named `Value`, an explicit implementation of `IStronglyTypedPrimitive<TSelf, TPrimitiveType>.Value` is generated as well, for example `int global::Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<global::Examples.StronglyTypedInt, int>.Value => Data;`.
 
 See more examples in https://github.com/egil/framework/tree/main/Egil.StronglyTypedPrimitives/test/Egil.StronglyTypedPrimitives.Tests
 
@@ -432,9 +432,9 @@ The following code is generated when using C# 13 or below:
 
 namespace Examples;
 
-[System.CodeDom.Compiler.GeneratedCodeAttribute("Egil.StronglyTypedPrimitives, Version=1.14.0.0, Culture=neutral, PublicKeyToken=null", "1.14.0.0")]
-[System.Text.Json.Serialization.JsonConverterAttribute(typeof(Egil.StronglyTypedPrimitives.StronglyTypedJsonConverter<Examples.StronglyTypedIntWithConstraints, int>))]
-public readonly partial record struct StronglyTypedIntWithConstraints : Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<int>, Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<Examples.StronglyTypedIntWithConstraints, int>, System.IParsable<Examples.StronglyTypedIntWithConstraints>, System.ISpanParsable<Examples.StronglyTypedIntWithConstraints>, System.IUtf8SpanParsable<Examples.StronglyTypedIntWithConstraints>, System.IComparable<Examples.StronglyTypedIntWithConstraints>, System.IComparable, System.IFormattable, System.ISpanFormattable, System.IUtf8SpanFormattable
+[global::System.CodeDom.Compiler.GeneratedCodeAttribute("Egil.StronglyTypedPrimitives, Version=1.14.0.0, Culture=neutral, PublicKeyToken=null", "1.14.0.0")]
+[global::System.Text.Json.Serialization.JsonConverterAttribute(typeof(global::Egil.StronglyTypedPrimitives.StronglyTypedJsonConverter<global::Examples.StronglyTypedIntWithConstraints, int>))]
+public readonly partial record struct StronglyTypedIntWithConstraints : global::Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<int>, global::Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<global::Examples.StronglyTypedIntWithConstraints, int>, global::System.IParsable<global::Examples.StronglyTypedIntWithConstraints>, global::System.ISpanParsable<global::Examples.StronglyTypedIntWithConstraints>, global::System.IUtf8SpanParsable<global::Examples.StronglyTypedIntWithConstraints>, global::System.IComparable<global::Examples.StronglyTypedIntWithConstraints>, global::System.IComparable, global::System.IFormattable, global::System.ISpanFormattable, global::System.IUtf8SpanFormattable
 {
     public static readonly StronglyTypedIntWithConstraints Empty = default;
 
@@ -468,9 +468,9 @@ The following code is generated when using C# 14 or higher:
 
 namespace Examples;
 
-[System.CodeDom.Compiler.GeneratedCodeAttribute("Egil.StronglyTypedPrimitives, Version=1.14.0.0, Culture=neutral, PublicKeyToken=null", "1.14.0.0")]
-[System.Text.Json.Serialization.JsonConverterAttribute(typeof(Egil.StronglyTypedPrimitives.StronglyTypedJsonConverter<Examples.StronglyTypedIntWithConstraints, int>))]
-public readonly partial record struct StronglyTypedIntWithConstraints : Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<int>, Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<Examples.StronglyTypedIntWithConstraints, int>, System.IParsable<Examples.StronglyTypedIntWithConstraints>, System.ISpanParsable<Examples.StronglyTypedIntWithConstraints>, System.IUtf8SpanParsable<Examples.StronglyTypedIntWithConstraints>, System.IComparable<Examples.StronglyTypedIntWithConstraints>, System.IComparable, System.IFormattable, System.ISpanFormattable, System.IUtf8SpanFormattable
+[global::System.CodeDom.Compiler.GeneratedCodeAttribute("Egil.StronglyTypedPrimitives, Version=1.14.0.0, Culture=neutral, PublicKeyToken=null", "1.14.0.0")]
+[global::System.Text.Json.Serialization.JsonConverterAttribute(typeof(global::Egil.StronglyTypedPrimitives.StronglyTypedJsonConverter<global::Examples.StronglyTypedIntWithConstraints, int>))]
+public readonly partial record struct StronglyTypedIntWithConstraints : global::Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<int>, global::Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<global::Examples.StronglyTypedIntWithConstraints, int>, global::System.IParsable<global::Examples.StronglyTypedIntWithConstraints>, global::System.ISpanParsable<global::Examples.StronglyTypedIntWithConstraints>, global::System.IUtf8SpanParsable<global::Examples.StronglyTypedIntWithConstraints>, global::System.IComparable<global::Examples.StronglyTypedIntWithConstraints>, global::System.IComparable, global::System.IFormattable, global::System.ISpanFormattable, global::System.IUtf8SpanFormattable
 {
     public static readonly StronglyTypedIntWithConstraints Empty = default;
 
