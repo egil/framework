@@ -399,9 +399,13 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         }
     }
 
-    // IStronglyTypedPrimitive<TSelf, TPrimitive>.Value is implemented implicitly by the positional
-    // property when the parameter is named Value; any other name needs an explicit implementation
-    // so the shared JSON converter can read the wrapped value through the interface.
+    // IStronglyTypedPrimitive<TSelf, TPrimitive>.Value must expose the wrapped (positional) value,
+    // because the shared JSON converter serializes whatever it reads through the interface. Only
+    // the positional property itself may implement it implicitly, which is the case when the
+    // parameter is named Value. Any other public Value property (say a computed one next to a
+    // parameter named Celsius) would otherwise satisfy the interface and be serialized in place of
+    // the wrapped value, so an explicit implementation forwarding to the positional property is
+    // emitted instead, unless the user implemented the interface member explicitly themselves.
     internal static IEnumerable<string> GetSelfInterfaceValueProperty(StronglyTypedTypeInfo info, IEnumerable<ISymbol> targetTypeMembers, INamedTypeSymbol? selfInterface, ITypeSymbol underlyingTypeSymbol)
     {
         if (selfInterface?.GetMembers("Value").OfType<IPropertySymbol>().FirstOrDefault() is not { } interfaceValueProperty)
@@ -409,9 +413,10 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             yield break;
         }
 
+        var positionalPropertyIsValue = info.Parameter.Identifier.Text == "Value";
         var isImplemented = targetTypeMembers
             .OfType<IPropertySymbol>()
-            .Any(p => (p.Name == "Value" && !p.IsStatic && p.GetMethod is { DeclaredAccessibility: Accessibility.Public } && p.Type.Equals(underlyingTypeSymbol, SymbolEqualityComparer.Default))
+            .Any(p => (positionalPropertyIsValue && p.Name == "Value" && !p.IsStatic && p.GetMethod is { DeclaredAccessibility: Accessibility.Public } && p.Type.Equals(underlyingTypeSymbol, SymbolEqualityComparer.Default))
                    || p.ExplicitInterfaceImplementations.Any(e => e.Equals(interfaceValueProperty, SymbolEqualityComparer.Default)));
         if (isImplemented)
         {

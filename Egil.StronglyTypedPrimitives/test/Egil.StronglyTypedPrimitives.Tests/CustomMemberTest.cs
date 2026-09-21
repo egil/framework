@@ -186,3 +186,34 @@ public class Custom_Empty_property
         );
     }
 }
+
+public class Custom_Value_property_beside_alt_type_param_name
+{
+    [Fact]
+    public async Task Test()
+    {
+        var input = """
+            using Egil.StronglyTypedPrimitives;
+
+            namespace SomeNamespace;
+
+            [StronglyTyped]
+            public readonly partial record struct Foo(int Celsius)
+            {
+                public int Value => Celsius * 9 / 5 + 32;
+            }
+            """;
+
+        await SnapshotTestHelper.Verify<StronglyTypedPrimitiveGenerator>(
+            input,
+            LanguageVersion.LatestMajor,
+            out var compilation
+        );
+
+        Assert.Empty(
+            compilation
+                .GetDiagnostics(TestContext.Current.CancellationToken)
+                .Where(d => d.Severity > DiagnosticSeverity.Warning)
+        );
+    }
+}
