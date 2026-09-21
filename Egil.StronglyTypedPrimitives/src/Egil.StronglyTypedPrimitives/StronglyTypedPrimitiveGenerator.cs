@@ -250,6 +250,16 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
                 typeName));
         }
 
+        foreach (var attribute in validationAttributes.ContextAttributes)
+        {
+            diagnostics.Add(Diagnostic.Create(
+                DiagnosticDescriptors.ContextValidationAttributeNotPartOfValueInvariant,
+                attribute.Location,
+                attribute.AttributeTypeName,
+                parameterName,
+                typeName));
+        }
+
         return diagnostics.ToImmutable();
     }
 

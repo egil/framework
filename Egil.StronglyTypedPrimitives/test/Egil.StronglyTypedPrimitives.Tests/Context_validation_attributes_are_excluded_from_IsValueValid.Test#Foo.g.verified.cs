@@ -40,7 +40,7 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
 
     private static class ValueValidators
     {
-        public static readonly SomeNamespace.InstanceOfAttribute valueValidator0 = new SomeNamespace.InstanceOfAttribute(typeof(string));
+        public static readonly System.ComponentModel.DataAnnotations.RequiredAttribute valueValidator0 = new System.ComponentModel.DataAnnotations.RequiredAttribute();
     }
 
     public static bool IsValueValid(string value, bool throwIfInvalid)

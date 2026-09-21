@@ -68,6 +68,63 @@ public class ValidationAttributeDiagnosticTest
     }
 
     [Fact]
+    public void Warns_when_a_validation_attribute_requires_a_ValidationContext()
+    {
+        var input = $$"""
+            using Egil.StronglyTypedPrimitives;
+            using System.ComponentModel.DataAnnotations;
+
+            namespace SomeNamespace
+            {
+                [StronglyTyped]
+                public readonly partial record struct Foo([Required, TenantScoped] string Value);
+            }
+
+            {{ValidationAttributeTestBase.FakeContextValidationAttribute}}
+            """;
+
+        var result = SnapshotTestHelper.RunGenerator<StronglyTypedPrimitiveGenerator>(input, out var compilation);
+
+        var diagnostic = Assert.Single(result.Diagnostics);
+        Assert.Equal("STP005", diagnostic.Id);
+        Assert.Equal(DiagnosticSeverity.Warning, diagnostic.Severity);
+        Assert.Equal(
+            "The validation attribute 'SomeNamespace.TenantScopedAttribute' on 'Value' is not part of the value invariant of 'Foo' because it requires a ValidationContext. It is evaluated only through IValidatableObject.Validate when 'Foo' declares that interface.",
+            diagnostic.GetMessage(CultureInfo.InvariantCulture));
+        Assert.Equal("TenantScoped", diagnostic.Location.SourceTree?.GetText(TestContext.Current.CancellationToken).ToString(diagnostic.Location.SourceSpan));
+        Assert.Empty(compilation.GetDiagnostics(TestContext.Current.CancellationToken).Where(d => d.Severity > DiagnosticSeverity.Warning));
+    }
+
+    [Fact]
+    public void Warns_that_CustomValidation_requires_a_ValidationContext()
+    {
+        var input = """
+            using Egil.StronglyTypedPrimitives;
+            using System.ComponentModel.DataAnnotations;
+
+            namespace SomeNamespace;
+
+            [StronglyTyped]
+            public readonly partial record struct Foo([CustomValidation(typeof(FooRules), nameof(FooRules.Validate))] string Value);
+
+            public static class FooRules
+            {
+                public static ValidationResult? Validate(string value) => ValidationResult.Success;
+            }
+            """;
+
+        var result = SnapshotTestHelper.RunGenerator<StronglyTypedPrimitiveGenerator>(input, out var compilation);
+
+        var diagnostic = Assert.Single(result.Diagnostics);
+        Assert.Equal("STP005", diagnostic.Id);
+        Assert.Equal(
+            "The validation attribute 'System.ComponentModel.DataAnnotations.CustomValidationAttribute' on 'Value' is not part of the value invariant of 'Foo' because it requires a ValidationContext. It is evaluated only through IValidatableObject.Validate when 'Foo' declares that interface.",
+            diagnostic.GetMessage(CultureInfo.InvariantCulture));
+        Assert.Empty(compilation.GetDiagnostics(TestContext.Current.CancellationToken).Where(d => d.Severity > DiagnosticSeverity.Warning));
+        Assert.DoesNotContain("CustomValidationAttribute", Assert.Single(result.GeneratedTrees).ToString());
+    }
+
+    [Fact]
     public void Does_not_warn_when_the_attributes_drive_the_generated_IsValueValid()
     {
         var input = """
