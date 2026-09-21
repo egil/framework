@@ -50,7 +50,8 @@ jobs:
       - name: Build and pack
         run: |
           dotnet build ./Egil.Orleans.Messaging/Egil.Orleans.Messaging.slnx -c Release -p:ContinuousIntegrationBuild=true
-          for project in ./Egil.Orleans.Messaging/src/*/*.csproj; do
+          for name in Egil.Orleans.Messaging Egil.Orleans.Messaging.State.AzureStorage Egil.Orleans.Messaging.Streams.EventHubs; do
+            project="./Egil.Orleans.Messaging/src/$name/$name.csproj"
             dotnet pack "$project" -c Release --no-build -p:ContinuousIntegrationBuild=true --output ${{ env.NuGetDirectory }}
           done
 
