@@ -124,6 +124,14 @@ namespace Egil.StronglyTypedPrimitives
             Assert.Throws<ValidationException>(() => email with { Value = "abc" });
         }
 
+        // CustomValidation needs a ValidationContext that the constructor path has none of, so it
+        // is left out of the value invariant (STP005) rather than evaluated with a null context.
+        [Fact]
+        public void Value_failing_only_a_context_attribute_is_constructed()
+        {
+            Assert.Equal(3, new StronglyTypedEvenIntWithValidate(3).Value);
+        }
+
         [Fact]
         public void User_static_initializer_built_through_the_constructor_does_not_break_type_initialization()
         {
