@@ -43,8 +43,10 @@
     BenchmarkDotNet glob filter, for example '*SourceGen*' or '*Serialize*'.
 
 .PARAMETER Affinity
-    Decimal affinity mask for the benchmark process. Defaults to one SMT pair near the top
-    of the core range (BenchmarkDotNet parses the mask as a signed 32-bit integer).
+    Decimal affinity mask for the benchmark process. Defaults to one SMT pair: a P-core pair
+    on hybrid Intel parts, otherwise a pair near the top of the core range (BenchmarkDotNet
+    parses the mask as a signed 32-bit integer). The summary records the mask; check it
+    against the machine's topology before trusting absolute numbers.
 
 .PARAMETER DisableBoost
     Turn processor boost off for the duration of the run (requires an elevated shell).
@@ -85,9 +87,18 @@ function Get-DefaultFramework {
 }
 
 function Get-DefaultAffinity {
-    # Both logical threads of one physical core, assuming SMT pairs are adjacent; bit 31 is
-    # unusable because BenchmarkDotNet parses the mask as a signed 32-bit integer.
-    $shift = [Math]::Floor(([Math]::Min([Environment]::ProcessorCount, 31) - 2) / 2) * 2
+    # Both logical threads of one physical core. BenchmarkDotNet parses the mask as a signed
+    # 32-bit integer, so bit 31 is unusable. On a hybrid Intel part (P-cores with SMT first,
+    # E-cores without SMT last; core count times two is not the thread count) the top logical
+    # CPUs are E-cores, so the second P-core pair is used there; elsewhere a high pair, which
+    # the scheduler fills last on a busy machine.
+    $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
+    $logical = [Environment]::ProcessorCount
+    if ($cpu.NumberOfCores * 2 -ne $logical) {
+        return ([int]3 -shl 2).ToString()
+    }
+
+    $shift = [Math]::Floor(([Math]::Min($logical, 31) - 2) / 2) * 2
     return ([int]3 -shl $shift).ToString()
 }
 
@@ -125,7 +136,7 @@ $summary.Add("| Machine | $($machine.Name.Trim()), $([Environment]::ProcessorCou
 $summary.Add("| Baseline | ``$BaselineRef`` = ``$baselineSha`` |")
 $summary.Add("| Candidate | ``$CandidateRef`` = ``$candidateSha`` |")
 $summary.Add("| Framework | $Framework |")
-$summary.Add("| Affinity | $Affinity |")
+$summary.Add("| Affinity | $Affinity (0x$([Convert]::ToString([int]$Affinity, 16))) |")
 $summary.Add("| Iterations | $IterationCount (warmup $WarmupCount), $Rounds round(s), filter ``$Filter`` |")
 $summary.Add("| Boost disabled | $($DisableBoost.IsPresent) |")
 $summary.Add('')
