@@ -186,6 +186,16 @@ public sealed class OutboxProcessorCoverageTests(MessagingTestClusterFixture fix
     }
 
     [Fact]
+    public async Task RegisterOutboxProcessor_requires_a_posted_acknowledgement_callback()
+    {
+        var grain = fixture.GrainFactory.GetGrain<IOutboxProcessorValidationCoverageGrain>(Guid.NewGuid());
+
+        var paramName = await grain.ValidateMissingPostedAcknowledgementAsync();
+
+        Assert.Equal("options", paramName);
+    }
+
+    [Fact]
     public async Task RegisterOutboxProcessor_rejects_non_positive_processing_timeout()
     {
         var grain = fixture.GrainFactory.GetGrain<IOutboxProcessorValidationCoverageGrain>(Guid.NewGuid());
@@ -431,6 +441,8 @@ public interface IOutboxProcessorValidationCoverageGrain : IGrainWithGuidKey
     Task<OutboxProcessorSourceState> PostPendingThenEmptyAfterAcknowledgeAsync();
 
     Task<string?> PostInBackgroundWithCanceledTokenAsync();
+    Task<string?> ValidateMissingPostedAcknowledgementAsync();
+
 
     Task<string?> ValidateNullStreamIdAsync();
 
@@ -826,11 +838,10 @@ public sealed class OutboxProcessorValidationCoverageGrain(
         var processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorTestEvent>
         {
             OutboxAccessor = () => returnEmpty ? [] : pending,
-            AcknowledgePostedAsync = (items, _) =>
+            AcknowledgePosted = items =>
             {
                 state.State.AcknowledgedCount += items.Length;
                 returnEmpty = true;
-                return ValueTask.CompletedTask;
             },
             AcknowledgeFailuresAsync = AcknowledgeFailuresAsync,
             RetryDelay = TimeSpan.FromMilliseconds(100)
@@ -870,6 +881,22 @@ public sealed class OutboxProcessorValidationCoverageGrain(
             return Task.FromResult<string?>(null);
         }
         catch (ArgumentNullException ex)
+        {
+            return Task.FromResult<string?>(ex.ParamName);
+        }
+    }
+
+    public Task<string?> ValidateMissingPostedAcknowledgementAsync()
+    {
+        try
+        {
+            _ = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorTestEvent>
+            {
+                OutboxAccessor = static () => []
+            });
+            return Task.FromResult<string?>(null);
+        }
+        catch (ArgumentException ex)
         {
             return Task.FromResult<string?>(ex.ParamName);
         }

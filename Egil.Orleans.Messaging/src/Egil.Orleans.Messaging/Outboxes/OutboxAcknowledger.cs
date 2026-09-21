@@ -3,7 +3,8 @@ using System.Collections.Immutable;
 namespace Egil.Orleans.Messaging.Outboxes;
 
 internal sealed class OutboxAcknowledger<TOutbox>(
-    Func<ImmutableArray<TOutbox>, CancellationToken, ValueTask> acknowledgePostedAsync,
+    Action<ImmutableArray<TOutbox>>? acknowledgePosted,
+    Func<ImmutableArray<TOutbox>, CancellationToken, ValueTask>? acknowledgePostedAsync,
     Func<ImmutableArray<(TOutbox Item, Exception Error, int Attempt)>, CancellationToken, ValueTask>? acknowledgeFailuresAsync)
     where TOutbox : notnull
 {
@@ -40,7 +41,13 @@ internal sealed class OutboxAcknowledger<TOutbox>(
 
         if (!acknowledgement.Posted.IsDefaultOrEmpty)
         {
-            await acknowledgePostedAsync(acknowledgement.Posted, cancellationToken);
+            acknowledgePosted?.Invoke(acknowledgement.Posted);
+
+            if (acknowledgePostedAsync is not null)
+            {
+                await acknowledgePostedAsync(acknowledgement.Posted, cancellationToken);
+            }
+
             foreach (var item in acknowledgement.Posted)
             {
                 attempts.Remove(item);

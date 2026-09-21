@@ -433,23 +433,23 @@ and cancellation is always third. Capture a grain factory when needed, or use
 timestamp across retries and reactivation. No sender identity is stored in the outbox.
 
 `OutboxAccessor` returns the current `Outbox<T>` snapshot.
-`AcknowledgePostedAsync` and `AcknowledgeFailuresAsync` receive its original
-stored `OutboxMessageEnvelope<T>` values. `AcknowledgePostedAsync` receives
-exactly the successfully delivered items, which need not be a contiguous prefix. Remove them
-by passing the envelopes directly to `RemoveRange`; never remove by position or count. Equal payloads
-can represent different messages and retain distinct stored IDs.
+`AcknowledgePosted`, `AcknowledgePostedAsync`, and `AcknowledgeFailuresAsync`
+receive its original stored `OutboxMessageEnvelope<T>` values. The configured
+posted acknowledgement callbacks receive exactly the successfully delivered items,
+which need not be a contiguous prefix. Remove them by passing the envelopes directly
+to `RemoveRange`; never remove by position or count. Equal payloads can represent
+different messages and retain distinct stored IDs.
 
 To avoid paying a storage write per acknowledgement, stage the removal instead and
 let the next business write carry it:
 
 ```csharp
-AcknowledgePostedAsync = (items, ct) =>
+AcknowledgePosted = items =>
 {
     state.State = state.State with
     {
         Outbox = state.State.Outbox.RemoveRange(items)
     };
-    return ValueTask.CompletedTask;
 }
 ```
 
@@ -499,8 +499,8 @@ to persist their own counters on the items or grain state.
 The outbox tools do not require the state manager. When persisting the outbox
 with plain `IPersistentState<T>` writes, the pipeline stays at-least-once on
 its own: items only leave durable state when the grain removes them in
-`AcknowledgePostedAsync` after a successful post, so a failed or ambiguous
-state write leaves them pending and at worst causes duplicate delivery, never
+a posted acknowledgement callback after a successful post, so a failed or
+ambiguous state write leaves them pending and at worst causes duplicate delivery, never
 loss. `Outbox<T>.Revision` is a persisted UUIDv7 that acts as an outbox-specific ETag.
 Each mutation creates a new revision; operations that change nothing preserve it.
 `Equals` compares only the revision in O(1), without scanning payloads.
@@ -521,9 +521,9 @@ Background outbox postage allows unrelated grain calls to continue while
 postmen await I/O by default. `IPostman<T>` services should be state-free with
 respect to the owning grain. Inline lambda postmen may read activation-local
 state, but should not write it; durable changes belong in
-`AcknowledgePostedAsync` or `AcknowledgeFailuresAsync`.
+`AcknowledgePosted`, `AcknowledgePostedAsync`, or `AcknowledgeFailuresAsync`.
 Postmen run on Orleans' activation scheduler, not on the .NET thread pool.
-Both acknowledgement callbacks are non-interleaving by default: they do not
+Acknowledgement callbacks are non-interleaving by default: they do not
 interleave with normal grain calls unless
 `InterleaveAcknowledgementCallbacks` is enabled. Reentrant grains can still
 interleave according to Orleans' normal scheduling rules.
@@ -1003,16 +1003,21 @@ without supplying a redundant state factory. Relaxing a constraint is source- an
 binary-compatible. The cost is that a state type with neither is now caught at
 registration rather than by the compiler.
 
+`OutboxProcessorOptions<T>.AcknowledgePosted` is a synchronous alternative to
+`AcknowledgePostedAsync` for acknowledgements that do not perform asynchronous
+work. Configure at least one callback; when both are set, `AcknowledgePosted`
+runs first. `AcknowledgePostedAsync` is no longer a required member, so a
+synchronous-only configuration does not need to return a completed `ValueTask`.
+
 `OutboxProcessorOptions<T>` renames two members so the post-dispatch callbacks
 read as one pair:
 
 - `ReconcileFailedAsync` becomes `AcknowledgeFailuresAsync`.
 - `InterleaveReconciliationCallbacks` becomes `InterleaveAcknowledgementCallbacks`.
 
-`AcknowledgePostedAsync` is unchanged. These are renames only — the delegate
-signatures, defaults, and behaviour are the same, so updating the names is the
-whole migration. "Reconcile" previously named both the callback pair and the
-separate step that matches the retry timer and reminder against the
+These two renames do not alter delegate signatures, defaults, or behaviour, so
+updating the names is the whole migration. "Reconcile" previously named both the
+callback pair and the separate step that matches the retry timer and reminder against the
 `OutboxAccessor` snapshot; it now means only the latter.
 
 Replace `MessageTracker.ProcessMessage(...)` with `TryAcceptMessage(...)` for all

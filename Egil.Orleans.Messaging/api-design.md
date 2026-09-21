@@ -1704,8 +1704,9 @@ public static class OutboxPostmanServiceCollectionExtensions
   decides: leave item in state to retry, or remove to dead-letter after
   N attempts.
 - Different postmen dispatch concurrently. Each postman processes its matching
-  items sequentially and stops after a failure. Both acknowledgement callbacks
-  receive the original stored envelopes, and `AcknowledgePostedAsync` receives
+  items sequentially and stops after a failure. Configured acknowledgement
+  callbacks receive the original stored envelopes, and the posted
+  acknowledgement callbacks receive
   only the successful items; do not assume a contiguous prefix or global
   ordering across groups.
 - Each item dispatches to exactly **one** postman (first-registered-wins).
@@ -1717,14 +1718,16 @@ public static class OutboxPostmanServiceCollectionExtensions
 Postman callbacks run on Orleans' activation scheduler. Keyed
 `IPostman<TMessage>` services should not depend on activation-local grain
 state. Inline postmen may close over and read activation-local state, but they
-should not mutate it; durable changes belong in `AcknowledgePostedAsync` and
+should not mutate it; durable changes belong in `AcknowledgePosted`,
+`AcknowledgePostedAsync`, and
 `AcknowledgeFailuresAsync`.
 
 Background postage uses Orleans activation scheduling and `Interleave` defaults
 to `true`, so other grain calls can run while postmen await I/O. Orleans still
 executes only one turn at a time on the activation. Acknowledgement uses
 `InterleaveAcknowledgementCallbacks` and defaults to non-interleaving, so
-`AcknowledgePostedAsync` and `AcknowledgeFailuresAsync` do not interleave with
+`AcknowledgePosted`, `AcknowledgePostedAsync`, and `AcknowledgeFailuresAsync`
+do not interleave with
 ordinary grain calls unless the user opts in or the grain is reentrant.
 
 The scheduling goal is to keep external postage fast without letting durable
@@ -1743,7 +1746,7 @@ sequenceDiagram
     Note over Dispatch,Grain: "Other grain calls may run while postmen await"
     Postmen-->>Dispatch: "Success/failure results"
     Dispatch->>Ack: "Enqueue acknowledgement"
-    Ack->>Grain: "AcknowledgePostedAsync / AcknowledgeFailuresAsync"
+    Ack->>Grain: "AcknowledgePosted / AcknowledgePostedAsync / AcknowledgeFailuresAsync"
     Note over Ack,Grain: "Must not interleave with normal writes"
     Ack->>Grain: "OutboxAccessor() and retry/reminder update"
 ```
@@ -1848,10 +1851,16 @@ public sealed class OutboxProcessorOptions<TOutbox> where TOutbox : notnull
     /// callbacks have returned.
     public required Func<Outbox<TOutbox>> OutboxAccessor { get; init; }
 
-    /// Acknowledges successfully posted items.
+    /// At least one posted acknowledgement callback must be configured.
+    ///
+    /// Acknowledges successfully posted items synchronously.
     /// Expected to remove those items from the outbox. Persisting the removal
     /// immediately is optional — see §1 on deferred writes.
-    public required Func<ImmutableArray<OutboxMessageEnvelope<TOutbox>>, CancellationToken, ValueTask>
+    public Action<ImmutableArray<OutboxMessageEnvelope<TOutbox>>>? AcknowledgePosted { get; init; }
+
+    /// Acknowledges successfully posted items asynchronously. When both posted
+    /// acknowledgement callbacks are configured, this runs after AcknowledgePosted.
+    public Func<ImmutableArray<OutboxMessageEnvelope<TOutbox>>, CancellationToken, ValueTask>?
         AcknowledgePostedAsync { get; init; }
 
     /// Failed items with exception and attempt count (in-memory, resets on
@@ -1892,13 +1901,14 @@ persisted outbox or re-inject transient services into it.
 
 Naming note: `OutboxAccessor` describes a callback that reads the current immutable
 outbox snapshot. The processor evaluates it again during retry-state reconciliation,
-after both acknowledgement callbacks have returned, because state writes can replace
-the outbox instance.
+after the configured acknowledgement callbacks have returned, because state writes
+can replace the outbox instance.
 
-`AcknowledgePostedAsync` and `AcknowledgeFailuresAsync` carry obligations, not
-passive notifications:
+The posted acknowledgement callbacks and `AcknowledgeFailuresAsync` carry
+obligations, not passive notifications:
 
-- `AcknowledgePostedAsync` is expected to remove successfully posted items
+- `AcknowledgePosted` or `AcknowledgePostedAsync` is expected to remove
+  successfully posted items
   from the outbox. If acknowledged items still appear in `OutboxAccessor`
   after the callback returns, the processor treats them as pending and they
   may be posted again. Persisting the removal within the callback is the
@@ -2119,7 +2129,8 @@ public async Task ReceiveReminder(string name, TickStatus status)
   owns the durable outbox state.
 - **Acknowledgement is explicit.** Successfully posted items are not removed
   by the processor directly. The grain removes them in
-  `AcknowledgePostedAsync`, preserving the outbox invariant that all durable
+  a configured posted acknowledgement callback, preserving the outbox invariant
+  that all durable
   state changes go through the owning grain's state manager — which is also
   what lets the grain decide *when* the removal is persisted, immediately or
   on the next business write.

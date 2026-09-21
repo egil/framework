@@ -39,12 +39,12 @@ public static class OutboxProcessorExtensions
         ///     outboxProcessor = this.RegisterOutboxProcessor(new OutboxProcessorOptions&lt;IMyEvent&gt;
         ///     {
         ///         OutboxAccessor = () => stateManager.State.Outbox,
-        ///         AcknowledgePostedAsync = async (items, ct) =>
+        ///         AcknowledgePosted = items =>
         ///         {
         ///             // Remove exactly the delivered items — match items or their stored
-        ///             // IDs, never positions — and persist. Or assign State and let
-        ///             // the next business write carry it; see OutboxProcessorOptions
-        ///             // &lt;TOutbox&gt;.AcknowledgePostedAsync for what deferring costs.
+        ///             // IDs, never positions. Assign State and let the next business
+        ///             // write carry it; see OutboxProcessorOptions&lt;TOutbox&gt;.
+        ///             // AcknowledgePostedAsync for what deferring persistence costs.
         ///         },
         ///         AcknowledgeFailuresAsync = async (failures, ct) =>
         ///         {

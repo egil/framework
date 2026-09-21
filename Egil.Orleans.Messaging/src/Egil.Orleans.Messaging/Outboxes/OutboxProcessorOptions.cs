@@ -5,7 +5,9 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// <summary>
 /// Configuration for <see cref="OutboxProcessor{TOutbox}"/>. Defines how the
 /// processor reads pending items, acknowledges successes and failures, and
-/// schedules retry work.
+/// schedules retry work. At least one of <see cref="AcknowledgePosted"/> or
+/// <see cref="AcknowledgePostedAsync"/> must be configured; when both are set,
+/// both run in that order.
 /// </summary>
 /// <typeparam name="TOutbox">
 /// The base payload type of outbox messages. Must match the type parameter of the
@@ -22,10 +24,23 @@ public sealed class OutboxProcessorOptions<TOutbox>
     public required Func<Outbox<TOutbox>> OutboxAccessor { get; init; }
 
     /// <summary>
-    /// Called with items that were successfully dispatched by their postmen.
+    /// Called synchronously with items that were successfully dispatched by their postmen.
     /// The grain is expected to remove these items from its outbox.
     /// </summary>
     /// <remarks>
+    /// When both acknowledgement callbacks are configured, this callback runs before
+    /// <see cref="AcknowledgePostedAsync"/>.
+    /// </remarks>
+    public Action<ImmutableArray<OutboxMessageEnvelope<TOutbox>>>? AcknowledgePosted { get; init; }
+
+    /// <summary>
+    /// Called asynchronously with items that were successfully dispatched by their postmen.
+    /// The grain is expected to remove these items from its outbox.
+    /// </summary>
+    /// <remarks>
+    /// When both acknowledgement callbacks are configured, this callback runs after
+    /// <see cref="AcknowledgePosted"/>.
+    ///
     /// <para>
     /// Persisting the removal immediately is the straightforward choice, but not the
     /// only one: because an item only leaves the <em>durable</em> outbox once the
@@ -51,7 +66,7 @@ public sealed class OutboxProcessorOptions<TOutbox>
     /// never by position or count — positional removal can drop a failed,
     /// undelivered item and lose it.
     /// </remarks>
-    public required Func<ImmutableArray<OutboxMessageEnvelope<TOutbox>>, CancellationToken, ValueTask> AcknowledgePostedAsync { get; init; }
+    public Func<ImmutableArray<OutboxMessageEnvelope<TOutbox>>, CancellationToken, ValueTask>? AcknowledgePostedAsync { get; init; }
 
     /// <summary>
     /// Called with items that failed dispatch, along with the exception and
@@ -98,7 +113,8 @@ public sealed class OutboxProcessorOptions<TOutbox>
     /// <remarks>
     /// Defaults to <see langword="true"/> so slow delivery does not block
     /// unrelated calls to the grain. This controls the delivery phase only;
-    /// <see cref="AcknowledgePostedAsync"/> and
+    /// <see cref="AcknowledgePosted"/>,
+    /// <see cref="AcknowledgePostedAsync"/>, and
     /// <see cref="AcknowledgeFailuresAsync"/> use
     /// <see cref="InterleaveAcknowledgementCallbacks"/>. Snapshot reads from
     /// <see cref="OutboxAccessor"/> can also happen after a background delivery
