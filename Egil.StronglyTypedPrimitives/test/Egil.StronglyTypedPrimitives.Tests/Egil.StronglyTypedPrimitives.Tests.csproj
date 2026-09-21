@@ -39,4 +39,14 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <!--
+    Records the framework reference assemblies this project is compiled against, so a test can run
+    the generator against what a consumer's build sees instead of the implementation assemblies
+    loaded in the test process. The two differ: reference assemblies omit members that do not
+    change a type's surface, such as an override that only changes behaviour.
+  -->
+  <Target Name="WriteReferenceAssemblyPaths" AfterTargets="FindReferenceAssembliesForReferences" BeforeTargets="CoreCompile">
+    <WriteLinesToFile File="$(OutDir)ReferenceAssemblies.txt" Lines="@(ReferencePathWithRefAssemblies)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+  </Target>
+
 </Project>

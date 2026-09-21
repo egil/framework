@@ -124,12 +124,22 @@ internal static class Parser
             SuppressTrimWarning: !hasTrimSafeConstructor && hasSuppressionAttribute);
     }
 
+    // The built-in attribute that needs a context. Its RequiresValidationContext override exists
+    // in the implementation assembly only: the reference assemblies of net9.0 through net11.0
+    // leave it out, so a build never sees the override and the attribute has to be known by name.
+    private const string CustomValidationAttributeTypeName = "System.ComponentModel.DataAnnotations.CustomValidationAttribute";
+
     // RequiresValidationContext is virtual on ValidationAttribute and false there; the override can
     // sit on any class between the attribute and that base, so the whole chain below it is
     // searched. What the override returns is not evaluated: an attribute that bothers to override
     // it is taken at its word.
     private static bool RequiresValidationContext(INamedTypeSymbol attributeClass)
     {
+        if (attributeClass.ToDisplayString() == CustomValidationAttributeTypeName)
+        {
+            return true;
+        }
+
         for (var type = attributeClass; type is not null && type.ToDisplayString() != ValidationAttributeTypeName; type = type.BaseType)
         {
             if (type.GetMembers("RequiresValidationContext").OfType<IPropertySymbol>().Any(property => property.IsOverride))
