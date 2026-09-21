@@ -15,13 +15,14 @@ namespace Egil.SystemTextJson.Migration.Migrations;
 /// <see cref="JsonSerializerOptions.TypeInfoResolverChain"/>, because a decorator such as
 /// <c>WithAddedModifier</c> hides the resolver from the chain while still delegating to it.
 /// STJ hands every <c>GetTypeInfo</c> call the options being resolved, so the instance is
-/// always available where the scope is needed. The resolver itself authenticates a scope by
-/// identity: a scope whose resolver is the one executing is valid by construction, since the
-/// resolver is evidently reachable. Structural validation, which sees through STJ's chains and
-/// decorators but not through application-defined wrappers, is used only by the registration
-/// guard, where it must detect a resolver that was replaced or cleared; it never runs while a
-/// resolution is in progress, because dropping an exclusion scope then would let a type's
-/// converter build itself again without end.
+/// always available where the scope is needed. A scope found during resolution is honoured as
+/// is, whichever migration resolver registered it: its exclusions and root options describe the
+/// options instance, and a resolution in progress proves the options are still served by
+/// migration. Structural validation, which sees through STJ's chains and decorators but not
+/// through application-defined wrappers, is used only by the registration guard, where it must
+/// detect a resolver that was replaced or cleared; it never runs while a resolution is in
+/// progress, because dropping an exclusion scope then would let a type's converter build itself
+/// again without end.
 /// </remarks>
 internal sealed class MigrationScope
 {
@@ -97,6 +98,13 @@ internal sealed class MigrationScope
     public MigrationScope CreateExcluding(Type type)
         => new(Resolver, RootOptions, new HashSet<Type>(excludedTypes) { type });
 
+    /// <summary>
+    /// The same exclusions and root options attributed to <paramref name="resolver"/>, for a
+    /// resolver that builds a converter under a scope another migration resolver registered.
+    /// </summary>
+    public MigrationScope ForResolver(JsonMigrationTypeInfoResolver resolver)
+        => ReferenceEquals(resolver, Resolver) ? this : new MigrationScope(resolver, RootOptions, excludedTypes);
+
     public static void Register(JsonSerializerOptions options, MigrationScope scope)
         => Scopes.AddOrUpdate(options, scope);
 
@@ -128,7 +136,8 @@ internal sealed class MigrationScope
     /// scope only while its resolver is still reachable through STJ's chains and decorators, otherwise
     /// one discovered from the current resolver. A cached scope whose resolver was replaced or
     /// cleared is dropped so the options count as unregistered. An application-defined wrapper is
-    /// opaque to this check, so a registration hidden behind one is re-registered.
+    /// opaque to this check, so a registration hidden behind one is registered again; the newer
+    /// resolver then serves the migratable types and the older one honours its scopes.
     /// </summary>
     public static MigrationScope? FindRegistration(JsonSerializerOptions options)
     {
