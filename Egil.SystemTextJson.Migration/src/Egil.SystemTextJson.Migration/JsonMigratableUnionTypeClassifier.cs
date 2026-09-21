@@ -62,7 +62,7 @@ public sealed class JsonMigratableUnionTypeClassifier : JsonTypeClassifierFactor
         // The registry lives on the resolver that AddJsonMigrationSupport registers. Looking it up
         // here (instead of holding it in a field) lets the same parameterless type be used from
         // [JsonUnion(TypeClassifier = ...)] and from source-generated contexts.
-        MigrationScope? scope = MigrationScope.FindOrDiscover(options);
+        MigrationScope? scope = MigrationScope.FindReachable(options);
         if (scope is null)
         {
             throw new InvalidOperationException(

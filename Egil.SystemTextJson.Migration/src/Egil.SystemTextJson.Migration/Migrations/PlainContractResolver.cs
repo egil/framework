@@ -9,11 +9,12 @@ namespace Egil.SystemTextJson.Migration.Migrations;
 /// built adds the discriminator property to the plain object contract that comes back.
 /// </summary>
 /// <remarks>
-/// The migration resolver inside the inherited chain steps aside for the excluded type (it reads the
-/// clone's <see cref="MigrationScope"/>), so the contract comes from the next resolver in the chain,
-/// or from the reflection fallback when the user configured none. Wrapping the inherited resolver
-/// instead of editing the chain keeps any decorator the user applied, and works when the migration
-/// resolver is not directly visible in the chain.
+/// The migration resolver inside the inherited chain reads the clone's <see cref="MigrationScope"/>
+/// and, for the excluded type, either steps aside so the next resolver in the chain supplies the
+/// contract or, when it stands in for the default resolver, returns the reflection contract itself.
+/// Either way the contract travels back through whatever decorates the chain before it is
+/// modified here, and wrapping the inherited resolver instead of editing the chain works when the
+/// migration resolver is not directly visible in it.
 /// </remarks>
 internal sealed class PlainContractResolver(IJsonTypeInfoResolver inner, MigrationScope scope) : IJsonTypeInfoResolver
 {
@@ -28,7 +29,6 @@ internal sealed class PlainContractResolver(IJsonTypeInfoResolver inner, Migrati
             return typeInfo;
         }
 
-        typeInfo ??= scope.Resolver.ResolveReflectionFallback(type, options, scope);
         if (typeInfo is not null)
         {
             JsonMigrationTypeInfoResolver.AddDiscriminatorProperty(typeInfo, scope.Registry.GetTypeMetadata(type));

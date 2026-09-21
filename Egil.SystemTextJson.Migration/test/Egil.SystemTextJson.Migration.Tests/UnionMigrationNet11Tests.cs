@@ -46,6 +46,19 @@ public partial class UnionMigrationTests
     }
 
     [Fact]
+    public void Union_reports_missing_migration_support_after_the_resolver_is_replaced()
+    {
+        // Replacing the resolver removes migration support; the classifier registered earlier must
+        // not route against the stale registry but say what is missing.
+        var options = CreateOptions();
+        options.TypeInfoResolver = new System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver();
+
+        var exception = Assert.Throws<InvalidOperationException>(() => JsonSerializer.Deserialize<Shape>("""{"$type":"circle-v1","r":3}""", options));
+
+        Assert.Contains("AddJsonMigrationSupport", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Union_is_classified_on_a_copy_of_options_with_a_decorated_migration_entry()
     {
         // A copy carries no registered scope and the decorator hides the resolver from the chain,

@@ -56,11 +56,13 @@ internal sealed class JsonMigrationTypeInfoResolver : IJsonTypeInfoResolver
         }
 
         // The type whose converter is being built through these options wants its plain object
-        // contract; stepping aside lets the rest of the chain (or the reflection fallback in the
-        // clone's resolver) supply it.
+        // contract. When a downstream resolver exists, stepping aside lets it supply the contract;
+        // when this resolver stands in for the default, the reflection contract is produced here
+        // rather than in the clone's wrapper, so that a decorator around this entry applies its
+        // modifiers to the plain contract of a migratable type exactly as to any other contract.
         if (scope is not null && scope.IsBuildingConverterFor(type))
         {
-            return null;
+            return ResolveReflectionFallback(type, options, scope);
         }
 
         if (JsonMigratableTypes.IsMigratable(type) && !HasPrecedingConverter(type, options))
