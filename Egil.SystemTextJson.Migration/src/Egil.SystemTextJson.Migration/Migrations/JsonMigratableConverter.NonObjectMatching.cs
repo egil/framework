@@ -23,6 +23,32 @@ internal sealed partial class JsonMigratableConverter<T>
             match = MatchPrimitive(tokenType, quotedNumbers: true, SourceValueShapes.IsNamedFloatingPointLiteral(ref reader));
         }
 
+        if (match is null && tokenType is JsonTokenType.Number)
+        {
+            match = MatchOverriddenEnum();
+        }
+
+        return match;
+    }
+
+    private MigratorReference? MatchOverriddenEnum()
+    {
+        MigratorReference? match = null;
+        foreach (MigratorReference migrator in context.Migrators)
+        {
+            if (!migrator.IsOverriddenEnum)
+            {
+                continue;
+            }
+
+            if (match is not null)
+            {
+                ThrowAmbiguousNonObjectMigrators(typeof(T));
+            }
+
+            match = migrator;
+        }
+
         return match;
     }
 
