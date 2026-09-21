@@ -12,6 +12,15 @@ namespace Egil.StronglyTypedPrimitives;
 /// </summary>
 public sealed partial class StronglyTypedSchemaTransformer : IOpenApiSchemaTransformer
 {
+    // The trim analyzer flags GetInterfaces() because the type arrives unannotated from
+    // JsonTypeInfo.Type, JsonTypeInfo.ElementType or ApiParameterDescription.Type, and annotating
+    // the parameter would only move the warning to those call sites. The call is nevertheless safe:
+    // only IStronglyTypedPrimitive<T> implementations matter, every one of them carries a generated
+    // [JsonConverter] whose converter and TryParse code use the interface's static abstract members,
+    // so the trimmer keeps the interface map of any wrapper that reaches the OpenAPI pipeline. An
+    // IsAssignableTo(typeof(IStronglyTypedPrimitive<int>)) check per primitive would satisfy the
+    // analyzer while depending on exactly the same metadata at runtime.
+    [UnconditionalSuppressMessage("Trimming", "IL2070", Justification = "Only IStronglyTypedPrimitive<T> implementations are inspected, and their interface metadata is rooted by the generated JSON converter and TryParse code of every wrapper that reaches the OpenAPI pipeline.")]
     private static Type? GetPrimitiveType(Type type)
     {
         var candidate = Nullable.GetUnderlyingType(type) ?? type;
