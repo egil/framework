@@ -74,7 +74,9 @@ public static class JsonMigrationSerializerOptionsExtensions
         // in the options, while a resolver only costs it for the migratable contracts themselves.
         // The converters already registered keep winning over migration, as they did when the
         // migration converter factory was appended to the list at this point.
-        options.TypeInfoResolverChain.Insert(0, new JsonMigrationTypeInfoResolver(registry, options.Converters));
+        var migrationResolver = new JsonMigrationTypeInfoResolver(registry, options.Converters);
+        options.TypeInfoResolverChain.Insert(0, migrationResolver);
+        MigrationScope.Register(options, new MigrationScope(migrationResolver, options, []));
 #if NET11_0_OR_GREATER
         // Unions whose cases are [JsonMigratable] need a classifier that understands migration
         // discriminators; registering it here means reflection-based users get union support

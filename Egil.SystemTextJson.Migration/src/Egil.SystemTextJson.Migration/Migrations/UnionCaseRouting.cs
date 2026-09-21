@@ -58,9 +58,9 @@ internal sealed class UnionCaseRouting
         this.booleanRoute = booleanRoute;
     }
 
-    public static UnionCaseRouting Build(JsonTypeClassifierContext context, JsonMigrationTypeInfoResolver resolver, JsonSerializerOptions options)
+    public static UnionCaseRouting Build(JsonTypeClassifierContext context, MigrationScope scope, JsonSerializerOptions options)
     {
-        JsonMigrationRegistry registry = resolver.Registry;
+        JsonMigrationRegistry registry = scope.Registry;
         var entriesByPropertyName = new Dictionary<string, List<DiscriminatorEntry>>(StringComparer.Ordinal);
         var caseByDiscriminator = new Dictionary<(string PropertyName, string Discriminator), Type>();
         var knownDiscriminators = new List<string>();
@@ -91,7 +91,7 @@ internal sealed class UnionCaseRouting
                 // converter it resolves the case's object contract in cloned options that exclude
                 // the case, and a recursive model (Branch(Node[] Children) with union
                 // Node(Branch, Leaf)) configures this union inside that clone.
-                bool insideOwnMigration = resolver.IsBuildingConverterFor(migratableType);
+                bool insideOwnMigration = scope.IsBuildingConverterFor(migratableType);
                 JsonConverter caseConverter = options.GetTypeInfo(migratableType).Converter;
                 if (!IsMigrationConverter(caseConverter) && !insideOwnMigration)
                 {

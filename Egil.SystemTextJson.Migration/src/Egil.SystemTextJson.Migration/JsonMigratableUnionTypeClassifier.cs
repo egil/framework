@@ -1,7 +1,6 @@
 #if NET11_0_OR_GREATER
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Text.Json.Serialization.Metadata;
 using Egil.SystemTextJson.Migration.Migrations;
 
 namespace Egil.SystemTextJson.Migration;
@@ -63,23 +62,14 @@ public sealed class JsonMigratableUnionTypeClassifier : JsonTypeClassifierFactor
         // The registry lives on the resolver that AddJsonMigrationSupport registers. Looking it up
         // here (instead of holding it in a field) lets the same parameterless type be used from
         // [JsonUnion(TypeClassifier = ...)] and from source-generated contexts.
-        JsonMigrationTypeInfoResolver? resolver = null;
-        foreach (IJsonTypeInfoResolver candidate in options.TypeInfoResolverChain)
-        {
-            if (candidate is JsonMigrationTypeInfoResolver migrationResolver)
-            {
-                resolver = migrationResolver;
-                break;
-            }
-        }
-
-        if (resolver is null)
+        MigrationScope? scope = MigrationScope.FindOrDiscover(options);
+        if (scope is null)
         {
             throw new InvalidOperationException(
                 $"'{context.DeclaringType.FullName}' uses {nameof(JsonMigratableUnionTypeClassifier)}, but the serializer options have no migration support. Call options.AddJsonMigrationSupport() before serializing or deserializing this union.");
         }
 
-        var routing = UnionCaseRouting.Build(context, resolver, options);
+        var routing = UnionCaseRouting.Build(context, scope, options);
         return routing.Classify;
     }
 }

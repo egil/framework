@@ -23,7 +23,6 @@ internal sealed class JsonMigrationTypeInfoResolver : IJsonTypeInfoResolver
 
     private readonly JsonMigrationRegistry registry;
     private readonly JsonConverter[] precedingConverters;
-    private readonly HashSet<Type> excludedTypes;
     private DefaultJsonTypeInfoResolver? reflectionFallback;
 
     /// <param name="precedingConverters">
@@ -31,27 +30,15 @@ internal sealed class JsonMigrationTypeInfoResolver : IJsonTypeInfoResolver
     /// support was added. STJ picks the first matching converter from that list, and before this
     /// resolver existed the migration converter factory sat at the position where it was registered, so
     /// a converter registered earlier won over migration and one registered later lost. The resolver
-    /// keeps that order by stepping aside for the earlier ones.
+    /// keeps that order by stepping aside for the earlier ones while they remain registered.
     /// </param>
     public JsonMigrationTypeInfoResolver(JsonMigrationRegistry registry, IEnumerable<JsonConverter> precedingConverters)
-        : this(registry, [.. precedingConverters], [])
-    {
-    }
-
-    private JsonMigrationTypeInfoResolver(JsonMigrationRegistry registry, JsonConverter[] precedingConverters, HashSet<Type> excludedTypes)
     {
         this.registry = registry;
-        this.precedingConverters = precedingConverters;
-        this.excludedTypes = excludedTypes;
+        this.precedingConverters = [.. precedingConverters];
     }
 
     internal JsonMigrationRegistry Registry => registry;
-
-    /// <summary>
-    /// Whether this resolver is the type-excluding clone used while <paramref name="type"/>'s own
-    /// converter is being built, so that <paramref name="type"/> resolves to its plain object contract.
-    /// </summary>
-    internal bool IsBuildingConverterFor(Type type) => excludedTypes.Contains(type);
 
     /// <inheritdoc/>
     public JsonTypeInfo? GetTypeInfo(Type type, JsonSerializerOptions options)
@@ -59,32 +46,32 @@ internal sealed class JsonMigrationTypeInfoResolver : IJsonTypeInfoResolver
         ArgumentNullException.ThrowIfNull(type);
         ArgumentNullException.ThrowIfNull(options);
 
-        if (excludedTypes.Contains(type))
-        {
-            // The plain contract of a type whose converter is being built: read and written by STJ's
-            // own object converter, with the discriminator property added so it is serialized first.
-            JsonTypeInfo? plainTypeInfo = ResolveFromRemainingChain(type, options);
-            if (plainTypeInfo is not null)
-            {
-                AddDiscriminatorProperty(plainTypeInfo, registry.GetTypeMetadata(type));
-            }
+        MigrationScope? scope = MigrationScope.Find(options);
 
-            return plainTypeInfo;
+        // The type whose converter is being built through these options wants its plain object
+        // contract; stepping aside lets the rest of the chain (or the reflection fallback in the
+        // clone's resolver) supply it.
+        if (scope is not null && scope.IsBuildingConverterFor(type))
+        {
+            return null;
         }
 
-        if (JsonMigratableTypes.IsMigratable(type) && !HasPrecedingConverter(type))
+        if (JsonMigratableTypes.IsMigratable(type) && !HasPrecedingConverter(type, options))
         {
-            return CreateMigrationTypeInfo(type, options);
+            return CreateMigrationTypeInfo(type, options, scope);
         }
 
-        return ResolveReflectionFallback(type, options);
+        return ResolveReflectionFallback(type, options, scope);
     }
 
-    private bool HasPrecedingConverter(Type type)
+    private bool HasPrecedingConverter(Type type, JsonSerializerOptions options)
     {
+        // A converter registered before migration support only keeps precedence while it is still
+        // in the options being resolved: a copy that dropped it must let migration serve the type,
+        // as the converter factory it replaced would have.
         foreach (JsonConverter converter in precedingConverters)
         {
-            if (converter.CanConvert(type))
+            if (options.Converters.Contains(converter) && converter.CanConvert(type))
             {
                 return true;
             }
@@ -93,33 +80,18 @@ internal sealed class JsonMigrationTypeInfoResolver : IJsonTypeInfoResolver
         return false;
     }
 
-    private JsonTypeInfo? ResolveFromRemainingChain(Type type, JsonSerializerOptions options)
-    {
-        bool passedSelf = false;
-        foreach (IJsonTypeInfoResolver resolver in options.TypeInfoResolverChain)
-        {
-            if (ReferenceEquals(resolver, this))
-            {
-                passedSelf = true;
-                continue;
-            }
-
-            if (passedSelf && resolver.GetTypeInfo(type, options) is { } typeInfo)
-            {
-                return typeInfo;
-            }
-        }
-
-        return ResolveReflectionFallback(type, options);
-    }
-
-    private JsonTypeInfo? ResolveReflectionFallback(Type type, JsonSerializerOptions options)
+    internal JsonTypeInfo? ResolveReflectionFallback(Type type, JsonSerializerOptions options, MigrationScope? scope)
     {
         // STJ populates DefaultJsonTypeInfoResolver only when the chain is empty at freeze time, and
         // inserting this resolver makes it non-empty. Users who never configure a resolver would
         // otherwise lose reflection-based serialization, so the resolver stands in for the default
-        // when it is the only entry; a context added later takes over as it would without migration.
-        if (options.TypeInfoResolverChain.Count != 1 || !JsonSerializer.IsReflectionEnabledByDefault)
+        // when it is the only entry of the chain the user configured; a context added later takes
+        // over as it would without migration. Exclusion clones carry a wrapper as their single chain
+        // entry, so the shape is read from the root options. A decorator around the whole chain
+        // hides its entries as well; with one present the user is expected to name the resolver
+        // they want, as they would without migration.
+        JsonSerializerOptions rootOptions = scope?.RootOptions ?? options;
+        if (rootOptions.TypeInfoResolverChain.Count != 1 || !JsonSerializer.IsReflectionEnabledByDefault)
         {
             return null;
         }
@@ -128,20 +100,21 @@ internal sealed class JsonMigrationTypeInfoResolver : IJsonTypeInfoResolver
         return reflectionFallback.GetTypeInfo(type, options);
     }
 
-    private JsonTypeInfo CreateMigrationTypeInfo(Type typeToConvert, JsonSerializerOptions options)
+    private JsonTypeInfo CreateMigrationTypeInfo(Type typeToConvert, JsonSerializerOptions options, MigrationScope? scope)
     {
         ValidateTargetMigratorContracts(typeToConvert);
 
         TypeMetadata targetMetadata = registry.GetTypeMetadata(typeToConvert);
 
-        // Clone options and replace this resolver with a type-excluding instance so metadata lookup can
-        // still apply migration converters for nested migratable types while the type itself resolves to
-        // its plain object contract. The replacement keeps the resolver's position in the chain.
-        // This resolver is in the chain because it is the one being asked, so IndexOf cannot fail.
+        // Clone the options so metadata lookup still applies migration converters for nested
+        // migratable types while the type itself resolves to its plain object contract. The clone
+        // keeps the inherited resolver chain untouched (including any decorator the user applied)
+        // and wraps it: the scope registered for the clone makes this resolver step aside for the
+        // type, and the wrapper adds the discriminator to the contract that comes back.
         var metadataOptions = new JsonSerializerOptions(options);
-        var excludingResolver = new JsonMigrationTypeInfoResolver(registry, precedingConverters, new HashSet<Type>(excludedTypes) { typeToConvert });
-        IList<IJsonTypeInfoResolver> metadataChain = metadataOptions.TypeInfoResolverChain;
-        metadataChain[metadataChain.IndexOf(this)] = excludingResolver;
+        MigrationScope cloneScope = (scope ?? new MigrationScope(this, options, [])).CreateExcluding(typeToConvert);
+        MigrationScope.Register(metadataOptions, cloneScope);
+        metadataOptions.TypeInfoResolver = new PlainContractResolver(metadataOptions.TypeInfoResolver!, cloneScope);
 
         JsonTypeInfo targetTypeInfo = GetRequiredTypeInfo(metadataOptions, typeToConvert);
 
@@ -357,7 +330,7 @@ internal sealed class JsonMigrationTypeInfoResolver : IJsonTypeInfoResolver
         }
     }
 
-    private static void AddDiscriminatorProperty(JsonTypeInfo typeInfo, TypeMetadata metadata)
+    internal static void AddDiscriminatorProperty(JsonTypeInfo typeInfo, TypeMetadata metadata)
     {
         // Properties can only be added to object contracts. Unions (.NET 11), collections and
         // dictionaries would otherwise fail inside STJ with a generic "invalid operation for kind"
