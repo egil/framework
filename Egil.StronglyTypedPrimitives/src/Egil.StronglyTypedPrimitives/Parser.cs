@@ -225,9 +225,15 @@ internal static class Parser
             .FirstOrDefault(field => field.HasConstantValue && Equals(field.ConstantValue, argument.Value));
 
         return member is not null
-            ? $"{GlobalName(enumType)}.{member.Name}"
+            ? $"{GlobalName(enumType)}.{EscapeIdentifier(member.Name)}"
             : $"({GlobalName(enumType)})({Convert.ToString(argument.Value, System.Globalization.CultureInfo.InvariantCulture)})";
     }
+
+    // ISymbol.Name is the bare name, so a member declared as `@default` or `@class` comes back as
+    // the keyword and has to be escaped again to be written as an identifier. Contextual keywords
+    // (`var`, `async`, ...) are valid identifiers and need no escape.
+    private static string EscapeIdentifier(string name)
+        => SyntaxFacts.GetKeywordKind(name) == SyntaxKind.None ? name : $"@{name}";
 
     // int, bool, char and string literals already carry their type; every other numeric type is
     // written as a cast of the literal so the constant keeps the type it had on the attribute.
@@ -262,7 +268,7 @@ internal static class Parser
     private static string FormatNamedArguments(ImmutableArray<KeyValuePair<string, TypedConstant>> namedArguments)
         => namedArguments.Length == 0
             ? string.Empty
-            : $"{{ {string.Join(", ", namedArguments.Select(argument => $"{argument.Key} = {FormatAttributeArgument(argument.Value)}"))} }}";
+            : $"{{ {string.Join(", ", namedArguments.Select(argument => $"{EscapeIdentifier(argument.Key)} = {FormatAttributeArgument(argument.Value)}"))} }}";
 
     // The attribute is only emitted when both System.Text.Json and the shared converter from the
     // Abstractions assembly are visible to the compilation. The netstandard2.0 asset of the
