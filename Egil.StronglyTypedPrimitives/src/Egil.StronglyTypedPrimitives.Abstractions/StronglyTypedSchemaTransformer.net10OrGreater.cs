@@ -47,7 +47,10 @@ public sealed partial class StronglyTypedSchemaTransformer
         var admitsNull = target.Type?.HasFlag(JsonSchemaType.Null) == true;
         target.Type = admitsNull ? primitive.Type | JsonSchemaType.Null : primitive.Type;
         target.Format = primitive.Format ?? target.Format;
-        target.Pattern = primitive.Pattern ?? target.Pattern;
+        // A pattern already on the target comes from the property's own validation attributes
+        // (for example [RegularExpression]) or from an earlier transformer, and describes this
+        // use of the wrapper more precisely than the primitive's generic value pattern does.
+        target.Pattern ??= primitive.Pattern;
         target.Minimum = primitive.Minimum ?? target.Minimum;
         target.Maximum = primitive.Maximum ?? target.Maximum;
 

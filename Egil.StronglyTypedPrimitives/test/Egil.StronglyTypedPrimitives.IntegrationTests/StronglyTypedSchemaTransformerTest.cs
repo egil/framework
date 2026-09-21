@@ -1,14 +1,17 @@
 using Examples;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.OpenApi;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using System.ComponentModel.DataAnnotations;
 using System.Net;
 using System.Text;
 using System.Text.Json.Nodes;
 
 namespace Egil.StronglyTypedPrimitives;
 
-public sealed class StronglyTypedSchemaTransformerTest(OpenApiDocumentFixture fixture) : IClassFixture<OpenApiDocumentFixture>
+public sealed class StronglyTypedSchemaTransformerTest(OpenApiDocumentFixture fixture, InlinedWrappersDocumentFixture inlined)
+    : IClassFixture<OpenApiDocumentFixture>, IClassFixture<InlinedWrappersDocumentFixture>
 {
     public static TheoryData<string, string, string?> Primitives => new()
     {
@@ -58,6 +61,23 @@ public sealed class StronglyTypedSchemaTransformerTest(OpenApiDocumentFixture fi
         Assert.True(primitive.AdmitsNull);
         AssertPrimitiveSchema(stronglyTyped.Value, type, format);
         Assert.Equal(primitive.Value.ToJsonString(), stronglyTyped.Value.ToJsonString());
+    }
+
+    // ASP.NET Core applies [RegularExpression] to the property schema as "pattern" before
+    // transformers run; the transformer must leave that pattern in place instead of replacing it
+    // with the primitive's own value pattern (or with nothing). Only the inlined host can observe
+    // this: see InlinedWrappersDocumentFixture.
+    [Theory]
+    [InlineData("code", "string", null, "^[A-Z]{3}$")]
+    [InlineData("number", "integer", "int32", "^[1-9][0-9]{2}$")]
+    public void Property_keeps_its_regular_expression_pattern_and_is_documented_like_its_primitive(string property, string type, string? format, string pattern)
+    {
+        var stronglyTyped = inlined.PropertySchema<StronglyTypedPatterns>(property);
+        var primitive = inlined.PropertySchema<PlainPatterns>(property);
+
+        AssertPrimitiveSchema(stronglyTyped, type, format);
+        Assert.Equal(pattern, stronglyTyped["pattern"]?.GetValue<string>());
+        Assert.Equal(primitive.ToJsonString(), stronglyTyped.ToJsonString());
     }
 
     [Theory]
@@ -236,13 +256,21 @@ public sealed record PlainCollections(
 
 public sealed record StronglyTypedIntBody(StronglyTypedInt Value);
 
+public sealed record StronglyTypedPatterns(
+    [property: RegularExpression("^[A-Z]{3}$")] StronglyTypedString Code,
+    [property: RegularExpression("^[1-9][0-9]{2}$")] StronglyTypedInt Number);
+
+public sealed record PlainPatterns(
+    [property: RegularExpression("^[A-Z]{3}$")] string Code,
+    [property: RegularExpression("^[1-9][0-9]{2}$")] int Number);
+
 /// <summary>
 /// Boots a minimal API host once per test class with <see cref="StronglyTypedSchemaTransformer"/>
 /// registered, and exposes the OpenAPI document it serves together with a client for the host.
 /// Every strongly typed endpoint has a "plain" twin that uses the underlying primitive, so tests
 /// can assert that the two schemas are identical.
 /// </summary>
-public sealed class OpenApiDocumentFixture : IAsyncLifetime
+public class OpenApiDocumentFixture : IAsyncLifetime
 {
     private WebApplication? app;
     private JsonNode document = null!;
@@ -253,7 +281,7 @@ public sealed class OpenApiDocumentFixture : IAsyncLifetime
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
-        builder.Services.AddOpenApi(options => options.AddSchemaTransformer<StronglyTypedSchemaTransformer>());
+        builder.Services.AddOpenApi(ConfigureOpenApi);
 
         app = builder.Build();
         app.MapOpenApi();
@@ -262,6 +290,8 @@ public sealed class OpenApiDocumentFixture : IAsyncLifetime
         app.MapPost("/strongly-typed-collections", (StronglyTypedCollections body) => body);
         app.MapPost("/plain-collections", (PlainCollections body) => body);
         app.MapPost("/strongly-typed-int-body", (StronglyTypedIntBody body) => body);
+        app.MapPost("/strongly-typed-patterns", (StronglyTypedPatterns body) => body);
+        app.MapPost("/plain-patterns", (PlainPatterns body) => body);
         app.MapGet("/by-int/{id}", (StronglyTypedInt id) => id);
         app.MapGet("/by-plain-int/{id}", (int id) => id);
         app.MapGet("/by-guid/{id}", (StronglyTypedGuid id) => id);
@@ -278,6 +308,9 @@ public sealed class OpenApiDocumentFixture : IAsyncLifetime
         var json = await Client.GetStringAsync("/openapi/v1.json");
         document = JsonNode.Parse(json)!;
     }
+
+    protected virtual void ConfigureOpenApi(OpenApiOptions options)
+        => options.AddSchemaTransformer<StronglyTypedSchemaTransformer>();
 
     public async ValueTask DisposeAsync()
     {
@@ -340,4 +373,24 @@ public sealed class OpenApiDocumentFixture : IAsyncLifetime
 
     private static bool IsNullSchema(JsonNode? schema)
         => schema?["type"]?.GetValue<string>() == "null";
+}
+
+/// <summary>
+/// The same host as <see cref="OpenApiDocumentFixture"/> with strongly typed primitives inlined
+/// instead of referenced from components. ASP.NET Core applies validation attributes such as
+/// [RegularExpression] to the property schema, but a property whose type has a schema reference id
+/// ends up as a bare $ref to the shared component, which drops those per-property additions again
+/// on every framework version. Inlining is what lets a per-property pattern reach the document,
+/// and so what makes it observable whether the transformer leaves that pattern alone.
+/// </summary>
+public sealed class InlinedWrappersDocumentFixture : OpenApiDocumentFixture
+{
+    protected override void ConfigureOpenApi(OpenApiOptions options)
+    {
+        base.ConfigureOpenApi(options);
+        options.CreateSchemaReferenceId = typeInfo => IsStronglyTyped(typeInfo.Type) ? null : OpenApiOptions.CreateDefaultSchemaReferenceId(typeInfo);
+    }
+
+    private static bool IsStronglyTyped(Type type)
+        => typeof(IStronglyTypedPrimitive).IsAssignableFrom(Nullable.GetUnderlyingType(type) ?? type);
 }

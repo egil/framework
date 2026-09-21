@@ -504,6 +504,15 @@ builder.Services.AddOpenApi(options =>
 }
 ```
 
+Strongly typed primitives are emitted as components and referenced with `$ref` wherever they are used, like any other non-primitive type. ASP.NET Core keeps validation attributes such as `[RegularExpression]` on a property only when that property's schema is inline, so to see those attributes documented on strongly typed properties, inline the wrappers instead:
+
+```csharp
+options.CreateSchemaReferenceId = typeInfo =>
+    typeof(IStronglyTypedPrimitive).IsAssignableFrom(Nullable.GetUnderlyingType(typeInfo.Type) ?? typeInfo.Type)
+        ? null
+        : OpenApiOptions.CreateDefaultSchemaReferenceId(typeInfo);
+```
+
 ## Alternatives
 
 There are other alternatives to this source generator that you can consider if you need something different:

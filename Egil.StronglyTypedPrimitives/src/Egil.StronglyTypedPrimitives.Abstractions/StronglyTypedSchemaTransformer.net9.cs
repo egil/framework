@@ -57,7 +57,10 @@ public sealed partial class StronglyTypedSchemaTransformer
         {
             schema.Type = primitiveSchema.Type;
             schema.Format = primitiveSchema.Format;
-            schema.Pattern = primitiveSchema.Pattern;
+            // A pattern already on the schema comes from the property's own validation attributes
+            // (for example [RegularExpression]) or from an earlier transformer, and describes this
+            // use of the wrapper more precisely than the primitive's generic value pattern does.
+            schema.Pattern ??= primitiveSchema.Pattern;
             schema.Properties.Clear();
             schema.Required.Clear();
         }
