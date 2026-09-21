@@ -46,14 +46,12 @@ internal sealed class JsonMigrationTypeInfoResolver : IJsonTypeInfoResolver
         ArgumentNullException.ThrowIfNull(type);
         ArgumentNullException.ThrowIfNull(options);
 
-        // A scope belonging to this resolver is valid by construction: this resolver is evidently
-        // still reachable, however the chain is wrapped. One belonging to another migration
-        // resolver (the options were re-registered after this one was hidden) is not ours to use.
+        // The scope describes the options being resolved (which types are excluded, which options
+        // the user configured), so it is honoured whichever migration resolver registered it. Two
+        // migration resolvers can be active at once when the options were registered again after
+        // an opaque wrapper hid the first one; had each rejected the other's exclusions, a type's
+        // converter would build itself again without end.
         MigrationScope? scope = MigrationScope.Find(options);
-        if (scope is not null && !ReferenceEquals(scope.Resolver, this))
-        {
-            scope = null;
-        }
 
         // The type whose converter is being built through these options wants its plain object
         // contract. When a downstream resolver exists, stepping aside lets it supply the contract;
@@ -114,8 +112,10 @@ internal sealed class JsonMigrationTypeInfoResolver : IJsonTypeInfoResolver
         // keeps the inherited resolver chain untouched (including any decorator the user applied)
         // and wraps it: the scope registered for the clone makes this resolver step aside for the
         // type, and the wrapper adds the discriminator to the contract that comes back.
+        // The clone's scope names this resolver so the discriminator metadata added to the plain
+        // contract comes from the registry that builds the converter.
         var metadataOptions = new JsonSerializerOptions(options);
-        MigrationScope cloneScope = (scope ?? new MigrationScope(this, options, [])).CreateExcluding(typeToConvert);
+        MigrationScope cloneScope = (scope?.ForResolver(this) ?? new MigrationScope(this, options, [])).CreateExcluding(typeToConvert);
         MigrationScope.Register(metadataOptions, cloneScope);
         metadataOptions.TypeInfoResolver = new PlainContractResolver(metadataOptions.TypeInfoResolver!, cloneScope);
 

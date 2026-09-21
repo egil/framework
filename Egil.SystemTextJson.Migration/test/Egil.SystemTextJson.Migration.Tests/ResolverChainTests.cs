@@ -184,6 +184,25 @@ public class ResolverChainTests
     }
 
     [Fact]
+    public void Re_registering_behind_an_application_defined_wrapper_keeps_migration_working()
+    {
+        // The wrapper hides the first registration from the guard, so a second resolver is added
+        // ahead of it. Both are active; each must honour the other's exclusion scopes or the
+        // type's converter would build itself again without end.
+        var options = new JsonSerializerOptions { TypeInfoResolver = new DefaultJsonTypeInfoResolver() };
+        options.AddJsonMigrationSupport();
+        options.TypeInfoResolverChain[0] = new ForwardingResolver(options.TypeInfoResolverChain[0]);
+        options.AddJsonMigrationSupport();
+
+        var json = JsonSerializer.Serialize(new ChainWrapper(new ChainV2("Jane", "Doe")), options);
+        var migrated = JsonSerializer.Deserialize<ChainV2>(LegacyPayload, options);
+
+        Assert.Equal(3, options.TypeInfoResolverChain.Count);
+        Assert.Equal("""{"Inner":{"$type":"chain-v2","FirstName":"Jane","LastName":"Doe"}}""", json);
+        Assert.Equal(new ChainV2("Jane", "Doe"), migrated);
+    }
+
+    [Fact]
     public void Application_defined_wrapper_without_a_downstream_resolver_reports_missing_metadata()
     {
         // An opaque wrapper counts as another resolver, so the reflection stand-in does not apply;
