@@ -59,6 +59,23 @@ namespace Egil.StronglyTypedPrimitives
             Assert.Equal("Value is not valid.", result.ErrorMessage);
         }
 
+        // A context-requiring attribute is not part of the value invariant (STP005), so an odd
+        // value constructs without throwing and only Validate, which has a context, rejects it.
+        [Fact]
+        public void Context_attribute_failure_is_reported_with_the_caller_s_context()
+        {
+            var results = Validate(new StronglyTypedEvenIntWithValidate(3));
+
+            var result = Assert.Single(results);
+            Assert.Equal($"{nameof(StronglyTypedEvenIntWithValidate)} must be even.", result.ErrorMessage);
+        }
+
+        [Fact]
+        public void Valid_value_with_a_context_attribute_yields_no_results()
+        {
+            Assert.Empty(Validate(new StronglyTypedEvenIntWithValidate(4)));
+        }
+
         [Fact]
         public void Type_without_constraints_yields_no_results()
         {

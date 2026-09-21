@@ -194,3 +194,69 @@ public class Validate_is_not_generated_without_a_declared_IValidatableObject : V
             public readonly partial record struct Foo([Range(1, 10)] int Value);
             """);
 }
+
+public class Validate_for_IValidatableObject_with_context_validation_attributes : ValidationAttributeTestBase
+{
+    [Fact]
+    public Task Test()
+        => VerifyGeneratedSource($$"""
+            using Egil.StronglyTypedPrimitives;
+            using System.ComponentModel.DataAnnotations;
+
+            namespace SomeNamespace
+            {
+                [StronglyTyped]
+                public readonly partial record struct Foo([Range(1, 10), TenantScoped] int Value) : IValidatableObject;
+            }
+
+            {{FakeContextValidationAttribute}}
+            """);
+}
+
+public class Validate_for_IValidatableObject_with_only_context_validation_attributes : ValidationAttributeTestBase
+{
+    [Fact]
+    public Task Test()
+        => VerifyGeneratedSource($$"""
+            using Egil.StronglyTypedPrimitives;
+            using System.ComponentModel.DataAnnotations;
+
+            namespace SomeNamespace
+            {
+                [StronglyTyped]
+                public readonly partial record struct Foo([TenantScoped] int Value) : IValidatableObject;
+            }
+
+            {{FakeContextValidationAttribute}}
+            """);
+}
+
+public class Validate_for_IValidatableObject_with_user_written_IsValueValid_and_context_validation_attributes : ValidationAttributeTestBase
+{
+    [Fact]
+    public Task Test()
+        => VerifyGeneratedSource($$"""
+            using Egil.StronglyTypedPrimitives;
+            using System.ComponentModel.DataAnnotations;
+
+            namespace SomeNamespace
+            {
+                [StronglyTyped]
+                public readonly partial record struct Foo([TenantScoped] int Value) : IValidatableObject
+                {
+                    public static bool IsValueValid(int value, bool throwIfInvalid)
+                    {
+                        if (value > 5)
+                            return true;
+
+                        if (throwIfInvalid)
+                            throw new System.ArgumentException("Value must be larger than 5", nameof(value));
+
+                        return false;
+                    }
+                }
+            }
+
+            {{FakeContextValidationAttribute}}
+            """);
+}
