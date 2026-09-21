@@ -144,8 +144,15 @@ $summary.Add('')
 $previousBoost = $null
 try {
     if ($DisableBoost) {
-        $previousBoost = Get-BoostMode
+        # Only change the plan when the current value is known, otherwise the finally block
+        # could not restore it and the machine would be left without boost.
+        $currentBoost = Get-BoostMode
+        if ($null -eq $currentBoost) {
+            throw 'Cannot read the current processor boost mode from powercfg (elevated shell required); run without -DisableBoost or set PERFBOOSTMODE by hand.'
+        }
+
         Set-Boost 0
+        $previousBoost = $currentBoost
         Write-Host "Processor boost disabled (was $previousBoost)"
     }
 
