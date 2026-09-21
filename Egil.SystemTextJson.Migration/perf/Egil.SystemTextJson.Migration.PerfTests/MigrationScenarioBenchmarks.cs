@@ -247,7 +247,7 @@ public record class PerfPolymorphicPlainCurrentState(
     int Age,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] PerfPayload? Payload = null) : PerfPolymorphicPlainBase;
 
-[JsonMigratable]
+[JsonMigratable(TypeDiscriminator = "PerfCurrentState.v1")]
 public record class PerfCurrentStateMigratable(
     string Name,
     int Age,
@@ -271,13 +271,13 @@ public record class PerfStaticPlainV2(
     }
 }
 
-[JsonMigratable]
+[JsonMigratable(TypeDiscriminator = "PerfStatic.v1")]
 public record class PerfStaticV1(
     string Name,
     int Age,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] PerfPayload? Payload = null);
 
-[JsonMigratable]
+[JsonMigratable(TypeDiscriminator = "PerfStatic.v2")]
 public record class PerfStaticV2(
     string FirstName,
     string LastName,
@@ -316,13 +316,13 @@ public record class PerfExternalPlainV2(
     }
 }
 
-[JsonMigratable]
+[JsonMigratable(TypeDiscriminator = "PerfExternal.v1")]
 public record class PerfExternalV1(
     string Name,
     int Age,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] PerfPayload? Payload = null);
 
-[JsonMigratable]
+[JsonMigratable(TypeDiscriminator = "PerfExternal.v2")]
 public record class PerfExternalV2(
     string FirstName,
     string LastName,
@@ -366,7 +366,7 @@ public record class PerfUndiscriminatedV1(
     int Age,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] PerfPayload? Payload = null);
 
-[JsonMigratable(UndiscriminatedSourceType = typeof(PerfUndiscriminatedV1))]
+[JsonMigratable(TypeDiscriminator = "PerfUndiscriminated.v2", UndiscriminatedSourceType = typeof(PerfUndiscriminatedV1))]
 public record class PerfUndiscriminatedV2(
     string FirstName,
     string LastName,
