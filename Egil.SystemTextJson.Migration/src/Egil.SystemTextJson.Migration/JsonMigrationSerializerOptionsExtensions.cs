@@ -54,8 +54,9 @@ public static class JsonMigrationSerializerOptionsExtensions
         // A second call keeps the first registration, as it did when the converter factory
         // was appended to options.Converters and STJ only ever consulted the first match. Two
         // migration resolvers in the chain would also break the reflection fallback, which
-        // only stands in while the migration resolver is the sole entry. Discovery goes through
-        // the chain rather than by identity so a decorated entry counts as registered too.
+        // only stands in while the migration resolver is the sole entry. Discovery looks through
+        // STJ's decorators so a decorated entry counts as registered, and a registration whose
+        // resolver was replaced or cleared afterwards does not.
         if (MigrationScope.FindOrDiscover(options) is not null)
         {
             return options;

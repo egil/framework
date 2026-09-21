@@ -13,62 +13,63 @@ internal sealed partial class JsonMigratableConverter<T>
             return FindEnumerableMigrator(ref reader);
         }
 
-        // Primitive tokens: disambiguate by checking which source CLR type is compatible with
-        // the JSON token type. Exact shapes win; a quoted number only reaches a numeric source
-        // when no string-shaped source exists and the options allow reading numbers from strings.
-        // "NaN"/"Infinity" text qualifies floating-point sources only.
-        MigratorReference? match = MatchPrimitive(tokenType, quotedNumbers: false, namedLiteral: false);
+        // Primitive tokens are matched in tiers so that every source 1.x selected is still selected
+        // before any source 2.0 added can compete with it: first the sources 1.x's TypeCode rule
+        // matched, plain ones ahead of ones behind a converter override (1.x reported that pair as
+        // ambiguous; the plain source is the safer pick), then the shapes 2.0 recognises, then a
+        // quoted number for numeric sources under AllowReadingFromString ("NaN"/"Infinity" for
+        // floating-point sources only), and last the 2.0 shapes of overridden sources. Within a
+        // tier two candidates are ambiguous.
+        MigratorReference? match = MatchPrimitive(tokenType, MatchTier.PlainLegacy)
+            ?? MatchPrimitive(tokenType, MatchTier.OverriddenLegacy)
+            ?? MatchPrimitive(tokenType, MatchTier.PlainWidened);
+
         if (match is null && tokenType is JsonTokenType.String)
         {
-            match = MatchPrimitive(tokenType, quotedNumbers: true, SourceValueShapes.IsNamedFloatingPointLiteral(ref reader));
+            match = MatchPrimitive(tokenType, MatchTier.QuotedNumber, SourceValueShapes.IsNamedFloatingPointLiteral(ref reader));
         }
 
-        if (match is null)
-        {
-            match = MatchOverriddenByClrShape(tokenType);
-        }
-
-        return match;
+        return match ?? MatchPrimitive(tokenType, MatchTier.OverriddenWidened);
     }
 
-    // Last resort, matching 1.x: a source with a converter override takes the token its CLR type
-    // would read. Quoted numbers are not considered here, as they were not in 1.x either.
-    private MigratorReference? MatchOverriddenByClrShape(JsonTokenType tokenType)
+    private enum MatchTier
+    {
+        PlainLegacy,
+        OverriddenLegacy,
+        PlainWidened,
+        QuotedNumber,
+        OverriddenWidened,
+    }
+
+    private MigratorReference? MatchPrimitive(JsonTokenType tokenType, MatchTier tier, bool namedLiteral = false)
     {
         MigratorReference? match = null;
         foreach (MigratorReference migrator in context.Migrators)
         {
-            if (!SourceValueShapes.IsTokenCompatible(tokenType, migrator.OverriddenShape))
+            // SourceShape is classified for plain sources only (byte[] reports Kind Enumerable but
+            // is read from a base64 string, and custom scalar converters report Kind None), and
+            // OverriddenShape carries the CLR shape of a source behind a converter override.
+            SourceValueShape shape;
+            bool allowQuoted = false;
+            switch (tier)
             {
-                continue;
+                case MatchTier.PlainLegacy when migrator.IsLegacyShape:
+                case MatchTier.PlainWidened when !migrator.IsLegacyShape:
+                    shape = migrator.SourceShape;
+                    break;
+                case MatchTier.OverriddenLegacy when migrator.IsLegacyShape:
+                case MatchTier.OverriddenWidened when !migrator.IsLegacyShape:
+                    shape = migrator.OverriddenShape;
+                    break;
+                case MatchTier.QuotedNumber:
+                    shape = migrator.SourceShape;
+                    allowQuoted = namedLiteral ? migrator.AllowsNamedFloatingPointLiterals : migrator.AllowsQuotedNumbers;
+                    break;
+                default:
+                    continue;
             }
 
-            if (match is not null)
-            {
-                ThrowAmbiguousNonObjectMigrators(typeof(T));
-            }
-
-            match = migrator;
-        }
-
-        return match;
-    }
-
-    private MigratorReference? MatchPrimitive(JsonTokenType tokenType, bool quotedNumbers, bool namedLiteral)
-    {
-        MigratorReference? match = null;
-        foreach (MigratorReference migrator in context.Migrators)
-        {
-            // Filter by classified shape rather than JsonTypeInfoKind: byte[] reports Kind
-            // Enumerable but is read from a base64 string, and custom scalar converters report
-            // Kind None without a known shape.
-            if (migrator.SourceShape is SourceValueShape.Unknown)
-            {
-                continue;
-            }
-
-            bool allowQuoted = quotedNumbers && (namedLiteral ? migrator.AllowsNamedFloatingPointLiterals : migrator.AllowsQuotedNumbers);
-            if (!SourceValueShapes.IsTokenCompatible(tokenType, migrator.SourceShape, allowQuoted))
+            if (shape is SourceValueShape.Unknown || !SourceValueShapes.IsTokenCompatible(tokenType, shape, allowQuoted))
             {
                 continue;
             }
@@ -133,13 +134,15 @@ internal sealed partial class JsonMigratableConverter<T>
             ThrowAmbiguousNonObjectMigrators(typeof(T));
         }
 
-        // Same precedence as top-level primitives: exact element shapes first, then quoted
-        // numbers for numeric element types when number handling allows reading from strings.
-        match = MatchByPrimitiveElementType(kind, valueToken, quotedNumbers: false, namedLiteral: false);
+        // Same precedence as top-level primitives: element types 1.x matched first, then the
+        // element shapes 2.0 added, then quoted numbers for numeric element types when number
+        // handling allows reading from strings.
+        match = MatchByPrimitiveElementType(kind, valueToken, ElementTier.Legacy)
+            ?? MatchByPrimitiveElementType(kind, valueToken, ElementTier.Widened);
 
         if (match is null && valueToken is JsonTokenType.String)
         {
-            match = MatchByPrimitiveElementType(kind, valueToken, quotedNumbers: true, namedLiteral);
+            match = MatchByPrimitiveElementType(kind, valueToken, ElementTier.QuotedNumber, namedLiteral);
         }
 
         if (match is null)
@@ -199,7 +202,14 @@ internal sealed partial class JsonMigratableConverter<T>
         return singleCandidate;
     }
 
-    private MigratorReference? MatchByPrimitiveElementType(JsonTypeInfoKind kind, JsonTokenType valueToken, bool quotedNumbers, bool namedLiteral)
+    private enum ElementTier
+    {
+        Legacy,
+        Widened,
+        QuotedNumber,
+    }
+
+    private MigratorReference? MatchByPrimitiveElementType(JsonTypeInfoKind kind, JsonTokenType valueToken, ElementTier tier, bool namedLiteral = false)
     {
         MigratorReference? match = null;
         foreach (MigratorReference migrator in context.Migrators)
@@ -209,7 +219,19 @@ internal sealed partial class JsonMigratableConverter<T>
                 continue;
             }
 
-            bool allowQuoted = quotedNumbers && (namedLiteral ? migrator.ElementAllowsNamedFloatingPointLiterals : migrator.ElementAllowsQuotedNumbers);
+            bool allowQuoted = false;
+            switch (tier)
+            {
+                case ElementTier.Legacy when migrator.ElementIsLegacyShape:
+                case ElementTier.Widened when !migrator.ElementIsLegacyShape:
+                    break;
+                case ElementTier.QuotedNumber:
+                    allowQuoted = namedLiteral ? migrator.ElementAllowsNamedFloatingPointLiterals : migrator.ElementAllowsQuotedNumbers;
+                    break;
+                default:
+                    continue;
+            }
+
             if (!SourceValueShapes.IsTokenCompatible(valueToken, migrator.ElementShape, allowQuoted))
             {
                 continue;

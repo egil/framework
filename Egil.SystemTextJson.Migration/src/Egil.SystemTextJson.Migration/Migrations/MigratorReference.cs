@@ -33,6 +33,13 @@ internal sealed record MigratorReference(
         ? SourceValueShapes.Classify(SourceType)
         : SourceValueShape.Unknown;
 
+    // Whether 1.x's TypeCode rule matched this source (and, for collections, its element), so the
+    // read path can try those sources before the shapes 2.0 added.
+    public bool IsLegacyShape { get; } = SourceValueShapes.IsLegacyShape(SourceType);
+
+    public bool ElementIsLegacyShape { get; } = SourceTypeInfo.Kind is JsonTypeInfoKind.Enumerable or JsonTypeInfoKind.Dictionary
+        && SourceValueShapes.IsLegacyShape(SourceValueShapes.GetValueType(SourceTypeInfo));
+
     // Number handling is resolved once so the read path does not consult the options.
     // AllowReadingFromString (on by default with JsonSerializerDefaults.Web) lets numeric sources
     // read quoted numbers; floating-point sources additionally read "NaN"/"Infinity" under
