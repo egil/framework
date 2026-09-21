@@ -72,8 +72,11 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
     [Id(1)] private readonly ImmutableDictionary<GrainId, OutboxEntry> outbox;
 
     // Journal replay restores entries without invoking receive-time clocks or telemetry.
-    // Immutable views keep that reconstruction seam internal to the toolbox.
+    // Immutable views keep that reconstruction seam internal to the toolbox. Only the
+    // backing fields have Orleans IDs; these computed properties add no serialized state.
+    [JsonIgnore]
     internal ImmutableDictionary<StreamSource, StreamEntry> StreamEntries => streams;
+    [JsonIgnore]
     internal ImmutableDictionary<GrainId, OutboxEntry> OutboxEntries => outbox;
 
     /// <summary>
