@@ -489,51 +489,51 @@ The generated table below is refreshed by `.\scripts\update-perf-docs.ps1` from 
 <!-- perf-summary:start -->
 | Scenario | Method | Payload size | Mean | Ratio | RatioSD | Allocated | Alloc Ratio |
 |----------|--------|:------------:|-----:|------:|--------:|----------:|------------:|
-| **No migration (happy path)** | Plain STJ | Small | 233.89 ns | 1.00 | 0.00 | 160 B | 1.00 |
-|  | JsonMigratable | Small | 380.09 ns | 1.63 | 0.22 | 160 B | 1.00 |
-|  | Plain STJ | Medium | 1,578.58 ns | 1.00 | 0.03 | 1656 B | 1.00 |
-|  | JsonMigratable | Medium | 1,834.29 ns | 1.16 | 0.11 | 1656 B | 1.00 |
-|  | Plain STJ | Large | 12,367.64 ns | 1.00 | 0.02 | 24624 B | 1.00 |
-|  | JsonMigratable | Large | 13,136.24 ns | 1.06 | 0.03 | 24624 B | 1.00 |
-| **Static migration** | Manual STJ migration | Small | 313.21 ns | 1.00 | 0.09 | 312 B | 1.00 |
-|  | JsonMigratable | Small | 491.07 ns | 1.57 | 0.10 | 312 B | 1.00 |
-|  | Manual STJ migration | Medium | 1,718.06 ns | 1.00 | 0.09 | 1808 B | 1.00 |
-|  | JsonMigratable | Medium | 2,264.20 ns | 1.32 | 0.17 | 1808 B | 1.00 |
-|  | Manual STJ migration | Large | 13,700.87 ns | 1.00 | 0.06 | 24776 B | 1.00 |
-|  | JsonMigratable | Large | 15,620.61 ns | 1.14 | 0.16 | 24776 B | 1.00 |
-| **External migration** | Manual STJ migration | Small | 329.82 ns | 1.01 | 0.16 | 312 B | 1.00 |
-|  | JsonMigratable | Small | 490.48 ns | 1.50 | 0.17 | 312 B | 1.00 |
-|  | Manual STJ migration | Medium | 1,688.97 ns | 1.00 | 0.09 | 1808 B | 1.00 |
-|  | JsonMigratable | Medium | 2,063.24 ns | 1.23 | 0.21 | 1808 B | 1.00 |
-|  | Manual STJ migration | Large | 13,380.76 ns | 1.00 | 0.07 | 24776 B | 1.00 |
-|  | JsonMigratable | Large | 14,137.09 ns | 1.06 | 0.08 | 24776 B | 1.00 |
-| **Undiscriminated source migration** | Manual STJ migration | Small | 342.72 ns | 1.01 | 0.15 | 312 B | 1.00 |
-|  | JsonMigratable | Small | 434.87 ns | 1.28 | 0.23 | 312 B | 1.00 |
-|  | Manual STJ migration | Medium | 1,584.87 ns | 1.00 | 0.01 | 1808 B | 1.00 |
-|  | JsonMigratable | Medium | 1,753.54 ns | 1.11 | 0.02 | 1808 B | 1.00 |
-|  | Manual STJ migration | Large | 14,065.53 ns | 1.00 | 0.05 | 24776 B | 1.00 |
-|  | JsonMigratable | Large | 14,061.32 ns | 1.00 | 0.15 | 24776 B | 1.00 |
-| **Legacy payload** | Plain STJ + tracking | Small | 290.99 ns | 1.00 | 0.01 | 192 B | 1.00 |
-|  | JsonMigratable | Small | 400.39 ns | 1.38 | 0.08 | 192 B | 1.00 |
-|  | Plain STJ + tracking | Medium | 1,572.89 ns | 1.00 | 0.01 | 1688 B | 1.00 |
-|  | JsonMigratable | Medium | 1,794.47 ns | 1.14 | 0.06 | 1688 B | 1.00 |
-|  | Plain STJ + tracking | Large | 12,407.33 ns | 1.00 | 0.02 | 24656 B | 1.00 |
-|  | JsonMigratable | Large | 12,685.72 ns | 1.02 | 0.02 | 24656 B | 1.00 |
-| **Union dispatch (.NET 11)** | Plain STJ structural classifier | Small | 718.78 ns | 1.02 | 0.19 | 632 B | 1.00 |
-|  | JsonMigratable classifier | Small | 522.86 ns | 0.74 | 0.09 | 160 B | 0.25 |
-|  | JsonMigratable classifier + migration | Small | 720.58 ns | 1.02 | 0.13 | 312 B | 0.49 |
-|  | Plain STJ structural classifier | Medium | 2,709.53 ns | 1.00 | 0.06 | 1656 B | 1.00 |
-|  | JsonMigratable classifier | Medium | 2,397.28 ns | 0.89 | 0.06 | 1656 B | 1.00 |
-|  | JsonMigratable classifier + migration | Medium | 2,478.37 ns | 0.92 | 0.04 | 1808 B | 1.09 |
-|  | Plain STJ structural classifier | Large | 22,888.62 ns | 1.01 | 0.11 | 25544 B | 1.00 |
-|  | JsonMigratable classifier | Large | 18,482.30 ns | 0.81 | 0.07 | 24624 B | 0.96 |
-|  | JsonMigratable classifier + migration | Large | 17,061.51 ns | 0.75 | 0.06 | 24776 B | 0.97 |
-| **Serialization** | Plain STJ | Small | 93.19 ns | 1.01 | 0.16 | 56 B | 1.00 |
-|  | JsonMigratable | Small | 212.18 ns | 2.31 | 0.26 | 136 B | 2.43 |
-|  | Plain STJ | Medium | 541.32 ns | 1.02 | 0.19 | 416 B | 1.00 |
-|  | JsonMigratable | Medium | 947.83 ns | 1.78 | 0.25 | 800 B | 1.92 |
-|  | Plain STJ | Large | 4,168.54 ns | 1.00 | 0.06 | 10384 B | 1.00 |
-|  | JsonMigratable | Large | 6,537.31 ns | 1.57 | 0.11 | 10776 B | 1.04 |
+| **No migration (happy path)** | Plain STJ | Small | 251.02 ns | 1.00 | 0.01 | 160 B | 1.00 |
+|  | JsonMigratable | Small | 383.56 ns | 1.53 | 0.01 | 160 B | 1.00 |
+|  | Plain STJ | Medium | 1,865.72 ns | 1.00 | 0.00 | 1656 B | 1.00 |
+|  | JsonMigratable | Medium | 2,025.74 ns | 1.09 | 0.01 | 1656 B | 1.00 |
+|  | Plain STJ | Large | 14,357.30 ns | 1.00 | 0.01 | 24624 B | 1.00 |
+|  | JsonMigratable | Large | 14,519.17 ns | 1.01 | 0.01 | 24624 B | 1.00 |
+| **Static migration** | Manual STJ migration | Small | 315.56 ns | 1.00 | 0.00 | 312 B | 1.00 |
+|  | JsonMigratable | Small | 554.32 ns | 1.76 | 0.00 | 312 B | 1.00 |
+|  | Manual STJ migration | Medium | 2,003.50 ns | 1.00 | 0.05 | 1808 B | 1.00 |
+|  | JsonMigratable | Medium | 2,228.92 ns | 1.11 | 0.04 | 1808 B | 1.00 |
+|  | Manual STJ migration | Large | 14,584.96 ns | 1.00 | 0.01 | 24776 B | 1.00 |
+|  | JsonMigratable | Large | 14,826.24 ns | 1.02 | 0.01 | 24776 B | 1.00 |
+| **External migration** | Manual STJ migration | Small | 319.04 ns | 1.00 | 0.00 | 312 B | 1.00 |
+|  | JsonMigratable | Small | 562.98 ns | 1.76 | 0.05 | 312 B | 1.00 |
+|  | Manual STJ migration | Medium | 1,947.25 ns | 1.00 | 0.01 | 1808 B | 1.00 |
+|  | JsonMigratable | Medium | 2,181.95 ns | 1.12 | 0.02 | 1808 B | 1.00 |
+|  | Manual STJ migration | Large | 14,055.56 ns | 1.00 | 0.01 | 24776 B | 1.00 |
+|  | JsonMigratable | Large | 14,761.47 ns | 1.05 | 0.01 | 24776 B | 1.00 |
+| **Undiscriminated source migration** | Manual STJ migration | Small | 318.95 ns | 1.00 | 0.00 | 312 B | 1.00 |
+|  | JsonMigratable | Small | 452.95 ns | 1.42 | 0.00 | 312 B | 1.00 |
+|  | Manual STJ migration | Medium | 1,960.61 ns | 1.00 | 0.01 | 1808 B | 1.00 |
+|  | JsonMigratable | Medium | 2,281.10 ns | 1.16 | 0.01 | 1808 B | 1.00 |
+|  | Manual STJ migration | Large | 14,450.53 ns | 1.00 | 0.00 | 24776 B | 1.00 |
+|  | JsonMigratable | Large | 14,664.90 ns | 1.01 | 0.01 | 24776 B | 1.00 |
+| **Legacy payload** | Plain STJ + tracking | Small | 324.82 ns | 1.00 | 0.00 | 192 B | 1.00 |
+|  | JsonMigratable | Small | 431.97 ns | 1.33 | 0.00 | 192 B | 1.00 |
+|  | Plain STJ + tracking | Medium | 1,922.71 ns | 1.00 | 0.01 | 1688 B | 1.00 |
+|  | JsonMigratable | Medium | 2,091.69 ns | 1.09 | 0.01 | 1688 B | 1.00 |
+|  | Plain STJ + tracking | Large | 14,393.11 ns | 1.00 | 0.01 | 24656 B | 1.00 |
+|  | JsonMigratable | Large | 14,673.94 ns | 1.02 | 0.01 | 24656 B | 1.00 |
+| **Union dispatch (.NET 11)** | Plain STJ structural classifier | Small | 621.03 ns | 1.00 | 0.00 | 632 B | 1.00 |
+|  | JsonMigratable classifier | Small | 572.33 ns | 0.92 | 0.00 | 160 B | 0.25 |
+|  | JsonMigratable classifier + migration | Small | 763.34 ns | 1.23 | 0.01 | 312 B | 0.49 |
+|  | Plain STJ structural classifier | Medium | 3,178.05 ns | 1.00 | 0.00 | 1656 B | 1.00 |
+|  | JsonMigratable classifier | Medium | 2,681.66 ns | 0.84 | 0.00 | 1656 B | 1.00 |
+|  | JsonMigratable classifier + migration | Medium | 2,967.83 ns | 0.93 | 0.01 | 1808 B | 1.09 |
+|  | Plain STJ structural classifier | Large | 22,504.99 ns | 1.00 | 0.01 | 25544 B | 1.00 |
+|  | JsonMigratable classifier | Large | 18,793.45 ns | 0.84 | 0.01 | 24624 B | 0.96 |
+|  | JsonMigratable classifier + migration | Large | 19,124.73 ns | 0.85 | 0.01 | 24776 B | 0.97 |
+| **Serialization** | Plain STJ | Small | 84.97 ns | 1.00 | 0.01 | 56 B | 1.00 |
+|  | JsonMigratable | Small | 168.78 ns | 1.99 | 0.01 | 88 B | 1.57 |
+|  | Plain STJ | Medium | 504.53 ns | 1.00 | 0.00 | 416 B | 1.00 |
+|  | JsonMigratable | Medium | 692.47 ns | 1.37 | 0.00 | 752 B | 1.81 |
+|  | Plain STJ | Large | 4,800.09 ns | 1.00 | 0.00 | 10384 B | 1.00 |
+|  | JsonMigratable | Large | 5,110.45 ns | 1.06 | 0.00 | 10728 B | 1.03 |
 <!-- perf-summary:end -->
 
 > Full benchmark reports: [source-gen](https://github.com/egil/framework/blob/main/Egil.SystemTextJson.Migration/docs/perf/source-gen-benchmarks.md) · [reflection](https://github.com/egil/framework/blob/main/Egil.SystemTextJson.Migration/docs/perf/reflection-benchmarks.md)
