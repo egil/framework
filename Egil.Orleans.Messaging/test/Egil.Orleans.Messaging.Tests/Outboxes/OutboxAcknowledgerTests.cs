@@ -68,8 +68,47 @@ public sealed class OutboxAcknowledgerTests
         Assert.Equal(1, batch.Failed[0].Attempt);
     }
 
+    [Fact]
+    public async Task Successful_post_invokes_synchronous_acknowledgement()
+    {
+        string[] acknowledged = [];
+        var acknowledger = new OutboxAcknowledger<string>(
+            acknowledgePosted: items => acknowledged = [.. items],
+            acknowledgePostedAsync: null,
+            acknowledgeFailuresAsync: null);
+        var posted = acknowledger.CreateBatch(
+        [
+            new OutboxDispatchResult<string>("a"),
+            new OutboxDispatchResult<string>("b"),
+        ]);
+
+        await acknowledger.AcknowledgeAsync(posted, CancellationToken.None);
+
+        Assert.Equal(["a", "b"], acknowledged);
+    }
+
+    [Fact]
+    public async Task Successful_post_invokes_both_acknowledgements_in_order()
+    {
+        List<string> calls = [];
+        var acknowledger = new OutboxAcknowledger<string>(
+            acknowledgePosted: _ => calls.Add("sync"),
+            acknowledgePostedAsync: (_, _) =>
+            {
+                calls.Add("async");
+                return ValueTask.CompletedTask;
+            },
+            acknowledgeFailuresAsync: null);
+        var posted = acknowledger.CreateBatch([new OutboxDispatchResult<string>("a")]);
+
+        await acknowledger.AcknowledgeAsync(posted, CancellationToken.None);
+
+        Assert.Equal(["sync", "async"], calls);
+    }
+
     private static OutboxAcknowledger<string> CreateAcknowledger()
         => new(
+            acknowledgePosted: null,
             acknowledgePostedAsync: (_, _) => ValueTask.CompletedTask,
             acknowledgeFailuresAsync: (_, _) => ValueTask.CompletedTask);
 }

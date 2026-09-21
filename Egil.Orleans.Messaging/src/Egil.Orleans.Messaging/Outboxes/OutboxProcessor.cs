@@ -58,6 +58,11 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         ArgumentNullException.ThrowIfNull(options.TimeProvider);
         ArgumentNullException.ThrowIfNull(logger);
 
+        if (options.AcknowledgePosted is null && options.AcknowledgePostedAsync is null)
+        {
+            throw new ArgumentException("At least one of AcknowledgePosted or AcknowledgePostedAsync must be configured.", nameof(options));
+        }
+
         if (options.ProcessingTimeout <= TimeSpan.Zero)
         {
             throw new ArgumentOutOfRangeException(nameof(options), "ProcessingTimeout must be greater than zero.");
@@ -78,6 +83,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
             static item => item.Message is { } message ? message.GetType() : typeof(TOutbox),
             static item => item.Id.TraceParent);
         acknowledger = new OutboxAcknowledger<OutboxMessageEnvelope<TOutbox>>(
+            options.AcknowledgePosted,
             options.AcknowledgePostedAsync,
             options.AcknowledgeFailuresAsync);
     }
