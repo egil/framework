@@ -4,9 +4,14 @@
 
 ## Stored data
 
-JSON written by 1.x is read by 2.0 exactly as 1.x read it. The discriminator property, its default value (the type's full name), its first position in the object, the legacy-payload rule for objects without a discriminator, and `UndiscriminatedSourceType` are unchanged. The 1.7 release's own test suite, run unmodified against 2.0, passes every payload test; the one test that fails covers an options-setup change described below, not a payload.
+JSON written by 1.x reads the same under 2.0. That rests on three rules that did not change and one that was kept as a fallback:
 
-What changed on the read side is additive: payloads that 1.x rejected can now migrate (see [non-object payloads](#non-object-payload-matching)), and no payload that 1.x migrated is routed differently.
+- Object payloads are routed by their first property, as before: a known discriminator selects the source it belongs to, the target's own discriminator selects the target, and an object without a recognized leading discriminator is a legacy payload unless `UndiscriminatedSourceType` claims it. The discriminator property name, its default value (the type's full name) and its first position in written output are unchanged.
+- Array payloads are routed to enumerable sources by contract kind, as before; when several qualify, 2.0 disambiguates cases that 1.x reported as ambiguous.
+- Scalar payloads are matched first by 2.0's rules (below), which accept everything 1.x accepted, and then, when nothing matched, by 1.x's own rule: the token family the source's CLR type reads, regardless of converter overrides. A source that 1.x selected is therefore still selected; a source that 2.0 adds is only ever selected where 1.x had no match.
+- Migrators, failure handling, tracking and nested migration run the same code as before.
+
+The 1.7 release's test suite, run unmodified against 2.0, passes every payload test; the one failing test covers the options-setup change described below. Issue #218 tracks running the previous release's suite in CI so this stays true.
 
 ## Migration support lives in the resolver chain
 
@@ -38,10 +43,7 @@ Unchanged: converters in `options.Converters` keep their precedence. One registe
 - a quoted number reaches a numeric source under `JsonNumberHandling.AllowReadingFromString` (on by default with `JsonSerializerDefaults.Web`) when no string-shaped source exists;
 - several collection sources are told apart by the first element's discriminator or contract kind instead of throwing.
 
-Every one of these was a `JsonException` in 1.x, so existing data is unaffected. One rule is stricter: a source read through a converter override (`[JsonConverter]` on the type, an entry in `options.Converters` such as `JsonStringEnumConverter`, or a converter attached by the resolver) is no longer shape-matched, because the override may read a different token family. The exception that keeps 1.x data readable is an enum source read through `JsonStringEnumConverter`: a JSON number still reaches it when no other source matched, since that converter accepts integers by default.
-
-- Check: a target with `IMigrateFrom<TSource, ...>` where `TSource` is not an enum and has a converter override, together with stored non-object payloads for it.
-- Fix: such a source is reachable only through a discriminator, so migrate it from an object payload, or register the migration from the underlying primitive type instead.
+Every one of these was a `JsonException` in 1.x, so existing data is unaffected. One rule changed order: a source read through a converter override (`[JsonConverter]` on the type, an entry in `options.Converters` such as `JsonStringEnumConverter`, or a converter attached by the resolver) is matched after every other source instead of alongside them, because the override may read a different token family. When it is the only candidate for the token, as in 1.x setups that stored such payloads, it is still selected. Where 1.x reported two sources as ambiguous (an `int` and a string-converted enum both matching a number), 2.0 now picks the plain source.
 
 ## `[JsonMigratable]` on collections, dictionaries and unions
 
@@ -55,5 +57,4 @@ The package multi-targets `net10.0` and `net11.0`. On .NET 11, `AddJsonMigration
 
 1. Move `AddJsonMigrationSupport()` after any `TypeInfoResolver` assignment, or switch to `TypeInfoResolverChain.Add`.
 2. If a custom resolver serves `[JsonMigratable]` types, insert it at index 0 after `AddJsonMigrationSupport()`.
-3. If a non-enum source type has a converter override and stored non-object payloads, migrate it through an object payload or from the primitive type.
-4. Run your own round-trip tests against 1.x-written fixtures; the library's contract for them is unchanged.
+3. Run your own round-trip tests against 1.x-written fixtures; the library's contract for them is unchanged.
