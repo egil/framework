@@ -26,7 +26,8 @@ public sealed class StronglyTypedJsonConverter<TSelf, TPrimitive> : JsonConverte
     // Resolved once per closed generic type. The built-in converters from JsonMetadataServices are
     // trim/AOT safe and format property names culture invariantly (for example decimal keys as
     // "1.5" and DateTime keys as ISO 8601 with the kind preserved), which is what makes dictionary
-    // keys round-trip across machines with different cultures.
+    // keys round-trip across machines with different cultures. Values only fall back to them when
+    // the options have no contract for the primitive (see ReadPrimitive).
     private static readonly JsonConverter<TPrimitive>? builtInConverter = BuiltInPrimitiveConverters.Find<TPrimitive>();
 
     public override TSelf Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
@@ -42,7 +43,7 @@ public sealed class StronglyTypedJsonConverter<TSelf, TPrimitive> : JsonConverte
                 : throw new JsonException($"The JSON value could not be converted to {typeof(TSelf)}.");
         }
 
-        var rawValue = GetPrimitiveConverter(options).Read(ref reader, typeof(TPrimitive), options);
+        var rawValue = ReadPrimitive(ref reader, options);
 
         // An invalid value maps to Empty rather than throwing, as the generated TryParse and the
         // per-type converter generated before 2.0 do. Empty is the generated default instance
@@ -64,7 +65,7 @@ public sealed class StronglyTypedJsonConverter<TSelf, TPrimitive> : JsonConverte
             return;
         }
 
-        GetPrimitiveConverter(options).Write(writer, rawValue, options);
+        WritePrimitive(writer, rawValue, options);
     }
 
     public override TSelf ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
@@ -91,6 +92,31 @@ public sealed class StronglyTypedJsonConverter<TSelf, TPrimitive> : JsonConverte
         }
 
         GetPrimitiveConverter(options).WriteAsPropertyName(writer, rawValue, options);
+    }
+
+    // Values go through the options' contract for the primitive whenever the options have one, so
+    // the options' JsonNumberHandling (for example AllowReadingFromString from
+    // JsonSerializerDefaults.Web) and any custom converter registered for the primitive apply
+    // exactly as they do to a plain primitive property. Calling the built-in converter directly
+    // bypasses both: its Read never consults NumberHandling, so `"42"` was rejected for an
+    // int-based primitive even though the OpenAPI schema advertises the string form. The
+    // built-in converter remains the fallback for a JsonSerializerContext without metadata for
+    // the primitive type. Property names deliberately stay on the built-in converters so keys
+    // remain culture invariant regardless of the options.
+    private static TPrimitive? ReadPrimitive(ref Utf8JsonReader reader, JsonSerializerOptions options)
+        => options.TryGetTypeInfo(typeof(TPrimitive), out var typeInfo)
+            ? JsonSerializer.Deserialize(ref reader, (JsonTypeInfo<TPrimitive>)typeInfo)
+            : GetPrimitiveConverter(options).Read(ref reader, typeof(TPrimitive), options);
+
+    private static void WritePrimitive(Utf8JsonWriter writer, TPrimitive rawValue, JsonSerializerOptions options)
+    {
+        if (options.TryGetTypeInfo(typeof(TPrimitive), out var typeInfo))
+        {
+            JsonSerializer.Serialize(writer, rawValue, (JsonTypeInfo<TPrimitive>)typeInfo);
+            return;
+        }
+
+        GetPrimitiveConverter(options).Write(writer, rawValue, options);
     }
 
     private static JsonConverter<TPrimitive> GetPrimitiveConverter(JsonSerializerOptions options)
