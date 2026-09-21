@@ -407,6 +407,12 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         // The context is created per call: it is mutable and an attribute may write to it, so a
         // shared instance would leak state between validations and race between threads.
         //
+        // A non-null result is a failure even when its ErrorMessage is null. GetValidationResult
+        // substitutes FormatErrorMessage for an empty message, so that only happens when the
+        // attribute's FormatErrorMessage returns null too, but the error locals double as the
+        // "did it fail" flags, so a null there would turn the failure into a pass. The fallback
+        // wording is the one ValidationAttribute itself uses when no message is configured.
+        //
         // The fields sit in a nested static class, not on the target type: a user's static
         // initializer such as `public static readonly Foo Default = new(1);` calls IsValueValid
         // while the target type is still initializing, and whether the generated part's fields are
@@ -416,6 +422,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         var attributes = validationAttributes.Attributes;
         var validators = validationAttributes.ValidatorsTypeName;
         var context = validationAttributes.InvariantContext;
+        var fallbackMessage = SymbolDisplay.FormatLiteral($"The field {info.Parameter.Identifier.ValueText} is invalid.", quote: true);
         var source = new StringBuilder();
 
         source.Append($"\n    private static class {validators}\n    {{");
@@ -451,7 +458,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
                         if ({{validators}}.{{attribute.FieldName}}.GetValidationResult(value, context) is { } result{{attribute.Index}})
                         {
                             if (!throwIfInvalid) return false;
-                            error{{attribute.Index}} = result{{attribute.Index}}.ErrorMessage;
+                            error{{attribute.Index}} = result{{attribute.Index}}.ErrorMessage ?? {{fallbackMessage}};
                         }
 
                 """);
