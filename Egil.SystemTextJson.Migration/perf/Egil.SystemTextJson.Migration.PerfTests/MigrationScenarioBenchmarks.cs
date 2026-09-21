@@ -59,7 +59,7 @@ public class SourceGenMigrationScenarioBenchmarks : MigrationScenarioBenchmarksB
     }
 }
 
-public abstract class MigrationScenarioBenchmarksBase
+public abstract partial class MigrationScenarioBenchmarksBase
 {
     private JsonSerializerOptions plainOptions = null!;
     private JsonSerializerOptions migratableNoMigrationOptions = null!;
@@ -95,6 +95,8 @@ public abstract class MigrationScenarioBenchmarksBase
         PerfPayload? payload = PayloadSize == PayloadSize.Small
             ? null
             : PerfPayload.Create(PayloadSize);
+
+        SetupUnionPayloads(payload);
 
         plainCurrentState = new PerfCurrentStatePlain("Jane Doe", 42, payload);
         polymorphicPlainCurrentState = new PerfPolymorphicPlainCurrentState("Jane Doe", 42, payload);
@@ -561,6 +563,11 @@ internal static class PerfNames
 [JsonSerializable(typeof(PerfUndiscriminatedPlainV2))]
 [JsonSerializable(typeof(PerfUndiscriminatedV1))]
 [JsonSerializable(typeof(PerfUndiscriminatedV2))]
+#if NET11_0_OR_GREATER
+[JsonSerializable(typeof(PerfPlainUnion))]
+[JsonSerializable(typeof(PerfMigratableUnion))]
+[JsonSerializable(typeof(PerfUnionMigratableAV1))]
+#endif
 [JsonSerializable(typeof(PerfPayload))]
 [JsonSerializable(typeof(PerfContact))]
 [JsonSerializable(typeof(PerfLineItem))]

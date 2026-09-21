@@ -371,6 +371,44 @@ public class NonObjectPayloadMigrationTests
     }
 
     [Fact]
+    public void Nullable_migratable_element_is_matched_by_its_discriminator()
+    {
+        // ElemV1? carries no attribute of its own; the element metadata must come from ElemV1
+        // so the payload is not routed to the competing plain-object collection.
+        var options = CreateOptions();
+        var json = """[{"$type":"elem-v1","data":"x"}]""";
+
+        var result = JsonSerializer.Deserialize<NullableElementState>(json, options);
+
+        Assert.NotNull(result);
+        Assert.Equal("from-nullable-elem-v1:x", result.Source);
+    }
+
+    [Fact]
+    public void Nullable_migratable_dictionary_value_is_matched_by_its_discriminator()
+    {
+        var options = CreateOptions();
+        var json = """{"a":{"$type":"elem-v1","data":"x"}}""";
+
+        var result = JsonSerializer.Deserialize<NullableDictValueState>(json, options);
+
+        Assert.NotNull(result);
+        Assert.Equal("from-nullable-dict-elem-v1:x", result.Source);
+    }
+
+    [Fact]
+    public void Nullable_migratable_source_is_matched_by_the_underlying_discriminator()
+    {
+        var options = CreateOptions();
+        var json = """{"$type":"elem-v1","data":"x"}""";
+
+        var result = JsonSerializer.Deserialize<NullableSourceState>(json, options);
+
+        Assert.NotNull(result);
+        Assert.Equal("from-nullable-source:x", result.Source);
+    }
+
+    [Fact]
     public void Migrate_from_dictionary_to_custom_type()
     {
         var options = CreateOptions();
@@ -467,6 +505,58 @@ public class NonObjectPayloadMigrationTests
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
         options.AddJsonMigrationSupport();
         return options;
+    }
+
+    [Fact]
+    public void Disambiguate_enumerable_with_discriminator_less_migratable_object_elements_by_shape()
+    {
+        // The migratable element type is served by the library's own converter, which must not
+        // count as a converter override that removes the candidate from shape matching.
+        var options = CreateOptions();
+        var json = """[{"data":"x"}]""";
+
+        var result = JsonSerializer.Deserialize<MigratableElementState>(json, options);
+
+        Assert.NotNull(result);
+        Assert.Equal("from-elem-v1", result.Source);
+    }
+
+    [Fact]
+    public void Element_discriminator_matching_honours_configured_property_name()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.AddJsonMigrationSupport(static builder => builder.SetTypeDiscriminatorPropertyName("kind"));
+        var json = """[{"kind":"elem-v2","data":"x"}]""";
+
+        var result = JsonSerializer.Deserialize<TwoMigratableElementState>(json, options);
+
+        Assert.NotNull(result);
+        Assert.Equal("from-elem-v2", result.Source);
+    }
+
+    [Fact]
+    public void Discriminator_less_object_elements_are_ambiguous_between_plain_and_migratable_element_lists()
+    {
+        // Both element types are JSON objects, so without a discriminator neither list can be
+        // chosen; the migratable list must not lose to the plain list by registration order.
+        var options = CreateOptions();
+        var json = """[{"data":"x"}]""";
+
+        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<ItemListOrMigratableElementState>(json, options));
+
+        Assert.Contains("ambiguous", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Null_first_element_is_ambiguous_between_collection_migrators()
+    {
+        var options = CreateOptions();
+
+        var array = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<MultiEnumerableState>("[null]", options));
+        var dictionary = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<MultiDictState>("""{"a":null}""", options));
+
+        Assert.Contains("ambiguous", array.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("ambiguous", dictionary.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     // --- Test types ---
@@ -735,6 +825,24 @@ public class NonObjectPayloadMigrationTests
     public record class ElemV2(string Data);
 
     [JsonMigratable]
+    public record class ItemListOrMigratableElementState(string Source)
+        : IMigrateFrom<List<EnumerableItem>, ItemListOrMigratableElementState>,
+          IMigrateFrom<List<ElemV1>, ItemListOrMigratableElementState>
+    {
+        public static bool TryMigrateFrom(List<EnumerableItem> source, out ItemListOrMigratableElementState result)
+        {
+            result = new ItemListOrMigratableElementState("from-item-list");
+            return true;
+        }
+
+        public static bool TryMigrateFrom(List<ElemV1> source, out ItemListOrMigratableElementState result)
+        {
+            result = new ItemListOrMigratableElementState("from-elem-v1-list");
+            return true;
+        }
+    }
+
+    [JsonMigratable]
     public record class MigratableElementState(string Source)
         : IMigrateFrom<List<ElemV1>, MigratableElementState>,
           IMigrateFrom<List<string>, MigratableElementState>
@@ -820,6 +928,57 @@ public class NonObjectPayloadMigrationTests
         public static bool TryMigrateFrom(Dictionary<string, ElemV2> source, out TwoMigratableDictValueState result)
         {
             result = new TwoMigratableDictValueState("from-dict-elem-v2");
+            return true;
+        }
+    }
+
+    [JsonMigratable(TypeDiscriminator = "elem-v1")]
+    public record struct StructElemV1(string Data);
+
+    public record class OtherItem(string? Label);
+
+    [JsonMigratable]
+    public record class NullableElementState(string Source)
+        : IMigrateFrom<List<StructElemV1?>, NullableElementState>,
+          IMigrateFrom<List<OtherItem>, NullableElementState>
+    {
+        public static bool TryMigrateFrom(List<StructElemV1?> source, out NullableElementState result)
+        {
+            result = new NullableElementState($"from-nullable-elem-v1:{source[0]?.Data}");
+            return true;
+        }
+
+        public static bool TryMigrateFrom(List<OtherItem> source, out NullableElementState result)
+        {
+            result = new NullableElementState("from-other-item");
+            return true;
+        }
+    }
+
+    [JsonMigratable]
+    public record class NullableDictValueState(string Source)
+        : IMigrateFrom<Dictionary<string, StructElemV1?>, NullableDictValueState>,
+          IMigrateFrom<Dictionary<string, OtherItem>, NullableDictValueState>
+    {
+        public static bool TryMigrateFrom(Dictionary<string, StructElemV1?> source, out NullableDictValueState result)
+        {
+            result = new NullableDictValueState($"from-nullable-dict-elem-v1:{source["a"]?.Data}");
+            return true;
+        }
+
+        public static bool TryMigrateFrom(Dictionary<string, OtherItem> source, out NullableDictValueState result)
+        {
+            result = new NullableDictValueState("from-other-item");
+            return true;
+        }
+    }
+
+    [JsonMigratable]
+    public record class NullableSourceState(string Source) : IMigrateFrom<StructElemV1?, NullableSourceState>
+    {
+        public static bool TryMigrateFrom(StructElemV1? source, out NullableSourceState result)
+        {
+            result = new NullableSourceState($"from-nullable-source:{source?.Data}");
             return true;
         }
     }

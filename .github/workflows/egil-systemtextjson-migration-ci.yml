@@ -25,11 +25,14 @@ env:
 permissions:
   contents: read
 
-# SDK band policy: every setup-dotnet step below installs only the 10.x SDK
-# because the package and all of its projects (src, test, perf, samples) target
-# net10.0 exclusively. Keep these bands in sync with the retained target
-# frameworks: add a band here only when a matching TFM is reintroduced, and drop
-# one when its TFM is removed.
+# SDK band policy: every setup-dotnet step below installs the 10.x band plus
+# the .NET 11 SDK because the package and all of its projects (src, test, perf,
+# samples) multi-target net10.0 and net11.0. The .NET 11 SDK is pinned to the
+# RC1 build because setup-dotnet applies dotnet-quality to every listed band and
+# an "11.0.x" wildcard would not resolve a prerelease. Replace the pin with
+# "11.0.x" at .NET 11 GA (2026-11-10). Keep these bands in sync with the retained
+# target frameworks: add a band here only when a matching TFM is introduced, and
+# drop one when its TFM is removed.
 jobs:
   create-nuget:
     runs-on: ubuntu-latest
@@ -44,11 +47,16 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.x
+          dotnet-version: |
+            10.x
+            11.0.100-rc.1.26425.128
 
-      - run: |
-          dotnet build ./Egil.SystemTextJson.Migration/src/Egil.SystemTextJson.Migration/Egil.SystemTextJson.Migration.csproj -c Release -f net10.0
-          dotnet pack ./Egil.SystemTextJson.Migration/src/Egil.SystemTextJson.Migration/Egil.SystemTextJson.Migration.csproj -c Release --no-build --output ${{ env.NuGetDirectory }}
+      # Runs inside the project directory so its global.json (SDK roll-forward, prerelease
+      # policy, Microsoft.Testing.Platform runner) is discovered by the SDK resolver.
+      - working-directory: Egil.SystemTextJson.Migration
+        run: |
+          dotnet build ./src/Egil.SystemTextJson.Migration/Egil.SystemTextJson.Migration.csproj -c Release
+          dotnet pack ./src/Egil.SystemTextJson.Migration/Egil.SystemTextJson.Migration.csproj -c Release --no-build --output ${{ env.NuGetDirectory }}
 
       - uses: actions/upload-artifact@v4
         with:
@@ -69,7 +77,9 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.x
+          dotnet-version: |
+            10.x
+            11.0.100-rc.1.26425.128
 
       - uses: actions/download-artifact@v4
         with:
@@ -100,12 +110,15 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.x
+          dotnet-version: |
+            10.x
+            11.0.100-rc.1.26425.128
 
       - name: Run tests
+        working-directory: Egil.SystemTextJson.Migration
         run: |
           export GITHUB_ENV=/dev/null
-          dotnet test ./Egil.SystemTextJson.Migration/Egil.SystemTextJson.Migration.slnx --configuration Release
+          dotnet test ./Egil.SystemTextJson.Migration.slnx --configuration Release
 
       - name: Verify documentation snippets
         working-directory: Egil.SystemTextJson.Migration
@@ -130,7 +143,9 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.x
+          dotnet-version: |
+            10.x
+            11.0.100-rc.1.26425.128
 
       - name: NuGet login (trusted publishing)
         uses: NuGet/login@v1
