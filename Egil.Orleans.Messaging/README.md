@@ -769,6 +769,17 @@ if (!state.State.Tracker.TryAcceptMessage("prices", token, out var tracker))
 await state.WriteAsync(state.State with { Tracker = tracker });
 ```
 
+Which identity applies depends on how the message arrived. A stream delivery
+deduplicates on the provider's sequence token, which `StreamManager` supplies from
+the runtime together with the provider name, so nothing has to ride on the payload.
+The outbox token reaches a receiver as an argument instead, from `AddPostman` and
+`AddGrainPostman`, and a receiver that passes it to `TryAcceptMessage` rejects a
+message the producer sent again after an acknowledgement was lost.
+`AddStreamPostman` publishes the payload alone, so an outbox message delivered over
+a stream is deduplicated by its stream token like any other stream message. That
+split is deliberate: delivery identity stays off the payload, so no event contract
+has to grow a field to carry it.
+
 Use `LatestStreamSequenceToken("prices")` when all you need is the previous
 resume token. Keep using `LatestStream("prices")` when you need the full
 cursor or must distinguish "no stream tracked" from "tracked stream with a
