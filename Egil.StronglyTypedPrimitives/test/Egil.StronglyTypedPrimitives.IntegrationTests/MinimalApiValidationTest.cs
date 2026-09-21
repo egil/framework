@@ -52,6 +52,21 @@ namespace Egil.StronglyTypedPrimitives
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         }
 
+        // Documented limitation: the converter replaces an invalid body value with Empty and keeps
+        // nothing of the original, so validation only sees the default. When the default passes
+        // the constraints, as 0 does for [Range(0, 100)], the request is accepted with it.
+        [Fact]
+        public async Task Attribute_constrained_body_property_whose_default_passes_is_accepted_with_the_default_value()
+        {
+            await using var app = await StartApp();
+            using var client = app.GetTestClient();
+
+            using var response = await client.PostAsJsonAsync("/percentages", new { value = 101 }, TestContext.Current.CancellationToken);
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal(0, await response.Content.ReadFromJsonAsync<int>(TestContext.Current.CancellationToken));
+        }
+
         [Fact]
         public async Task Attribute_constrained_route_parameter_that_fails_to_parse_is_rejected_with_the_default_value_validated()
         {
@@ -179,6 +194,7 @@ namespace Egil.StronglyTypedPrimitives
             app.MapPost("/constrained-orders", (ConstrainedOrderDto dto) => Results.Ok());
             app.MapGet("/constrained-orders/{quantity}", (StronglyTypedIntWithConstraintsAndValidate quantity) => Results.Ok());
             app.MapPost("/unaware-constrained-orders", (UnawareConstrainedOrderDto dto) => Results.Ok());
+            app.MapPost("/percentages", (PercentageDto dto) => Results.Ok(dto.Value.Value));
             await app.StartAsync(TestContext.Current.CancellationToken);
             return app;
         }
@@ -201,6 +217,11 @@ namespace Egil.StronglyTypedPrimitives
         public sealed class UnawareConstrainedOrderDto
         {
             public StronglyTypedIntWithConstraints Quantity { get; set; }
+        }
+
+        public sealed class PercentageDto
+        {
+            public StronglyTypedPercentageWithValidate Value { get; set; }
         }
     }
 }
