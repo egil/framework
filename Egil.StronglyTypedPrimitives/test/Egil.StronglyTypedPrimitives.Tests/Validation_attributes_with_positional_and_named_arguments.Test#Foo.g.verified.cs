@@ -40,8 +40,13 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
 
     private static class ValueValidators
     {
+        public static readonly global::System.ComponentModel.DataAnnotations.ValidationContext invariantContext = CreateInvariantContext();
         public static readonly global::System.ComponentModel.DataAnnotations.EmailAddressAttribute valueValidator0 = new global::System.ComponentModel.DataAnnotations.EmailAddressAttribute();
         public static readonly global::System.ComponentModel.DataAnnotations.StringLengthAttribute valueValidator1 = new global::System.ComponentModel.DataAnnotations.StringLengthAttribute(254) { MinimumLength = 3 };
+
+        [global::System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "DisplayName is set, so the constructor's reflection fallback for it never runs.")]
+        private static global::System.ComponentModel.DataAnnotations.ValidationContext CreateInvariantContext()
+            => new global::System.ComponentModel.DataAnnotations.ValidationContext(new object()) { MemberName = "Value", DisplayName = "Value" };
     }
 
     public static bool IsValueValid(string value, bool throwIfInvalid)
@@ -49,16 +54,16 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
         string? error0 = null;
         string? error1 = null;
 
-        if (!ValueValidators.valueValidator0.IsValid(value))
+        if (ValueValidators.valueValidator0.GetValidationResult(value, ValueValidators.invariantContext) is { } result0)
         {
             if (!throwIfInvalid) return false;
-            error0 = ValueValidators.valueValidator0.FormatErrorMessage("Value");
+            error0 = result0.ErrorMessage;
         }
 
-        if (!ValueValidators.valueValidator1.IsValid(value))
+        if (ValueValidators.valueValidator1.GetValidationResult(value, ValueValidators.invariantContext) is { } result1)
         {
             if (!throwIfInvalid) return false;
-            error1 = ValueValidators.valueValidator1.FormatErrorMessage("Value");
+            error1 = result1.ErrorMessage;
         }
 
         if (error0 is null && error1 is null) return true;

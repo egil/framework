@@ -107,6 +107,29 @@ public class Validation_attributes_with_typeof_argument : ValidationAttributeTes
             """);
 }
 
+public class Validation_attributes_overriding_only_the_context_IsValid : ValidationAttributeTestBase
+{
+    [Fact]
+    public Task Test()
+        => VerifyGeneratedSource("""
+            using Egil.StronglyTypedPrimitives;
+            using System.ComponentModel.DataAnnotations;
+
+            namespace SomeNamespace;
+
+            [StronglyTyped]
+            public readonly partial record struct Foo([NotBlank] string Value);
+
+            public sealed class NotBlankAttribute : ValidationAttribute
+            {
+                protected override ValidationResult? IsValid(object? value, ValidationContext validationContext)
+                    => value is string text && text.Trim().Length == 0
+                        ? new ValidationResult($"The {validationContext.MemberName} field must not be blank.")
+                        : ValidationResult.Success;
+            }
+            """);
+}
+
 public class Validation_attributes_with_null_arguments : ValidationAttributeTestBase
 {
     [Fact]

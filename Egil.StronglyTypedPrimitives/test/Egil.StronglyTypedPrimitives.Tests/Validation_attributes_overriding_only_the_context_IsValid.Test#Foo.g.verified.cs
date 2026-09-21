@@ -38,10 +38,10 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
 
     public override string ToString() => Value ?? string.Empty;
 
-    private static class ValueValidators_
+    private static class ValueValidators
     {
         public static readonly global::System.ComponentModel.DataAnnotations.ValidationContext invariantContext = CreateInvariantContext();
-        public static readonly global::System.ComponentModel.DataAnnotations.EmailAddressAttribute valueValidator0 = new global::System.ComponentModel.DataAnnotations.EmailAddressAttribute();
+        public static readonly global::SomeNamespace.NotBlankAttribute valueValidator0 = new global::SomeNamespace.NotBlankAttribute();
 
         [global::System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "DisplayName is set, so the constructor's reflection fallback for it never runs.")]
         private static global::System.ComponentModel.DataAnnotations.ValidationContext CreateInvariantContext()
@@ -52,7 +52,7 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
     {
         string? error0 = null;
 
-        if (ValueValidators_.valueValidator0.GetValidationResult(value, ValueValidators_.invariantContext) is { } result0)
+        if (ValueValidators.valueValidator0.GetValidationResult(value, ValueValidators.invariantContext) is { } result0)
         {
             if (!throwIfInvalid) return false;
             error0 = result0.ErrorMessage;

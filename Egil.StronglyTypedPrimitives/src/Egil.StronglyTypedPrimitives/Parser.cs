@@ -9,6 +9,10 @@ internal static class Parser
 {
     private const string ValidationAttributeTypeName = "System.ComponentModel.DataAnnotations.ValidationAttribute";
 
+    private const string ValidationContextTypeName = "System.ComponentModel.DataAnnotations.ValidationContext";
+
+    private const string UnconditionalSuppressMessageAttributeTypeName = "System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessageAttribute";
+
     // Only exists from .NET 11 on. Matching on the base type name means a compilation that cannot
     // see the type simply has no async attributes, without a separate lookup that has to be
     // tolerant of the type being absent.
@@ -87,7 +91,38 @@ internal static class Parser
                 attribute.ApplicationSyntaxReference?.GetSyntax().GetLocation() ?? parameter.Identifier.GetLocation()));
         }
 
-        return new ValidationAttributeModel(validatorsTypeName, attributes.ToImmutable(), asyncAttributes.ToImmutable(), contextAttributes.ToImmutable());
+        // The context field shares the validators class with the attribute fields, so its name
+        // steps aside for any of those (none is called that today, but the field prefixes are the
+        // only thing keeping it so).
+        var holderMemberNames = new HashSet<string>(attributes.Concat(asyncAttributes).Concat(contextAttributes).Select(attribute => attribute.FieldName), StringComparer.Ordinal);
+        var invariantContext = GetInvariantContext(semanticModel.Compilation, parameterSymbol.Name, holderMemberNames);
+
+        return new ValidationAttributeModel(validatorsTypeName, invariantContext, attributes.ToImmutable(), asyncAttributes.ToImmutable(), contextAttributes.ToImmutable());
+    }
+
+    // ValidationContext(object) is marked RequiresUnreferencedCode because the DisplayName getter
+    // falls back to reflection over the instance's type when no display name was set. .NET 10
+    // added ValidationContext(object, string displayName, IServiceProvider?, IDictionary?) which is
+    // trim safe for exactly that reason, so it is preferred whenever the compilation has it. On
+    // earlier targets DisplayName is set up front, which keeps the getter off the reflection path
+    // even though the constructor call itself still carries the annotation; the IL2026 that call
+    // raises is therefore suppressed, where the compilation has the attribute to do so.
+    private static InvariantContextInfo GetInvariantContext(Compilation compilation, string parameterName, HashSet<string> holderMemberNames)
+    {
+        var hasTrimSafeConstructor = compilation
+            .GetTypeByMetadataName(ValidationContextTypeName)?
+            .Constructors
+            .Any(constructor => constructor.Parameters.Length == 4 && constructor.Parameters[1].Type.SpecialType == SpecialType.System_String) == true;
+        var hasSuppressionAttribute = compilation.GetTypeByMetadataName(UnconditionalSuppressMessageAttributeTypeName) is not null;
+        var name = SymbolDisplay.FormatLiteral(parameterName, quote: true);
+
+        return new InvariantContextInfo(
+            GetUnusedMemberName(ValidationAttributeModel.PreferredInvariantContextFieldName, holderMemberNames),
+            GetUnusedMemberName(ValidationAttributeModel.PreferredInvariantContextFactoryName, holderMemberNames),
+            hasTrimSafeConstructor
+                ? $"new global::{ValidationContextTypeName}(new object(), {name}, null, null) {{ MemberName = {name} }}"
+                : $"new global::{ValidationContextTypeName}(new object()) {{ MemberName = {name}, DisplayName = {name} }}",
+            SuppressTrimWarning: !hasTrimSafeConstructor && hasSuppressionAttribute);
     }
 
     // RequiresValidationContext is virtual on ValidationAttribute and false there; the override can

@@ -40,9 +40,14 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
 
     private static class ValueValidators
     {
+        public static readonly global::System.ComponentModel.DataAnnotations.ValidationContext invariantContext = CreateInvariantContext();
         public static readonly global::SomeNamespace.CheckAttribute valueValidator0 = new global::SomeNamespace.CheckAttribute((string?)null);
         public static readonly global::SomeNamespace.CheckAttribute valueValidator1 = new global::SomeNamespace.CheckAttribute((int[]?)null);
         public static readonly global::SomeNamespace.CheckAttribute valueValidator2 = new global::SomeNamespace.CheckAttribute(new string[] { "a", (string?)null });
+
+        [global::System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "DisplayName is set, so the constructor's reflection fallback for it never runs.")]
+        private static global::System.ComponentModel.DataAnnotations.ValidationContext CreateInvariantContext()
+            => new global::System.ComponentModel.DataAnnotations.ValidationContext(new object()) { MemberName = "Value", DisplayName = "Value" };
     }
 
     public static bool IsValueValid(string value, bool throwIfInvalid)
@@ -51,22 +56,22 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
         string? error1 = null;
         string? error2 = null;
 
-        if (!ValueValidators.valueValidator0.IsValid(value))
+        if (ValueValidators.valueValidator0.GetValidationResult(value, ValueValidators.invariantContext) is { } result0)
         {
             if (!throwIfInvalid) return false;
-            error0 = ValueValidators.valueValidator0.FormatErrorMessage("Value");
+            error0 = result0.ErrorMessage;
         }
 
-        if (!ValueValidators.valueValidator1.IsValid(value))
+        if (ValueValidators.valueValidator1.GetValidationResult(value, ValueValidators.invariantContext) is { } result1)
         {
             if (!throwIfInvalid) return false;
-            error1 = ValueValidators.valueValidator1.FormatErrorMessage("Value");
+            error1 = result1.ErrorMessage;
         }
 
-        if (!ValueValidators.valueValidator2.IsValid(value))
+        if (ValueValidators.valueValidator2.GetValidationResult(value, ValueValidators.invariantContext) is { } result2)
         {
             if (!throwIfInvalid) return false;
-            error2 = ValueValidators.valueValidator2.FormatErrorMessage("Value");
+            error2 = result2.ErrorMessage;
         }
 
         if (error0 is null && error1 is null && error2 is null) return true;
