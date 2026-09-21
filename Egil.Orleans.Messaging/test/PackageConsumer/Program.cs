@@ -14,6 +14,13 @@ using Orleans.Journaling.Json;
 using Orleans.Runtime;
 using Orleans.TestingHost;
 
+if (args.Length != 2 || args[0] is not ("write" or "read") || string.IsNullOrWhiteSpace(args[1]))
+{
+    Console.Error.WriteLine("Usage: PackageConsumer <write|read> <journal-directory>");
+    Environment.ExitCode = 2;
+    return;
+}
+
 using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
 var directory = Path.GetFullPath(args[1]);
 Directory.CreateDirectory(directory);

@@ -38,6 +38,10 @@ with tempfile.TemporaryDirectory(prefix='om-package-consumer-') as temporary:
     run('dotnet', 'restore', str(consumer / 'PackageConsumer.csproj'), f'-p:JournalingVersion={version}', '--source', str(feed), '--source', 'https://api.nuget.org/v3/index.json')
     run('dotnet', 'build', str(consumer / 'PackageConsumer.csproj'), '-c', 'Release', '--no-restore', f'-p:JournalingVersion={version}')
     dll = consumer / 'bin/Release/net10.0/PackageConsumer.dll'
+    for arguments in ([], ['write'], ['invalid', str(root / 'invalid')], ['read', '']):
+        invalid = subprocess.run(['dotnet', str(dll), *arguments], cwd=root, capture_output=True, text=True, timeout=30)
+        assert invalid.returncode == 2 and 'Usage: PackageConsumer' in invalid.stderr, invalid
+    assert not (root / 'invalid').exists(), 'Invalid arguments must not initialize storage'
     run('dotnet', str(dll), 'write', str(root / 'journal'))
     assert any('custom:durable' in f.read_text() for f in (root / 'journal').glob('*.journal')), 'Host converter not used'
     run('dotnet', str(dll), 'read', str(root / 'journal'))

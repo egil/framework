@@ -44,10 +44,6 @@ public sealed class JournaledOrderGrain : DurableGrain, IJournaledOrderGrain, IO
     public async Task<bool> ReceiveAsync(OutboxSequenceToken token, string text, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        // Validate and construct fallible business work before staging any journal changes.
-        ArgumentException.ThrowIfNullOrWhiteSpace(text);
-        var next = new OrderState(checked((business.Value?.Accepted ?? 0) + 1));
-        var outgoing = new OrderEvent(text);
         try
         {
             if (!tracker.TryAcceptMessage(token))
@@ -55,16 +51,17 @@ public sealed class JournaledOrderGrain : DurableGrain, IJournaledOrderGrain, IO
                 return false;
             }
 
-            business.Value = next;
-            outbox.Add(outgoing);
+            ArgumentException.ThrowIfNullOrWhiteSpace(text);
+            business.Value = new OrderState(checked((business.Value?.Accepted ?? 0) + 1));
+            outbox.Add(new OrderEvent(text));
             // All three named components share this manager. No OM IStateManager participates.
             await WriteStateAsync(cancellationToken);
             return true;
         }
         catch
         {
-            // A canceled wait or lost acknowledgement cannot prove that a write failed.
-            // Retire this activation so the next request starts from journal recovery.
+            // Business processing can fail after the tracker staged acceptance, and a lost
+            // write acknowledgement is uncertain. Recover before handling another message.
             DeactivateOnIdle();
             throw;
         }

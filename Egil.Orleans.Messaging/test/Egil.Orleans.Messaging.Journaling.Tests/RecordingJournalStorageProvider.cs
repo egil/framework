@@ -93,7 +93,7 @@ public sealed class PausedJournalWrite : IAsyncDisposable
     private Task observed = Task.CompletedTask;
 
     public Task Started => started.Task;
-    public void Observe(Task task) => observed = task;
+    public void Observe(Task task) => observed = ObserveCompletionAsync(task);
     public void Release() => release.TrySetResult();
 
     internal async Task WaitAsync(CancellationToken cancellationToken)
@@ -104,8 +104,13 @@ public sealed class PausedJournalWrite : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        // Assertion failures and timeouts must release storage and observe the pending grain call.
+        // Tests assert the original task explicitly. Cleanup must not replace an assertion
+        // failure with a write failure or timeout; the observer still consumes a later fault.
         Release();
-        await observed.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken.None);
+        await observed.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken.None)
+            .ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing | ConfigureAwaitOptions.ContinueOnCapturedContext);
     }
+
+    private static async Task ObserveCompletionAsync(Task task) =>
+        await task.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing | ConfigureAwaitOptions.ContinueOnCapturedContext);
 }

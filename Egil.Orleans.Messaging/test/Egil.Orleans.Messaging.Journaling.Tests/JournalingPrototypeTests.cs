@@ -31,6 +31,17 @@ public sealed class JournalingPrototypeTests(JournalingPrototypeFixture fixture)
     }
 
     [Fact]
+    public async Task Duplicate_messages_are_rejected_before_business_validation()
+    {
+        var grain = fixture.NewGrain();
+        var token = Token(1);
+        Assert.True(await grain.ReceiveAsync(token, "first", TestContext.Current.CancellationToken));
+
+        Assert.False(await grain.ReceiveAsync(token, "", TestContext.Current.CancellationToken));
+        Assert.Equal(1, (await grain.ReadAsync()).Business.Accepted);
+    }
+
+    [Fact]
     public async Task Posted_messages_are_removed_without_rewriting_business_state_or_payloads()
     {
         var grain = fixture.NewGrain();

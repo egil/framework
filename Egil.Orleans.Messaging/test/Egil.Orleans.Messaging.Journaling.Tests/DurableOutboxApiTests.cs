@@ -8,7 +8,7 @@ public sealed class DurableOutboxApiTests(JournalingPrototypeFixture fixture)
     : IClassFixture<JournalingPrototypeFixture>
 {
     [Fact]
-    public async Task Fluent_appends_journal_every_message_and_expose_the_staged_collection()
+    public async Task Fluent_outbox_journals_every_message_and_exposes_the_staged_collection()
     {
         var now = DateTimeOffset.Parse("2026-09-01T10:00:00+02:00", System.Globalization.CultureInfo.InvariantCulture);
         await using var session = await fixture.NewSessionAsync(time: new ManualTimeProvider(now));

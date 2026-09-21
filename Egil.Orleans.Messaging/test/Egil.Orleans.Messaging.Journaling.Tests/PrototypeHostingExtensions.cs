@@ -8,6 +8,7 @@ public static class PrototypeHostingExtensions
     public static ISiloBuilder AddMessagingJournalingPrototype(this ISiloBuilder silo)
     {
         silo.UseJsonJournalFormat(options => options.AddTypeInfoResolver(new DefaultJsonTypeInfoResolver()));
+        // Register twice so every cluster scenario also exercises registration idempotency.
         return silo.AddMessagingJournaling().AddMessagingJournaling();
     }
 }
