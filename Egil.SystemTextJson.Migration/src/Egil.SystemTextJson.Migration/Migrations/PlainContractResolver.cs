@@ -17,9 +17,11 @@ namespace Egil.SystemTextJson.Migration.Migrations;
 /// </remarks>
 internal sealed class PlainContractResolver(IJsonTypeInfoResolver inner, MigrationScope scope) : IJsonTypeInfoResolver
 {
+    public IJsonTypeInfoResolver Inner { get; } = inner;
+
     public JsonTypeInfo? GetTypeInfo(Type type, JsonSerializerOptions options)
     {
-        JsonTypeInfo? typeInfo = inner.GetTypeInfo(type, options);
+        JsonTypeInfo? typeInfo = Inner.GetTypeInfo(type, options);
 
         if (!scope.IsBuildingConverterFor(type))
         {

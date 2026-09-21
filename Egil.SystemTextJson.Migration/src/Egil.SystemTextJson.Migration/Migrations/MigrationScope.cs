@@ -15,13 +15,16 @@ namespace Egil.SystemTextJson.Migration.Migrations;
 /// <see cref="JsonSerializerOptions.TypeInfoResolverChain"/>, because a decorator such as
 /// <c>WithAddedModifier</c> hides the resolver from the chain while still delegating to it.
 /// STJ hands every <c>GetTypeInfo</c> call the options being resolved, so the instance is
-/// always available where the scope is needed.
+/// always available where the scope is needed. A cached scope is only trusted while its resolver
+/// is still reachable from the options' resolver, so replacing the resolver after registration
+/// makes the options unregistered again.
 /// </remarks>
 internal sealed class MigrationScope
 {
     private static readonly ConditionalWeakTable<JsonSerializerOptions, MigrationScope> Scopes = new();
 
     private readonly HashSet<Type> excludedTypes;
+    private bool? usesReflectionFallback;
 
     public MigrationScope(JsonMigrationTypeInfoResolver resolver, JsonSerializerOptions rootOptions, HashSet<Type> excludedTypes)
     {
@@ -41,6 +44,47 @@ internal sealed class MigrationScope
     public JsonSerializerOptions RootOptions { get; }
 
     /// <summary>
+    /// Whether the migration resolver stands in for <see cref="DefaultJsonTypeInfoResolver"/>.
+    /// STJ populates the default resolver only when the chain is empty at freeze time, and
+    /// registering migration makes it non-empty, so users who configured no resolver would lose
+    /// reflection-based serialization. The stand-in applies only while every resolver the root
+    /// options delegate to is the migration resolver itself (possibly decorated); any other
+    /// resolver, visible or hidden inside a decorator, is left to serve the remaining types as it
+    /// would without migration. An application-defined decorator is opaque and counts as another
+    /// resolver, so a caller using one names the resolver they want explicitly.
+    /// </summary>
+    public bool UsesReflectionFallback
+    {
+        get
+        {
+            if (usesReflectionFallback is { } cached)
+            {
+                return cached;
+            }
+
+            bool onlyMigration = false;
+            foreach (IJsonTypeInfoResolver leaf in ResolverLeaves.Of(RootOptions.TypeInfoResolver))
+            {
+                if (leaf is not JsonMigrationTypeInfoResolver)
+                {
+                    onlyMigration = false;
+                    break;
+                }
+
+                onlyMigration = true;
+            }
+
+            // Only cached once the options are frozen; before that the chain can still change.
+            if (RootOptions.IsReadOnly)
+            {
+                usesReflectionFallback = onlyMigration;
+            }
+
+            return onlyMigration;
+        }
+    }
+
+    /// <summary>
     /// Whether <paramref name="type"/>'s own converter is being built through these options, so
     /// that the type resolves to its plain object contract.
     /// </summary>
@@ -52,8 +96,26 @@ internal sealed class MigrationScope
     public static void Register(JsonSerializerOptions options, MigrationScope scope)
         => Scopes.AddOrUpdate(options, scope);
 
+    /// <summary>
+    /// The scope registered for <paramref name="options"/>, provided its resolver is still reachable
+    /// from the options' resolver; a stale entry (the resolver was replaced or the chain cleared) is
+    /// dropped so the options count as unregistered.
+    /// </summary>
     public static MigrationScope? Find(JsonSerializerOptions options)
-        => Scopes.TryGetValue(options, out MigrationScope? scope) ? scope : null;
+    {
+        if (!Scopes.TryGetValue(options, out MigrationScope? scope))
+        {
+            return null;
+        }
+
+        if (ResolverLeaves.Contains(options.TypeInfoResolver, scope.Resolver))
+        {
+            return scope;
+        }
+
+        Scopes.Remove(options);
+        return null;
+    }
 
     /// <summary>
     /// Finds the scope for <paramref name="options"/>, or builds one for an options instance that
@@ -66,29 +128,16 @@ internal sealed class MigrationScope
             return scope;
         }
 
-        JsonMigrationTypeInfoResolver? resolver = FindInChain(options) ?? Probe(options);
-        return resolver is null ? null : new MigrationScope(resolver, options, []);
-    }
-
-    private static JsonMigrationTypeInfoResolver? FindInChain(JsonSerializerOptions options)
-    {
-        foreach (IJsonTypeInfoResolver resolver in options.TypeInfoResolverChain)
+        foreach (IJsonTypeInfoResolver leaf in ResolverLeaves.Of(options.TypeInfoResolver))
         {
-            if (resolver is JsonMigrationTypeInfoResolver migrationResolver)
+            if (leaf is JsonMigrationTypeInfoResolver resolver)
             {
-                return migrationResolver;
+                var discovered = new MigrationScope(resolver, options, []);
+                Register(options, discovered);
+                return discovered;
             }
         }
 
         return null;
-    }
-
-    private static JsonMigrationTypeInfoResolver? Probe(JsonSerializerOptions options)
-    {
-        // A decorated entry is not visible in the chain but still forwards requests, so the chain
-        // is asked for a marker type that only the migration resolver answers. Calling the resolver
-        // directly, rather than options.GetTypeInfo, leaves mutable options mutable.
-        JsonTypeInfo? probe = options.TypeInfoResolver?.GetTypeInfo(typeof(MigrationProbe), options);
-        return (probe?.Converter as MigrationProbe.Converter)?.Resolver;
     }
 }

@@ -61,6 +61,87 @@ public class ResolverChainTests
     }
 
     [Fact]
+    public void Replacing_the_resolver_then_adding_migration_support_again_registers_it()
+    {
+        // The first registration is gone once the resolver is replaced, so the second call must
+        // not be treated as a duplicate.
+        var options = new JsonSerializerOptions();
+        options.AddJsonMigrationSupport();
+        options.TypeInfoResolver = new DefaultJsonTypeInfoResolver();
+        options.AddJsonMigrationSupport();
+
+        var json = JsonSerializer.Serialize(new ChainV2("Jane", "Doe"), options);
+
+        Assert.Equal("""{"$type":"chain-v2","FirstName":"Jane","LastName":"Doe"}""", json);
+        Assert.Equal(2, options.TypeInfoResolverChain.Count);
+    }
+
+    [Fact]
+    public void Clearing_the_chain_then_adding_migration_support_again_registers_it()
+    {
+        var options = new JsonSerializerOptions();
+        options.AddJsonMigrationSupport();
+        options.TypeInfoResolverChain.Clear();
+        options.AddJsonMigrationSupport();
+
+        var migrated = JsonSerializer.Deserialize<ChainV2>(LegacyPayload, options);
+
+        Assert.Equal(new ChainV2("Jane", "Doe"), migrated);
+    }
+
+    [Fact]
+    public void Registration_leaves_a_configured_resolver_mutable()
+    {
+        // DefaultJsonTypeInfoResolver freezes its Modifiers on its first GetTypeInfo call, so
+        // registration must not resolve anything through the user's resolver.
+        var resolver = new DefaultJsonTypeInfoResolver();
+        var options = new JsonSerializerOptions { TypeInfoResolver = resolver };
+        options.AddJsonMigrationSupport();
+        resolver.Modifiers.Add(static typeInfo =>
+        {
+            foreach (JsonPropertyInfo property in typeInfo.Properties)
+            {
+                if (property.Name == nameof(ChainWrapper.Inner))
+                {
+                    property.Name = "inner";
+                }
+            }
+        });
+
+        var json = JsonSerializer.Serialize(new ChainWrapper(new ChainV2("Jane", "Doe")), options);
+
+        Assert.Equal("""{"inner":{"$type":"chain-v2","FirstName":"Jane","LastName":"Doe"}}""", json);
+    }
+
+    [Fact]
+    public void Whole_chain_decorated_keeps_the_downstream_resolver()
+    {
+        // A decorator around the whole chain leaves one visible entry; the migration resolver must
+        // still let the resolver inside it serve the other types instead of standing in with
+        // plain reflection.
+        var options = new JsonSerializerOptions { TypeInfoResolver = new DefaultJsonTypeInfoResolver() };
+        ((DefaultJsonTypeInfoResolver)options.TypeInfoResolver).Modifiers.Add(static typeInfo =>
+        {
+            foreach (JsonPropertyInfo property in typeInfo.Properties)
+            {
+                if (property.Name == nameof(ChainWrapper.Inner))
+                {
+                    property.Name = "inner";
+                }
+            }
+        });
+        options.AddJsonMigrationSupport();
+        options.TypeInfoResolver = JsonTypeInfoResolver.Combine(options.TypeInfoResolver!).WithAddedModifier(static _ => { });
+
+        var json = JsonSerializer.Serialize(new ChainWrapper(new ChainV2("Jane", "Doe")), options);
+        var migrated = JsonSerializer.Deserialize<ChainV2>(LegacyPayload, options);
+
+        Assert.Single(options.TypeInfoResolverChain);
+        Assert.Equal("""{"inner":{"$type":"chain-v2","FirstName":"Jane","LastName":"Doe"}}""", json);
+        Assert.Equal(new ChainV2("Jane", "Doe"), migrated);
+    }
+
+    [Fact]
     public void Converter_removed_from_a_copy_lets_migration_serve_the_type_there()
     {
         // A converter registered before migration support wins only while it is still in the

@@ -46,11 +46,6 @@ internal sealed class JsonMigrationTypeInfoResolver : IJsonTypeInfoResolver
         ArgumentNullException.ThrowIfNull(type);
         ArgumentNullException.ThrowIfNull(options);
 
-        if (type == typeof(MigrationProbe))
-        {
-            return JsonMetadataServices.CreateValueInfo<MigrationProbe>(options, new MigrationProbe.Converter(this));
-        }
-
         MigrationScope? scope = MigrationScope.Find(options);
 
         // The type whose converter is being built through these options wants its plain object
@@ -87,16 +82,10 @@ internal sealed class JsonMigrationTypeInfoResolver : IJsonTypeInfoResolver
 
     internal JsonTypeInfo? ResolveReflectionFallback(Type type, JsonSerializerOptions options, MigrationScope? scope)
     {
-        // STJ populates DefaultJsonTypeInfoResolver only when the chain is empty at freeze time, and
-        // inserting this resolver makes it non-empty. Users who never configure a resolver would
-        // otherwise lose reflection-based serialization, so the resolver stands in for the default
-        // when it is the only entry of the chain the user configured; a context added later takes
-        // over as it would without migration. Exclusion clones carry a wrapper as their single chain
-        // entry, so the shape is read from the root options. A decorator around the whole chain
-        // hides its entries as well; with one present the user is expected to name the resolver
-        // they want, as they would without migration.
-        JsonSerializerOptions rootOptions = scope?.RootOptions ?? options;
-        if (rootOptions.TypeInfoResolverChain.Count != 1 || !JsonSerializer.IsReflectionEnabledByDefault)
+        // See MigrationScope.UsesReflectionFallback for when the resolver stands in for the default.
+        // A copy of registered options has no scope of its own; its chain is inspected directly.
+        bool applies = scope?.UsesReflectionFallback ?? new MigrationScope(this, options, []).UsesReflectionFallback;
+        if (!applies || !JsonSerializer.IsReflectionEnabledByDefault)
         {
             return null;
         }

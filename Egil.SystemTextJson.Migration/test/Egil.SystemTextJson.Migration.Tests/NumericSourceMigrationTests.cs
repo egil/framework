@@ -99,11 +99,23 @@ public partial class NumericSourceMigrationTests
     }
 
     [Fact]
-    public void Ambiguous_numeric_migrators_throw_for_number_payload()
+    public void Int_source_wins_over_half_source_for_a_number_as_in_1x()
+    {
+        // 1.x matched int by TypeCode and never matched Half, so a number keeps going to int
+        // now that Half is a numeric source too.
+        var options = CreateOptions();
+
+        var result = JsonSerializer.Deserialize<AmbiguousNumericState>("42", options);
+
+        Assert.Equal("from-int", result!.Source);
+    }
+
+    [Fact]
+    public void Two_numeric_sources_that_1x_matched_are_ambiguous_for_a_number()
     {
         var options = CreateOptions();
 
-        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<AmbiguousNumericState>("42", options));
+        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<IntOrLongState>("42", options));
 
         Assert.Contains("ambiguous", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
@@ -361,6 +373,41 @@ public partial class NumericSourceMigrationTests
     }
 
     [Fact]
+    public void String_source_wins_over_guid_source_for_a_string_payload_as_in_1x()
+    {
+        // 1.x matched a JSON string to the string source only; Guid became a string-shaped source
+        // in 2.0 and must not turn that payload into an ambiguity, even when it parses as a Guid.
+        var options = CreateOptions();
+
+        var result = JsonSerializer.Deserialize<StringOrGuidState>($"\"{Guid.NewGuid()}\"", options);
+
+        Assert.Equal("from-string", result!.Source);
+    }
+
+    [Fact]
+    public void Overridden_string_source_wins_over_plain_guid_source_as_in_1x()
+    {
+        // The override only demotes the string source below other 1.x sources, not below sources
+        // that 1.x never matched.
+        var options = CreateOptions();
+        options.Converters.Add(new UpperStringConverter());
+
+        var result = JsonSerializer.Deserialize<StringOrGuidState>("\"abc\"", options);
+
+        Assert.Equal("from-string", result!.Source);
+    }
+
+    [Fact]
+    public void String_list_source_wins_over_guid_list_source_for_string_elements_as_in_1x()
+    {
+        var options = CreateOptions();
+
+        var result = JsonSerializer.Deserialize<StringListOrGuidListState>($"""["{Guid.NewGuid()}"]""", options);
+
+        Assert.Equal("from-string-list", result!.Source);
+    }
+
+    [Fact]
     public void Two_overridden_enum_sources_are_ambiguous_for_a_number()
     {
         var options = CreateOptions();
@@ -542,6 +589,51 @@ public partial class NumericSourceMigrationTests
     {
         Light,
         Dark,
+    }
+
+    public sealed class UpperStringConverter : JsonConverter<string>
+    {
+        public override string Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+            => reader.GetString()!.ToUpperInvariant();
+
+        public override void Write(Utf8JsonWriter writer, string value, JsonSerializerOptions options)
+            => writer.WriteStringValue(value);
+    }
+
+    [JsonMigratable]
+    public record class StringOrGuidState(string Source)
+        : IMigrateFrom<string, StringOrGuidState>,
+          IMigrateFrom<Guid, StringOrGuidState>
+    {
+        public static bool TryMigrateFrom(string source, out StringOrGuidState result)
+        {
+            result = new StringOrGuidState("from-string");
+            return true;
+        }
+
+        public static bool TryMigrateFrom(Guid source, out StringOrGuidState result)
+        {
+            result = new StringOrGuidState("from-guid");
+            return true;
+        }
+    }
+
+    [JsonMigratable]
+    public record class StringListOrGuidListState(string Source)
+        : IMigrateFrom<List<string>, StringListOrGuidListState>,
+          IMigrateFrom<List<Guid>, StringListOrGuidListState>
+    {
+        public static bool TryMigrateFrom(List<string> source, out StringListOrGuidListState result)
+        {
+            result = new StringListOrGuidListState("from-string-list");
+            return true;
+        }
+
+        public static bool TryMigrateFrom(List<Guid> source, out StringListOrGuidListState result)
+        {
+            result = new StringListOrGuidListState("from-guid-list");
+            return true;
+        }
     }
 
     public sealed class DoublingIntConverter : JsonConverter<int>
@@ -983,6 +1075,24 @@ public partial class NumericSourceMigrationTests
         public static bool TryMigrateFrom(List<string> source, out HalfOrStringListState result)
         {
             result = new HalfOrStringListState("from-string-list");
+            return true;
+        }
+    }
+
+    [JsonMigratable]
+    public record class IntOrLongState(string Source)
+        : IMigrateFrom<int, IntOrLongState>,
+          IMigrateFrom<long, IntOrLongState>
+    {
+        public static bool TryMigrateFrom(int source, out IntOrLongState result)
+        {
+            result = new IntOrLongState("from-int");
+            return true;
+        }
+
+        public static bool TryMigrateFrom(long source, out IntOrLongState result)
+        {
+            result = new IntOrLongState("from-long");
             return true;
         }
     }

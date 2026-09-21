@@ -73,13 +73,14 @@ public partial class NumericSourceMigrationTests
     }
 
     [Fact]
-    public void Ambiguous_int_and_decimal64_migrators_throw_for_number_payload()
+    public void Int_source_wins_over_decimal64_source_for_a_number_as_in_1x()
     {
+        // Decimal64 is a numeric source only since 2.0; the int source 1.x selected keeps the payload.
         var options = CreateOptions();
 
-        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<IntOrDecimal64State>("42", options));
+        var result = JsonSerializer.Deserialize<IntOrDecimal64State>("42", options);
 
-        Assert.Contains("ambiguous", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("from-int", result!.Source);
     }
 
     [JsonMigratable]

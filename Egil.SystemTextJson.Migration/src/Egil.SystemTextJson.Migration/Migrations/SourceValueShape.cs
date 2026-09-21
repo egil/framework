@@ -86,6 +86,26 @@ internal static class SourceValueShapes
     }
 
     /// <summary>
+    /// Whether 1.x matched <paramref name="type"/> to a scalar token: <c>string</c>, <c>bool</c> and
+    /// the <see cref="TypeCode"/> numerics (which include enums). These sources are matched ahead of
+    /// the types 2.0 added, so a payload that 1.x routed keeps its source when a newer source of
+    /// the same JSON shape is registered alongside it.
+    /// </summary>
+    public static bool IsLegacyShape(Type type)
+    {
+        type = Nullable.GetUnderlyingType(type) ?? type;
+        return type == typeof(string)
+            || type == typeof(bool)
+            || Type.GetTypeCode(type) is
+                TypeCode.Byte or TypeCode.SByte or
+                TypeCode.Int16 or TypeCode.UInt16 or
+                TypeCode.Int32 or TypeCode.UInt32 or
+                TypeCode.Int64 or TypeCode.UInt64 or
+                TypeCode.Single or TypeCode.Double or
+                TypeCode.Decimal;
+    }
+
+    /// <summary>
     /// Whether <see cref="JsonNumberHandling.AllowReadingFromString"/> lets the converter for
     /// <paramref name="type"/> read ordinary quoted numbers such as "42". Enums are excluded:
     /// their converter ignores number handling and reads strings only as names. The converter
