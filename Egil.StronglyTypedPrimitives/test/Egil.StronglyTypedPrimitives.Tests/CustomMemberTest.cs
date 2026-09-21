@@ -217,3 +217,65 @@ public class Custom_Value_property_beside_alt_type_param_name
         );
     }
 }
+
+public class Custom_Create_generic_overload
+{
+    [Fact]
+    public async Task Test()
+    {
+        var input = """
+            using Egil.StronglyTypedPrimitives;
+
+            namespace SomeNamespace;
+
+            [StronglyTyped]
+            public readonly partial record struct Foo(int Value)
+            {
+                public static Foo Create<T>(int value) => new Foo(value);
+            }
+            """;
+
+        await SnapshotTestHelper.Verify<StronglyTypedPrimitiveGenerator>(
+            input,
+            LanguageVersion.LatestMajor,
+            out var compilation
+        );
+
+        Assert.Empty(
+            compilation
+                .GetDiagnostics(TestContext.Current.CancellationToken)
+                .Where(d => d.Severity > DiagnosticSeverity.Warning)
+        );
+    }
+}
+
+public class Custom_Create_ref_overload
+{
+    [Fact]
+    public async Task Test()
+    {
+        var input = """
+            using Egil.StronglyTypedPrimitives;
+
+            namespace SomeNamespace;
+
+            [StronglyTyped]
+            public readonly partial record struct Foo(int Value)
+            {
+                public static Foo Create(ref int value) => new Foo(value);
+            }
+            """;
+
+        await SnapshotTestHelper.Verify<StronglyTypedPrimitiveGenerator>(
+            input,
+            LanguageVersion.LatestMajor,
+            out var compilation
+        );
+
+        Assert.Empty(
+            compilation
+                .GetDiagnostics(TestContext.Current.CancellationToken)
+                .Where(d => d.Severity > DiagnosticSeverity.Warning)
+        );
+    }
+}

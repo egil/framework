@@ -277,7 +277,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         var hasNonPublicCreateMethod = targetTypeMembers
             .OfType<IMethodSymbol>()
             .Any(m => m.Name == "Create"
-                   && m.IsStatic && m.Parameters.Length == 1
+                   && m.IsStatic && IsNonGenericByValue(m) && m.Parameters.Length == 1
                    && m.Parameters[0].Type.Equals(underlyingTypeSymbol, SymbolEqualityComparer.Default));
         if (hasNonPublicCreateMethod)
         {
@@ -304,10 +304,18 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             .Any(m => m.Name == name
                    && m.IsStatic
                    && m.DeclaredAccessibility == Accessibility.Public
+                   && IsNonGenericByValue(m)
                    && m.Parameters.Length == (secondParameterType is null ? 1 : 2)
                    && m.Parameters[0].Type.Equals(firstParameterType, SymbolEqualityComparer.Default)
                    && (secondParameterType is null || m.Parameters[1].Type.Equals(secondParameterType, SymbolEqualityComparer.Default))
                    && m.ReturnType.Equals(returnType, SymbolEqualityComparer.Default));
+
+    // A generic method or one taking its parameters by reference is a different overload from the
+    // member the generator would emit, so it is not a replacement for it: treating `Create<T>(int)`
+    // or `Create(ref int)` as the implementation of the static abstract `Create(int)` would skip
+    // generation and leave the interface unimplemented (CS0535).
+    private static bool IsNonGenericByValue(IMethodSymbol method)
+        => !method.IsGenericMethod && method.Parameters.All(p => p.RefKind == RefKind.None);
 
     private static IEnumerable<string> GetIsValueValidMethod(ITypeSymbol underlyingTypeSymbol, bool hasUserDeclaredIsValueValid)
     {
