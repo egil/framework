@@ -2,6 +2,7 @@
 // static abstract interface members the converter relies on. netstandard2.0 deliberately has no
 // System.Text.Json reference, so the converter does not exist there.
 #if NET8_0_OR_GREATER
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
@@ -29,6 +30,13 @@ public sealed class StronglyTypedJsonConverter<TSelf, TPrimitive> : JsonConverte
     // keys round-trip across machines with different cultures. Values only fall back to them when
     // the options have no contract for the primitive (see ReadPrimitive).
     private static readonly JsonConverter<TPrimitive>? builtInConverter = BuiltInPrimitiveConverters.Find<TPrimitive>();
+
+    // Cache for the value converter used when the options have no contract for the primitive.
+    // Options are read-only by the time any converter runs, so their Converters list cannot change
+    // afterwards and the resolution is stable per options instance; caching it also keeps a
+    // JsonConverterFactory from creating a new converter for every value. The weak table lets the
+    // options be collected as usual.
+    private static readonly ConditionalWeakTable<JsonSerializerOptions, JsonConverter<TPrimitive>> valueConverters = new();
 
     public override TSelf Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
@@ -70,7 +78,7 @@ public sealed class StronglyTypedJsonConverter<TSelf, TPrimitive> : JsonConverte
 
     public override TSelf ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
-        var rawValue = GetPrimitiveConverter(options).ReadAsPropertyName(ref reader, typeof(TPrimitive), options);
+        var rawValue = GetBuiltInPrimitiveConverter(options).ReadAsPropertyName(ref reader, typeof(TPrimitive), options);
 
         // A dictionary key that fails validation throws instead of mapping to the default instance,
         // because several invalid keys would otherwise collapse into duplicate default keys.
@@ -91,7 +99,7 @@ public sealed class StronglyTypedJsonConverter<TSelf, TPrimitive> : JsonConverte
             return;
         }
 
-        GetPrimitiveConverter(options).WriteAsPropertyName(writer, rawValue, options);
+        GetBuiltInPrimitiveConverter(options).WriteAsPropertyName(writer, rawValue, options);
     }
 
     // Values go through the options' contract for the primitive whenever the options have one, so
@@ -99,14 +107,15 @@ public sealed class StronglyTypedJsonConverter<TSelf, TPrimitive> : JsonConverte
     // JsonSerializerDefaults.Web) and any custom converter registered for the primitive apply
     // exactly as they do to a plain primitive property. Calling the built-in converter directly
     // bypasses both: its Read never consults NumberHandling, so `"42"` was rejected for an
-    // int-based primitive even though the OpenAPI schema advertises the string form. The
-    // built-in converter remains the fallback for a JsonSerializerContext without metadata for
-    // the primitive type. Property names deliberately stay on the built-in converters so keys
-    // remain culture invariant regardless of the options.
+    // int-based primitive even though the OpenAPI schema advertises the string form. Without a
+    // contract (a JsonSerializerContext without metadata for the primitive type) a converter
+    // registered in options.Converters is used, then the built-in one. Property names
+    // deliberately stay on the built-in converters so keys remain culture invariant regardless of
+    // the options.
     private static TPrimitive? ReadPrimitive(ref Utf8JsonReader reader, JsonSerializerOptions options)
         => options.TryGetTypeInfo(typeof(TPrimitive), out var typeInfo)
             ? JsonSerializer.Deserialize(ref reader, (JsonTypeInfo<TPrimitive>)typeInfo)
-            : GetPrimitiveConverter(options).Read(ref reader, typeof(TPrimitive), options);
+            : GetPrimitiveValueConverter(options).Read(ref reader, typeof(TPrimitive), options);
 
     private static void WritePrimitive(Utf8JsonWriter writer, TPrimitive rawValue, JsonSerializerOptions options)
     {
@@ -116,10 +125,39 @@ public sealed class StronglyTypedJsonConverter<TSelf, TPrimitive> : JsonConverte
             return;
         }
 
-        GetPrimitiveConverter(options).Write(writer, rawValue, options);
+        GetPrimitiveValueConverter(options).Write(writer, rawValue, options);
     }
 
-    private static JsonConverter<TPrimitive> GetPrimitiveConverter(JsonSerializerOptions options)
+    private static JsonConverter<TPrimitive> GetPrimitiveValueConverter(JsonSerializerOptions options)
+        => valueConverters.GetValue(options, static o => ResolvePrimitiveValueConverter(o));
+
+    // Mirrors the serializer's own precedence for a plain primitive: a converter registered in
+    // options.Converters wins over the built-in one, so a custom int or decimal converter still
+    // applies to strongly typed values when the type info resolver has no metadata for the
+    // primitive. A factory is unwrapped the way the serializer does it; one that declines to
+    // create a converter is skipped.
+    private static JsonConverter<TPrimitive> ResolvePrimitiveValueConverter(JsonSerializerOptions options)
+    {
+        foreach (var converter in options.Converters)
+        {
+            if (!converter.CanConvert(typeof(TPrimitive)))
+            {
+                continue;
+            }
+
+            var resolved = converter is JsonConverterFactory factory
+                ? factory.CreateConverter(typeof(TPrimitive), options)
+                : converter;
+            if (resolved is JsonConverter<TPrimitive> primitiveConverter)
+            {
+                return primitiveConverter;
+            }
+        }
+
+        return GetBuiltInPrimitiveConverter(options);
+    }
+
+    private static JsonConverter<TPrimitive> GetBuiltInPrimitiveConverter(JsonSerializerOptions options)
     {
         if (builtInConverter is not null)
         {
