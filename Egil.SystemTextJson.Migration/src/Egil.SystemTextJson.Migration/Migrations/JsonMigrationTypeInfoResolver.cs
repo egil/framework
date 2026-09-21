@@ -46,6 +46,11 @@ internal sealed class JsonMigrationTypeInfoResolver : IJsonTypeInfoResolver
         ArgumentNullException.ThrowIfNull(type);
         ArgumentNullException.ThrowIfNull(options);
 
+        if (type == typeof(MigrationProbe))
+        {
+            return JsonMetadataServices.CreateValueInfo<MigrationProbe>(options, new MigrationProbe.Converter(this));
+        }
+
         MigrationScope? scope = MigrationScope.Find(options);
 
         // The type whose converter is being built through these options wants its plain object
