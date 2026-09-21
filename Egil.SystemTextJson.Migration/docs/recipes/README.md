@@ -4,6 +4,10 @@ Scenario-driven guides for common migration tasks. Each recipe shows a problem, 
 
 All code samples are extracted from the [samples project](../../samples/Egil.SystemTextJson.Migration.Samples/) — they compile and run as part of CI.
 
+## Upgrading
+
+- [Upgrading to 2.0](upgrading-to-v2.md): behavior changes since 1.x, the checks to run, and the guarantee for stored 1.x data.
+
 ## Getting started
 
 - [Setting up migration support](getting-started.md#setting-up-migration-support)
