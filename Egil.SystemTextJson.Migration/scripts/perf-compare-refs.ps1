@@ -108,7 +108,11 @@ function Set-Boost([int]$mode) {
 }
 
 function Get-BoostMode {
-    $text = & powercfg -query SCHEME_CURRENT SUB_PROCESSOR PERFBOOSTMODE | Out-String
+    # The boost setting is a hidden power attribute, so powercfg -query omits it until the
+    # hide flag is cleared (needs an elevated shell; without one the query stays empty and
+    # the caller refuses to change the plan).
+    & powercfg -attributes SUB_PROCESSOR PERFBOOSTMODE -ATTRIB_HIDE 2>&1 | Out-Null
+    $text = & powercfg -query SCHEME_CURRENT SUB_PROCESSOR PERFBOOSTMODE 2>&1 | Out-String
     if ($text -match 'Current AC Power Setting Index:\s*0x([0-9a-fA-F]+)') { return [Convert]::ToInt32($Matches[1], 16) }
     return $null
 }
