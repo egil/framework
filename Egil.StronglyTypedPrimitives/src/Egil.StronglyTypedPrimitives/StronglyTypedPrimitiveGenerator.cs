@@ -911,9 +911,16 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         var contextName = Parser.GetUnusedName("validationContext", reservedNames);
         var tokenName = Parser.GetUnusedName("cancellationToken", reservedNames);
         var resultName = Parser.GetUnusedName("result", reservedNames);
-        var declaration = targetTypeMembers.Any(member => member.Name == "ValidateAsync")
+        var implementsExplicitly = targetTypeMembers.Any(member => member.Name == "ValidateAsync");
+        var declaration = implementsExplicitly
             ? $"async System.Collections.Generic.IAsyncEnumerable<{ValidationResultTypeName}> System.ComponentModel.DataAnnotations.IAsyncValidatableObject.ValidateAsync"
             : $"public async System.Collections.Generic.IAsyncEnumerable<{ValidationResultTypeName}> ValidateAsync";
+
+        // The interface declares the token optional, so a caller of the public method can leave it
+        // out the way a caller through the interface can. An explicit interface implementation
+        // cannot carry a default (CS1066), and needs none: it is only callable through the
+        // interface, whose own default applies.
+        var tokenDefault = implementsExplicitly ? string.Empty : " = default";
         var validators = validationAttributes.ValidatorsTypeName;
         var attributes = GetAsyncAttributes(validationAttributes, generatesValidateAsync);
 
@@ -933,7 +940,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
 
         source.Append($$"""
 
-                {{declaration}}(System.ComponentModel.DataAnnotations.ValidationContext {{contextName}}, [System.Runtime.CompilerServices.EnumeratorCancellation] System.Threading.CancellationToken {{tokenName}})
+                {{declaration}}(System.ComponentModel.DataAnnotations.ValidationContext {{contextName}}, [System.Runtime.CompilerServices.EnumeratorCancellation] System.Threading.CancellationToken {{tokenName}}{{tokenDefault}})
                 {
                     foreach (var {{resultName}} in {{validateInvocation}})
                     {

@@ -163,7 +163,7 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
     }
 
 #pragma warning disable CS1998 // no async attribute to await, but only an async iterator can yield an IAsyncEnumerable
-    public async System.Collections.Generic.IAsyncEnumerable<System.ComponentModel.DataAnnotations.ValidationResult> ValidateAsync(System.ComponentModel.DataAnnotations.ValidationContext validationContext, [System.Runtime.CompilerServices.EnumeratorCancellation] System.Threading.CancellationToken cancellationToken)
+    public async System.Collections.Generic.IAsyncEnumerable<System.ComponentModel.DataAnnotations.ValidationResult> ValidateAsync(System.ComponentModel.DataAnnotations.ValidationContext validationContext, [System.Runtime.CompilerServices.EnumeratorCancellation] System.Threading.CancellationToken cancellationToken = default)
     {
         foreach (var result in Validate(validationContext))
         {

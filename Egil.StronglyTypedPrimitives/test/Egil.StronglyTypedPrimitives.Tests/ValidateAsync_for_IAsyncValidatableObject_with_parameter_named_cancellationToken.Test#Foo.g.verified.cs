@@ -119,7 +119,7 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
     public System.Collections.Generic.IEnumerable<System.ComponentModel.DataAnnotations.ValidationResult> Validate(System.ComponentModel.DataAnnotations.ValidationContext validationContext)
         => System.Array.Empty<System.ComponentModel.DataAnnotations.ValidationResult>();
 
-    public async System.Collections.Generic.IAsyncEnumerable<System.ComponentModel.DataAnnotations.ValidationResult> ValidateAsync(System.ComponentModel.DataAnnotations.ValidationContext validationContext, [System.Runtime.CompilerServices.EnumeratorCancellation] System.Threading.CancellationToken cancellationToken_)
+    public async System.Collections.Generic.IAsyncEnumerable<System.ComponentModel.DataAnnotations.ValidationResult> ValidateAsync(System.ComponentModel.DataAnnotations.ValidationContext validationContext, [System.Runtime.CompilerServices.EnumeratorCancellation] System.Threading.CancellationToken cancellationToken_ = default)
     {
         foreach (var result in Validate(validationContext))
         {

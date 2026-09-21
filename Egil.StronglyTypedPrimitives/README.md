@@ -250,7 +250,7 @@ private static class ValueValidators
         => new global::System.ComponentModel.DataAnnotations.ValidationContext(new object(), "Value", null, null) { MemberName = "Value" };
 }
 
-public async System.Collections.Generic.IAsyncEnumerable<System.ComponentModel.DataAnnotations.ValidationResult> ValidateAsync(System.ComponentModel.DataAnnotations.ValidationContext validationContext, [System.Runtime.CompilerServices.EnumeratorCancellation] System.Threading.CancellationToken cancellationToken)
+public async System.Collections.Generic.IAsyncEnumerable<System.ComponentModel.DataAnnotations.ValidationResult> ValidateAsync(System.ComponentModel.DataAnnotations.ValidationContext validationContext, [System.Runtime.CompilerServices.EnumeratorCancellation] System.Threading.CancellationToken cancellationToken = default)
 {
     foreach (var result in Validate(validationContext))
     {
@@ -262,7 +262,7 @@ public async System.Collections.Generic.IAsyncEnumerable<System.ComponentModel.D
 }
 ```
 
-`ValidateAsync` yields everything `Validate` reports first, then awaits every async attribute in declaration order so one call reports all failures, forwarding the cancellation token it was given to each attribute. This is what `Validator.TryValidateObjectAsync` and other `IAsyncValidatableObject` consumers see. The rules for `Validate` apply unchanged: the generator never adds the interface itself, a `ValidateAsync` you write, implicitly or as an explicit interface implementation, is left alone, and when the type already has a member named `ValidateAsync` the generated method implements `IAsyncValidatableObject.ValidateAsync` explicitly.
+`ValidateAsync` yields everything `Validate` reports first, then awaits every async attribute in declaration order so one call reports all failures, forwarding the cancellation token it was given to each attribute. This is what `Validator.TryValidateObjectAsync` and other `IAsyncValidatableObject` consumers see. The rules for `Validate` apply unchanged: the generator never adds the interface itself, a `ValidateAsync` you write, implicitly or as an explicit interface implementation, is left alone, and when the type already has a member named `ValidateAsync` the generated method implements `IAsyncValidatableObject.ValidateAsync` explicitly. The public form declares the cancellation token optional like the interface does, so `value.ValidateAsync(validationContext)` compiles; the explicit form cannot carry a default and is only reachable through the interface, whose default applies.
 
 In ASP.NET Core validation on .NET 11 an async attribute on the positional parameter is treated like a synchronous one: the validation source generator sees it on `Value` and evaluates it itself, so an invalid `Name` property of type `Username` is rejected with a 400 whose problem details carry the attribute's message under `Name.Value`, exactly once. Without a declared `IAsyncValidatableObject` that ASP.NET Core path still works, but nothing this generator emits evaluates the attribute (`IsValueValid` and `Validate` cannot await) and `Validator.TryValidateObjectAsync` has no `ValidateAsync` to call; warning `STP003` points this out.
 

@@ -99,6 +99,24 @@ namespace Egil.StronglyTypedPrimitives
             Assert.Empty(username.Validate(new ValidationContext(username)));
         }
 
+        // The interface declares the cancellation token optional, so the generated public method
+        // does too: this call compiling with one argument is the assertion, the result only shows
+        // the default token reached the attribute.
+        [Fact]
+        public async Task ValidateAsync_can_be_called_without_a_cancellation_token()
+        {
+            var name = new StronglyTypedCancellableName("egil");
+
+            // Leaving the token out is what this test proves compiles, so the analyzer that wants
+            // TestContext.Current.CancellationToken passed is silenced for this one call.
+#pragma warning disable xUnit1051
+            var results = await Collect(name.ValidateAsync(new ValidationContext(name)));
+#pragma warning restore xUnit1051
+
+            var result = Assert.Single(results);
+            Assert.Equal(new ForwardsCancellationAttribute().FormatErrorMessage(nameof(StronglyTypedCancellableName)), result.ErrorMessage);
+        }
+
         // Validator finds no attributes on the Value property through reflection (they sit on the
         // positional parameter), so the generated ValidateAsync is the only place the async
         // attribute runs: once, unlike under ASP.NET Core validation, where the validation source
