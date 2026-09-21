@@ -99,6 +99,21 @@ namespace Egil.StronglyTypedPrimitives
             Assert.Empty(username.Validate(new ValidationContext(username)));
         }
 
+        // Validator finds no attributes on the Value property through reflection (they sit on the
+        // positional parameter), so the generated ValidateAsync is the only place the async
+        // attribute runs: once, unlike under ASP.NET Core validation, where the validation source
+        // generator evaluates it on Value as well (see MinimalApiValidationTest).
+        [Fact]
+        public async Task Validator_evaluates_the_async_attribute_once()
+        {
+            var name = $"{nameof(Validator_evaluates_the_async_attribute_once)}-{Guid.NewGuid():N}";
+
+            var results = await ValidateAsync(new StronglyTypedCountedName(name));
+
+            Assert.Empty(results);
+            Assert.Equal(1, InvocationCountingAttribute.InvocationsFor(name));
+        }
+
         private static async Task<List<ValidationResult>> Collect(IAsyncEnumerable<ValidationResult> results)
         {
             var list = new List<ValidationResult>();

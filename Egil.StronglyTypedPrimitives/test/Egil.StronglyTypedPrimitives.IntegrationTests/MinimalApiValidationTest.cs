@@ -215,6 +215,27 @@ namespace Egil.StronglyTypedPrimitives
 
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         }
+
+        // A valid value runs the async attribute twice: the validation source generator evaluates
+        // it on the Value property, and once every member has passed it calls the generated
+        // ValidateAsync, which evaluates it again. The ValidationContext the framework hands
+        // ValidateAsync (Microsoft.Extensions.Validation 11, Templates/ValidatableTypeInfo.cs) is
+        // a plain new ValidationContext(value, displayName, services, null): no MemberName, empty
+        // Items, no ValidateContext to be found through GetService. Nothing distinguishes it from
+        // the context any caller of Validator.TryValidateObjectAsync builds, so the generator has
+        // no reliable way to skip the second evaluation, and this test pins the count instead.
+        [Fact]
+        public async Task Async_attribute_on_a_valid_body_property_is_evaluated_by_the_framework_and_by_ValidateAsync()
+        {
+            await using var app = await StartApp();
+            using var client = app.GetTestClient();
+            var name = $"{nameof(Async_attribute_on_a_valid_body_property_is_evaluated_by_the_framework_and_by_ValidateAsync)}-{Guid.NewGuid():N}";
+
+            using var response = await client.PostAsJsonAsync("/counted-names", new { name }, TestContext.Current.CancellationToken);
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal(2, InvocationCountingAttribute.InvocationsFor(name));
+        }
 #endif
 
         private static async Task<HttpValidationProblemDetails> ReadValidationProblem(HttpResponseMessage response)
@@ -243,6 +264,7 @@ namespace Egil.StronglyTypedPrimitives
             app.MapPost("/percentages", (PercentageDto dto) => Results.Ok(dto.Value.Value));
 #if NET11_0_OR_GREATER
             app.MapPost("/usernames", (UsernameDto dto) => Results.Ok());
+            app.MapPost("/counted-names", (CountedNameDto dto) => Results.Ok());
 #endif
             await app.StartAsync(TestContext.Current.CancellationToken);
             return app;
@@ -277,6 +299,11 @@ namespace Egil.StronglyTypedPrimitives
         public sealed class UsernameDto
         {
             public StronglyTypedUsername Name { get; set; }
+        }
+
+        public sealed class CountedNameDto
+        {
+            public StronglyTypedCountedName Name { get; set; }
         }
 #endif
     }
