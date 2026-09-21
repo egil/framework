@@ -734,7 +734,10 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
     //
     // The wrapped value is always read as this.<parameter> and every name the method introduces
     // is kept clear of the positional parameter and the user's members, so a parameter called
-    // validationContext or result0 neither shadows nor is shadowed by them.
+    // validationContext or result0 neither shadows nor is shadowed by them. The method's own name
+    // cannot be renamed, so when the user already has a member called Validate (a positional
+    // parameter of that name, or a method with another signature) the interface member is
+    // implemented explicitly instead, which the runtime and Validator find all the same.
     private static IEnumerable<string> GetValidateMethod(StronglyTypedTypeInfo info, IEnumerable<ISymbol> targetTypeMembers, bool generatesValidate, bool hasUserDeclaredIsValueValid, ValidationAttributeModel validationAttributes)
     {
         if (!generatesValidate)
@@ -746,7 +749,10 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         var value = $"this.{parameterName}";
         var reservedNames = new HashSet<string>(targetTypeMembers.Select(member => member.Name), StringComparer.Ordinal) { parameterName };
         var contextName = Parser.GetUnusedName("validationContext", reservedNames);
-        var signature = $"public System.Collections.Generic.IEnumerable<{ValidationResultTypeName}> Validate(System.ComponentModel.DataAnnotations.ValidationContext {contextName})";
+        var declaration = targetTypeMembers.Any(member => member.Name == "Validate")
+            ? $"System.Collections.Generic.IEnumerable<{ValidationResultTypeName}> System.ComponentModel.DataAnnotations.IValidatableObject.Validate"
+            : $"public System.Collections.Generic.IEnumerable<{ValidationResultTypeName}> Validate";
+        var signature = $"{declaration}(System.ComponentModel.DataAnnotations.ValidationContext {contextName})";
         var emptyResults = $"System.Array.Empty<{ValidationResultTypeName}>()";
         var attributes = GetInvariantAttributes(validationAttributes, hasUserDeclaredIsValueValid);
         var contextAttributes = GetContextAttributes(validationAttributes, generatesValidate);

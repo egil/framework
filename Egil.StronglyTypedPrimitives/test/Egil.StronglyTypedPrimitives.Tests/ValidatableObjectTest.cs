@@ -140,6 +140,44 @@ public class Validate_for_IValidatableObject_with_parameter_named_validationCont
             """);
 }
 
+// A positional parameter called Validate is a property of that name, which is not the interface
+// member, so Validate is still generated, but a public one would collide with the property.
+public class Validate_for_IValidatableObject_with_parameter_named_Validate : ValidationAttributeTestBase
+{
+    [Fact]
+    public Task Test()
+        => VerifyGeneratedSource("""
+            using Egil.StronglyTypedPrimitives;
+            using System.ComponentModel.DataAnnotations;
+
+            namespace SomeNamespace;
+
+            [StronglyTyped]
+            public readonly partial record struct Foo([Range(1, 10)] int Validate) : IValidatableObject;
+            """);
+}
+
+public class Validate_for_IValidatableObject_with_a_user_method_named_Validate : ValidationAttributeTestBase
+{
+    [Fact]
+    public Task Test()
+        => VerifyGeneratedSource("""
+            using Egil.StronglyTypedPrimitives;
+            using System.ComponentModel.DataAnnotations;
+
+            namespace SomeNamespace;
+
+            [StronglyTyped]
+            public readonly partial record struct Foo(int Value) : IValidatableObject
+            {
+                public static bool IsValueValid(int value, bool throwIfInvalid)
+                    => value > 5;
+
+                public bool Validate() => IsValueValid(Value, throwIfInvalid: false);
+            }
+            """);
+}
+
 public class Validate_is_not_generated_when_the_user_writes_Validate : ValidationAttributeTestBase
 {
     [Fact]
