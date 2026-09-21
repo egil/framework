@@ -18,8 +18,10 @@
 
         .\Egil.SystemTextJson.Migration\scripts\perf-compare-refs.ps1 -BaselineRef main -CandidateRef HEAD
 
-    With an elevated shell, add -DisableBoost so the CPU clock does not swing with load;
-    the previous boost setting is restored when the script ends.
+    BenchmarkDotNet switches the active power scheme to High Performance for the run and
+    restores it afterwards, so this script does not touch power settings. To freeze the
+    clock, disable processor boost on the High Performance scheme by hand before running;
+    the summary records the machine but not the boost state.
 
     Results land in <repo>\Egil.SystemTextJson.Migration\perf\Egil.SystemTextJson.Migration.PerfTests\BenchmarkDotNet.Artifacts\compare-<timestamp>\
     (git-ignored). summary.md there holds every per-round comparison plus the raw
@@ -47,9 +49,6 @@
     on hybrid Intel parts, otherwise a pair near the top of the core range (BenchmarkDotNet
     parses the mask as a signed 32-bit integer). The summary records the mask; check it
     against the machine's topology before trusting absolute numbers.
-
-.PARAMETER DisableBoost
-    Turn processor boost off for the duration of the run (requires an elevated shell).
 #>
 [CmdletBinding()]
 param(
@@ -61,8 +60,7 @@ param(
     [string]$Filter = '*',
     [int]$IterationCount = 15,
     [int]$WarmupCount = 3,
-    [string]$Affinity,
-    [switch]$DisableBoost
+    [string]$Affinity
 )
 
 $ErrorActionPreference = 'Stop'
@@ -102,21 +100,6 @@ function Get-DefaultAffinity {
     return ([int]3 -shl $shift).ToString()
 }
 
-function Set-Boost([int]$mode) {
-    & powercfg -setacvalueindex SCHEME_CURRENT SUB_PROCESSOR PERFBOOSTMODE $mode | Out-Null
-    & powercfg -setactive SCHEME_CURRENT | Out-Null
-}
-
-function Get-BoostMode {
-    # The boost setting is a hidden power attribute, so powercfg -query omits it until the
-    # hide flag is cleared (needs an elevated shell; without one the query stays empty and
-    # the caller refuses to change the plan).
-    & powercfg -attributes SUB_PROCESSOR PERFBOOSTMODE -ATTRIB_HIDE 2>&1 | Out-Null
-    $text = & powercfg -query SCHEME_CURRENT SUB_PROCESSOR PERFBOOSTMODE 2>&1 | Out-String
-    if ($text -match 'Current AC Power Setting Index:\s*0x([0-9a-fA-F]+)') { return [Convert]::ToInt32($Matches[1], 16) }
-    return $null
-}
-
 if (-not $Framework) { $Framework = Get-DefaultFramework }
 if (-not $Affinity) { $Affinity = Get-DefaultAffinity }
 
@@ -142,24 +125,9 @@ $summary.Add("| Candidate | ``$CandidateRef`` = ``$candidateSha`` |")
 $summary.Add("| Framework | $Framework |")
 $summary.Add("| Affinity | $Affinity (0x$([Convert]::ToString([int]$Affinity, 16))) |")
 $summary.Add("| Iterations | $IterationCount (warmup $WarmupCount), $Rounds round(s), filter ``$Filter`` |")
-$summary.Add("| Boost disabled | $($DisableBoost.IsPresent) |")
 $summary.Add('')
 
-$previousBoost = $null
 try {
-    if ($DisableBoost) {
-        # Only change the plan when the current value is known, otherwise the finally block
-        # could not restore it and the machine would be left without boost.
-        $currentBoost = Get-BoostMode
-        if ($null -eq $currentBoost) {
-            throw 'Cannot read the current processor boost mode from powercfg (elevated shell required); run without -DisableBoost or set PERFBOOSTMODE by hand.'
-        }
-
-        Set-Boost 0
-        $previousBoost = $currentBoost
-        Write-Host "Processor boost disabled (was $previousBoost)"
-    }
-
     foreach ($name in $refs.Keys) {
         $entry = $refs[$name]
         Write-Host "Creating worktree for $name ($($entry.Sha)) at $($entry.Dir)"
@@ -233,11 +201,6 @@ try {
     Write-Host "Summary written to $summaryPath"
 }
 finally {
-    if ($null -ne $previousBoost) {
-        Set-Boost $previousBoost
-        Write-Host "Processor boost restored to $previousBoost"
-    }
-
     foreach ($name in $refs.Keys) {
         if (Test-Path $refs[$name].Dir) {
             & git -C $repoRoot worktree remove --force $refs[$name].Dir | Out-Null

@@ -7,13 +7,10 @@
     Absolute numbers on a busy desktop are not reproducible; relative before/after
     numbers are, provided both runs use the same cores, the same iteration budget
     and the boost clock does not swing with load on the other cores. This script
-    fixes the first two. For the third, disable boost while measuring (needs an
-    elevated shell; the setting survives until changed back):
-
-        powercfg -setacvalueindex SCHEME_CURRENT SUB_PROCESSOR PERFBOOSTMODE 0
-        powercfg -setactive SCHEME_CURRENT
-
-    and restore with PERFBOOSTMODE 2 afterwards.
+    fixes the first two. BenchmarkDotNet itself switches the active power scheme
+    to High Performance for the run and restores it afterwards, so no power
+    settings are changed here; to freeze the clock, disable processor boost on
+    the High Performance scheme by hand before measuring.
 
     The benchmark config uses InProcessNoEmitToolchain, so the affinity mask pins
     the process that actually executes the benchmarks. The default mask is one
