@@ -16,9 +16,10 @@
     and restore with PERFBOOSTMODE 2 afterwards.
 
     The benchmark config uses InProcessNoEmitToolchain, so the affinity mask pins
-    the process that actually executes the benchmarks. The default mask is a
-    high-numbered SMT pair (both logical threads of one physical core), so no
-    other thread shares that core's pipeline; the scheduler fills low cores first.
+    the process that actually executes the benchmarks. The default mask is one
+    SMT pair (both logical threads of one physical core), so no other thread
+    shares that core's pipeline: a P-core pair on hybrid Intel parts, otherwise a
+    high-numbered pair because the scheduler fills low cores first.
 
 .PARAMETER Label
     Name of the results folder under perf/<project>/BenchmarkDotNet.Artifacts/.
@@ -51,12 +52,24 @@ $root = Split-Path $PSScriptRoot -Parent
 $perfProject = Join-Path $root 'perf\Egil.SystemTextJson.Migration.PerfTests'
 $artifacts = Join-Path $perfProject "BenchmarkDotNet.Artifacts\$Label"
 
+function Get-DefaultAffinity {
+    # Both logical threads of one physical core. BenchmarkDotNet parses the mask as a signed
+    # 32-bit integer, so bit 31 is unusable. On a hybrid Intel part (P-cores with SMT first,
+    # E-cores without SMT last; core count times two is not the thread count) the top logical
+    # CPUs are E-cores, so the second P-core pair is used there; elsewhere a high pair, which
+    # the scheduler fills last on a busy machine.
+    $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
+    $logical = [Environment]::ProcessorCount
+    if ($cpu.NumberOfCores * 2 -ne $logical) {
+        return ([int]3 -shl 2).ToString()
+    }
+
+    $shift = [Math]::Floor(([Math]::Min($logical, 31) - 2) / 2) * 2
+    return ([int]3 -shl $shift).ToString()
+}
+
 if (-not $Affinity) {
-    # Both logical threads of one physical core, assuming SMT pairs are adjacent (true for
-    # Windows on AMD and Intel). BenchmarkDotNet parses --affinity as a signed 32-bit decimal
-    # integer, so bit 31 is unusable and a 32-thread machine gets the pair below the top one.
-    $shift = [Math]::Floor(([Math]::Min([Environment]::ProcessorCount, 31) - 2) / 2) * 2
-    $Affinity = ([int]3 -shl $shift).ToString()
+    $Affinity = Get-DefaultAffinity
 }
 
 Write-Host "Label:      $Label"

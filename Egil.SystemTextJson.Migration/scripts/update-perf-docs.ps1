@@ -12,17 +12,22 @@
     ./scripts/update-perf-docs.ps1
 #>
 [CmdletBinding()]
-param()
+param(
+    # A results folder to read instead of the default BenchmarkDotNet.Artifacts\results, for
+    # example the candidate-r2\results folder produced by perf-compare-refs.ps1.
+    [string]$ResultsDir
+)
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $repoRoot = Split-Path $root -Parent
 
 $artifactDirCandidates = @(
+    $ResultsDir,
     (Join-Path $root 'perf\Egil.SystemTextJson.Migration.PerfTests\BenchmarkDotNet.Artifacts\results'),
     (Join-Path $root 'BenchmarkDotNet.Artifacts\results'),
     (Join-Path $repoRoot 'BenchmarkDotNet.Artifacts\results')
-)
+) | Where-Object { $_ }
 $artifactsDir = $artifactDirCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $artifactsDir) {
     Write-Error "Benchmark reports not found. Run benchmarks first: dotnet run --project perf\Egil.SystemTextJson.Migration.PerfTests -c Release --framework net11.0"
