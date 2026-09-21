@@ -178,17 +178,13 @@ From `Egil.Orleans.Messaging`, run:
 dotnet test --solution Egil.Orleans.Messaging.slnx -c Release --report-xunit-trx
 dotnet pack src/Egil.Orleans.Messaging/Egil.Orleans.Messaging.csproj -c Release -o /tmp/om-packages
 dotnet pack src/Egil.Orleans.Messaging.Journaling/Egil.Orleans.Messaging.Journaling.csproj -c Release -o /tmp/om-packages
-python3 scripts/test-journaling-packages.py /tmp/om-packages
 ```
 
 Packing release notes uses PowerShell (`pwsh`); local environments without it can
 pass `-p:SkipReleaseNotes=true`. CI generates notes from package-specific tags.
 The dedicated tests exercise shared recovery, processor acknowledgements, immediate
 posting without saving, compaction, net diffs, failures, and mutations during a
-pending write. The package consumer restores isolated NuGets, verifies core has no
-Journaling dependency, then writes and recovers in separate processes using a
-test-only file provider. That provider is not a production distributed store;
-these checks do not establish multi-silo fencing or any cloud provider's behavior.
+pending write.
 
 The separate `egil-orleans-messaging-journaling` workflow validates this package.
 Publishing is an explicit dispatch on `main` with `publish` selected; publish the
