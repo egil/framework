@@ -6,7 +6,7 @@ public class NetStandardAbstractionsCompilationTest
 {
     // A faithful copy of the public surface the netstandard2.0 asset of the Abstractions assembly
     // has: the attribute and the interfaces, but no static abstract members (IsValueValid, Create)
-    // and no StronglyTypedJsonConverter. The helper leaves the real (net9.0) assembly out.
+    // and no StronglyTypedJsonConverter. The helper leaves the real (net10.0) assembly out.
     private const string NetStandardAbstractions = """
         namespace Egil.StronglyTypedPrimitives
         {

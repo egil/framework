@@ -13,7 +13,7 @@ namespace SomeNamespace;
 
 [global::System.CodeDom.Compiler.GeneratedCodeAttribute("Egil.StronglyTypedPrimitives, Version=x.x.x.x, Culture=neutral, PublicKeyToken=null", "x.x.x.x")]
 [global::System.Text.Json.Serialization.JsonConverterAttribute(typeof(global::Egil.StronglyTypedPrimitives.StronglyTypedJsonConverter<global::SomeNamespace.Foo, global::System.Guid>))]
-public readonly partial record struct Foo : global::Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<global::System.Guid>, global::Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<global::SomeNamespace.Foo, global::System.Guid>, global::System.IParsable<global::SomeNamespace.Foo>, global::System.ISpanParsable<global::SomeNamespace.Foo>, global::System.IComparable<global::SomeNamespace.Foo>, global::System.IComparable, global::System.IFormattable, global::System.ISpanFormattable, global::System.IUtf8SpanFormattable
+public readonly partial record struct Foo : global::Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<global::System.Guid>, global::Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<global::SomeNamespace.Foo, global::System.Guid>, global::System.IParsable<global::SomeNamespace.Foo>, global::System.ISpanParsable<global::SomeNamespace.Foo>, global::System.IUtf8SpanParsable<global::SomeNamespace.Foo>, global::System.IComparable<global::SomeNamespace.Foo>, global::System.IComparable, global::System.IFormattable, global::System.ISpanFormattable, global::System.IUtf8SpanFormattable
 {
     public static readonly Foo Empty = default;
 
@@ -42,6 +42,25 @@ public readonly partial record struct Foo : global::Egil.StronglyTypedPrimitives
     public static bool TryParse(global::System.ReadOnlySpan<char> s, global::System.IFormatProvider? provider, [global::System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out global::SomeNamespace.Foo result)
     {
         if (global::System.Guid.TryParse(s, provider, out var rawValue) && IsValueValid(rawValue, throwIfInvalid: false))
+        {
+            result = new Foo(rawValue);
+            return true;
+        }
+
+        result = Foo.Empty;
+        return false;
+    }
+
+    public static Foo Parse(global::System.ReadOnlySpan<byte> utf8Text, global::System.IFormatProvider? provider)
+    {
+        var rawValue = global::System.Guid.Parse(utf8Text, provider);
+        IsValueValid(rawValue, throwIfInvalid: true);
+        return new Foo(rawValue);
+    }
+
+    public static bool TryParse(global::System.ReadOnlySpan<byte> utf8Text, global::System.IFormatProvider? provider, [global::System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out global::SomeNamespace.Foo result)
+    {
+        if (global::System.Guid.TryParse(utf8Text, provider, out var rawValue) && IsValueValid(rawValue, throwIfInvalid: false))
         {
             result = new Foo(rawValue);
             return true;

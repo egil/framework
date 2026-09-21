@@ -43,9 +43,8 @@ public readonly partial record struct Foo : global::Egil.StronglyTypedPrimitives
         public static readonly global::System.ComponentModel.DataAnnotations.AllowedValuesAttribute valueValidator0 = new global::System.ComponentModel.DataAnnotations.AllowedValuesAttribute(new object?[] { (long)1, (long)2 });
         public static readonly global::SomeNamespace.LimitsAttribute valueValidator1 = new global::SomeNamespace.LimitsAttribute(new int[] { 1, 2 }) { Weight = (float)1.5 };
 
-        [global::System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "DisplayName is set, so the constructor's reflection fallback for it never runs.")]
         public static global::System.ComponentModel.DataAnnotations.ValidationContext CreateInvariantContext()
-            => new global::System.ComponentModel.DataAnnotations.ValidationContext(new object()) { MemberName = "Value", DisplayName = "Value" };
+            => new global::System.ComponentModel.DataAnnotations.ValidationContext(new object(), "Value", null, null) { MemberName = "Value" };
     }
 
     public static bool IsValueValid(long value, bool throwIfInvalid)

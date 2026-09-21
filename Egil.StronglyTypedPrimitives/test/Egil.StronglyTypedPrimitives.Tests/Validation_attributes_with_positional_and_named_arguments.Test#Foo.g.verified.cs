@@ -43,9 +43,8 @@ public readonly partial record struct Foo : global::Egil.StronglyTypedPrimitives
         public static readonly global::System.ComponentModel.DataAnnotations.EmailAddressAttribute valueValidator0 = new global::System.ComponentModel.DataAnnotations.EmailAddressAttribute();
         public static readonly global::System.ComponentModel.DataAnnotations.StringLengthAttribute valueValidator1 = new global::System.ComponentModel.DataAnnotations.StringLengthAttribute(254) { MinimumLength = 3 };
 
-        [global::System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "DisplayName is set, so the constructor's reflection fallback for it never runs.")]
         public static global::System.ComponentModel.DataAnnotations.ValidationContext CreateInvariantContext()
-            => new global::System.ComponentModel.DataAnnotations.ValidationContext(new object()) { MemberName = "Value", DisplayName = "Value" };
+            => new global::System.ComponentModel.DataAnnotations.ValidationContext(new object(), "Value", null, null) { MemberName = "Value" };
     }
 
     public static bool IsValueValid(string value, bool throwIfInvalid)

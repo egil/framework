@@ -8,7 +8,7 @@ public abstract class ValidationAttributeTestBase
     // Stand-ins for the .NET 11 async validation types, declared under their real namespace so
     // the generator resolves them by name exactly as it would against the .NET 11 reference
     // assemblies, and with the members the generated ValidateAsync calls so the emitted source
-    // compiles in the net9.0 test compilation. GetValidationResultAsync is not abstract on the
+    // compiles in the net10.0 test compilation. GetValidationResultAsync is not abstract on the
     // real type either (it is a template method over IsValidAsync), so attribute subclasses in
     // the test inputs need no overrides.
     public const string FakeAsyncValidationApi = """
