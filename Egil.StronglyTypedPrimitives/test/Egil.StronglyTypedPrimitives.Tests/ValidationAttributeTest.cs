@@ -201,6 +201,32 @@ public class Validation_attribute_type_names_survive_a_shadowing_namespace : Val
             """);
 }
 
+public class Validation_attributes_with_keyword_identifiers : ValidationAttributeTestBase
+{
+    [Fact]
+    public Task Test()
+        => VerifyGeneratedSource("""
+            using Egil.StronglyTypedPrimitives;
+            using System.ComponentModel.DataAnnotations;
+
+            namespace SomeNamespace;
+
+            [StronglyTyped]
+            public readonly partial record struct Foo([Keyworded(Mode.@default, @class = 1)] int Value);
+
+            public enum Mode { @default, @event }
+
+            public sealed class KeywordedAttribute(Mode mode) : ValidationAttribute
+            {
+                public Mode Mode { get; } = mode;
+
+                public int @class { get; set; }
+
+                public override bool IsValid(object? value) => true;
+            }
+            """);
+}
+
 public class Validation_attributes_with_enum_argument : ValidationAttributeTestBase
 {
     [Fact]
