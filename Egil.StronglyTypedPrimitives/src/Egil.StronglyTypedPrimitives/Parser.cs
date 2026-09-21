@@ -80,6 +80,7 @@ internal static class Parser
             target.Add(new ValidationAttributeInfo(
                 index,
                 $"{fieldPrefix}{index}",
+                GlobalName(attributeClass),
                 attributeClass.ToDisplayString(),
                 string.Join(", ", attribute.ConstructorArguments.Select(FormatAttributeArgument)),
                 FormatNamedArguments(attribute.NamedArguments),
@@ -118,11 +119,18 @@ internal static class Parser
         return name;
     }
 
+    // Every type name written into generated code is rooted with global::. The generated file
+    // sits in the target type's namespace, so an unrooted System.ComponentModel... or Rules...
+    // would bind to a nested SomeNamespace.System or SomeNamespace.Rules when the consumer has one.
+    private static string GlobalName(ITypeSymbol type)
+        => type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+
     // Attribute arguments are re-emitted as C# so the generated field constructs the attribute
-    // exactly as the user declared it. ToCSharpString already quotes strings, qualifies enum
-    // members and writes typeof(...), but it prints an array as a bare initializer and a number
-    // without any type information, so Range(1.0, 2.0) would come back as Range(1, 2) and bind to
-    // the int overload, and AllowedValues(1L) would box an int instead of a long.
+    // exactly as the user declared it. ToCSharpString already quotes strings and characters, but
+    // it prints an array as a bare initializer and a number without any type information, so
+    // Range(1.0, 2.0) would come back as Range(1, 2) and bind to the int overload, and
+    // AllowedValues(1L) would box an int instead of a long. Enum members and typeof arguments are
+    // written here too, because ToCSharpString does not root their type names with global::.
     private static string FormatAttributeArgument(TypedConstant argument)
     {
         // A bare null is ambiguous between overloads such as Check(string?) and Check(Type?)
@@ -132,16 +140,33 @@ internal static class Parser
         if (argument.IsNull)
         {
             return argument.Type is { } type
-                ? $"({type.WithNullableAnnotation(NullableAnnotation.None).ToDisplayString()}?)null"
+                ? $"({GlobalName(type.WithNullableAnnotation(NullableAnnotation.None))}?)null"
                 : "null";
         }
 
         return argument.Kind switch
         {
-            TypedConstantKind.Array => $"new {argument.Type!.ToDisplayString()} {{ {string.Join(", ", argument.Values.Select(FormatAttributeArgument))} }}",
+            TypedConstantKind.Array => $"new {GlobalName(argument.Type!)} {{ {string.Join(", ", argument.Values.Select(FormatAttributeArgument))} }}",
             TypedConstantKind.Primitive when RequiresTypedLiteral(argument.Type!) => FormatTypedPrimitive(argument),
+            TypedConstantKind.Enum => FormatEnum(argument),
+            TypedConstantKind.Type => $"typeof({GlobalName((ITypeSymbol)argument.Value!)})",
             _ => argument.ToCSharpString(),
         };
+    }
+
+    // A value that matches a single member is written by name; anything else (a flags combination
+    // or a value the enum does not declare) is a cast of the underlying constant, which is valid
+    // C# for every enum value even if less readable.
+    private static string FormatEnum(TypedConstant argument)
+    {
+        var enumType = argument.Type!;
+        var member = enumType.GetMembers()
+            .OfType<IFieldSymbol>()
+            .FirstOrDefault(field => field.HasConstantValue && Equals(field.ConstantValue, argument.Value));
+
+        return member is not null
+            ? $"{GlobalName(enumType)}.{member.Name}"
+            : $"({GlobalName(enumType)})({Convert.ToString(argument.Value, System.Globalization.CultureInfo.InvariantCulture)})";
     }
 
     // int, bool, char and string literals already carry their type; every other numeric type is
@@ -171,7 +196,7 @@ internal static class Parser
             _ => argument.ToCSharpString(),
         };
 
-        return $"({argument.Type!.ToDisplayString()}){literal}";
+        return $"({GlobalName(argument.Type!)}){literal}";
     }
 
     private static string FormatNamedArguments(ImmutableArray<KeyValuePair<string, TypedConstant>> namedArguments)

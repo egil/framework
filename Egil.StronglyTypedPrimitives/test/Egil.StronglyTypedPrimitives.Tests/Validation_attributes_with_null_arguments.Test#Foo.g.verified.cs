@@ -40,9 +40,9 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
 
     private static class ValueValidators
     {
-        public static readonly SomeNamespace.CheckAttribute valueValidator0 = new SomeNamespace.CheckAttribute((string?)null);
-        public static readonly SomeNamespace.CheckAttribute valueValidator1 = new SomeNamespace.CheckAttribute((int[]?)null);
-        public static readonly SomeNamespace.CheckAttribute valueValidator2 = new SomeNamespace.CheckAttribute(new string[] { "a", (string?)null });
+        public static readonly global::SomeNamespace.CheckAttribute valueValidator0 = new global::SomeNamespace.CheckAttribute((string?)null);
+        public static readonly global::SomeNamespace.CheckAttribute valueValidator1 = new global::SomeNamespace.CheckAttribute((int[]?)null);
+        public static readonly global::SomeNamespace.CheckAttribute valueValidator2 = new global::SomeNamespace.CheckAttribute(new string[] { "a", (string?)null });
     }
 
     public static bool IsValueValid(string value, bool throwIfInvalid)
@@ -73,9 +73,9 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
 
         var message = string.Empty;
         if (error0 is not null) message = error0;
-        if (error1 is not null) message = message.Length == 0 ? error1 : message + System.Environment.NewLine + error1;
-        if (error2 is not null) message = message.Length == 0 ? error2 : message + System.Environment.NewLine + error2;
-        throw new System.ComponentModel.DataAnnotations.ValidationException(message, null, value);
+        if (error1 is not null) message = message.Length == 0 ? error1 : message + global::System.Environment.NewLine + error1;
+        if (error2 is not null) message = message.Length == 0 ? error2 : message + global::System.Environment.NewLine + error2;
+        throw new global::System.ComponentModel.DataAnnotations.ValidationException(message, null, value);
     }
 
     public static Foo Parse(string s, System.IFormatProvider? provider)

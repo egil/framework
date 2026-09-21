@@ -234,7 +234,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
                 diagnostics.Add(Diagnostic.Create(
                     DiagnosticDescriptors.ValidationAttributesIgnoredByUserIsValueValid,
                     attribute.Location,
-                    attribute.AttributeTypeName,
+                    attribute.AttributeDisplayName,
                     parameterName,
                     typeName));
             }
@@ -245,7 +245,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             diagnostics.Add(Diagnostic.Create(
                 DiagnosticDescriptors.AsyncValidationAttributeNotPartOfValueInvariant,
                 attribute.Location,
-                attribute.AttributeTypeName,
+                attribute.AttributeDisplayName,
                 parameterName,
                 typeName));
         }
@@ -255,7 +255,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             diagnostics.Add(Diagnostic.Create(
                 DiagnosticDescriptors.ContextValidationAttributeNotPartOfValueInvariant,
                 attribute.Location,
-                attribute.AttributeTypeName,
+                attribute.AttributeDisplayName,
                 parameterName,
                 typeName));
         }
@@ -446,10 +446,10 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         {
             source.Append(attribute.Index == 0
                 ? $"\n        if (error0 is not null) message = error0;"
-                : $"\n        if (error{attribute.Index} is not null) message = message.Length == 0 ? error{attribute.Index} : message + System.Environment.NewLine + error{attribute.Index};");
+                : $"\n        if (error{attribute.Index} is not null) message = message.Length == 0 ? error{attribute.Index} : message + global::System.Environment.NewLine + error{attribute.Index};");
         }
 
-        source.Append("\n        throw new System.ComponentModel.DataAnnotations.ValidationException(message, null, value);\n    }");
+        source.Append("\n        throw new global::System.ComponentModel.DataAnnotations.ValidationException(message, null, value);\n    }");
 
         yield return source.ToString();
     }

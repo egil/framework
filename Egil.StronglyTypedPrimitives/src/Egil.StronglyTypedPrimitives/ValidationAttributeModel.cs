@@ -51,7 +51,8 @@ internal sealed record ValidationAttributeModel(
 /// <c>{ValidatorsTypeName}.{FieldName}</c>; the field is a member of the nested class, so it cannot
 /// clash with anything the user declared on the target type.
 /// </param>
-/// <param name="AttributeTypeName">Fully qualified attribute type, as written in generated code.</param>
+/// <param name="AttributeTypeName">Attribute type rooted with <c>global::</c>, as written in generated code.</param>
+/// <param name="AttributeDisplayName">Fully qualified attribute type without the <c>global::</c> root, for diagnostics.</param>
 /// <param name="ConstructorArguments">Comma separated constructor argument source, or empty.</param>
 /// <param name="NamedArguments">Object initializer source for the named arguments (<c>{ A = 1 }</c>), or empty.</param>
 /// <param name="Location">Where the attribute is applied in user code, for diagnostics.</param>
@@ -59,6 +60,7 @@ internal sealed record ValidationAttributeInfo(
     int Index,
     string FieldName,
     string AttributeTypeName,
+    string AttributeDisplayName,
     string ConstructorArguments,
     string NamedArguments,
     Location Location)
