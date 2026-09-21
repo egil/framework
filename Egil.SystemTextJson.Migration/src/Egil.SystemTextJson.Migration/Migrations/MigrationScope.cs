@@ -108,12 +108,20 @@ internal sealed class MigrationScope
         => Scopes.TryGetValue(options, out MigrationScope? scope) ? scope : null;
 
     /// <summary>
-    /// Finds the scope for <paramref name="options"/>, or builds one for an options instance that
-    /// was copied from a registered one (a copy carries the resolver chain but no scope entry).
-    /// Never removes a scope, so it is safe during resolution.
+    /// The scope to build union routing from: the cached scope while its resolver is still reachable
+    /// through STJ's chains and decorators, otherwise one discovered from the current resolver, or
+    /// <see langword="null"/> when the options no longer carry migration support. Nothing is
+    /// removed, so this is safe during resolution; an application-defined wrapper is opaque to it.
     /// </summary>
-    public static MigrationScope? FindOrDiscover(JsonSerializerOptions options)
-        => Find(options) ?? Discover(options);
+    public static MigrationScope? FindReachable(JsonSerializerOptions options)
+    {
+        if (Find(options) is { } scope && ResolverLeaves.Contains(options.TypeInfoResolver, scope.Resolver))
+        {
+            return scope;
+        }
+
+        return Discover(options);
+    }
 
     /// <summary>
     /// The registration to honour when <c>AddJsonMigrationSupport()</c> is called again: a cached

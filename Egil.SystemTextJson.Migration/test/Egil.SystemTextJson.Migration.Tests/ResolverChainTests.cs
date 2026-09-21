@@ -44,6 +44,31 @@ public class ResolverChainTests
     }
 
     [Fact]
+    public void Decorator_modifier_on_the_entry_applies_to_the_plain_contract_of_a_migratable_type()
+    {
+        // With no other resolver configured, the migration entry stands in for the default one,
+        // so a modifier on that entry must see the plain contract of a migratable type too.
+        var options = new JsonSerializerOptions();
+        options.AddJsonMigrationSupport();
+        options.TypeInfoResolverChain[0] = options.TypeInfoResolverChain[0].WithAddedModifier(static typeInfo =>
+        {
+            foreach (JsonPropertyInfo property in typeInfo.Properties)
+            {
+                if (property.Name == nameof(ChainV2.LastName))
+                {
+                    property.Name = "surname";
+                }
+            }
+        });
+
+        var json = JsonSerializer.Serialize(new ChainV2("Jane", "Doe"), options);
+        var roundTripped = JsonSerializer.Deserialize<ChainV2>(json, options);
+
+        Assert.Equal("""{"$type":"chain-v2","FirstName":"Jane","surname":"Doe"}""", json);
+        Assert.Equal(new ChainV2("Jane", "Doe"), roundTripped);
+    }
+
+    [Fact]
     public void Adding_migration_support_twice_after_decorating_the_entry_keeps_the_first_registration()
     {
         // The decorated entry hides the resolver from the chain, so the idempotency guard must
