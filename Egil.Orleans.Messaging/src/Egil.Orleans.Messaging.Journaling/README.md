@@ -58,20 +58,29 @@ public sealed class OrderGrain(
 {
     public async Task<bool> ReceiveAsync(OutboxSequenceToken token, OrderEvent message)
     {
-        var next = PrepareNextState(business.Value, message);
         if (!tracker.TryAcceptMessage(token))
             return false;
 
-        business.Value = next;
-        outbox.Add(message);
-        await WriteStateAsync();
-        return true;
+        try
+        {
+            business.Value = ApplyMessage(business.Value, message);
+            outbox.Add(message);
+            await WriteStateAsync();
+            return true;
+        }
+        catch
+        {
+            DeactivateOnIdle();
+            throw;
+        }
     }
 }
 ```
 
-`OrderState`, `OrderEvent`, `IOrderGrain`, and `PrepareNextState` are application
-types and logic. Finish fallible preparation before staging changes. One
+`OrderState`, `OrderEvent`, `IOrderGrain`, and `ApplyMessage` are application types
+and logic. Check the tracker first so duplicate messages skip business processing.
+If processing fails after acceptance has been staged, this example deactivates and
+recovers before accepting another command. One
 `WriteStateAsync` gathers all registered components for that grain. Separately
 written conventional grain storage does not participate in that commit. The
 journal is shared pending state, not a transaction with arbitrary rollback:
