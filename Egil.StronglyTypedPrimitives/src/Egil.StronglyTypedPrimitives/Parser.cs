@@ -125,9 +125,15 @@ internal static class Parser
     // the int overload, and AllowedValues(1L) would box an int instead of a long.
     private static string FormatAttributeArgument(TypedConstant argument)
     {
+        // A bare null is ambiguous between overloads such as Check(string?) and Check(Type?)
+        // (CS0121), so the constant keeps the type of the parameter it was bound to. Attribute
+        // parameters that accept null are all reference types, hence the `?`; the annotation is
+        // stripped first so an already annotated type does not end up as `string??`.
         if (argument.IsNull)
         {
-            return "null";
+            return argument.Type is { } type
+                ? $"({type.WithNullableAnnotation(NullableAnnotation.None).ToDisplayString()}?)null"
+                : "null";
         }
 
         return argument.Kind switch

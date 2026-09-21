@@ -37,9 +37,11 @@ public abstract class ValidationAttributeTestBase
         }
         """;
 
+    // The compile check comes first: a compile error in the generated code explains a snapshot
+    // difference far better than the snapshot diff does.
     protected static async Task VerifyGeneratedSource(string input)
     {
-        await SnapshotTestHelper.Verify<StronglyTypedPrimitiveGenerator>(
+        var verification = SnapshotTestHelper.Verify<StronglyTypedPrimitiveGenerator>(
             input,
             LanguageVersion.LatestMajor,
             out var compilation
@@ -50,6 +52,8 @@ public abstract class ValidationAttributeTestBase
                 .GetDiagnostics(TestContext.Current.CancellationToken)
                 .Where(d => d.Severity > DiagnosticSeverity.Warning)
         );
+
+        await verification;
     }
 }
 
@@ -99,6 +103,35 @@ public class Validation_attributes_with_typeof_argument : ValidationAttributeTes
             public sealed class InstanceOfAttribute(System.Type type) : ValidationAttribute
             {
                 public override bool IsValid(object? value) => type.IsInstanceOfType(value);
+            }
+            """);
+}
+
+public class Validation_attributes_with_null_arguments : ValidationAttributeTestBase
+{
+    [Fact]
+    public Task Test()
+        => VerifyGeneratedSource("""
+            using Egil.StronglyTypedPrimitives;
+            using System.ComponentModel.DataAnnotations;
+
+            namespace SomeNamespace;
+
+            [StronglyTyped]
+            public readonly partial record struct Foo([Check((string?)null), Check((int[]?)null), Check(new[] { "a", null })] string Value);
+
+            [System.AttributeUsage(System.AttributeTargets.Parameter, AllowMultiple = true)]
+            public sealed class CheckAttribute : ValidationAttribute
+            {
+                public CheckAttribute(string? name) { }
+
+                public CheckAttribute(System.Type? type) { }
+
+                public CheckAttribute(int[]? steps) { }
+
+                public CheckAttribute(string?[] names) { }
+
+                public override bool IsValid(object? value) => true;
             }
             """);
 }
