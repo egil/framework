@@ -1,4 +1,5 @@
 using Egil.SystemTextJson.Migration;
+using System.Text.Json.Serialization.Metadata;
 using Egil.SystemTextJson.Migration.Migrations;
 
 namespace System.Text.Json;
@@ -50,6 +51,18 @@ public static class JsonMigrationSerializerOptionsExtensions
         Action<JsonMigrationBuilder>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(options);
+
+        // A second call keeps the first registration, as it did when the converter factory
+        // was appended to options.Converters and STJ only ever consulted the first match. Two
+        // migration resolvers in the chain would also break the reflection fallback, which
+        // only stands in while the migration resolver is the sole entry.
+        foreach (IJsonTypeInfoResolver resolver in options.TypeInfoResolverChain)
+        {
+            if (resolver is JsonMigrationTypeInfoResolver)
+            {
+                return options;
+            }
+        }
 
         var builder = new JsonMigrationBuilder();
         configure?.Invoke(builder);

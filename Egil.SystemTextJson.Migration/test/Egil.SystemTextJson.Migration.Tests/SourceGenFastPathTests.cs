@@ -69,6 +69,21 @@ public class SourceGenFastPathTests
     }
 
     [Fact]
+    public void Adding_migration_support_twice_keeps_the_first_registration()
+    {
+        var options = new JsonSerializerOptions();
+        options.AddJsonMigrationSupport();
+        options.AddJsonMigrationSupport();
+
+        var json = JsonSerializer.Serialize(new FastPathUnregistered("Jane"), options);
+        var migratable = JsonSerializer.Serialize(new FastPathMigratable("Jane"), options);
+
+        Assert.Equal("""{"Name":"Jane"}""", json);
+        Assert.Equal("""{"$type":"fast-path","Name":"Jane"}""", migratable);
+        Assert.Single(options.TypeInfoResolverChain);
+    }
+
+    [Fact]
     public void Converter_registered_before_migration_support_wins_for_the_migratable_type()
     {
         var options = new JsonSerializerOptions();
