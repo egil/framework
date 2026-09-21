@@ -75,6 +75,13 @@ Write-Host "Affinity:   $Affinity"
 Write-Host "Iterations: $IterationCount (warmup $WarmupCount)"
 Write-Host "Artifacts:  $artifacts"
 
+# Build first so the run itself uses --no-build: a rebuild inside dotnet run would race a
+# benchmark process still holding the previous output locked.
+& dotnet build $perfProject -c Release --framework $Framework --nologo -v quiet
+if ($LASTEXITCODE -ne 0) {
+    throw "Build failed with exit code $LASTEXITCODE"
+}
+
 & dotnet run --project $perfProject -c Release --framework $Framework --no-build -- `
     --filter $Filter `
     --affinity $Affinity `
