@@ -243,7 +243,7 @@ internal static class Parser
     // ISymbol.Name is the bare name, so a member declared as `@default` or `@class` comes back as
     // the keyword and has to be escaped again to be written as an identifier. Contextual keywords
     // (`var`, `async`, ...) are valid identifiers and need no escape.
-    private static string EscapeIdentifier(string name)
+    internal static string EscapeIdentifier(string name)
         => SyntaxFacts.GetKeywordKind(name) == SyntaxKind.None ? name : $"@{name}";
 
     // int, bool, char and string literals already carry their type; every other numeric type is

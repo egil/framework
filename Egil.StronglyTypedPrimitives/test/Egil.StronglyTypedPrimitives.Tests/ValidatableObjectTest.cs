@@ -1,3 +1,5 @@
+using Microsoft.CodeAnalysis.CSharp;
+
 namespace Egil.StronglyTypedPrimitives;
 
 // Validate is only generated when the user's declaration names IValidatableObject, because the
@@ -297,4 +299,37 @@ public class Validate_for_IValidatableObject_with_user_written_IsValueValid_and_
 
             {{FakeContextValidationAttribute}}
             """);
+}
+
+// The parameter is spelled with the @ escape because class is a keyword. Every generated member
+// that names it, including the pre-C# 14 backing field the generator prefixes with @ itself,
+// must escape it exactly once.
+public class Validate_for_IValidatableObject_with_keyword_parameter_name : ValidationAttributeTestBase
+{
+    [Fact]
+    public Task Test()
+        => VerifyGeneratedSource("""
+            using Egil.StronglyTypedPrimitives;
+            using System.ComponentModel.DataAnnotations;
+
+            namespace SomeNamespace;
+
+            [StronglyTyped]
+            public readonly partial record struct Foo([Range(1, 10)] int @class) : IValidatableObject;
+            """);
+}
+
+public class Validate_for_IValidatableObject_with_keyword_parameter_name_before_the_field_keyword : ValidationAttributeTestBase
+{
+    [Fact]
+    public Task Test()
+        => VerifyGeneratedSource("""
+            using Egil.StronglyTypedPrimitives;
+            using System.ComponentModel.DataAnnotations;
+
+            namespace SomeNamespace;
+
+            [StronglyTyped]
+            public readonly partial record struct Foo([Range(1, 10)] int @class) : IValidatableObject;
+            """, LanguageVersion.CSharp12);
 }

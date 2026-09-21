@@ -42,11 +42,11 @@ public abstract class ValidationAttributeTestBase
     // than the test input: consumers build with warnings as errors and nullable analysis on, so
     // any warning in a generated tree (a CS86xx from a mis-annotated array type, say) is a
     // failure here, while the input source only has to be free of errors.
-    protected static async Task VerifyGeneratedSource(string input)
+    protected static async Task VerifyGeneratedSource(string input, LanguageVersion languageVersion = LanguageVersion.LatestMajor)
     {
         var verification = SnapshotTestHelper.Verify<StronglyTypedPrimitiveGenerator>(
             input,
-            LanguageVersion.LatestMajor,
+            languageVersion,
             out var compilation
         );
 

@@ -85,7 +85,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
                 }
 
                 var generated = GenerateStronglyTypedSource(stronglyTypedInfo, compilation);
-                spc.AddSource($"{stronglyTypedInfo.Target.Identifier.Text}.g.cs", generated.Source);
+                spc.AddSource($"{stronglyTypedInfo.Target.Identifier.ValueText}.g.cs", generated.Source);
 
                 foreach (var diagnostic in generated.Diagnostics)
                 {
@@ -227,8 +227,8 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
     private static ImmutableArray<Diagnostic> GetValidationAttributeDiagnostics(StronglyTypedTypeInfo info, ValidationAttributeModel validationAttributes, bool hasUserDeclaredIsValueValid)
     {
         var diagnostics = ImmutableArray.CreateBuilder<Diagnostic>();
-        var typeName = info.Target.Identifier.Text;
-        var parameterName = info.Parameter.Identifier.Text;
+        var typeName = info.Target.Identifier.ValueText;
+        var parameterName = info.Parameter.Identifier.ValueText;
 
         if (hasUserDeclaredIsValueValid)
         {
@@ -545,7 +545,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
 
         // Check for explicit Value property declaration by end user. If they have created it
         // then the custom implementation is NOT created.
-        var valueProp = targetTypeMembers.OfType<IPropertySymbol>().Single(x => x.Name == info.Parameter.Identifier.Text && x.Type.Equals(underlyingTypeSymbol, SymbolEqualityComparer.Default));
+        var valueProp = targetTypeMembers.OfType<IPropertySymbol>().Single(x => x.Name == info.Parameter.Identifier.ValueText && x.Type.Equals(underlyingTypeSymbol, SymbolEqualityComparer.Default));
         var valueMethods = targetTypeMembers.OfType<IMethodSymbol>().Where(x => x.AssociatedSymbol?.Equals(valueProp, SymbolEqualityComparer.Default) == true);
         if (valueMethods.Any(x => !x.IsImplicitlyDeclared))
         {
@@ -558,8 +558,10 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         // "value" is reserved as well: inside the init accessor it is the implicit parameter, and
         // @value is the same identifier, so a field of that name would be shadowed and the
         // accessor would assign to its own parameter, leaving `x with { Value = v }` a no-op.
+        // The name is taken from ValueText, without any @ the user wrote (int @class), and the
+        // @ added here escapes it exactly once whether or not the lower-cased name is a keyword.
         var reservedFieldNames = new HashSet<string>(targetTypeMembers.Select(member => member.Name), StringComparer.Ordinal) { "value" };
-        var fieldName = isCSharp14OrGreater ? "field" : $"@{Parser.GetUnusedName(info.Parameter.Identifier.Text.ToLowerInvariant(), reservedFieldNames)}";
+        var fieldName = isCSharp14OrGreater ? "field" : $"@{Parser.GetUnusedName(info.Parameter.Identifier.ValueText.ToLowerInvariant(), reservedFieldNames)}";
         var getMethodImplementation = underlyingTypeSymbol.SpecialType is SpecialType.System_String
             ? $"{fieldName} ?? string.Empty;"
             : $"{fieldName};";
@@ -610,7 +612,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             yield break;
         }
 
-        var positionalPropertyIsValue = info.Parameter.Identifier.Text == "Value";
+        var positionalPropertyIsValue = info.Parameter.Identifier.ValueText == "Value";
         var isImplemented = targetTypeMembers
             .OfType<IPropertySymbol>()
             .Any(p => (positionalPropertyIsValue && p.Name == "Value" && !p.IsStatic && p.GetMethod is { DeclaredAccessibility: Accessibility.Public } && p.Type.Equals(underlyingTypeSymbol, SymbolEqualityComparer.Default))
@@ -745,8 +747,10 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             yield break;
         }
 
-        var parameterName = info.Parameter.Identifier.Text;
-        var value = $"this.{parameterName}";
+        // ValueText is the name without the user's @ escape, which is what symbol names and the
+        // reservations compare against; the reference re-escapes it once when it is a keyword.
+        var parameterName = info.Parameter.Identifier.ValueText;
+        var value = $"this.{Parser.EscapeIdentifier(parameterName)}";
         var reservedNames = new HashSet<string>(targetTypeMembers.Select(member => member.Name), StringComparer.Ordinal) { parameterName };
         var contextName = Parser.GetUnusedName("validationContext", reservedNames);
         var declaration = targetTypeMembers.Any(member => member.Name == "Validate")
