@@ -1,5 +1,4 @@
 using Egil.SystemTextJson.Migration;
-using System.Text.Json.Serialization.Metadata;
 using Egil.SystemTextJson.Migration.Migrations;
 
 namespace System.Text.Json;
@@ -55,13 +54,11 @@ public static class JsonMigrationSerializerOptionsExtensions
         // A second call keeps the first registration, as it did when the converter factory
         // was appended to options.Converters and STJ only ever consulted the first match. Two
         // migration resolvers in the chain would also break the reflection fallback, which
-        // only stands in while the migration resolver is the sole entry.
-        foreach (IJsonTypeInfoResolver resolver in options.TypeInfoResolverChain)
+        // only stands in while the migration resolver is the sole entry. Discovery goes through
+        // the chain rather than by identity so a decorated entry counts as registered too.
+        if (MigrationScope.FindOrDiscover(options) is not null)
         {
-            if (resolver is JsonMigrationTypeInfoResolver)
-            {
-                return options;
-            }
+            return options;
         }
 
         var builder = new JsonMigrationBuilder();

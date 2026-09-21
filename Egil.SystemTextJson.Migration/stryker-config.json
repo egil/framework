@@ -13,7 +13,9 @@
       "**/JsonMigrationBuilder.cs",
       "**/Migrations/JsonMigratableConverter.cs",
       "**/Migrations/JsonMigratableConverter.NonObjectMatching.cs",
-      "**/Migrations/JsonMigratableConverterFactory.cs"
+      "**/Migrations/JsonMigrationTypeInfoResolver.cs",
+      "**/Migrations/MigrationScope.cs",
+      "**/Migrations/PlainContractResolver.cs"
     ],
     "thresholds": {
       "high": 80,

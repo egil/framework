@@ -1,6 +1,7 @@
 #if NET11_0_OR_GREATER
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 
 namespace Egil.SystemTextJson.Migration.Tests;
 
@@ -42,6 +43,21 @@ public partial class UnionMigrationTests
         var circle = Assert.IsType<CircleV2>(shape.Value);
         Assert.Equal(3, circle.Radius);
         Assert.True(circle.MigratedDuringDeserialization);
+    }
+
+    [Fact]
+    public void Union_is_classified_on_a_copy_of_options_with_a_decorated_migration_entry()
+    {
+        // A copy carries no registered scope and the decorator hides the resolver from the chain,
+        // so the classifier has to discover migration support through the chain itself.
+        var original = CreateOptions();
+        original.TypeInfoResolverChain[0] = original.TypeInfoResolverChain[0].WithAddedModifier(static _ => { });
+        var copy = new JsonSerializerOptions(original);
+
+        var shape = JsonSerializer.Deserialize<Shape>("""{"$type":"circle-v1","r":3}""", copy);
+
+        var circle = Assert.IsType<CircleV2>(shape.Value);
+        Assert.Equal(3, circle.Radius);
     }
 
     [Fact]

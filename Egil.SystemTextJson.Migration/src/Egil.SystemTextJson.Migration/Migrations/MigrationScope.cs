@@ -66,14 +66,29 @@ internal sealed class MigrationScope
             return scope;
         }
 
+        JsonMigrationTypeInfoResolver? resolver = FindInChain(options) ?? Probe(options);
+        return resolver is null ? null : new MigrationScope(resolver, options, []);
+    }
+
+    private static JsonMigrationTypeInfoResolver? FindInChain(JsonSerializerOptions options)
+    {
         foreach (IJsonTypeInfoResolver resolver in options.TypeInfoResolverChain)
         {
             if (resolver is JsonMigrationTypeInfoResolver migrationResolver)
             {
-                return new MigrationScope(migrationResolver, options, []);
+                return migrationResolver;
             }
         }
 
         return null;
+    }
+
+    private static JsonMigrationTypeInfoResolver? Probe(JsonSerializerOptions options)
+    {
+        // A decorated entry is not visible in the chain but still forwards requests, so the chain
+        // is asked for a marker type that only the migration resolver answers. Calling the resolver
+        // directly, rather than options.GetTypeInfo, leaves mutable options mutable.
+        JsonTypeInfo? probe = options.TypeInfoResolver?.GetTypeInfo(typeof(MigrationProbe), options);
+        return (probe?.Converter as MigrationProbe.Converter)?.Resolver;
     }
 }

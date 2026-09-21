@@ -44,6 +44,23 @@ public class ResolverChainTests
     }
 
     [Fact]
+    public void Adding_migration_support_twice_after_decorating_the_entry_keeps_the_first_registration()
+    {
+        // The decorated entry hides the resolver from the chain, so the idempotency guard must
+        // discover the registration through the chain rather than by identity; otherwise the second
+        // call would insert a fresh registry without the external migrator.
+        var options = new JsonSerializerOptions();
+        options.AddJsonMigrationSupport(static builder => builder.RegisterMigrator<ChainExternalMigrator>());
+        options.TypeInfoResolverChain[0] = options.TypeInfoResolverChain[0].WithAddedModifier(static _ => { });
+        options.AddJsonMigrationSupport();
+
+        var migrated = JsonSerializer.Deserialize<ChainV3>(LegacyPayload, options);
+
+        Assert.Equal(new ChainV3("Jane Doe"), migrated);
+        Assert.Single(options.TypeInfoResolverChain);
+    }
+
+    [Fact]
     public void Converter_removed_from_a_copy_lets_migration_serve_the_type_there()
     {
         // A converter registered before migration support wins only while it is still in the
@@ -89,6 +106,18 @@ public record class ChainV2(string FirstName, string LastName) : IMigrateFrom<Ch
 }
 
 public record class ChainWrapper(ChainV2 Inner);
+
+[JsonMigratable(TypeDiscriminator = "chain-v3")]
+public record class ChainV3(string FullName);
+
+public sealed class ChainExternalMigrator : IMigrate<ChainV1, ChainV3>
+{
+    public bool TryMigrateFrom(ChainV1 source, out ChainV3 result)
+    {
+        result = new ChainV3(source.Name);
+        return true;
+    }
+}
 
 [JsonSourceGenerationOptions]
 [JsonSerializable(typeof(string))]
