@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!--
+      Not a test project: the build is the test. It compiles strongly typed primitives with the
+      trim/AOT analyzers enabled and fails on any warning, so an IL2026/IL3050 from generated code,
+      from the shared StronglyTypedJsonConverter, or from the documented AOT usage pattern breaks
+      the solution build in every configuration, not only Release.
+    -->
+    <TargetFramework>net10.0</TargetFramework>
+    <IsAotCompatible>true</IsAotCompatible>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>Egil.StronglyTypedPrimitives.AotCompatibility</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Egil.StronglyTypedPrimitives.Abstractions\Egil.StronglyTypedPrimitives.Abstractions.csproj" />
+    <ProjectReference Include="..\..\src\Egil.StronglyTypedPrimitives\Egil.StronglyTypedPrimitives.csproj"
+                      PrivateAssets="all"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+</Project>

@@ -54,12 +54,21 @@ namespace Egil.StronglyTypedPrimitives
         [Fact]
         public void JsonSerialization_with_type_resolver()
         {
-            var options = new JsonSerializerOptions { TypeInfoResolver = TypedGuidJsonSerializerContext.Default };
-            var dto = new GuidDto(new StronglyTypedGuid(Guid.NewGuid()), [new(Guid.NewGuid()), new(Guid.NewGuid())]);
+            // The context cannot see the generated [JsonConverter] attribute, so the factory is
+            // what makes it serialize the strongly typed guid as a plain JSON string.
+            var options = new JsonSerializerOptions
+            {
+                TypeInfoResolver = TypedGuidJsonSerializerContext.Default,
+                Converters = { new StronglyTypedJsonConverterFactory() },
+            };
+            var dto = new GuidDto(
+                new StronglyTypedGuid(Guid.Parse("11111111-1111-1111-1111-111111111111")),
+                [new(Guid.Parse("22222222-2222-2222-2222-222222222222")), new(Guid.Parse("33333333-3333-3333-3333-333333333333"))]);
 
             var json = JsonSerializer.Serialize(dto, options);
             var dtoFromJson = JsonSerializer.Deserialize<GuidDto>(json, options);
 
+            Assert.Equal("""{"Id":"11111111-1111-1111-1111-111111111111","Multiples":["22222222-2222-2222-2222-222222222222","33333333-3333-3333-3333-333333333333"]}""", json);
             Assert.Equivalent(dto, dtoFromJson);
         }
     }

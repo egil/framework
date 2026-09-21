@@ -13,6 +13,12 @@
     -->
     <TargetFrameworks>net10.0;net9.0;net8.0;netstandard2.0</TargetFrameworks>
     <Nullable>enable</Nullable>
+    <!--
+      The trim/AOT analyzers keep StronglyTypedJsonConverter free of reflection so consumers with
+      IsAotCompatible get no IL2026/IL3050 from the generated [JsonConverter] attribute. The
+      property is only understood by net7.0+ SDK targets, hence the condition.
+    -->
+    <IsAotCompatible Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net8.0'))">true</IsAotCompatible>
     <RootNamespace>Egil.StronglyTypedPrimitives</RootNamespace>
     <IsPackable>false</IsPackable>
     <GenerateSBOM>false</GenerateSBOM>

@@ -51,5 +51,45 @@ namespace Egil.StronglyTypedPrimitives
 
             Assert.Equivalent(dict.Keys, dictFromJson?.Keys);
         }
+
+        [Fact]
+        public void Default_string_key_is_written_as_the_empty_property_name()
+        {
+            var dict = new Dictionary<StronglyTypedString, string> { [default] = "a", [new("b")] = "c" };
+
+            var json = JsonSerializer.Serialize(dict);
+            var dictFromJson = JsonSerializer.Deserialize<Dictionary<StronglyTypedString, string>>(json);
+
+            Assert.Equal("""{"":"a","b":"c"}""", json);
+            Assert.Equal(["", "b"], dictFromJson!.Keys.Select(key => key.ToString()));
+        }
+
+        [Fact]
+        public void Decimal_dictionary_key_is_culture_invariant()
+        {
+            using var danishCulture = CultureScope.Use("da-DK");
+            var dict = new Dictionary<StronglyTypedDecimal, string> { [new(1.5m)] = "a" };
+
+            var json = JsonSerializer.Serialize(dict);
+            var dictFromJson = JsonSerializer.Deserialize<Dictionary<StronglyTypedDecimal, string>>(json);
+
+            Assert.Equal("""{"1.5":"a"}""", json);
+            Assert.Equal(dict, dictFromJson);
+        }
+
+        [Fact]
+        public void DateTime_dictionary_key_is_iso_8601_and_keeps_kind()
+        {
+            using var danishCulture = CultureScope.Use("da-DK");
+            var key = new StronglyTypedDateTime(new DateTime(2026, 9, 17, 13, 5, 0, DateTimeKind.Utc));
+            var dict = new Dictionary<StronglyTypedDateTime, string> { [key] = "a" };
+
+            var json = JsonSerializer.Serialize(dict);
+            var dictFromJson = JsonSerializer.Deserialize<Dictionary<StronglyTypedDateTime, string>>(json);
+
+            Assert.Equal("""{"2026-09-17T13:05:00Z":"a"}""", json);
+            Assert.Equal(dict, dictFromJson);
+            Assert.Equal(DateTimeKind.Utc, Assert.Single(dictFromJson!.Keys).Value.Kind);
+        }
     }
 }
