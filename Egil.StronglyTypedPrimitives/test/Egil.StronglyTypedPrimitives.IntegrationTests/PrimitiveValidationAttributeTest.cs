@@ -75,6 +75,14 @@ namespace Egil.StronglyTypedPrimitives
         }
 
         [Fact]
+        public void Failure_without_an_error_message_is_still_a_failure()
+        {
+            Assert.Throws<ValidationException>(() => new StronglyTypedNullMessageChecked("bad"));
+            Assert.False(StronglyTypedNullMessageChecked.TryParse("bad", null, out _));
+            Assert.Equal("ok", new StronglyTypedNullMessageChecked("ok").Value);
+        }
+
+        [Fact]
         public void Constructor_reports_every_failing_attribute_in_declaration_order()
         {
             var expectedMessage = new EmailAddressAttribute().FormatErrorMessage("Value")

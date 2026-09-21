@@ -55,7 +55,7 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
         if (ValueValidators.valueValidator0.GetValidationResult(value, context) is { } result0)
         {
             if (!throwIfInvalid) return false;
-            error0 = result0.ErrorMessage;
+            error0 = result0.ErrorMessage ?? "The field Value is invalid.";
         }
 
         if (error0 is null) return true;
