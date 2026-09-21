@@ -81,6 +81,20 @@ public sealed class StronglyTypedSchemaTransformerTest(OpenApiDocumentFixture fi
     }
 
     [Theory]
+    [InlineData("nullableIntArray", "items")]
+    [InlineData("nullableIntByKey", "additionalProperties")]
+    public void Nullable_collection_elements_admit_null_and_are_documented_like_the_primitive(string property, string elementKey)
+    {
+        var stronglyTyped = fixture.PropertySchema<StronglyTypedCollections>(property);
+        var primitive = fixture.PropertySchema<PlainCollections>(property);
+
+        var element = fixture.SplitNullable(stronglyTyped[elementKey]!);
+        Assert.True(element.AdmitsNull);
+        AssertPrimitiveSchema(element.Value, "integer", "int32");
+        Assert.Equal(primitive.ToJsonString(), stronglyTyped.ToJsonString());
+    }
+
+    [Theory]
     [InlineData("int", "integer", "int32")]
     [InlineData("guid", "string", "uuid")]
     [InlineData("string", "string", null)]
@@ -174,14 +188,18 @@ public sealed record StronglyTypedCollections(
     List<StronglyTypedString> StringList,
     IEnumerable<StronglyTypedGuid> GuidEnumerable,
     Dictionary<string, StronglyTypedInt> IntByKey,
-    IReadOnlyDictionary<string, StronglyTypedString> StringByKey);
+    IReadOnlyDictionary<string, StronglyTypedString> StringByKey,
+    StronglyTypedInt?[] NullableIntArray,
+    Dictionary<string, StronglyTypedInt?> NullableIntByKey);
 
 public sealed record PlainCollections(
     int[] IntArray,
     List<string> StringList,
     IEnumerable<Guid> GuidEnumerable,
     Dictionary<string, int> IntByKey,
-    IReadOnlyDictionary<string, string> StringByKey);
+    IReadOnlyDictionary<string, string> StringByKey,
+    int?[] NullableIntArray,
+    Dictionary<string, int?> NullableIntByKey);
 
 /// <summary>
 /// Boots a minimal API host once per test class with <see cref="StronglyTypedSchemaTransformer"/>

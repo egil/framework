@@ -41,9 +41,15 @@ public sealed partial class StronglyTypedSchemaTransformer : IOpenApiSchemaTrans
     // System.Text.Json's schema exporter reports as the boolean schema "true", and that leaves the
     // collection schema without an element schema at all. Nothing is left for the framework's
     // recursive transformer pass to visit, so the element schema has to be created here.
-    private static Type? GetElementPrimitiveType(JsonTypeInfo typeInfo)
-        => typeInfo.Kind is JsonTypeInfoKind.Enumerable or JsonTypeInfoKind.Dictionary && typeInfo.ElementType is { } elementType
-            ? GetPrimitiveType(elementType)
+    //
+    // Because that schema starts from nothing, it must also say whether the element admits null.
+    // GetPrimitiveType unwraps a Nullable<T> element on its way to the primitive, so the answer is
+    // taken from the declared element type before it is unwrapped.
+    private static (Type PrimitiveType, bool AdmitsNull)? GetElementPrimitive(JsonTypeInfo typeInfo)
+        => typeInfo.Kind is JsonTypeInfoKind.Enumerable or JsonTypeInfoKind.Dictionary
+            && typeInfo.ElementType is { } elementType
+            && GetPrimitiveType(elementType) is { } primitiveType
+            ? (primitiveType, Nullable.GetUnderlyingType(elementType) is not null)
             : null;
 
     // Route, query and header parameters are bound through TryParse, and for such types ASP.NET Core

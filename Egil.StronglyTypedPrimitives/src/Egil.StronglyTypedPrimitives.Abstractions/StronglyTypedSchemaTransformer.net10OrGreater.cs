@@ -15,10 +15,10 @@ public sealed partial class StronglyTypedSchemaTransformer
             var primitiveSchema = await GetPrimitiveSchemaAsync(context, primitiveType, cancellationToken).ConfigureAwait(false);
             ApplyPrimitiveSchema(schema, primitiveSchema);
         }
-        else if (GetElementPrimitiveType(context.JsonTypeInfo) is { } elementPrimitiveType)
+        else if (GetElementPrimitive(context.JsonTypeInfo) is var (elementPrimitiveType, elementAdmitsNull))
         {
             var primitiveSchema = await GetPrimitiveSchemaAsync(context, elementPrimitiveType, cancellationToken).ConfigureAwait(false);
-            var element = new OpenApiSchema();
+            var element = new OpenApiSchema { Type = elementAdmitsNull ? JsonSchemaType.Null : null };
             ApplyPrimitiveSchema(element, primitiveSchema);
 
             if (context.JsonTypeInfo.Kind == JsonTypeInfoKind.Dictionary)
@@ -41,8 +41,9 @@ public sealed partial class StronglyTypedSchemaTransformer
 
     private static void ApplyPrimitiveSchema(OpenApiSchema target, OpenApiSchema primitive)
     {
-        // The framework has already decided whether this position admits null (for example an
-        // optional query parameter); the primitive's own schema never does, so carry the flag over.
+        // Whether this position admits null has already been decided, by the framework (for example
+        // an optional query parameter) or by the element schema created above; the primitive's own
+        // schema never admits null, so carry the flag over.
         var admitsNull = target.Type?.HasFlag(JsonSchemaType.Null) == true;
         target.Type = admitsNull ? primitive.Type | JsonSchemaType.Null : primitive.Type;
         target.Format = primitive.Format ?? target.Format;

@@ -45,10 +45,10 @@ public sealed partial class StronglyTypedSchemaTransformer
             schema.Properties.Clear();
             schema.Required.Clear();
         }
-        else if (GetElementPrimitiveType(context.JsonTypeInfo) is { } elementPrimitiveType
+        else if (GetElementPrimitive(context.JsonTypeInfo) is var (elementPrimitiveType, elementAdmitsNull)
             && SchemaByPrimitive.TryGetValue(elementPrimitiveType, out var elementSchema))
         {
-            var element = new OpenApiSchema { Type = elementSchema.Type, Format = elementSchema.Format };
+            var element = new OpenApiSchema { Type = elementSchema.Type, Format = elementSchema.Format, Nullable = elementAdmitsNull };
 
             if (context.JsonTypeInfo.Kind == JsonTypeInfoKind.Dictionary)
             {
