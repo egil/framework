@@ -45,7 +45,7 @@ it easy to avoid the primitive obsession anti pattern.
 
 - **System.Text.Json support**. Every type is declared with a `[JsonConverter]` pointing at the shared, trim/AOT-safe `StronglyTypedJsonConverter<TSelf, TPrimitiveType>`, if the target type is in an assembly that references `System.Text.Json` and the type does not already have a `JsonConverter` attribute declared on it. The converter serializes the type as its primitive value, also when used as a dictionary key, and dictionary keys are culture invariant. See [System.Text.Json](#systemtextjson) for how to use it with a `JsonSerializerContext`.
 
-- **.NET 9 OpenAPI support**. The library includes a custom schema transformer that will ensure strongly typed types have the right OpenAPI schema definition.
+- **OpenAPI support**. The library includes a custom schema transformer that will ensure strongly typed types have the right OpenAPI schema definition. See [OpenAPI support](#openapi-support).
 
 ## Getting started
 
@@ -117,6 +117,15 @@ Every attribute deriving from `ValidationAttribute` that targets the parameter i
 
 A hand-written `IsValueValid` still wins: when the type declares the method, the attributes are not evaluated and the generator reports warning `STP002` on each of them. Attributes deriving from `AsyncValidationAttribute` (.NET 11) cannot run inside the synchronous `IsValueValid` and are left out; unless the type declares `IAsyncValidatableObject`, which runs them through `ValidateAsync` as described in [Async validation (.NET 11)](#async-validation-net-11), the generator reports warning `STP003` on each of them. Attributes that override `RequiresValidationContext`, such as `CustomValidation`, need a `ValidationContext` that `IsValueValid` does not have; they are left out as well with warning `STP005`.
 
+### Supported target frameworks
+
+The package ships runtime assets for `net11.0`, `net10.0` and `netstandard2.0`; the generator itself runs in any compiler host. What a project gets depends on the asset it resolves:
+
+- **`net10.0` and later**: everything described in this README, including the generated `[JsonConverter]`, the shared `StronglyTypedJsonConverter<TSelf, TPrimitiveType>` and the OpenAPI schema transformer.
+- **`netstandard2.0`** (for example .NET Framework or .NET Standard class libraries): the `[StronglyTyped]` attribute and the `IStronglyTypedPrimitive` interfaces, without their static abstract members. The generated types still get `Value`, `Create`, `IsValueValid`, parsing and the constraint checks, but no generated JSON support: the generator reports warning `STP004` instead (see [Compatibility](#compatibility)), and there is no OpenAPI transformer.
+
+`net8.0` and `net9.0` were supported by versions before 2.0; both leave support in November 2026.
+
 ## System.Text.Json
 
 How a strongly typed primitive is serialized depends on how you use `System.Text.Json`:
@@ -145,7 +154,7 @@ The generator reports warning `STP001` for every strongly typed primitive withou
 
 ### Compatibility
 
-`StronglyTypedJsonConverter<TSelf, TPrimitiveType>` and `StronglyTypedJsonConverterFactory` ship in the `net8.0`, `net9.0`, `net10.0` and `net11.0` assets of the package only. Projects that pick the `netstandard2.0` asset (for example .NET Framework or .NET Standard class libraries) get no generated JSON support, even when they reference `System.Text.Json`: the generator emits no `[JsonConverter]` attribute for them and reports warning `STP004` instead. Declare your own `[JsonConverter]` on the partial declaration to serialize the type there, or target `net8.0` or later. Versions before 2.0 generated a nested converter for every target framework.
+`StronglyTypedJsonConverter<TSelf, TPrimitiveType>` and `StronglyTypedJsonConverterFactory` ship in the `net10.0` and `net11.0` assets of the package only. Projects that pick the `netstandard2.0` asset (for example .NET Framework or .NET Standard class libraries) get no generated JSON support, even when they reference `System.Text.Json`: the generator emits no `[JsonConverter]` attribute for them and reports warning `STP004` instead. Declare your own `[JsonConverter]` on the partial declaration to serialize the type there, or target `net10.0` or later. Versions before 2.0 generated a nested converter for every target framework.
 
 ## ASP.NET Core validation
 
@@ -548,11 +557,11 @@ public static bool IsValueValid(string value, bool throwIfInvalid)
 }
 ```
 
-With `throwIfInvalid: false` the method returns at the first failing attribute. With `throwIfInvalid: true` every attribute is evaluated so the exception reports all of them at once. Every attribute is evaluated through `GetValidationResult` with a `ValidationContext` created for that call, whose `MemberName` and `DisplayName` are the name of the positional parameter and whose `ObjectInstance` is a placeholder object, so attributes that override either `IsValid` overload work, and error messages come out formatted with the parameter name. A failing attribute that produces no message at all (a `ValidationResult` with a null `ErrorMessage` and a `FormatErrorMessage` that returns null) is still a failure, reported with DataAnnotations' default wording `The field Value is invalid.`. The context is not shared between calls because it is mutable and an attribute may write to its `Items`; the cost is one small allocation per validated construction or parse of an attribute-constrained type, and none for types without attributes. Before .NET 10 `ValidationContext` has no trim-safe constructor, so on those targets `CreateInvariantContext` calls `ValidationContext(object)` with `DisplayName` set (which keeps its reflection fallback from running) and carries an `UnconditionalSuppressMessage` for IL2026. The attribute instances live in a nested `ValueValidators` class (suffixed with underscores if the type already has a member of that name) so that they are initialized on first use, even from a static initializer on the type itself such as `public static readonly Email Default = new("a@b.c");`.
+With `throwIfInvalid: false` the method returns at the first failing attribute. With `throwIfInvalid: true` every attribute is evaluated so the exception reports all of them at once. Every attribute is evaluated through `GetValidationResult` with a `ValidationContext` created for that call, whose `MemberName` and `DisplayName` are the name of the positional parameter and whose `ObjectInstance` is a placeholder object, so attributes that override either `IsValid` overload work, and error messages come out formatted with the parameter name. A failing attribute that produces no message at all (a `ValidationResult` with a null `ErrorMessage` and a `FormatErrorMessage` that returns null) is still a failure, reported with DataAnnotations' default wording `The field Value is invalid.`. The context is not shared between calls because it is mutable and an attribute may write to its `Items`; the cost is one small allocation per validated construction or parse of an attribute-constrained type, and none for types without attributes. The context is created with the trim-safe `ValidationContext` constructor that .NET 10 added; on the `netstandard2.0` asset, which has no such constructor and no trim analysis, `CreateInvariantContext` calls `ValidationContext(object)` with `DisplayName` set instead (which keeps its reflection fallback from running). The attribute instances live in a nested `ValueValidators` class (suffixed with underscores if the type already has a member of that name) so that they are initialized on first use, even from a static initializer on the type itself such as `public static readonly Email Default = new("a@b.c");`.
 
-## OpenAPI support (.NET 9 and later)
+## OpenAPI support
 
-The library includes a custom schema transformer that documents strongly typed types with the OpenAPI schema of the primitive they wrap, wherever they appear: as body properties, as array items and dictionary values, and as route or query parameters. To use it, add the following to your OpenApi options:
+The library includes a custom schema transformer (in the `net10.0` and `net11.0` assets) that documents strongly typed types with the OpenAPI schema of the primitive they wrap, wherever they appear: as body properties, as array items and dictionary values, and as route or query parameters. It asks the OpenAPI pipeline for the primitive's own schema, so the wrapper is documented exactly as ASP.NET Core documents the primitive on that framework. To use it, add the following to your OpenApi options:
 
 ```csharp
 using Egil.StronglyTypedPrimitives;
