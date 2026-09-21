@@ -28,6 +28,11 @@ public sealed class StronglyTypedSchemaTransformerTest(OpenApiDocumentFixture fi
         { "dateOnlyValue", "string", "date" },
         { "timeOnlyValue", "string", "time" },
         { "guidValue", "string", "uuid" },
+        { "timeSpanValue", "string", null },
+        { "sByteValue", "integer", null },
+        { "int128Value", "integer", null },
+        { "uInt128Value", "integer", null },
+        { "halfValue", "number", null },
     };
 
     [Theory]
@@ -178,6 +183,11 @@ public sealed record StronglyTypedScalars(
     StronglyTypedDateOnly DateOnlyValue,
     StronglyTypedTimeOnly TimeOnlyValue,
     StronglyTypedGuid GuidValue,
+    StronglyTypedTimeSpan TimeSpanValue,
+    StronglyTypedSByte SByteValue,
+    StronglyTypedInt128 Int128Value,
+    StronglyTypedUInt128 UInt128Value,
+    StronglyTypedHalf HalfValue,
     StronglyTypedInt? NullableIntValue,
     StronglyTypedString? NullableStringValue);
 
@@ -198,6 +208,11 @@ public sealed record PlainScalars(
     DateOnly DateOnlyValue,
     TimeOnly TimeOnlyValue,
     Guid GuidValue,
+    TimeSpan TimeSpanValue,
+    sbyte SByteValue,
+    Int128 Int128Value,
+    UInt128 UInt128Value,
+    Half HalfValue,
     int? NullableIntValue,
     string? NullableStringValue);
 
