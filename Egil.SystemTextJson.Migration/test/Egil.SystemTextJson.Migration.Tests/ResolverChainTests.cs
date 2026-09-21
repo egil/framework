@@ -142,6 +142,37 @@ public class ResolverChainTests
     }
 
     [Fact]
+    public void Application_defined_wrapper_around_the_entry_keeps_migration_with_a_downstream_resolver()
+    {
+        // The wrapper is opaque to structural discovery, so the resolver must recognise its own
+        // exclusion scope by identity while building a converter through the wrapper; otherwise
+        // the type's converter would build itself again without end.
+        var options = new JsonSerializerOptions { TypeInfoResolver = new DefaultJsonTypeInfoResolver() };
+        options.AddJsonMigrationSupport();
+        options.TypeInfoResolverChain[0] = new ForwardingResolver(options.TypeInfoResolverChain[0]);
+
+        var json = JsonSerializer.Serialize(new ChainWrapper(new ChainV2("Jane", "Doe")), options);
+        var migrated = JsonSerializer.Deserialize<ChainV2>(LegacyPayload, options);
+
+        Assert.Equal("""{"Inner":{"$type":"chain-v2","FirstName":"Jane","LastName":"Doe"}}""", json);
+        Assert.Equal(new ChainV2("Jane", "Doe"), migrated);
+    }
+
+    [Fact]
+    public void Application_defined_wrapper_without_a_downstream_resolver_reports_missing_metadata()
+    {
+        // An opaque wrapper counts as another resolver, so the reflection stand-in does not apply;
+        // the failure is the same one STJ reports for any chain without a resolver for the type.
+        var options = new JsonSerializerOptions();
+        options.AddJsonMigrationSupport();
+        options.TypeInfoResolverChain[0] = new ForwardingResolver(options.TypeInfoResolverChain[0]);
+
+        var exception = Assert.Throws<InvalidOperationException>(() => JsonSerializer.Serialize(new ChainV2("Jane", "Doe"), options));
+
+        Assert.Contains("No JSON metadata is available", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Converter_removed_from_a_copy_lets_migration_serve_the_type_there()
     {
         // A converter registered before migration support wins only while it is still in the
@@ -157,6 +188,12 @@ public class ResolverChainTests
         Assert.Equal("\"converter\"", JsonSerializer.Serialize(new ChainV2("Jane", "Doe"), original));
         Assert.Equal("""{"$type":"chain-v2","FirstName":"Jane","LastName":"Doe"}""", JsonSerializer.Serialize(new ChainV2("Jane", "Doe"), copy));
         Assert.Equal(new ChainV2("Jane", "Doe"), JsonSerializer.Deserialize<ChainV2>(LegacyPayload, copy));
+    }
+
+    public sealed class ForwardingResolver(IJsonTypeInfoResolver inner) : IJsonTypeInfoResolver
+    {
+        public JsonTypeInfo? GetTypeInfo(Type type, JsonSerializerOptions options)
+            => inner.GetTypeInfo(type, options);
     }
 
     public sealed class ChainV2Converter : JsonConverter<ChainV2>

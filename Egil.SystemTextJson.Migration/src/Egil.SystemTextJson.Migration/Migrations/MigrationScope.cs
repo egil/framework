@@ -15,9 +15,13 @@ namespace Egil.SystemTextJson.Migration.Migrations;
 /// <see cref="JsonSerializerOptions.TypeInfoResolverChain"/>, because a decorator such as
 /// <c>WithAddedModifier</c> hides the resolver from the chain while still delegating to it.
 /// STJ hands every <c>GetTypeInfo</c> call the options being resolved, so the instance is
-/// always available where the scope is needed. A cached scope is only trusted while its resolver
-/// is still reachable from the options' resolver, so replacing the resolver after registration
-/// makes the options unregistered again.
+/// always available where the scope is needed. The resolver itself authenticates a scope by
+/// identity: a scope whose resolver is the one executing is valid by construction, since the
+/// resolver is evidently reachable. Structural validation, which sees through STJ's chains and
+/// decorators but not through application-defined wrappers, is used only by the registration
+/// guard, where it must detect a resolver that was replaced or cleared; it never runs while a
+/// resolution is in progress, because dropping an exclusion scope then would let a type's
+/// converter build itself again without end.
 /// </remarks>
 internal sealed class MigrationScope
 {
@@ -97,37 +101,44 @@ internal sealed class MigrationScope
         => Scopes.AddOrUpdate(options, scope);
 
     /// <summary>
-    /// The scope registered for <paramref name="options"/>, provided its resolver is still reachable
-    /// from the options' resolver; a stale entry (the resolver was replaced or the chain cleared) is
-    /// dropped so the options count as unregistered.
+    /// The scope registered for <paramref name="options"/>, if any. Callers that are themselves
+    /// the resolver compare <see cref="Resolver"/> with their own identity.
     /// </summary>
     public static MigrationScope? Find(JsonSerializerOptions options)
-    {
-        if (!Scopes.TryGetValue(options, out MigrationScope? scope))
-        {
-            return null;
-        }
-
-        if (ResolverLeaves.Contains(options.TypeInfoResolver, scope.Resolver))
-        {
-            return scope;
-        }
-
-        Scopes.Remove(options);
-        return null;
-    }
+        => Scopes.TryGetValue(options, out MigrationScope? scope) ? scope : null;
 
     /// <summary>
     /// Finds the scope for <paramref name="options"/>, or builds one for an options instance that
     /// was copied from a registered one (a copy carries the resolver chain but no scope entry).
+    /// Never removes a scope, so it is safe during resolution.
     /// </summary>
     public static MigrationScope? FindOrDiscover(JsonSerializerOptions options)
+        => Find(options) ?? Discover(options);
+
+    /// <summary>
+    /// The registration to honour when <c>AddJsonMigrationSupport()</c> is called again: a cached
+    /// scope only while its resolver is still reachable through STJ's chains and decorators, otherwise
+    /// one discovered from the current resolver. A cached scope whose resolver was replaced or
+    /// cleared is dropped so the options count as unregistered. An application-defined wrapper is
+    /// opaque to this check, so a registration hidden behind one is re-registered.
+    /// </summary>
+    public static MigrationScope? FindRegistration(JsonSerializerOptions options)
     {
         if (Find(options) is { } scope)
         {
-            return scope;
+            if (ResolverLeaves.Contains(options.TypeInfoResolver, scope.Resolver))
+            {
+                return scope;
+            }
+
+            Scopes.Remove(options);
         }
 
+        return Discover(options);
+    }
+
+    private static MigrationScope? Discover(JsonSerializerOptions options)
+    {
         foreach (IJsonTypeInfoResolver leaf in ResolverLeaves.Of(options.TypeInfoResolver))
         {
             if (leaf is JsonMigrationTypeInfoResolver resolver)
