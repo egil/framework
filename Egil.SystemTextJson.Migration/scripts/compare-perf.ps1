@@ -66,7 +66,12 @@ $table = foreach ($key in ($before.Keys + $after.Keys | Sort-Object -Unique)) {
     $b = $before[$key]
     $a = $after[$key]
     if ($null -eq $b -or $null -eq $a) {
-        [PSCustomObject]@{ Benchmark = $key; 'Base ns' = $b?.Mean; 'Cand ns' = $a?.Mean; 'Delta %' = $null; 'Base B' = $b?.Alloc; 'Cand B' = $a?.Alloc; Flag = 'missing' }
+        # No null-conditional operator here so the script also runs on Windows PowerShell 5.1.
+        $baseMean = if ($b) { $b.Mean } else { $null }
+        $candMean = if ($a) { $a.Mean } else { $null }
+        $baseAlloc = if ($b) { $b.Alloc } else { $null }
+        $candAlloc = if ($a) { $a.Alloc } else { $null }
+        [PSCustomObject]@{ Benchmark = $key; 'Base ns' = $baseMean; 'Cand ns' = $candMean; 'Delta %' = $null; 'Base B' = $baseAlloc; 'Cand B' = $candAlloc; Flag = 'missing' }
         continue
     }
 
