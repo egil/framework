@@ -77,7 +77,7 @@ public sealed class StronglyTypedJsonConverter<TSelf, TPrimitive> : JsonConverte
         return TSelf.Create(rawValue);
     }
 
-    public override void WriteAsPropertyName(Utf8JsonWriter writer, [DisallowNull] TSelf value, JsonSerializerOptions options)
+    public override void WriteAsPropertyName(Utf8JsonWriter writer, [System.Diagnostics.CodeAnalysis.DisallowNull] TSelf value, JsonSerializerOptions options)
     {
         var rawValue = value.Value;
 

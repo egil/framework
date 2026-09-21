@@ -16,8 +16,8 @@ namespace Egil.StronglyTypedPrimitives;
 /// the runtime converter list. The factory closes the generic converter with reflection, so for
 /// trimmed or AOT compiled applications declare the attribute on the type instead.
 /// </remarks>
-[RequiresDynamicCode("Closes StronglyTypedJsonConverter<,> over value types at runtime. Declare [JsonConverter(typeof(StronglyTypedJsonConverter<TSelf, TPrimitive>))] on the strongly typed primitive instead when compiling ahead of time.")]
-[RequiresUnreferencedCode("Inspects the interfaces of the strongly typed primitive at runtime. Declare [JsonConverter(typeof(StronglyTypedJsonConverter<TSelf, TPrimitive>))] on the strongly typed primitive instead when trimming.")]
+[System.Diagnostics.CodeAnalysis.RequiresDynamicCode("Closes StronglyTypedJsonConverter<,> over value types at runtime. Declare [JsonConverter(typeof(StronglyTypedJsonConverter<TSelf, TPrimitive>))] on the strongly typed primitive instead when compiling ahead of time.")]
+[System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Inspects the interfaces of the strongly typed primitive at runtime. Declare [JsonConverter(typeof(StronglyTypedJsonConverter<TSelf, TPrimitive>))] on the strongly typed primitive instead when trimming.")]
 public sealed class StronglyTypedJsonConverterFactory : JsonConverterFactory
 {
     public override bool CanConvert(Type typeToConvert)
