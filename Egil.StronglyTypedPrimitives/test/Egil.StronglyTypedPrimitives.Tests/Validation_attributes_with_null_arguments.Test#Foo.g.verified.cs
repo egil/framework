@@ -43,7 +43,7 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
         public static readonly global::System.ComponentModel.DataAnnotations.ValidationContext invariantContext = CreateInvariantContext();
         public static readonly global::SomeNamespace.CheckAttribute valueValidator0 = new global::SomeNamespace.CheckAttribute((string?)null);
         public static readonly global::SomeNamespace.CheckAttribute valueValidator1 = new global::SomeNamespace.CheckAttribute((int[]?)null);
-        public static readonly global::SomeNamespace.CheckAttribute valueValidator2 = new global::SomeNamespace.CheckAttribute(new string[] { "a", (string?)null });
+        public static readonly global::SomeNamespace.CheckAttribute valueValidator2 = new global::SomeNamespace.CheckAttribute(new string?[] { "a", null });
 
         [global::System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "DisplayName is set, so the constructor's reflection fallback for it never runs.")]
         private static global::System.ComponentModel.DataAnnotations.ValidationContext CreateInvariantContext()

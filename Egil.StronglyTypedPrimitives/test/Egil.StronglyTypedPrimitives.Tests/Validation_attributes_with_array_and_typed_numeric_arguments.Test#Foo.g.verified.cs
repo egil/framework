@@ -41,7 +41,7 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
     private static class ValueValidators
     {
         public static readonly global::System.ComponentModel.DataAnnotations.ValidationContext invariantContext = CreateInvariantContext();
-        public static readonly global::System.ComponentModel.DataAnnotations.AllowedValuesAttribute valueValidator0 = new global::System.ComponentModel.DataAnnotations.AllowedValuesAttribute(new object[] { (long)1, (long)2 });
+        public static readonly global::System.ComponentModel.DataAnnotations.AllowedValuesAttribute valueValidator0 = new global::System.ComponentModel.DataAnnotations.AllowedValuesAttribute(new object?[] { (long)1, (long)2 });
         public static readonly global::SomeNamespace.LimitsAttribute valueValidator1 = new global::SomeNamespace.LimitsAttribute(new int[] { 1, 2 }) { Weight = (float)1.5 };
 
         [global::System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "DisplayName is set, so the constructor's reflection fallback for it never runs.")]
