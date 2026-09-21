@@ -71,6 +71,11 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
     [Id(0)] private readonly ImmutableDictionary<StreamSource, StreamEntry> streams;
     [Id(1)] private readonly ImmutableDictionary<GrainId, OutboxEntry> outbox;
 
+    // Journal replay restores entries without invoking receive-time clocks or telemetry.
+    // Immutable views keep that reconstruction seam internal to the toolbox.
+    internal ImmutableDictionary<StreamSource, StreamEntry> StreamEntries => streams;
+    internal ImmutableDictionary<GrainId, OutboxEntry> OutboxEntries => outbox;
+
     /// <summary>
     /// Non-persisted service reference. No <c>[Id]</c>, no serialization.
     /// Falls back to <see cref="TimeProvider.System"/> when not explicitly set.

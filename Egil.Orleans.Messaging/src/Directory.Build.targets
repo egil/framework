@@ -2,6 +2,8 @@
 <Project>
 
   <PropertyGroup>
+    <ReleaseNotesTagPrefix Condition="'$(ReleaseNotesTagPrefix)' == ''">egil-orleans-messaging/v</ReleaseNotesTagPrefix>
+    <ReleaseNotesProjectPath Condition="'$(ReleaseNotesProjectPath)' == ''">Egil.Orleans.Messaging/</ReleaseNotesProjectPath>
     <_ProjectRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..'))</_ProjectRoot>
   </PropertyGroup>
 
@@ -9,7 +11,7 @@
        last release tag and inject them into every Messaging NuGet package. -->
   <Target Name="_GenerateReleaseNotes" BeforeTargets="GenerateNuspec"
           Condition="'$(Configuration)' == 'Release' and '$(SkipReleaseNotes)' != 'true'">
-    <Exec Command="pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;$(_ProjectRoot)/scripts/generate-release-notes.ps1&quot;"
+    <Exec Command="pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;$(_ProjectRoot)/scripts/generate-release-notes.ps1&quot; -TagPrefix &quot;$(ReleaseNotesTagPrefix)&quot; -ProjectPath &quot;$(ReleaseNotesProjectPath)&quot;"
           WorkingDirectory="$(_ProjectRoot)/.."
           ConsoleToMSBuild="true"
           StandardOutputImportance="low"

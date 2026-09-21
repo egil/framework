@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <NoWarn>$(NoWarn);ORLEANSEXP005</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Egil.Orleans.Messaging.Journaling" Version="$(JournalingVersion)" />
+    <PackageReference Include="Microsoft.Orleans.TestingHost" Version="10.3.1" />
+    <PackageReference Include="Microsoft.Orleans.Server" Version="10.3.1" />
+    <PackageReference Include="Microsoft.Orleans.Sdk" Version="10.3.1" />
+  </ItemGroup>
+</Project>
