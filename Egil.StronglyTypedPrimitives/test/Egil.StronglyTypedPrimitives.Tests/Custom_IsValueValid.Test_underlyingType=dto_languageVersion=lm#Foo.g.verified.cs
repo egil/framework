@@ -25,14 +25,14 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
         return value;
     }
 
-    private readonly System.DateTimeOffset @value = ThrowIfValueIsInvalid(Value);
+    private readonly System.DateTimeOffset @value_ = ThrowIfValueIsInvalid(Value);
 
     public System.DateTimeOffset Value
     {
-        get => @value;
+        get => @value_;
         init
         {
-            @value = ThrowIfValueIsInvalid(value);
+            @value_ = ThrowIfValueIsInvalid(value);
         }
     }
 

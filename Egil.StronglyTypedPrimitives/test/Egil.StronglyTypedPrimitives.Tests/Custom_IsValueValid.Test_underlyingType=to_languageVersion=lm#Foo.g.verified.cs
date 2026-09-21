@@ -25,14 +25,14 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
         return value;
     }
 
-    private readonly System.TimeOnly @value = ThrowIfValueIsInvalid(Value);
+    private readonly System.TimeOnly @value_ = ThrowIfValueIsInvalid(Value);
 
     public System.TimeOnly Value
     {
-        get => @value;
+        get => @value_;
         init
         {
-            @value = ThrowIfValueIsInvalid(value);
+            @value_ = ThrowIfValueIsInvalid(value);
         }
     }
 

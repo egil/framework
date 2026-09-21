@@ -57,7 +57,11 @@ public static class SnapshotTestHelper
     /// </param>
     public static GeneratorDriverRunResult RunGenerator<TGenerator>(string source, out Compilation compilation, bool referenceAbstractions = true)
         where TGenerator : IIncrementalGenerator, new()
-        => RunGenerator<TGenerator>(source, LanguageVersion.LatestMajor, [], out compilation, referenceAbstractions).GetRunResult();
+        => RunGenerator<TGenerator>(source, LanguageVersion.LatestMajor, out compilation, referenceAbstractions);
+
+    public static GeneratorDriverRunResult RunGenerator<TGenerator>(string source, LanguageVersion languageVersion, out Compilation compilation, bool referenceAbstractions = true)
+        where TGenerator : IIncrementalGenerator, new()
+        => RunGenerator<TGenerator>(source, languageVersion, [], out compilation, referenceAbstractions).GetRunResult();
 
     /// <summary>
     /// Runs the generator against the framework reference assemblies this test project was

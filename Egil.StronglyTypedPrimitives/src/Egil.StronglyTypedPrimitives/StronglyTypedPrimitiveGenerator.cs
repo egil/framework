@@ -523,7 +523,10 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         // Before the field keyword the backing field is the parameter name in lower case, which is
         // the parameter's own name when the user wrote it in lower case already (int value, int
         // result0), so the same underscore suffixing as the validator fields keeps it distinct.
-        var reservedFieldNames = new HashSet<string>(targetTypeMembers.Select(member => member.Name), StringComparer.Ordinal);
+        // "value" is reserved as well: inside the init accessor it is the implicit parameter, and
+        // @value is the same identifier, so a field of that name would be shadowed and the
+        // accessor would assign to its own parameter, leaving `x with { Value = v }` a no-op.
+        var reservedFieldNames = new HashSet<string>(targetTypeMembers.Select(member => member.Name), StringComparer.Ordinal) { "value" };
         var fieldName = isCSharp14OrGreater ? "field" : $"@{Parser.GetUnusedName(info.Parameter.Identifier.Text.ToLowerInvariant(), reservedFieldNames)}";
         var getMethodImplementation = underlyingTypeSymbol.SpecialType is SpecialType.System_String
             ? $"{fieldName} ?? string.Empty;"
