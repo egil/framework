@@ -14,9 +14,16 @@ namespace Examples
     [StronglyTyped]
     public readonly partial record struct StronglyTypedEvenIntWithValidate([CustomValidation(typeof(EvenRules), nameof(EvenRules.Validate))] int Value) : IValidatableObject;
 
+    // An odd value passes when the caller marks its context with AllowOddKey: that item can only
+    // come from the context the caller passed, which is how the tests tell it apart from a
+    // placeholder one.
     public static class EvenRules
     {
+        public const string AllowOddKey = "allow-odd";
+
         public static ValidationResult? Validate(int value, ValidationContext context)
-            => value % 2 == 0 ? ValidationResult.Success : new ValidationResult($"{context.DisplayName} must be even.");
+            => value % 2 == 0 || context.Items.ContainsKey(AllowOddKey)
+                ? ValidationResult.Success
+                : new ValidationResult($"{context.DisplayName} must be even.");
     }
 }

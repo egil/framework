@@ -70,6 +70,22 @@ namespace Egil.StronglyTypedPrimitives
             Assert.Equal($"{nameof(StronglyTypedEvenIntWithValidate)} must be even.", result.ErrorMessage);
         }
 
+        // The item is put in the caller's context only, so the odd value passing proves Validate
+        // forwards that context to the attribute rather than a placeholder of its own.
+        [Fact]
+        public void Context_items_from_the_caller_reach_the_context_attribute()
+        {
+            var instance = (object)new StronglyTypedEvenIntWithValidate(3);
+            var context = new ValidationContext(instance);
+            context.Items[EvenRules.AllowOddKey] = true;
+            var results = new List<ValidationResult>();
+
+            var isValid = Validator.TryValidateObject(instance, context, results, validateAllProperties: true);
+
+            Assert.True(isValid);
+            Assert.Empty(results);
+        }
+
         [Fact]
         public void Valid_value_with_a_context_attribute_yields_no_results()
         {
