@@ -13,6 +13,18 @@ internal static class JsonMigratableTypes
         => type.GetCustomAttribute<JsonMigratableAttribute>(inherit: true) is not null;
 
     /// <summary>
+    /// Returns the type that carries <see cref="JsonMigratableAttribute"/> when <paramref name="type"/>
+    /// is migratable or a <see cref="Nullable{T}"/> of a migratable struct, otherwise <see langword="null"/>.
+    /// STJ reads <c>T?</c> through <c>T</c>'s converter, so the migration contract (discriminator,
+    /// migrators) of a nullable element or union case is that of the underlying type.
+    /// </summary>
+    public static Type? GetMigratableType(Type type)
+    {
+        Type underlyingType = Nullable.GetUnderlyingType(type) ?? type;
+        return IsMigratable(underlyingType) ? underlyingType : null;
+    }
+
+    /// <summary>
     /// Returns whether <paramref name="type"/> is a C# union (marked with
     /// <c>System.Runtime.CompilerServices.UnionAttribute</c>) that has, directly or through a
     /// nested union, a case annotated with <see cref="JsonMigratableAttribute"/>. The cases are
@@ -33,7 +45,7 @@ internal static class JsonMigratableTypes
                 continue;
             }
 
-            if (IsMigratable(caseType) || IsUnionWithMigratableCase(caseType))
+            if (GetMigratableType(caseType) is not null || IsUnionWithMigratableCase(caseType))
             {
                 return true;
             }

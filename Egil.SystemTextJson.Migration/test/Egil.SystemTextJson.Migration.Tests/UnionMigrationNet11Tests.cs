@@ -672,6 +672,52 @@ public partial class UnionMigrationTests
         Assert.Contains("No case", exception.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Recursive_union_round_trips_and_migrates_nested_old_payloads()
+    {
+        // Branch holds Node children, so configuring Node's classifier happens again inside the
+        // options the migration factory clones while it builds Branch's own converter.
+        var options = CreateOptions();
+        Node tree = new Branch([new Leaf("a"), new Branch([])]);
+
+        var json = JsonSerializer.Serialize(tree, options);
+        var migrated = JsonSerializer.Deserialize<Node>("""{"$type":"branch","children":[{"$type":"leaf-v1","txt":"old"}]}""", options);
+
+        Assert.Equal("""{"$type":"branch","children":[{"$type":"leaf","text":"a"},{"$type":"branch","children":[]}]}""", json);
+        Assert.IsType<Branch>(JsonSerializer.Deserialize<Node>(json, options).Value);
+        var leaf = Assert.IsType<Leaf>(Assert.Single(Assert.IsType<Branch>(migrated.Value).Children).Value);
+        Assert.Equal("old", leaf.Text);
+    }
+
+    [Fact]
+    public void Nullable_migratable_case_round_trips_through_its_discriminator()
+    {
+        var options = CreateOptions();
+        NullableValueLeafOrLeaf value = new ValueLeaf(42);
+
+        var json = JsonSerializer.Serialize(value, options);
+        var roundTripped = JsonSerializer.Deserialize<NullableValueLeafOrLeaf>(json, options);
+        var migrated = JsonSerializer.Deserialize<NullableValueLeafOrLeaf>("""{"$type":"value-leaf-v1","n":7}""", options);
+
+        Assert.Equal("""{"$type":"value-leaf","number":42}""", json);
+        Assert.Equal(42, Assert.IsType<ValueLeaf>(roundTripped.Value).Number);
+        Assert.Equal(7, Assert.IsType<ValueLeaf>(migrated.Value).Number);
+    }
+
+    [Fact]
+    public void Nested_union_forwards_overridden_object_case_discriminators()
+    {
+        // LegacyBox is reachable through its discriminator as a direct case of LeafOrLegacyBox,
+        // so an outer union must forward that route as well.
+        var options = CreateOptions();
+        var json = $$"""{"$type":"{{typeof(LegacyBox).FullName}}","payload":"kept"}""";
+
+        var value = JsonSerializer.Deserialize<LeafOrLegacyBoxOrLabel>(json, options);
+
+        var inner = Assert.IsType<LeafOrLegacyBox>(value.Value);
+        Assert.Equal("kept", Assert.IsType<LegacyBox>(inner.Value).Payload);
+    }
+
     private static JsonSerializerOptions CreateOptions(Action<JsonMigrationBuilder>? configure = null)
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
@@ -1086,6 +1132,43 @@ public partial class UnionMigrationTests
     {
         public double Radius { get; set; }
     }
+
+    [JsonMigratable(TypeDiscriminator = "leaf-v1")]
+    public record class LeafV1([property: JsonPropertyName("txt")] string Txt);
+
+    [JsonMigratable(TypeDiscriminator = "leaf")]
+    public record class Leaf(string Text) : IMigrateFrom<LeafV1, Leaf>
+    {
+        public static bool TryMigrateFrom(LeafV1 source, out Leaf result)
+        {
+            result = new Leaf(source.Txt);
+            return true;
+        }
+    }
+
+    [JsonMigratable(TypeDiscriminator = "branch")]
+    public record class Branch(Node[] Children);
+
+    public union Node(Branch, Leaf);
+
+    [JsonMigratable(TypeDiscriminator = "value-leaf-v1")]
+    public record struct ValueLeafV1([property: JsonPropertyName("n")] int N);
+
+    [JsonMigratable(TypeDiscriminator = "value-leaf")]
+    public record struct ValueLeaf(int Number) : IMigrateFrom<ValueLeafV1, ValueLeaf>
+    {
+        public static bool TryMigrateFrom(ValueLeafV1 source, out ValueLeaf result)
+        {
+            result = new ValueLeaf(source.N);
+            return true;
+        }
+    }
+
+    public union NullableValueLeafOrLeaf(ValueLeaf?, Leaf);
+
+    public union LeafOrLegacyBox(Leaf, LegacyBox);
+
+    public union LeafOrLegacyBoxOrLabel(LeafOrLegacyBox, string);
 
     [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
     // The injected discriminator is a string property, so a context that would otherwise

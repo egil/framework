@@ -44,7 +44,7 @@ public sealed class JsonMigratableUnionTypeClassifier : JsonTypeClassifierFactor
 
         foreach (var unionCase in context.UnionCases)
         {
-            if (JsonMigratableTypes.IsMigratable(unionCase.CaseType) || JsonMigratableTypes.IsUnionWithMigratableCase(unionCase.CaseType))
+            if (JsonMigratableTypes.GetMigratableType(unionCase.CaseType) is not null || JsonMigratableTypes.IsUnionWithMigratableCase(unionCase.CaseType))
             {
                 return true;
             }
@@ -62,23 +62,23 @@ public sealed class JsonMigratableUnionTypeClassifier : JsonTypeClassifierFactor
         // The registry lives on the converter factory that AddJsonMigrationSupport registers. Looking it
         // up here (instead of holding it in a field) lets the same parameterless type be used from
         // [JsonUnion(TypeClassifier = ...)] and from source-generated contexts.
-        JsonMigrationRegistry? registry = null;
+        JsonMigratableConverterFactory? factory = null;
         foreach (JsonConverter converter in options.Converters)
         {
-            if (converter is JsonMigratableConverterFactory factory)
+            if (converter is JsonMigratableConverterFactory candidate)
             {
-                registry = factory.Registry;
+                factory = candidate;
                 break;
             }
         }
 
-        if (registry is null)
+        if (factory is null)
         {
             throw new InvalidOperationException(
                 $"'{context.DeclaringType.FullName}' uses {nameof(JsonMigratableUnionTypeClassifier)}, but the serializer options have no migration support. Call options.AddJsonMigrationSupport() before serializing or deserializing this union.");
         }
 
-        var routing = UnionCaseRouting.Build(context, registry, options);
+        var routing = UnionCaseRouting.Build(context, factory, options);
         return routing.Classify;
     }
 }

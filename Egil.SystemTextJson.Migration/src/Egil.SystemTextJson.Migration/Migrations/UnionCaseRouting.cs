@@ -58,8 +58,9 @@ internal sealed class UnionCaseRouting
         this.booleanRoute = booleanRoute;
     }
 
-    public static UnionCaseRouting Build(JsonTypeClassifierContext context, JsonMigrationRegistry registry, JsonSerializerOptions options)
+    public static UnionCaseRouting Build(JsonTypeClassifierContext context, JsonMigratableConverterFactory factory, JsonSerializerOptions options)
     {
+        JsonMigrationRegistry registry = factory.Registry;
         var entriesByPropertyName = new Dictionary<string, List<DiscriminatorEntry>>(StringComparer.Ordinal);
         var caseByDiscriminator = new Dictionary<(string PropertyName, string Discriminator), Type>();
         var knownDiscriminators = new List<string>();
@@ -79,31 +80,37 @@ internal sealed class UnionCaseRouting
         {
             Type caseType = unionCase.CaseType;
 
-            if (JsonMigratableTypes.IsMigratable(caseType))
+            // A nullable migratable struct case (T?) is read through T's converter; JSON null
+            // never reaches the classifier, so the case routes exactly like T.
+            if (JsonMigratableTypes.GetMigratableType(caseType) is { } migratableType)
             {
                 // A converter registered ahead of AddJsonMigrationSupport() (or supplied by the
                 // resolver) would win over the migration converter, and routing discriminators to
-                // it would bypass migration; refuse the configuration instead.
-                JsonConverter caseConverter = options.GetTypeInfo(caseType).Converter;
-                if (!(caseConverter.GetType().IsGenericType && caseConverter.GetType().GetGenericTypeDefinition() == typeof(JsonMigratableConverter<>)))
+                // it would bypass migration; refuse the configuration instead. The one legitimate
+                // plain converter is the factory's own recursion guard: while it builds the case's
+                // converter it resolves the case's object contract in cloned options that exclude
+                // the case, and a recursive model (Branch(Node[] Children) with union
+                // Node(Branch, Leaf)) configures this union inside that clone.
+                JsonConverter caseConverter = options.GetTypeInfo(migratableType).Converter;
+                if (!IsMigrationConverter(caseConverter) && !factory.IsBuildingConverterFor(migratableType))
                 {
                     throw new InvalidOperationException(
                         $"Union '{context.DeclaringType.FullName}' case '{caseType.FullName}' is annotated with [JsonMigratable] but is served by converter '{caseConverter.GetType().FullName}'. Call AddJsonMigrationSupport() before registering other converters for the case type.");
                 }
 
                 migratableCases.Add(caseType);
-                TypeMetadata targetMetadata = registry.GetTypeMetadata(caseType);
+                TypeMetadata targetMetadata = registry.GetTypeMetadata(migratableType);
                 AddDiscriminator(context.DeclaringType, entriesByPropertyName, caseByDiscriminator, knownDiscriminators, targetMetadata, caseType);
 
                 // Every source type that migrates into this case is routed here too, so the
                 // case's own converter can perform the migration. Object sources carry a
                 // discriminator; array, dictionary and primitive sources are routed by shape.
-                foreach (Type sourceType in StaticMigratorContracts.GetSourceTypes(caseType))
+                foreach (Type sourceType in StaticMigratorContracts.GetSourceTypes(migratableType))
                 {
                     AddSourceRoute(sourceType, registry.GetTypeMetadata(sourceType), caseType);
                 }
 
-                foreach (ExternalMigratorRegistration registration in registry.GetForTarget(caseType))
+                foreach (ExternalMigratorRegistration registration in registry.GetForTarget(migratableType))
                 {
                     AddSourceRoute(registration.SourceType, registration.SourceMetadata, caseType);
                 }
@@ -219,8 +226,9 @@ internal sealed class UnionCaseRouting
                     return;
             }
 
-            // Dictionaries serialize as JSON objects, so they compete with object cases.
-            JsonTypeInfo shapeTypeInfo = options.GetTypeInfo(shapeType);
+            // Dictionaries serialize as JSON objects, so they compete with object cases. A
+            // nullable struct is written by the underlying type's contract.
+            JsonTypeInfo shapeTypeInfo = options.GetTypeInfo(Nullable.GetUnderlyingType(shapeType) ?? shapeType);
             switch (shapeTypeInfo.Kind)
             {
                 case JsonTypeInfoKind.Enumerable:
@@ -280,16 +288,16 @@ internal sealed class UnionCaseRouting
             foreach (JsonUnionCaseInfo nestedCase in unionTypeInfo.UnionCases)
             {
                 Type nestedType = nestedCase.CaseType;
-                if (JsonMigratableTypes.IsMigratable(nestedType))
+                if (JsonMigratableTypes.GetMigratableType(nestedType) is { } nestedMigratableType)
                 {
-                    AddNestedDiscriminator(registry.GetTypeMetadata(nestedType), caseType, directClaims);
+                    AddNestedDiscriminator(registry.GetTypeMetadata(nestedMigratableType), caseType, directClaims);
 
-                    foreach (Type sourceType in StaticMigratorContracts.GetSourceTypes(nestedType))
+                    foreach (Type sourceType in StaticMigratorContracts.GetSourceTypes(nestedMigratableType))
                     {
                         AddNestedSource(sourceType, registry.GetTypeMetadata(sourceType), caseType, directClaims);
                     }
 
-                    foreach (ExternalMigratorRegistration registration in registry.GetForTarget(nestedType))
+                    foreach (ExternalMigratorRegistration registration in registry.GetForTarget(nestedMigratableType))
                     {
                         AddNestedSource(registration.SourceType, registration.SourceMetadata, caseType, directClaims);
                     }
@@ -297,7 +305,19 @@ internal sealed class UnionCaseRouting
                     continue;
                 }
 
-                JsonTypeInfo nestedTypeInfo = options.GetTypeInfo(nestedType);
+                // Same rule as for a direct case: an overridden case that can carry a
+                // discriminator is reachable through it, so the outer union forwards that route.
+                if (JsonMigratableTypes.HasConverterOverride(nestedType, options))
+                {
+                    if (!IsScalarType(nestedType))
+                    {
+                        AddNestedDiscriminator(registry.GetTypeMetadata(nestedType), caseType, directClaims);
+                    }
+
+                    continue;
+                }
+
+                JsonTypeInfo nestedTypeInfo = options.GetTypeInfo(Nullable.GetUnderlyingType(nestedType) ?? nestedType);
                 if (nestedTypeInfo.Kind is JsonTypeInfoKind.Union)
                 {
                     AddNestedUnionDiscriminators(nestedTypeInfo, caseType, directClaims);
@@ -454,6 +474,9 @@ internal sealed class UnionCaseRouting
         Type underlying = Nullable.GetUnderlyingType(type) ?? type;
         return underlying.IsPrimitive || underlying.IsEnum || SourceValueShapes.Classify(underlying) is not SourceValueShape.Unknown;
     }
+
+    private static bool IsMigrationConverter(JsonConverter converter)
+        => converter.GetType().IsGenericType && converter.GetType().GetGenericTypeDefinition() == typeof(JsonMigratableConverter<>);
 
     private static void AddCase(List<Type> cases, Type caseType)
     {

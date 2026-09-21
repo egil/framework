@@ -45,10 +45,11 @@ internal sealed record MigratorReference(
     // a CLR heuristic would miss derived collections such as class IntCollection : List<int>.
     // A migratable element is served by the migration converter (Kind None) but is always a JSON
     // object, because the converter factory rejects any other contract kind for such types.
+    // A Nullable<T> element is read by T's converter, so T's contract decides.
     public JsonTypeInfoKind ElementKind { get; } = SourceTypeInfo.Kind is JsonTypeInfoKind.Enumerable or JsonTypeInfoKind.Dictionary
-        ? JsonMigratableTypes.IsMigratable(SourceValueShapes.GetValueType(SourceTypeInfo))
+        ? JsonMigratableTypes.GetMigratableType(SourceValueShapes.GetValueType(SourceTypeInfo)) is not null
             ? JsonTypeInfoKind.Object
-            : SourceTypeInfo.Options.GetTypeInfo(SourceValueShapes.GetValueType(SourceTypeInfo)).Kind
+            : SourceTypeInfo.Options.GetTypeInfo(UnwrapNullable(SourceValueShapes.GetValueType(SourceTypeInfo))).Kind
         : JsonTypeInfoKind.None;
 
     public Type ElementType { get; } = SourceTypeInfo.Kind is JsonTypeInfoKind.Enumerable or JsonTypeInfoKind.Dictionary
@@ -92,11 +93,13 @@ internal sealed record MigratorReference(
         }
 
 #if NET11_0_OR_GREATER
-        return options.GetTypeInfo(elementType).Kind is JsonTypeInfoKind.Union;
+        return options.GetTypeInfo(UnwrapNullable(elementType)).Kind is JsonTypeInfoKind.Union;
 #else
         return false;
 #endif
     }
+
+    private static Type UnwrapNullable(Type type) => Nullable.GetUnderlyingType(type) ?? type;
 
     private static System.Text.Json.Serialization.JsonNumberHandling EffectiveElementNumberHandling(JsonTypeInfo sourceTypeInfo)
         => sourceTypeInfo.NumberHandling ?? sourceTypeInfo.Options.NumberHandling;
@@ -113,8 +116,7 @@ internal sealed record MigratorReference(
             return false;
         }
 
-        Type elementType = SourceValueShapes.GetValueType(sourceTypeInfo);
-        if (!JsonMigratableTypes.IsMigratable(elementType))
+        if (JsonMigratableTypes.GetMigratableType(SourceValueShapes.GetValueType(sourceTypeInfo)) is not { } elementType)
         {
             return false;
         }
@@ -126,8 +128,8 @@ internal sealed record MigratorReference(
         {
             // Dictionaries serialize as JSON objects, so only primitive and array sources widen
             // the element's accepted shapes beyond the object shape.
-            if (!JsonMigratableTypes.IsMigratable(elementSource)
-                && sourceTypeInfo.Options.GetTypeInfo(elementSource).Kind is not (JsonTypeInfoKind.Object or JsonTypeInfoKind.Dictionary))
+            if (JsonMigratableTypes.GetMigratableType(elementSource) is null
+                && sourceTypeInfo.Options.GetTypeInfo(UnwrapNullable(elementSource)).Kind is not (JsonTypeInfoKind.Object or JsonTypeInfoKind.Dictionary))
             {
                 return true;
             }
@@ -150,8 +152,9 @@ internal sealed record MigratorReference(
         // An element served by another converter is not written by the migration converter, so
         // its discriminator must not select the collection (the element would bypass migration).
         Type elementType = SourceValueShapes.GetValueType(sourceTypeInfo);
-        return JsonMigratableTypes.IsMigratable(elementType) && !JsonMigratableTypes.HasConverterOverride(elementType, sourceTypeInfo.Options)
-            ? registry.GetTypeMetadata(elementType)
+        return JsonMigratableTypes.GetMigratableType(elementType) is { } migratableElementType
+            && !JsonMigratableTypes.HasConverterOverride(elementType, sourceTypeInfo.Options)
+            ? registry.GetTypeMetadata(migratableElementType)
             : null;
     }
 }

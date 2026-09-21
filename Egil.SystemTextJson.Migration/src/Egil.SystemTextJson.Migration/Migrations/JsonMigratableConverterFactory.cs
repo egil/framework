@@ -21,8 +21,13 @@ internal sealed class JsonMigratableConverterFactory(JsonMigrationRegistry regis
         this.excludedTypes = excludedTypes;
     }
 
-    /// <inheritdoc/>
     internal JsonMigrationRegistry Registry => registry;
+
+    /// <summary>
+    /// Whether this factory is the type-excluding clone used while <paramref name="type"/>'s own
+    /// converter is being built, so that <paramref name="type"/> resolves to its plain object contract.
+    /// </summary>
+    internal bool IsBuildingConverterFor(Type type) => excludedTypes.Contains(type);
 
     public override bool CanConvert(Type typeToConvert)
         => !excludedTypes.Contains(typeToConvert) && JsonMigratableTypes.IsMigratable(typeToConvert);
