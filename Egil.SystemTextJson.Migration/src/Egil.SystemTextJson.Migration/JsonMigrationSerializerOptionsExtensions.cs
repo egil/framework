@@ -57,7 +57,7 @@ public static class JsonMigrationSerializerOptionsExtensions
         // only stands in while the migration resolver is the sole entry. Discovery looks through
         // STJ's decorators so a decorated entry counts as registered, and a registration whose
         // resolver was replaced or cleared afterwards does not.
-        if (MigrationScope.FindOrDiscover(options) is not null)
+        if (MigrationScope.FindRegistration(options) is not null)
         {
             return options;
         }

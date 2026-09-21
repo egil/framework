@@ -46,7 +46,14 @@ internal sealed class JsonMigrationTypeInfoResolver : IJsonTypeInfoResolver
         ArgumentNullException.ThrowIfNull(type);
         ArgumentNullException.ThrowIfNull(options);
 
+        // A scope belonging to this resolver is valid by construction: this resolver is evidently
+        // still reachable, however the chain is wrapped. One belonging to another migration
+        // resolver (the options were re-registered after this one was hidden) is not ours to use.
         MigrationScope? scope = MigrationScope.Find(options);
+        if (scope is not null && !ReferenceEquals(scope.Resolver, this))
+        {
+            scope = null;
+        }
 
         // The type whose converter is being built through these options wants its plain object
         // contract; stepping aside lets the rest of the chain (or the reflection fallback in the
