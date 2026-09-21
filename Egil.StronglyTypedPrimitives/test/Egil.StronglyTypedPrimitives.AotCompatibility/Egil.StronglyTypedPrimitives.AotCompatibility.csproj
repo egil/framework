@@ -6,8 +6,13 @@
       trim/AOT analyzers enabled and fails on any warning, so an IL2026/IL3050 from generated code,
       from the shared StronglyTypedJsonConverter, or from the documented AOT usage pattern breaks
       the solution build in every configuration, not only Release.
+
+      net9.0 is built as well because the generated validation code constructs a ValidationContext
+      differently there: only net10.0 has the trim safe constructor, so the earlier targets have to
+      suppress IL2026 on the RequiresUnreferencedCode one, and that suppression is what this
+      target proves.
     -->
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks>net9.0;net10.0</TargetFrameworks>
     <IsAotCompatible>true</IsAotCompatible>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <Nullable>enable</Nullable>

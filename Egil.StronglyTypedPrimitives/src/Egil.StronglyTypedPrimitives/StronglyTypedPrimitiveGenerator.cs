@@ -398,6 +398,13 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         // throwIfInvalid the checks keep going after a failure so the exception can report every
         // violated attribute at once; without it the first failure is the answer.
         //
+        // The attributes are called through GetValidationResult with a shared context rather than
+        // through IsValid(object): an attribute that overrides only IsValid(object, ValidationContext)
+        // would be handed a null context by IsValid(object) and fail with a NullReferenceException.
+        // GetValidationResult serves both overload styles the way Validator does, allocates nothing
+        // on success (Success is null) and returns a message already formatted with the display
+        // name, so there is no FormatErrorMessage call either.
+        //
         // The fields sit in a nested static class, not on the target type: a user's static
         // initializer such as `public static readonly Foo Default = new(1);` calls IsValueValid
         // while the target type is still initializing, and whether the generated part's fields are
@@ -406,16 +413,25 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         // method runs.
         var attributes = validationAttributes.Attributes;
         var validators = validationAttributes.ValidatorsTypeName;
-        var parameterName = info.Parameter.Identifier.Text;
+        var context = validationAttributes.InvariantContext;
         var source = new StringBuilder();
 
         source.Append($"\n    private static class {validators}\n    {{");
+        source.Append($"\n        public static readonly global::System.ComponentModel.DataAnnotations.ValidationContext {context.FieldName} = {context.FactoryMethodName}();");
 
         foreach (var attribute in attributes)
         {
             source.Append($"\n        public static readonly {attribute.AttributeTypeName} {attribute.FieldName} = {attribute.CreationExpression};");
         }
 
+        source.Append('\n');
+
+        if (context.SuppressTrimWarning)
+        {
+            source.Append("\n        [global::System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage(\"Trimming\", \"IL2026\", Justification = \"DisplayName is set, so the constructor's reflection fallback for it never runs.\")]");
+        }
+
+        source.Append($"\n        private static global::System.ComponentModel.DataAnnotations.ValidationContext {context.FactoryMethodName}()\n            => {context.CreationExpression};");
         source.Append("\n    }");
         source.Append($"\n\n    public static bool IsValueValid({underlyingTypeSymbol.ToDisplayString()} value, bool throwIfInvalid)\n    {{");
 
@@ -430,10 +446,10 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         {
             source.Append($$"""
 
-                        if (!{{validators}}.{{attribute.FieldName}}.IsValid(value))
+                        if ({{validators}}.{{attribute.FieldName}}.GetValidationResult(value, {{validators}}.{{context.FieldName}}) is { } result{{attribute.Index}})
                         {
                             if (!throwIfInvalid) return false;
-                            error{{attribute.Index}} = {{validators}}.{{attribute.FieldName}}.FormatErrorMessage("{{parameterName}}");
+                            error{{attribute.Index}} = result{{attribute.Index}}.ErrorMessage;
                         }
 
                 """);

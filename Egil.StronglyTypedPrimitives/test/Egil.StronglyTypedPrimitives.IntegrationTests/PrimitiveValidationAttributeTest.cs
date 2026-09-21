@@ -53,6 +53,16 @@ namespace Egil.StronglyTypedPrimitives
         }
 
         [Fact]
+        public void Attribute_overriding_only_the_context_IsValid_is_evaluated_with_a_context()
+        {
+            var exception = Assert.Throws<ValidationException>(() => new StronglyTypedNotBlank("   "));
+
+            Assert.Equal("The Value field must not be blank.", exception.Message);
+            Assert.Equal("x", new StronglyTypedNotBlank("x").Value);
+            Assert.False(StronglyTypedNotBlank.TryParse("   ", null, out _));
+        }
+
+        [Fact]
         public void Constructor_reports_every_failing_attribute_in_declaration_order()
         {
             var expectedMessage = new EmailAddressAttribute().FormatErrorMessage("Value")

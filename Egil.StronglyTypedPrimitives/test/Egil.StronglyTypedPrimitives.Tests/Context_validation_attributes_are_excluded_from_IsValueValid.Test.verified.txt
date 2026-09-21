@@ -6,7 +6,7 @@
       Severity: Warning,
       WarningLevel: 1,
       Location: Program.cs: (6,57)-(6,69),
-      Description: Attributes that override RequiresValidationContext, such as CustomValidationAttribute, are excluded from the generated IsValueValid because it has no ValidationContext to give them.,
+      Description: Attributes that override RequiresValidationContext, such as CustomValidationAttribute, are excluded from the generated IsValueValid, which validates the bare value against a placeholder context without an object instance, services or items.,
       MessageFormat: The validation attribute '{0}' on '{1}' is not part of the value invariant of '{2}' because it requires a ValidationContext. It is evaluated only through IValidatableObject.Validate when '{2}' declares that interface.,
       Message: The validation attribute 'SomeNamespace.TenantScopedAttribute' on 'Value' is not part of the value invariant of 'Foo' because it requires a ValidationContext. It is evaluated only through IValidatableObject.Validate when 'Foo' declares that interface.,
       Category: Egil.StronglyTypedPrimitives
@@ -17,7 +17,7 @@
       Severity: Warning,
       WarningLevel: 1,
       Location: Program.cs: (6,71)-(6,132),
-      Description: Attributes that override RequiresValidationContext, such as CustomValidationAttribute, are excluded from the generated IsValueValid because it has no ValidationContext to give them.,
+      Description: Attributes that override RequiresValidationContext, such as CustomValidationAttribute, are excluded from the generated IsValueValid, which validates the bare value against a placeholder context without an object instance, services or items.,
       MessageFormat: The validation attribute '{0}' on '{1}' is not part of the value invariant of '{2}' because it requires a ValidationContext. It is evaluated only through IValidatableObject.Validate when '{2}' declares that interface.,
       Message: The validation attribute 'System.ComponentModel.DataAnnotations.CustomValidationAttribute' on 'Value' is not part of the value invariant of 'Foo' because it requires a ValidationContext. It is evaluated only through IValidatableObject.Validate when 'Foo' declares that interface.,
       Category: Egil.StronglyTypedPrimitives

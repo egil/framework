@@ -40,17 +40,22 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
 
     private static class ValueValidators
     {
+        public static readonly global::System.ComponentModel.DataAnnotations.ValidationContext invariantContext = CreateInvariantContext();
         public static readonly global::SomeNamespace.InstanceOfAttribute valueValidator0 = new global::SomeNamespace.InstanceOfAttribute(typeof(string));
+
+        [global::System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "DisplayName is set, so the constructor's reflection fallback for it never runs.")]
+        private static global::System.ComponentModel.DataAnnotations.ValidationContext CreateInvariantContext()
+            => new global::System.ComponentModel.DataAnnotations.ValidationContext(new object()) { MemberName = "Value", DisplayName = "Value" };
     }
 
     public static bool IsValueValid(string value, bool throwIfInvalid)
     {
         string? error0 = null;
 
-        if (!ValueValidators.valueValidator0.IsValid(value))
+        if (ValueValidators.valueValidator0.GetValidationResult(value, ValueValidators.invariantContext) is { } result0)
         {
             if (!throwIfInvalid) return false;
-            error0 = ValueValidators.valueValidator0.FormatErrorMessage("Value");
+            error0 = result0.ErrorMessage;
         }
 
         if (error0 is null) return true;
