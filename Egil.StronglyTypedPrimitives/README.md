@@ -391,26 +391,26 @@ The `Value` property and `ThrowIfValueIsInvalid` are generated exactly as in the
 ```csharp
 private static class ValueValidators
 {
-    public static readonly global::System.ComponentModel.DataAnnotations.ValidationContext invariantContext = CreateInvariantContext();
     public static readonly global::System.ComponentModel.DataAnnotations.EmailAddressAttribute valueValidator0 = new global::System.ComponentModel.DataAnnotations.EmailAddressAttribute();
     public static readonly global::System.ComponentModel.DataAnnotations.StringLengthAttribute valueValidator1 = new global::System.ComponentModel.DataAnnotations.StringLengthAttribute(254) { MinimumLength = 3 };
 
-    private static global::System.ComponentModel.DataAnnotations.ValidationContext CreateInvariantContext()
+    public static global::System.ComponentModel.DataAnnotations.ValidationContext CreateInvariantContext()
         => new global::System.ComponentModel.DataAnnotations.ValidationContext(new object(), "Value", null, null) { MemberName = "Value" };
 }
 
 public static bool IsValueValid(string value, bool throwIfInvalid)
 {
+    var context = ValueValidators.CreateInvariantContext();
     string? error0 = null;
     string? error1 = null;
 
-    if (ValueValidators.valueValidator0.GetValidationResult(value, ValueValidators.invariantContext) is { } result0)
+    if (ValueValidators.valueValidator0.GetValidationResult(value, context) is { } result0)
     {
         if (!throwIfInvalid) return false;
         error0 = result0.ErrorMessage;
     }
 
-    if (ValueValidators.valueValidator1.GetValidationResult(value, ValueValidators.invariantContext) is { } result1)
+    if (ValueValidators.valueValidator1.GetValidationResult(value, context) is { } result1)
     {
         if (!throwIfInvalid) return false;
         error1 = result1.ErrorMessage;
@@ -425,7 +425,7 @@ public static bool IsValueValid(string value, bool throwIfInvalid)
 }
 ```
 
-With `throwIfInvalid: false` the method returns at the first failing attribute. With `throwIfInvalid: true` every attribute is evaluated so the exception reports all of them at once. Every attribute is evaluated through `GetValidationResult` with a shared `ValidationContext` whose `MemberName` and `DisplayName` are the name of the positional parameter and whose `ObjectInstance` is a placeholder object, so attributes that override either `IsValid` overload work, and error messages come out formatted with the parameter name. Before .NET 10 `ValidationContext` has no trim-safe constructor, so on those targets `CreateInvariantContext` calls `ValidationContext(object)` with `DisplayName` set (which keeps its reflection fallback from running) and carries an `UnconditionalSuppressMessage` for IL2026. The attribute instances live in a nested `ValueValidators` class (suffixed with underscores if the type already has a member of that name) so that they are initialized on first use, even from a static initializer on the type itself such as `public static readonly Email Default = new("a@b.c");`.
+With `throwIfInvalid: false` the method returns at the first failing attribute. With `throwIfInvalid: true` every attribute is evaluated so the exception reports all of them at once. Every attribute is evaluated through `GetValidationResult` with a `ValidationContext` created for that call, whose `MemberName` and `DisplayName` are the name of the positional parameter and whose `ObjectInstance` is a placeholder object, so attributes that override either `IsValid` overload work, and error messages come out formatted with the parameter name. The context is not shared between calls because it is mutable and an attribute may write to its `Items`; the cost is one small allocation per validated construction or parse of an attribute-constrained type, and none for types without attributes. Before .NET 10 `ValidationContext` has no trim-safe constructor, so on those targets `CreateInvariantContext` calls `ValidationContext(object)` with `DisplayName` set (which keeps its reflection fallback from running) and carries an `UnconditionalSuppressMessage` for IL2026. The attribute instances live in a nested `ValueValidators` class (suffixed with underscores if the type already has a member of that name) so that they are initialized on first use, even from a static initializer on the type itself such as `public static readonly Email Default = new("a@b.c");`.
 
 ## .NET 9 OpenAPI support
 
