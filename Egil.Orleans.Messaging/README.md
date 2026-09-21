@@ -336,6 +336,18 @@ treats the value as durable and loses it at its own next deactivation. A stage m
 before the grain's first write is worse — the facet arrives with no record, so the
 destination resolves the configured default and the change is gone on arrival.
 
+## Journaling companion (preview)
+
+The optional [Egil.Orleans.Messaging.Journaling package](src/Egil.Orleans.Messaging.Journaling/README.md)
+provides `IDurableMessageTracker` and `IDurableOutbox<T>`. They share an Orleans
+journal commit with business state while storing incremental messaging changes.
+`AsImmutable()` returns the current immutable value for existing processor integration.
+
+The companion follows its own preview version and release workflow and targets
+Orleans Journaling 10.3.1-alpha.1. Installing core OM does not install Journaling.
+See the package README for registration, grain composition, storage requirements,
+format compatibility, and runnable verification.
+
 ## Outbox
 
 Store an `Outbox<T>` on the grain state and commit messages with the business state change:
@@ -976,6 +988,8 @@ guaranteed; use a System.Text.Json serializer or the Orleans binary serializer.
 This package is messaging infrastructure, not an event-sourcing or CQRS framework. It wraps Orleans state, outbox dispatch, receiver deduplication, and stream subscription management while leaving domain modeling, read models, transport targets, and operational policy to the application.
 
 ## Beta API changes
+
+- Added the opt-in `Egil.Orleans.Messaging.Journaling` preview package with named durable trackers and outboxes; the core immutable APIs remain available.
 
 A grain can now inject `IStateManager<T>` on its `[PersistentState]` constructor
 parameter instead of `IPersistentState<T>`, and a state type can supply its own

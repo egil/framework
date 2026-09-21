@@ -6,20 +6,21 @@
     <Nullable>enable</Nullable>
     <IsPackable>true</IsPackable>
     <DebugType>embedded</DebugType>
+    <NoWarn>$(NoWarn);ORLEANSEXP005</NoWarn>
+    <ReleaseNotesTagPrefix>egil-orleans-messaging-journaling/v</ReleaseNotesTagPrefix>
+    <ReleaseNotesProjectPath>Egil.Orleans.Messaging/src/Egil.Orleans.Messaging.Journaling/</ReleaseNotesProjectPath>
   </PropertyGroup>
 
   <PropertyGroup>
-    <PackageId>Egil.Orleans.Messaging</PackageId>
-    <Title>Orleans Messaging Toolbox</Title>
+    <PackageId>Egil.Orleans.Messaging.Journaling</PackageId>
+    <Title>Orleans Messaging Journaling</Title>
     <Company>Egil Hansen</Company>
     <Authors>Egil Hansen</Authors>
     <Description>
-      A toolbox of composable building blocks for Orleans grains that need
-      atomic state writes, transactional outbox, receiver-side dedup, and
-      stream subscription management. Pick what you need, leave the rest.
+      Preview journaled outbox and message tracking components for Egil.Orleans.Messaging.
     </Description>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageTags>orleans,messaging,outbox,deduplication,streams,grain,egil</PackageTags>
+    <PackageTags>orleans,messaging,journaling,outbox,deduplication,preview,egil</PackageTags>
     <Copyright>Egil Hansen</Copyright>
     <PackageProjectUrl>https://github.com/egil/framework</PackageProjectUrl>
     <RepositoryUrl>https://github.com/egil/framework</RepositoryUrl>
@@ -35,18 +36,15 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.Orleans.Reminders" />
-    <PackageReference Include="Microsoft.Orleans.Runtime" />
-    <PackageReference Include="Microsoft.Orleans.Streaming" />
+    <PackageReference Include="Microsoft.Orleans.Journaling" />
   </ItemGroup>
 
   <ItemGroup>
-    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
-      <_Parameter1>Egil.Orleans.Messaging.Tests</_Parameter1>
-    </AssemblyAttribute>
-    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
-      <_Parameter1>Egil.Orleans.Messaging.Journaling</_Parameter1>
-    </AssemblyAttribute>
+    <ProjectReference Include="..\Egil.Orleans.Messaging\Egil.Orleans.Messaging.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Egil.Orleans.Messaging.Journaling.Tests" />
   </ItemGroup>
 
   <ItemGroup>
@@ -54,7 +52,7 @@
       <Pack>True</Pack>
       <PackagePath>\</PackagePath>
     </None>
-    <None Include="..\..\README.md">
+    <None Include="README.md">
       <Pack>True</Pack>
       <PackagePath>\</PackagePath>
     </None>

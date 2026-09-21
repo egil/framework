@@ -1,0 +1,22 @@
+{
+  "$schema": "https://raw.githubusercontent.com/dotnet/Nerdbank.GitVersioning/main/src/NerdBank.GitVersioning/version.schema.json",
+  "version": "0.1-preview",
+  "publicReleaseRefSpec": [
+    "^refs/heads/main$"
+  ],
+  "cloudBuild": {
+    "setAllVariables": false
+  },
+  "release": {
+    "tagName": "egil-orleans-messaging-journaling/v{version}"
+  },
+  "pathFilters": [
+    "./",
+    "../Directory.Build.props",
+    "../Directory.Build.targets",
+    "../../Directory.Packages.props",
+    "../../test/Egil.Orleans.Messaging.Journaling.Tests/",
+    "../../../Directory.Build.props",
+    "../../../.github/workflows/egil-orleans-messaging-journaling-ci.yml"
+  ]
+}
