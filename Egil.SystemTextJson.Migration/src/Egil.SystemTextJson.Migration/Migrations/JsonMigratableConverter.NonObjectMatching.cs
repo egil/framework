@@ -23,20 +23,22 @@ internal sealed partial class JsonMigratableConverter<T>
             match = MatchPrimitive(tokenType, quotedNumbers: true, SourceValueShapes.IsNamedFloatingPointLiteral(ref reader));
         }
 
-        if (match is null && tokenType is JsonTokenType.Number)
+        if (match is null)
         {
-            match = MatchOverriddenEnum();
+            match = MatchOverriddenByClrShape(tokenType);
         }
 
         return match;
     }
 
-    private MigratorReference? MatchOverriddenEnum()
+    // Last resort, matching 1.x: a source with a converter override takes the token its CLR type
+    // would read. Quoted numbers are not considered here, as they were not in 1.x either.
+    private MigratorReference? MatchOverriddenByClrShape(JsonTokenType tokenType)
     {
         MigratorReference? match = null;
         foreach (MigratorReference migrator in context.Migrators)
         {
-            if (!migrator.IsOverriddenEnum)
+            if (!SourceValueShapes.IsTokenCompatible(tokenType, migrator.OverriddenShape))
             {
                 continue;
             }

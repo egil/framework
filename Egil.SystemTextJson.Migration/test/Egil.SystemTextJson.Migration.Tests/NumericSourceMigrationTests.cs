@@ -349,6 +349,18 @@ public partial class NumericSourceMigrationTests
     }
 
     [Fact]
+    public void Overridden_int_source_still_takes_a_number_when_nothing_else_matches()
+    {
+        // Same rule for any source: 1.x matched by CLR type regardless of converter overrides.
+        var options = CreateOptions();
+        options.Converters.Add(new DoublingIntConverter());
+
+        var result = JsonSerializer.Deserialize<IntOnlyState>("21", options);
+
+        Assert.Equal("from-int-42", result!.Source);
+    }
+
+    [Fact]
     public void Two_overridden_enum_sources_are_ambiguous_for_a_number()
     {
         var options = CreateOptions();
@@ -530,6 +542,25 @@ public partial class NumericSourceMigrationTests
     {
         Light,
         Dark,
+    }
+
+    public sealed class DoublingIntConverter : JsonConverter<int>
+    {
+        public override int Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+            => reader.GetInt32() * 2;
+
+        public override void Write(Utf8JsonWriter writer, int value, JsonSerializerOptions options)
+            => writer.WriteNumberValue(value);
+    }
+
+    [JsonMigratable]
+    public record class IntOnlyState(string Source) : IMigrateFrom<int, IntOnlyState>
+    {
+        public static bool TryMigrateFrom(int source, out IntOnlyState result)
+        {
+            result = new IntOnlyState($"from-int-{source}");
+            return true;
+        }
     }
 
     [JsonMigratable]
