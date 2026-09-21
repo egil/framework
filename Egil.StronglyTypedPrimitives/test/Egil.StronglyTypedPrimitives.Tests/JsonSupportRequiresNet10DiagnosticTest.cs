@@ -3,7 +3,7 @@ using Microsoft.CodeAnalysis;
 
 namespace Egil.StronglyTypedPrimitives;
 
-public class JsonSupportRequiresNet8DiagnosticTest
+public class JsonSupportRequiresNet10DiagnosticTest
 {
     // Stands in for the netstandard2.0 asset of the Abstractions assembly, which ships the
     // attribute and the interfaces but not StronglyTypedJsonConverter<,>; the helper leaves the
@@ -51,7 +51,7 @@ public class JsonSupportRequiresNet8DiagnosticTest
         var diagnostic = Assert.Single(result.Diagnostics);
         Assert.Equal("STP004", diagnostic.Id);
         Assert.Equal(DiagnosticSeverity.Warning, diagnostic.Severity);
-        Assert.Contains("requires targeting net8.0 or later", diagnostic.GetMessage(CultureInfo.InvariantCulture));
+        Assert.Contains("requires targeting net10.0 or later", diagnostic.GetMessage(CultureInfo.InvariantCulture));
         Assert.Equal("Foo", diagnostic.Location.SourceTree?.GetText(TestContext.Current.CancellationToken).ToString(diagnostic.Location.SourceSpan));
         var generatedSource = Assert.Single(result.GeneratedTrees).GetText(TestContext.Current.CancellationToken).ToString();
         Assert.DoesNotContain("JsonConverterAttribute", generatedSource);

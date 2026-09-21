@@ -1,5 +1,5 @@
-// See StronglyTypedJsonConverter.cs for why this only exists from net8.0 up.
-#if NET8_0_OR_GREATER
+// See StronglyTypedJsonConverter.cs for why this only exists from net10.0 up.
+#if NET10_0_OR_GREATER
 using System.Text.Json;
 using System.Text.Json.Serialization;
 

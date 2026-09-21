@@ -338,12 +338,11 @@ public class OpenApiDocumentFixture : IAsyncLifetime
             ? document["components"]!["schemas"]![reference.GetValue<string>().Split('/')[^1]]!
             : schema;
 
-    // The framework spells "may be null" three ways, and a strongly typed property and its plain
-    // twin do not always get the same one: OpenAPI 3.0 (.NET 9) sets "nullable": true on the schema
-    // (inline for a plain primitive, on a NullableOfX component for a wrapper); 3.1 and later
-    // (.NET 10 onwards) add "null" to a plain primitive's "type" array but wrap a component
-    // reference as oneOf: [{ "type": "null" }, { "$ref": ... }]. Splitting the null marker off
-    // leaves the value schema, which must match the primitive's exactly.
+    // The framework spells "may be null" two ways, and a strongly typed property and its plain
+    // twin do not always get the same one: OpenAPI 3.1 adds "null" to a plain primitive's "type"
+    // array but wraps a component reference as oneOf: [{ "type": "null" }, { "$ref": ... }].
+    // Splitting the null marker off leaves the value schema, which must match the primitive's
+    // exactly.
     public (JsonNode Value, bool AdmitsNull) SplitNullable(JsonNode schema)
     {
         if (schema["oneOf"] is JsonArray alternatives)
@@ -354,12 +353,6 @@ public class OpenApiDocumentFixture : IAsyncLifetime
         }
 
         var value = schema.DeepClone().AsObject();
-
-        if (value["nullable"]?.GetValue<bool>() == true)
-        {
-            value.Remove("nullable");
-            return (value, true);
-        }
 
         if (value["type"] is JsonArray types && types.Any(type => type!.GetValue<string>() == "null"))
         {

@@ -9,7 +9,10 @@ public interface IStronglyTypedPrimitive
 
 public interface IStronglyTypedPrimitive<TPrimitiveType> : IStronglyTypedPrimitive
 {
-#if NET6_0_OR_GREATER
+    // The netstandard2.0 asset cannot declare static abstract interface members, so there the
+    // interfaces carry no static members; the generator still emits the same members on every
+    // strongly typed primitive.
+#if NET10_0_OR_GREATER
     static abstract bool IsValueValid(TPrimitiveType value, bool throwIfInvalid);
 #endif
 }
@@ -29,7 +32,7 @@ public interface IStronglyTypedPrimitive<TSelf, TPrimitiveType> : IStronglyTyped
     /// </summary>
     TPrimitiveType Value { get; }
 
-#if NET6_0_OR_GREATER
+#if NET10_0_OR_GREATER
     /// <summary>
     /// Creates an instance wrapping <paramref name="value"/>, validating it the same way the constructor does.
     /// </summary>

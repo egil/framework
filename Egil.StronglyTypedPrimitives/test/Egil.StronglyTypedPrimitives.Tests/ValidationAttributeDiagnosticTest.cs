@@ -150,7 +150,7 @@ public class ValidationAttributeDiagnosticTest
         Assert.DoesNotContain("CustomValidationAttribute", Assert.Single(result.GeneratedTrees).ToString());
     }
 
-    // The reference assemblies of the framework (net9.0 through net11.0) leave out the
+    // The reference assemblies of the framework (net10.0 and net11.0) leave out the
     // RequiresValidationContext override of CustomValidationAttribute that the implementation
     // assembly has, and a consumer's build compiles against the reference assemblies. The
     // generator therefore cannot rely on seeing the override for this attribute.

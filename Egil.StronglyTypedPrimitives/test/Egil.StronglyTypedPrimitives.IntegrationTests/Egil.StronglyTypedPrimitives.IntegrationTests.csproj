@@ -9,11 +9,11 @@
     <!--
       Multi-targeted on purpose: each TFM exercises the OpenAPI schema transformer shipped in the
       matching lib/<tfm> folder against the Microsoft.OpenApi major that TFM's
-      Microsoft.AspNetCore.OpenApi package depends on (v1 on net9.0, v2 on net10.0, v3 on net11.0).
-      The transformer test boots a real ASP.NET Core host and asserts on the emitted JSON document,
-      which is identical across the three, so the test bodies need no conditional compilation.
+      Microsoft.AspNetCore.OpenApi package depends on (v2 on net10.0, v3 on net11.0). The
+      transformer test boots a real ASP.NET Core host and asserts on the emitted JSON document,
+      which is identical across the two, so the test bodies need no conditional compilation.
     -->
-    <TargetFrameworks>net9.0;net10.0;net11.0</TargetFrameworks>
+    <TargetFrameworks>net10.0;net11.0</TargetFrameworks>
     <LangVersion>preview</LangVersion>
     <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
     <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
@@ -33,9 +33,8 @@
 
   <!--
     The OpenAPI transformer test and the minimal API validation tests host a minimal API
-    in-memory on a TestServer. The shared framework is needed on every TFM for the transformer
-    test; on net10.0 and later its SDK analyzers also include the validation source generator
-    that AddValidation() relies on.
+    in-memory on a TestServer. The shared framework's SDK analyzers also include the validation
+    source generator that AddValidation() relies on.
   -->
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />

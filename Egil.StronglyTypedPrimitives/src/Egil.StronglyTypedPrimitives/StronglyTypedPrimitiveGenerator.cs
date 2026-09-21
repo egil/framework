@@ -123,7 +123,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
                 if (generated.JsonConverterSupport is JsonConverterSupport.SharedConverterUnavailable)
                 {
                     spc.ReportDiagnostic(Diagnostic.Create(
-                        DiagnosticDescriptors.JsonSupportRequiresNet8,
+                        DiagnosticDescriptors.JsonSupportRequiresNet10,
                         stronglyTypedInfo.Target.Identifier.GetLocation(),
                         generated.TargetTypeName));
                 }
@@ -195,8 +195,8 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             .ToArray();
 
         // The members of IStronglyTypedPrimitive<TSelf, TPrimitive> (Value and Create) have
-        // dedicated generators below because they must also exist on target frameworks where the
-        // interface cannot declare them (no static abstract members before net7.0).
+        // dedicated generators below because they must also exist for consumers of the
+        // netstandard2.0 asset, whose interfaces cannot declare them (no static abstract members).
         // IsValueValid is likewise generated from the user's members rather than from the interface:
         // the netstandard2.0 asset cannot declare it as a static abstract member, yet the generated
         // constructor validation calls it.
@@ -458,12 +458,6 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         if (!invariantAttributes.IsEmpty)
         {
             source.Append('\n');
-
-            if (context.SuppressTrimWarning)
-            {
-                source.Append("\n        [global::System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage(\"Trimming\", \"IL2026\", Justification = \"DisplayName is set, so the constructor's reflection fallback for it never runs.\")]");
-            }
-
             source.Append($"\n        public static global::System.ComponentModel.DataAnnotations.ValidationContext {context.FactoryMethodName}()\n            => {context.CreationExpression};");
         }
 

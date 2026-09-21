@@ -1,7 +1,7 @@
-// System.Text.Json ships in-box from net8.0 up, which is also the lowest target that supports the
-// static abstract interface members the converter relies on. netstandard2.0 deliberately has no
-// System.Text.Json reference, so the converter does not exist there.
-#if NET8_0_OR_GREATER
+// The converter relies on the static abstract interface members, which the netstandard2.0 asset
+// cannot declare, and netstandard2.0 deliberately has no System.Text.Json reference either, so
+// the converter only exists in the .NET assets (net10.0 and later).
+#if NET10_0_OR_GREATER
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;

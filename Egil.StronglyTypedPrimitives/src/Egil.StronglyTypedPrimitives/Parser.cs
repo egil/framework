@@ -11,8 +11,6 @@ internal static class Parser
 
     private const string ValidationContextTypeName = "System.ComponentModel.DataAnnotations.ValidationContext";
 
-    private const string UnconditionalSuppressMessageAttributeTypeName = "System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessageAttribute";
-
     // Only exists from .NET 11 on. Matching on the base type name means a compilation that cannot
     // see the type simply has no async attributes, without a separate lookup that has to be
     // tolerant of the type being absent.
@@ -109,30 +107,29 @@ internal static class Parser
     // ValidationContext(object) is marked RequiresUnreferencedCode because the DisplayName getter
     // falls back to reflection over the instance's type when no display name was set. .NET 10
     // added ValidationContext(object, string displayName, IServiceProvider?, IDictionary?) which is
-    // trim safe for exactly that reason, so it is preferred whenever the compilation has it. On
-    // earlier targets DisplayName is set up front, which keeps the getter off the reflection path
-    // even though the constructor call itself still carries the annotation; the IL2026 that call
-    // raises is therefore suppressed, where the compilation has the attribute to do so.
+    // trim safe for exactly that reason, and every supported .NET target has it. The
+    // netstandard2.0 asset has not (System.ComponentModel.Annotations stops at the older
+    // constructors), so there DisplayName is set up front instead, which keeps the getter off the
+    // reflection path; that target has no trim analysis, so the annotation on the constructor
+    // call goes unreported and needs no suppression.
     private static InvariantContextInfo GetInvariantContext(Compilation compilation, string parameterName, HashSet<string> holderMemberNames)
     {
         var hasTrimSafeConstructor = compilation
             .GetTypeByMetadataName(ValidationContextTypeName)?
             .Constructors
             .Any(constructor => constructor.Parameters.Length == 4 && constructor.Parameters[1].Type.SpecialType == SpecialType.System_String) == true;
-        var hasSuppressionAttribute = compilation.GetTypeByMetadataName(UnconditionalSuppressMessageAttributeTypeName) is not null;
         var name = SymbolDisplay.FormatLiteral(parameterName, quote: true);
 
         return new InvariantContextInfo(
             GetUnusedName(ValidationAttributeModel.PreferredInvariantContextFactoryName, holderMemberNames),
             hasTrimSafeConstructor
                 ? $"new global::{ValidationContextTypeName}(new object(), {name}, null, null) {{ MemberName = {name} }}"
-                : $"new global::{ValidationContextTypeName}(new object()) {{ MemberName = {name}, DisplayName = {name} }}",
-            SuppressTrimWarning: !hasTrimSafeConstructor && hasSuppressionAttribute);
+                : $"new global::{ValidationContextTypeName}(new object()) {{ MemberName = {name}, DisplayName = {name} }}");
     }
 
     // The built-in attribute that needs a context. Its RequiresValidationContext override exists
-    // in the implementation assembly only: the reference assemblies of net9.0 through net11.0
-    // leave it out, so a build never sees the override and the attribute has to be known by name.
+    // in the implementation assembly only: the reference assemblies of net10.0 and net11.0 leave
+    // it out, so a build never sees the override and the attribute has to be known by name.
     private const string CustomValidationAttributeTypeName = "System.ComponentModel.DataAnnotations.CustomValidationAttribute";
 
     // RequiresValidationContext is virtual on ValidationAttribute and false there; the override can

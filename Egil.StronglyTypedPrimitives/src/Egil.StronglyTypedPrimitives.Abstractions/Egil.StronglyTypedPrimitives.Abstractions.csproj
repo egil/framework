@@ -5,24 +5,23 @@
       Runtime assembly shipped inside the Egil.StronglyTypedPrimitives NuGet package (see the
       generator project's pack items). Each target framework is intentional:
         net11.0       Preferred active target; provides the OpenAPI schema transformer built
-                      against the Microsoft.OpenApi v3 API (StronglyTypedSchemaTransformer.net10OrGreater.cs).
+                      against the Microsoft.OpenApi v3 API (StronglyTypedSchemaTransformer.cs).
                       Microsoft documents Microsoft.OpenApi v2 -> v3 as binary incompatible for
                       libraries compiled against v2, so net10.0 cannot serve .NET 11 consumers.
-        net10.0       Support-window target; provides the OpenAPI schema transformer built against
-                      the Microsoft.OpenApi v2 API (StronglyTypedSchemaTransformer.net10OrGreater.cs).
-        net9.0        Support-window target; provides the OpenAPI schema transformer built against
-                      the Microsoft.OpenApi v1 API (StronglyTypedSchemaTransformer.net9.cs).
-        net8.0        LTS support-window target for consumers on .NET 8 (attribute + interfaces only).
-        netstandard2.0 Broad consumer compatibility (for example .NET Framework / older runtimes).
+        net10.0       LTS support-window target; provides the OpenAPI schema transformer built
+                      against the Microsoft.OpenApi v2 API (StronglyTypedSchemaTransformer.cs).
+        netstandard2.0 Broad consumer compatibility (for example .NET Framework / older runtimes);
+                      attribute and interfaces only, without the JSON converter or the transformer.
+      net8.0 and net9.0 were dropped in 2.0: both leave support in November 2026.
     -->
-    <TargetFrameworks>net11.0;net10.0;net9.0;net8.0;netstandard2.0</TargetFrameworks>
+    <TargetFrameworks>net11.0;net10.0;netstandard2.0</TargetFrameworks>
     <Nullable>enable</Nullable>
     <!--
       The trim/AOT analyzers keep StronglyTypedJsonConverter free of reflection so consumers with
       IsAotCompatible get no IL2026/IL3050 from the generated [JsonConverter] attribute. The
-      property is only understood by net7.0+ SDK targets, hence the condition.
+      property is not understood by the netstandard2.0 target, hence the condition.
     -->
-    <IsAotCompatible Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net8.0'))">true</IsAotCompatible>
+    <IsAotCompatible Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net10.0'))">true</IsAotCompatible>
     <RootNamespace>Egil.StronglyTypedPrimitives</RootNamespace>
     <IsPackable>false</IsPackable>
     <GenerateSBOM>false</GenerateSBOM>
@@ -35,11 +34,8 @@
     </PackageReference>
   </ItemGroup>
 
-  <ItemGroup Condition="'$(TargetFramework)' == 'net9.0' or '$(TargetFramework)' == 'net10.0' or '$(TargetFramework)' == 'net11.0'">
-    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
-  </ItemGroup>
-
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0' or '$(TargetFramework)' == 'net11.0'">
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
     <PackageReference Include="Microsoft.OpenApi" />
   </ItemGroup>
 

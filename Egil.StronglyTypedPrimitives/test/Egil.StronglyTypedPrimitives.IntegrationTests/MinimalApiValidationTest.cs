@@ -1,4 +1,3 @@
-#if NET10_0_OR_GREATER
 using System.ComponentModel.DataAnnotations;
 using System.Net;
 using Microsoft.AspNetCore.Builder;
@@ -308,4 +307,3 @@ namespace Egil.StronglyTypedPrimitives
 #endif
     }
 }
-#endif

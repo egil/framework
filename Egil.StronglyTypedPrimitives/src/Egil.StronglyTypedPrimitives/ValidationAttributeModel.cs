@@ -42,7 +42,7 @@ internal sealed record ValidationAttributeModel(
     ImmutableArray<ValidationAttributeInfo> AsyncAttributes,
     ImmutableArray<ValidationAttributeInfo> ContextAttributes)
 {
-    public static ValidationAttributeModel Empty { get; } = new(PreferredValidatorsTypeName, new InvariantContextInfo(PreferredInvariantContextFactoryName, string.Empty, SuppressTrimWarning: false), ImmutableArray<ValidationAttributeInfo>.Empty, ImmutableArray<ValidationAttributeInfo>.Empty, ImmutableArray<ValidationAttributeInfo>.Empty);
+    public static ValidationAttributeModel Empty { get; } = new(PreferredValidatorsTypeName, new InvariantContextInfo(PreferredInvariantContextFactoryName, string.Empty), ImmutableArray<ValidationAttributeInfo>.Empty, ImmutableArray<ValidationAttributeInfo>.Empty, ImmutableArray<ValidationAttributeInfo>.Empty);
 
     public const string PreferredValidatorsTypeName = "ValueValidators";
 
@@ -61,17 +61,15 @@ internal sealed record ValidationAttributeModel(
 /// </summary>
 /// <param name="FactoryMethodName">
 /// Name of the static method in the validators class that creates the context. The construction
-/// goes through a method so that a trim warning suppression has a member to sit on without
-/// having to be placed on <c>IsValueValid</c> itself.
+/// goes through a method so that the generated members that need a context share one definition
+/// of it, next to the attribute fields it is evaluated against.
 /// </param>
-/// <param name="CreationExpression">Source of the expression that constructs the context.</param>
-/// <param name="SuppressTrimWarning">
-/// Whether the factory method must carry an <c>UnconditionalSuppressMessage</c> for IL2026: true
-/// when only the <c>RequiresUnreferencedCode</c> constructors of <c>ValidationContext</c> exist and
-/// the compilation has the attribute (.NET 5 to 9), false when the trim safe constructor is used
-/// (.NET 10 and later) or the attribute does not exist (netstandard2.0, which has no trim analysis).
+/// <param name="CreationExpression">
+/// Source of the expression that constructs the context: the trim safe .NET 10 constructor where
+/// the compilation has it, otherwise (netstandard2.0) <c>ValidationContext(object)</c> with
+/// <c>DisplayName</c> set up front.
 /// </param>
-internal sealed record InvariantContextInfo(string FactoryMethodName, string CreationExpression, bool SuppressTrimWarning);
+internal sealed record InvariantContextInfo(string FactoryMethodName, string CreationExpression);
 
 /// <summary>
 /// One validation attribute on the positional parameter, reduced to the source text needed to
