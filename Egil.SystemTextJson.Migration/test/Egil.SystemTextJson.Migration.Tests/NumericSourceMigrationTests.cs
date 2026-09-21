@@ -335,6 +335,31 @@ public partial class NumericSourceMigrationTests
     }
 
     [Fact]
+    public void Overridden_enum_source_still_takes_a_number_when_nothing_else_matches()
+    {
+        // 1.x routed a JSON number to an enum source by TypeCode even with JsonStringEnumConverter
+        // registered, and that converter reads integers by default, so stored numeric payloads
+        // must keep migrating when the enum is the only candidate.
+        var options = CreateOptions();
+        options.Converters.Add(new JsonStringEnumConverter());
+
+        var result = JsonSerializer.Deserialize<ColourOnlyState>("1", options);
+
+        Assert.Equal("from-colour-Green", result!.Source);
+    }
+
+    [Fact]
+    public void Two_overridden_enum_sources_are_ambiguous_for_a_number()
+    {
+        var options = CreateOptions();
+        options.Converters.Add(new JsonStringEnumConverter());
+
+        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<ColourOrShadeState>("1", options));
+
+        Assert.Contains("ambiguous", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Source_with_converter_override_is_not_shape_matched()
     {
         // JsonStringEnumConverter makes the enum read strings, which the CLR shape cannot show,
@@ -497,6 +522,40 @@ public partial class NumericSourceMigrationTests
         public static bool TryMigrateFrom(List<Item> source, out ColourListOrItemListState result)
         {
             result = new ColourListOrItemListState("from-item-list");
+            return true;
+        }
+    }
+
+    public enum Shade
+    {
+        Light,
+        Dark,
+    }
+
+    [JsonMigratable]
+    public record class ColourOnlyState(string Source) : IMigrateFrom<Colour, ColourOnlyState>
+    {
+        public static bool TryMigrateFrom(Colour source, out ColourOnlyState result)
+        {
+            result = new ColourOnlyState($"from-colour-{source}");
+            return true;
+        }
+    }
+
+    [JsonMigratable]
+    public record class ColourOrShadeState(string Source)
+        : IMigrateFrom<Colour, ColourOrShadeState>,
+          IMigrateFrom<Shade, ColourOrShadeState>
+    {
+        public static bool TryMigrateFrom(Colour source, out ColourOrShadeState result)
+        {
+            result = new ColourOrShadeState("from-colour");
+            return true;
+        }
+
+        public static bool TryMigrateFrom(Shade source, out ColourOrShadeState result)
+        {
+            result = new ColourOrShadeState("from-shade");
             return true;
         }
     }

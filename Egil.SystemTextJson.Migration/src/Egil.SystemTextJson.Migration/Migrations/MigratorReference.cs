@@ -24,6 +24,14 @@ internal sealed record MigratorReference(
         ? SourceValueShape.Unknown
         : SourceValueShapes.Classify(SourceType);
 
+    // An enum read through JsonStringEnumConverter (or another override) is left out of shape
+    // matching because the converter may read names, but that converter also accepts integers by
+    // default and 1.x routed a JSON number to such a source by TypeCode. The number is offered to
+    // it only when no other source matched, so stored numeric payloads keep reading while a plain
+    // numeric source still wins.
+    public bool IsOverriddenEnum { get; } = (Nullable.GetUnderlyingType(SourceType) ?? SourceType).IsEnum
+        && JsonMigratableTypes.HasConverterOverride(SourceType, SourceTypeInfo.Options);
+
     // Number handling is resolved once so the read path does not consult the options.
     // AllowReadingFromString (on by default with JsonSerializerDefaults.Web) lets numeric sources
     // read quoted numbers; floating-point sources additionally read "NaN"/"Infinity" under
