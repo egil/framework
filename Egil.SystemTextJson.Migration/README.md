@@ -10,7 +10,7 @@ When data models evolve, old JSON payloads still exist — in databases, caches,
 
 - **Little to no overhead for normal-sized payloads** — the medium source-generated happy-path profile benchmarks close to plain `System.Text.Json` throughput with zero extra library allocations.
 - **O(1) discriminator check** — only the first JSON property is inspected to determine the payload version.
-- **Source-generation friendly** — works with source-generated `JsonSerializerContext`. Trimmed/NativeAOT publishing is not supported yet; see the [AOT recipe](https://github.com/egil/framework/tree/main/Egil.SystemTextJson.Migration/docs/recipes/aot-source-gen.md#nativeaot-and-trimming).
+- **Source-generation friendly** — works with source-generated `JsonSerializerContext` and registers through the resolver chain, so types outside migration keep STJ's generated fast-path serializers. Trimmed/NativeAOT publishing is not supported yet; see the [AOT recipe](https://github.com/egil/framework/tree/main/Egil.SystemTextJson.Migration/docs/recipes/aot-source-gen.md#nativeaot-and-trimming).
 - **C# unions (.NET 11)** — a `union` of `[JsonMigratable]` cases is classified by migration discriminator, so old and current payloads route to the case that migrates them. See the [polymorphism & unions recipe](https://github.com/egil/framework/tree/main/Egil.SystemTextJson.Migration/docs/recipes/polymorphism.md).
 - **Two migration styles** — static (target-owned) via `IMigrateFrom<TSource, TTarget>`, or external (separate class) via `IMigrate<TSource, TTarget>` with optional dependency injection.
 - **Nested migration** — migratable child types inside migratable parents are migrated recursively.

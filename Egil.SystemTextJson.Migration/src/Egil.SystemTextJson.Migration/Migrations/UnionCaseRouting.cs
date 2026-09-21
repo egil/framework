@@ -58,9 +58,9 @@ internal sealed class UnionCaseRouting
         this.booleanRoute = booleanRoute;
     }
 
-    public static UnionCaseRouting Build(JsonTypeClassifierContext context, JsonMigratableConverterFactory factory, JsonSerializerOptions options)
+    public static UnionCaseRouting Build(JsonTypeClassifierContext context, JsonMigrationTypeInfoResolver resolver, JsonSerializerOptions options)
     {
-        JsonMigrationRegistry registry = factory.Registry;
+        JsonMigrationRegistry registry = resolver.Registry;
         var entriesByPropertyName = new Dictionary<string, List<DiscriminatorEntry>>(StringComparer.Ordinal);
         var caseByDiscriminator = new Dictionary<(string PropertyName, string Discriminator), Type>();
         var knownDiscriminators = new List<string>();
@@ -84,14 +84,14 @@ internal sealed class UnionCaseRouting
             // never reaches the classifier, so the case routes exactly like T.
             if (JsonMigratableTypes.GetMigratableType(caseType) is { } migratableType)
             {
-                // A converter registered ahead of AddJsonMigrationSupport() (or supplied by the
+                // A converter registered ahead of AddJsonMigrationSupport() (or supplied by another
                 // resolver) would win over the migration converter, and routing discriminators to
                 // it would bypass migration; refuse the configuration instead. The one legitimate
-                // plain converter is the factory's own recursion guard: while it builds the case's
+                // plain converter is the resolver's own recursion guard: while it builds the case's
                 // converter it resolves the case's object contract in cloned options that exclude
                 // the case, and a recursive model (Branch(Node[] Children) with union
                 // Node(Branch, Leaf)) configures this union inside that clone.
-                bool insideOwnMigration = factory.IsBuildingConverterFor(migratableType);
+                bool insideOwnMigration = resolver.IsBuildingConverterFor(migratableType);
                 JsonConverter caseConverter = options.GetTypeInfo(migratableType).Converter;
                 if (!IsMigrationConverter(caseConverter) && !insideOwnMigration)
                 {

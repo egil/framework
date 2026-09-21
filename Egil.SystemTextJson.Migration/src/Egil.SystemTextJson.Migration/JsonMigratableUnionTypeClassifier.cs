@@ -1,6 +1,7 @@
 #if NET11_0_OR_GREATER
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using Egil.SystemTextJson.Migration.Migrations;
 
 namespace Egil.SystemTextJson.Migration;
@@ -59,26 +60,26 @@ public sealed class JsonMigratableUnionTypeClassifier : JsonTypeClassifierFactor
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(options);
 
-        // The registry lives on the converter factory that AddJsonMigrationSupport registers. Looking it
-        // up here (instead of holding it in a field) lets the same parameterless type be used from
+        // The registry lives on the resolver that AddJsonMigrationSupport registers. Looking it up
+        // here (instead of holding it in a field) lets the same parameterless type be used from
         // [JsonUnion(TypeClassifier = ...)] and from source-generated contexts.
-        JsonMigratableConverterFactory? factory = null;
-        foreach (JsonConverter converter in options.Converters)
+        JsonMigrationTypeInfoResolver? resolver = null;
+        foreach (IJsonTypeInfoResolver candidate in options.TypeInfoResolverChain)
         {
-            if (converter is JsonMigratableConverterFactory candidate)
+            if (candidate is JsonMigrationTypeInfoResolver migrationResolver)
             {
-                factory = candidate;
+                resolver = migrationResolver;
                 break;
             }
         }
 
-        if (factory is null)
+        if (resolver is null)
         {
             throw new InvalidOperationException(
                 $"'{context.DeclaringType.FullName}' uses {nameof(JsonMigratableUnionTypeClassifier)}, but the serializer options have no migration support. Call options.AddJsonMigrationSupport() before serializing or deserializing this union.");
         }
 
-        var routing = UnionCaseRouting.Build(context, factory, options);
+        var routing = UnionCaseRouting.Build(context, resolver, options);
         return routing.Classify;
     }
 }

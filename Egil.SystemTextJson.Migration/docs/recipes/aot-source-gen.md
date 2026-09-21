@@ -30,6 +30,17 @@ options.TypeInfoResolverChain.Add(AppJsonContext.Default);
 >
 > On .NET 11, unions of `[JsonMigratable]` cases must be annotated with `[JsonUnion(TypeClassifier = typeof(JsonMigratableUnionTypeClassifier))]` in source-generated contexts; see [polymorphism.md](polymorphism.md#recommended-on-net-11-model-the-hierarchy-as-a-union).
 
+## Keeping the generated fast path
+
+`AddJsonMigrationSupport()` inserts a resolver at the front of `JsonSerializerOptions.TypeInfoResolverChain`; it adds nothing to `options.Converters`. That matters for performance: System.Text.Json only uses a context's generated fast-path serializers when `options.Converters` is empty and the options match the context's `[JsonSourceGenerationOptions]`, and one entry in that list turns the fast path off for every type in the options. With the resolver in place, types outside migration keep their generated serializer. A `[JsonMigratable]` type itself, and any type whose properties reach one, is serialized through the metadata path because its contract carries the injected discriminator.
+
+Two consequences of living in the resolver chain:
+
+- Resolvers added after `AddJsonMigrationSupport()` serve every type that is not `[JsonMigratable]`, so the order shown above works. Replacing the chain, or assigning `TypeInfoResolver` afterwards, removes migration support.
+- A resolver that must override a `[JsonMigratable]` type has to be inserted ahead of migration (`TypeInfoResolverChain.Insert(0, ...)` after `AddJsonMigrationSupport()`). Converters in `options.Converters` keep their previous precedence: registered before `AddJsonMigrationSupport()` they win for the type, registered after they do not.
+
+Options that have no resolver at all still serialize through reflection, as they would without the library.
+
 ## What the library does at runtime
 
 Migration itself is driven by `static abstract` interface methods and the type metadata your `JsonSerializerContext` provides; once a type's converter has been created, the library's own read and write paths do not use reflection (System.Text.Json's converter and metadata resolution behaves as it does without the library).

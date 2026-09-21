@@ -306,8 +306,9 @@ public class RegistrationAndTrackingTests
         var migrated = JsonSerializer.Deserialize<MissingMetadataTarget>(payload, optionsA);
         Assert.NotNull(migrated);
 
+        // Migration support lives in the resolver chain, so only the context is swapped.
         var optionsB = new JsonSerializerOptions(optionsA);
-        optionsB.TypeInfoResolverChain.Clear();
+        optionsB.TypeInfoResolverChain.Remove(CompleteMissingMetadataJsonContext.Default);
         optionsB.TypeInfoResolverChain.Add(MissingMetadataJsonContext.Default);
 
         var exception = Assert.Throws<InvalidOperationException>(
