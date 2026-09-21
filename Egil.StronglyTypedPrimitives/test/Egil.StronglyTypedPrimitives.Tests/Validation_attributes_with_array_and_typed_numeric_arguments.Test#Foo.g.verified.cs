@@ -40,27 +40,27 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
 
     private static class ValueValidators
     {
-        public static readonly global::System.ComponentModel.DataAnnotations.ValidationContext invariantContext = CreateInvariantContext();
         public static readonly global::System.ComponentModel.DataAnnotations.AllowedValuesAttribute valueValidator0 = new global::System.ComponentModel.DataAnnotations.AllowedValuesAttribute(new object?[] { (long)1, (long)2 });
         public static readonly global::SomeNamespace.LimitsAttribute valueValidator1 = new global::SomeNamespace.LimitsAttribute(new int[] { 1, 2 }) { Weight = (float)1.5 };
 
         [global::System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "DisplayName is set, so the constructor's reflection fallback for it never runs.")]
-        private static global::System.ComponentModel.DataAnnotations.ValidationContext CreateInvariantContext()
+        public static global::System.ComponentModel.DataAnnotations.ValidationContext CreateInvariantContext()
             => new global::System.ComponentModel.DataAnnotations.ValidationContext(new object()) { MemberName = "Value", DisplayName = "Value" };
     }
 
     public static bool IsValueValid(long value, bool throwIfInvalid)
     {
+        var context = ValueValidators.CreateInvariantContext();
         string? error0 = null;
         string? error1 = null;
 
-        if (ValueValidators.valueValidator0.GetValidationResult(value, ValueValidators.invariantContext) is { } result0)
+        if (ValueValidators.valueValidator0.GetValidationResult(value, context) is { } result0)
         {
             if (!throwIfInvalid) return false;
             error0 = result0.ErrorMessage;
         }
 
-        if (ValueValidators.valueValidator1.GetValidationResult(value, ValueValidators.invariantContext) is { } result1)
+        if (ValueValidators.valueValidator1.GetValidationResult(value, context) is { } result1)
         {
             if (!throwIfInvalid) return false;
             error1 = result1.ErrorMessage;

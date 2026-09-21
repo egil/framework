@@ -63,6 +63,18 @@ namespace Egil.StronglyTypedPrimitives
         }
 
         [Fact]
+        public void Each_IsValueValid_call_gets_a_ValidationContext_of_its_own()
+        {
+            var results = new bool[1000];
+
+            Parallel.For(0, results.Length, i => results[i] = StronglyTypedContextItemsChecked.IsValueValid($"value{i}", throwIfInvalid: false));
+
+            Assert.All(results, result => Assert.True(result));
+            Assert.Equal("x", new StronglyTypedContextItemsChecked("x").Value);
+            Assert.Equal("y", new StronglyTypedContextItemsChecked("y").Value);
+        }
+
+        [Fact]
         public void Constructor_reports_every_failing_attribute_in_declaration_order()
         {
             var expectedMessage = new EmailAddressAttribute().FormatErrorMessage("Value")

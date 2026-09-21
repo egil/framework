@@ -40,35 +40,35 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
 
     private static class ValueValidators
     {
-        public static readonly global::System.ComponentModel.DataAnnotations.ValidationContext invariantContext = CreateInvariantContext();
         public static readonly global::SomeNamespace.CheckAttribute valueValidator0 = new global::SomeNamespace.CheckAttribute((string?)null);
         public static readonly global::SomeNamespace.CheckAttribute valueValidator1 = new global::SomeNamespace.CheckAttribute((int[]?)null);
         public static readonly global::SomeNamespace.CheckAttribute valueValidator2 = new global::SomeNamespace.CheckAttribute(new string?[] { "a", null });
 
         [global::System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "DisplayName is set, so the constructor's reflection fallback for it never runs.")]
-        private static global::System.ComponentModel.DataAnnotations.ValidationContext CreateInvariantContext()
+        public static global::System.ComponentModel.DataAnnotations.ValidationContext CreateInvariantContext()
             => new global::System.ComponentModel.DataAnnotations.ValidationContext(new object()) { MemberName = "Value", DisplayName = "Value" };
     }
 
     public static bool IsValueValid(string value, bool throwIfInvalid)
     {
+        var context = ValueValidators.CreateInvariantContext();
         string? error0 = null;
         string? error1 = null;
         string? error2 = null;
 
-        if (ValueValidators.valueValidator0.GetValidationResult(value, ValueValidators.invariantContext) is { } result0)
+        if (ValueValidators.valueValidator0.GetValidationResult(value, context) is { } result0)
         {
             if (!throwIfInvalid) return false;
             error0 = result0.ErrorMessage;
         }
 
-        if (ValueValidators.valueValidator1.GetValidationResult(value, ValueValidators.invariantContext) is { } result1)
+        if (ValueValidators.valueValidator1.GetValidationResult(value, context) is { } result1)
         {
             if (!throwIfInvalid) return false;
             error1 = result1.ErrorMessage;
         }
 
-        if (ValueValidators.valueValidator2.GetValidationResult(value, ValueValidators.invariantContext) is { } result2)
+        if (ValueValidators.valueValidator2.GetValidationResult(value, context) is { } result2)
         {
             if (!throwIfInvalid) return false;
             error2 = result2.ErrorMessage;

@@ -17,9 +17,9 @@ namespace Egil.StronglyTypedPrimitives;
 /// first use, independent of the target type's initializer order.
 /// </param>
 /// <param name="InvariantContext">
-/// The <c>ValidationContext</c> field in the validators class that every invariant attribute is
-/// evaluated against, so an attribute that overrides only <c>IsValid(object, ValidationContext)</c>
-/// gets a context instead of the null the single-argument <c>IsValid</c> would forward.
+/// The factory in the validators class that <c>IsValueValid</c> gets its <c>ValidationContext</c>
+/// from, so an attribute that overrides only <c>IsValid(object, ValidationContext)</c> gets a
+/// context instead of the null the single-argument <c>IsValid</c> would forward.
 /// </param>
 /// <param name="Attributes">
 /// Attributes deriving from <c>ValidationAttribute</c> that are part of the value invariant,
@@ -42,28 +42,27 @@ internal sealed record ValidationAttributeModel(
     ImmutableArray<ValidationAttributeInfo> AsyncAttributes,
     ImmutableArray<ValidationAttributeInfo> ContextAttributes)
 {
-    public static ValidationAttributeModel Empty { get; } = new(PreferredValidatorsTypeName, new InvariantContextInfo(PreferredInvariantContextFieldName, PreferredInvariantContextFactoryName, string.Empty, SuppressTrimWarning: false), ImmutableArray<ValidationAttributeInfo>.Empty, ImmutableArray<ValidationAttributeInfo>.Empty, ImmutableArray<ValidationAttributeInfo>.Empty);
+    public static ValidationAttributeModel Empty { get; } = new(PreferredValidatorsTypeName, new InvariantContextInfo(PreferredInvariantContextFactoryName, string.Empty, SuppressTrimWarning: false), ImmutableArray<ValidationAttributeInfo>.Empty, ImmutableArray<ValidationAttributeInfo>.Empty, ImmutableArray<ValidationAttributeInfo>.Empty);
 
     public const string PreferredValidatorsTypeName = "ValueValidators";
-
-    public const string PreferredInvariantContextFieldName = "invariantContext";
 
     public const string PreferredInvariantContextFactoryName = "CreateInvariantContext";
 }
 
 /// <summary>
-/// The <c>ValidationContext</c> shared by every evaluation of the invariant attributes. Its
+/// The <c>ValidationContext</c> that the invariant attributes are evaluated against. A fresh one
+/// is created per <c>IsValueValid</c> call rather than shared: the context is mutable
+/// (<c>Items</c>, <c>MemberName</c>, <c>DisplayName</c>) and a context-aware attribute may write to
+/// it, so a shared instance would leak state between validations and race between threads. Its
 /// <c>ObjectInstance</c> is a sentinel <c>new object()</c>: the invariant validates a bare value
 /// before any instance of the strongly typed primitive exists, so there is no instance to give.
 /// <c>MemberName</c> and <c>DisplayName</c> are the positional parameter's name, which is what the
 /// attributes' error messages are formatted with.
 /// </summary>
-/// <param name="FieldName">Name of the static field in the validators class holding the context.</param>
 /// <param name="FactoryMethodName">
-/// Name of the static method in the validators class that the field is initialized from. The
-/// construction goes through a method so that a trim warning suppression has a member to sit on:
-/// ILLink honours <c>UnconditionalSuppressMessage</c> on the method containing the call, not on
-/// a field whose initializer the compiler moves into the static constructor.
+/// Name of the static method in the validators class that creates the context. The construction
+/// goes through a method so that a trim warning suppression has a member to sit on without
+/// having to be placed on <c>IsValueValid</c> itself.
 /// </param>
 /// <param name="CreationExpression">Source of the expression that constructs the context.</param>
 /// <param name="SuppressTrimWarning">
@@ -72,7 +71,7 @@ internal sealed record ValidationAttributeModel(
 /// the compilation has the attribute (.NET 5 to 9), false when the trim safe constructor is used
 /// (.NET 10 and later) or the attribute does not exist (netstandard2.0, which has no trim analysis).
 /// </param>
-internal sealed record InvariantContextInfo(string FieldName, string FactoryMethodName, string CreationExpression, bool SuppressTrimWarning);
+internal sealed record InvariantContextInfo(string FactoryMethodName, string CreationExpression, bool SuppressTrimWarning);
 
 /// <summary>
 /// One validation attribute on the positional parameter, reduced to the source text needed to

@@ -91,7 +91,7 @@ internal static class Parser
                 attribute.ApplicationSyntaxReference?.GetSyntax().GetLocation() ?? parameter.Identifier.GetLocation()));
         }
 
-        // The context field shares the validators class with the attribute fields, so its name
+        // The context factory shares the validators class with the attribute fields, so its name
         // steps aside for any of those (none is called that today, but the field prefixes are the
         // only thing keeping it so).
         var holderMemberNames = new HashSet<string>(attributes.Concat(asyncAttributes).Concat(contextAttributes).Select(attribute => attribute.FieldName), StringComparer.Ordinal);
@@ -117,7 +117,6 @@ internal static class Parser
         var name = SymbolDisplay.FormatLiteral(parameterName, quote: true);
 
         return new InvariantContextInfo(
-            GetUnusedMemberName(ValidationAttributeModel.PreferredInvariantContextFieldName, holderMemberNames),
             GetUnusedMemberName(ValidationAttributeModel.PreferredInvariantContextFactoryName, holderMemberNames),
             hasTrimSafeConstructor
                 ? $"new global::{ValidationContextTypeName}(new object(), {name}, null, null) {{ MemberName = {name} }}"
