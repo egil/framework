@@ -729,19 +729,60 @@ public partial class UnionMigrationTests
     }
 
     [Fact]
-    public void Union_overridden_numeric_struct_source_gets_no_discriminator_route()
+    public void Union_overridden_numeric_struct_source_keeps_its_discriminator_route()
     {
-        // BigInteger has no built-in converter and is not shape-classified, but it is still a
-        // scalar: the custom converter reads numbers, so no object discriminator is advertised.
+        // A custom converter decides the JSON shape of a numeric struct; this one writes a
+        // discriminated object, so the route must stay available.
         var options = CreateOptions();
-        options.Converters.Add(new BigIntegerConverter());
+        options.Converters.Add(new ObjectComplexConverter());
 
-        var unknown = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<BigCounterOrLabel>($$"""{"$type":"{{typeof(System.Numerics.BigInteger).FullName}}"}""", options));
-        var guarded = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<BigCounterOrLabel>("42", options));
+        var value = JsonSerializer.Deserialize<ComplexTargetOrLabel>($$"""{"$type":"{{typeof(System.Numerics.Complex).FullName}}","real":3,"imaginary":4}""", options);
 
-        Assert.Contains("No case", unknown.Message, StringComparison.Ordinal);
-        Assert.EndsWith("Known discriminators: 'big-counter'.", unknown.Message, StringComparison.Ordinal);
-        Assert.Contains(nameof(BigCounter), guarded.Message, StringComparison.Ordinal);
+        Assert.Equal(5, Assert.IsType<ComplexTarget>(value.Value).Magnitude);
+    }
+
+    [Fact]
+    public void Union_rejects_nullable_migratable_case_served_by_a_nullable_converter()
+    {
+        var options = CreateOptions();
+        options.Converters.Add(new SentinelNullableValueLeafConverter());
+
+        var exception = Assert.Throws<InvalidOperationException>(() => JsonSerializer.Deserialize<NullableValueLeafOrLeaf>("""{"$type":"value-leaf-v1","n":7}""", options));
+
+        Assert.Contains(nameof(SentinelNullableValueLeafConverter), exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Recursive_model_migrates_every_level_when_the_old_model_uses_old_types()
+    {
+        var options = CreateOptions();
+        OldTreeNode oldTree = new OldTreeBranch("root", [new OldTreeBranch("child", [new Leaf("x")])]);
+
+        var json = JsonSerializer.Serialize(oldTree, options);
+        var tree = JsonSerializer.Deserialize<TreeNode>(json, options);
+
+        var root = Assert.IsType<TreeBranch>(tree.Value);
+        var child = Assert.IsType<TreeBranch>(Assert.Single(root.Children).Value);
+        Assert.Equal("root", root.Label);
+        Assert.Equal("child", child.Label);
+        Assert.Equal("x", Assert.IsType<Leaf>(Assert.Single(child.Children).Value).Text);
+    }
+
+    [Fact]
+    public void Recursive_source_referencing_the_current_union_refuses_nested_old_payloads()
+    {
+        // BranchWire declares its children as the current TreeNode union. Inside TreeBranch's own
+        // migration TreeBranch resolves to its plain contract, so a nested "tree-v1" cannot be
+        // migrated; it must be refused rather than read as a current TreeBranch.
+        var options = CreateOptions();
+        var json = """{"$type":"tree-v1-wire","oldName":"root","children":[{"$type":"tree-v1-wire","oldName":"child","children":[]}]}""";
+
+        var flat = JsonSerializer.Deserialize<WireTreeNode>("""{"$type":"tree-v1-wire","oldName":"root","children":[{"$type":"leaf","text":"x"}]}""", options);
+        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<WireTreeNode>(json, options));
+
+        Assert.Equal("root", Assert.IsType<WireTreeBranch>(flat.Value).Label);
+        Assert.Contains("'tree-v1-wire'", exception.Message, StringComparison.Ordinal);
+        Assert.Contains(nameof(WireTreeBranch), exception.Message, StringComparison.Ordinal);
     }
 
     private static JsonSerializerOptions CreateOptions(Action<JsonMigrationBuilder>? configure = null)
@@ -1208,26 +1249,106 @@ public partial class UnionMigrationTests
 
     public union WrappedLeafOrLabel(WrappedLeaf, string);
 
-    [JsonMigratable(TypeDiscriminator = "big-counter")]
-    public record class BigCounter(string Value) : IMigrateFrom<System.Numerics.BigInteger, BigCounter>
+    [JsonMigratable(TypeDiscriminator = "complex-target")]
+    public record class ComplexTarget(double Magnitude) : IMigrateFrom<System.Numerics.Complex, ComplexTarget>
     {
-        public static bool TryMigrateFrom(System.Numerics.BigInteger source, out BigCounter result)
+        public static bool TryMigrateFrom(System.Numerics.Complex source, out ComplexTarget result)
         {
-            result = new BigCounter(source.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            result = new ComplexTarget(source.Magnitude);
             return true;
         }
     }
 
-    public union BigCounterOrLabel(BigCounter, string);
+    public union ComplexTargetOrLabel(ComplexTarget, string);
 
-    public sealed class BigIntegerConverter : JsonConverter<System.Numerics.BigInteger>
+    // Writes {"$type":"<full name>","real":..,"imaginary":..} so the numeric struct is an object on the wire.
+    public sealed class ObjectComplexConverter : JsonConverter<System.Numerics.Complex>
     {
-        public override System.Numerics.BigInteger Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-            => System.Numerics.BigInteger.Parse(reader.GetString()!, System.Globalization.CultureInfo.InvariantCulture);
+        public override System.Numerics.Complex Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            double real = 0, imaginary = 0;
+            while (reader.Read() && reader.TokenType is not JsonTokenType.EndObject)
+            {
+                if (reader.ValueTextEquals("real"u8))
+                {
+                    reader.Read();
+                    real = reader.GetDouble();
+                }
+                else if (reader.ValueTextEquals("imaginary"u8))
+                {
+                    reader.Read();
+                    imaginary = reader.GetDouble();
+                }
+                else
+                {
+                    reader.Skip();
+                }
+            }
 
-        public override void Write(Utf8JsonWriter writer, System.Numerics.BigInteger value, JsonSerializerOptions options)
-            => writer.WriteStringValue(value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            return new System.Numerics.Complex(real, imaginary);
+        }
+
+        public override void Write(Utf8JsonWriter writer, System.Numerics.Complex value, JsonSerializerOptions options)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("$type", typeof(System.Numerics.Complex).FullName);
+            writer.WriteNumber("real", value.Real);
+            writer.WriteNumber("imaginary", value.Imaginary);
+            writer.WriteEndObject();
+        }
     }
+
+    public sealed class SentinelNullableValueLeafConverter : JsonConverter<ValueLeaf?>
+    {
+        public override ValueLeaf? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            reader.Skip();
+            return new ValueLeaf(-999);
+        }
+
+        public override void Write(Utf8JsonWriter writer, ValueLeaf? value, JsonSerializerOptions options)
+            => writer.WriteNullValue();
+    }
+
+    // Old model authored with old types all the way down: nested old nodes are read as the old
+    // type and the migrator walks the children.
+    [JsonMigratable(TypeDiscriminator = "tree-v1")]
+    public record class OldTreeBranch(string OldName, OldTreeNode[] Children);
+
+    public union OldTreeNode(OldTreeBranch, Leaf);
+
+    [JsonMigratable(TypeDiscriminator = "tree-v2")]
+    public record class TreeBranch(string Label, TreeNode[] Children) : IMigrateFrom<OldTreeBranch, TreeBranch>
+    {
+        public static bool TryMigrateFrom(OldTreeBranch source, out TreeBranch result)
+        {
+            result = new TreeBranch(source.OldName, [.. source.Children.Select(static child => child.Value switch
+            {
+                OldTreeBranch branch => TryMigrateFrom(branch, out TreeBranch migrated) ? (TreeNode)migrated : throw new InvalidOperationException(),
+                Leaf leaf => leaf,
+                _ => throw new InvalidOperationException(),
+            })]);
+            return true;
+        }
+    }
+
+    public union TreeNode(TreeBranch, Leaf);
+
+    // Old wire type that reuses the current union for its children.
+    [JsonMigratable(TypeDiscriminator = "tree-v1-wire")]
+    public record class WireTreeBranchV1(string OldName, WireTreeNode[] Children);
+
+    [JsonMigratable(TypeDiscriminator = "tree-v2-wire")]
+    public record class WireTreeBranch(string Label, WireTreeNode[] Children) : IMigrateFrom<WireTreeBranchV1, WireTreeBranch>
+    {
+        public static bool TryMigrateFrom(WireTreeBranchV1 source, out WireTreeBranch result)
+        {
+            result = new WireTreeBranch(source.OldName, source.Children);
+            return true;
+        }
+    }
+
+    public union WireTreeNode(WireTreeBranch, Leaf);
 
     [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
     // The injected discriminator is a string property, so a context that would otherwise

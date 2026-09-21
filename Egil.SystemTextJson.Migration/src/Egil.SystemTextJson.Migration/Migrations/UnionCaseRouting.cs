@@ -91,16 +91,52 @@ internal sealed class UnionCaseRouting
                 // converter it resolves the case's object contract in cloned options that exclude
                 // the case, and a recursive model (Branch(Node[] Children) with union
                 // Node(Branch, Leaf)) configures this union inside that clone.
+                bool insideOwnMigration = factory.IsBuildingConverterFor(migratableType);
                 JsonConverter caseConverter = options.GetTypeInfo(migratableType).Converter;
-                if (!IsMigrationConverter(caseConverter) && !factory.IsBuildingConverterFor(migratableType))
+                if (!IsMigrationConverter(caseConverter) && !insideOwnMigration)
                 {
                     throw new InvalidOperationException(
                         $"Union '{context.DeclaringType.FullName}' case '{caseType.FullName}' is annotated with [JsonMigratable] but is served by converter '{caseConverter.GetType().FullName}'. Call AddJsonMigrationSupport() before registering other converters for the case type.");
                 }
 
+                // The union converter deserializes the declared case type, so a converter
+                // registered for T? itself would bypass the check above. Only STJ's own nullable
+                // wrapper (which delegates to T's converter) is acceptable there.
+                JsonConverter declaredConverter = options.GetTypeInfo(caseType).Converter;
+                if (caseType != migratableType && declaredConverter.GetType().Assembly != typeof(JsonSerializer).Assembly)
+                {
+                    throw new InvalidOperationException(
+                        $"Union '{context.DeclaringType.FullName}' case '{caseType.FullName}' is served by converter '{declaredConverter.GetType().FullName}' instead of the built-in nullable wrapper around the migration converter for '{migratableType.FullName}', so its payloads would bypass migration.");
+                }
+
                 migratableCases.Add(caseType);
                 TypeMetadata targetMetadata = registry.GetTypeMetadata(migratableType);
                 AddDiscriminator(context.DeclaringType, entriesByPropertyName, caseByDiscriminator, knownDiscriminators, targetMetadata, caseType);
+
+                if (insideOwnMigration)
+                {
+                    // Current payloads of the case read correctly through its plain contract, but
+                    // a payload of one of its sources cannot be migrated here: the migration
+                    // converter is unreachable inside its own build. Such a payload only occurs
+                    // when a source type references the current union for nested nodes; refuse it
+                    // explicitly instead of reading it as the current version and dropping data.
+                    foreach (Type sourceType in StaticMigratorContracts.GetSourceTypes(migratableType))
+                    {
+                        AddRefusedSourceRoute(sourceType, registry.GetTypeMetadata(sourceType), caseType);
+                    }
+
+                    foreach (ExternalMigratorRegistration registration in registry.GetForTarget(migratableType))
+                    {
+                        AddRefusedSourceRoute(registration.SourceType, registration.SourceMetadata, caseType);
+                    }
+
+                    if (targetMetadata.UndiscriminatedSourceType is not null)
+                    {
+                        unknownShapeCase ??= caseType;
+                    }
+
+                    continue;
+                }
 
                 // Every source type that migrates into this case is routed here too, so the
                 // case's own converter can perform the migration. Object sources carry a
@@ -191,6 +227,27 @@ internal sealed class UnionCaseRouting
                 default:
                     AddShapeRoute(sourceType, caseType);
                     return;
+            }
+        }
+
+        // Mirrors AddSourceRoute for a case inside its own migration: sources that would be
+        // routed by discriminator get a refusing entry, sources routed by shape make every
+        // discriminator-less payload refused.
+        void AddRefusedSourceRoute(Type sourceType, TypeMetadata sourceMetadata, Type caseType)
+        {
+            bool overridden = JsonMigratableTypes.HasConverterOverride(sourceType, options);
+            bool discriminated = overridden
+                ? !IsScalarType(sourceType)
+                : JsonMigratableTypes.GetMigratableType(sourceType) is not null
+                    || options.GetTypeInfo(Nullable.GetUnderlyingType(sourceType) ?? sourceType).Kind is JsonTypeInfoKind.Object;
+
+            if (discriminated)
+            {
+                AddDiscriminator(context.DeclaringType, entriesByPropertyName, caseByDiscriminator, knownDiscriminators, sourceMetadata, RefusedInsideOwnMigration.For(caseType));
+            }
+            else
+            {
+                unknownShapeCase ??= caseType;
             }
         }
 
@@ -400,6 +457,11 @@ internal sealed class UnionCaseRouting
                 {
                     if (reader.ValueTextEquals(entry.DiscriminatorUtf8))
                     {
+                        if (entry.Refused)
+                        {
+                            ThrowRefusedInsideOwnMigration(ref reader, entry.CaseType);
+                        }
+
                         return entry.CaseType;
                     }
                 }
@@ -468,31 +530,13 @@ internal sealed class UnionCaseRouting
         return null!;
     }
 
-    // A scalar cannot carry a discriminator whatever converter reads it. Numeric types without a
-    // built-in converter (BigInteger, Complex) are not shape-classified, so they are recognised
-    // through INumberBase<TSelf> here instead.
+    // Primitives, enums and string-shaped types cannot carry a discriminator whatever converter
+    // reads them. Any other type may: a custom converter decides the JSON shape (an object-writing
+    // converter for a numeric struct such as Complex is legitimate), so the route is kept.
     private static bool IsScalarType(Type type)
     {
         Type underlying = Nullable.GetUnderlyingType(type) ?? type;
-        return underlying.IsPrimitive
-            || underlying.IsEnum
-            || SourceValueShapes.Classify(underlying) is not SourceValueShape.Unknown
-            || IsNumberBase(underlying);
-    }
-
-    private static bool IsNumberBase(Type type)
-    {
-        foreach (Type @interface in type.GetInterfaces())
-        {
-            if (@interface.IsGenericType
-                && @interface.GetGenericTypeDefinition() == typeof(System.Numerics.INumberBase<>)
-                && @interface.GetGenericArguments()[0] == type)
-            {
-                return true;
-            }
-        }
-
-        return false;
+        return underlying.IsPrimitive || underlying.IsEnum || SourceValueShapes.Classify(underlying) is not SourceValueShape.Unknown;
     }
 
     private static bool IsMigrationConverter(JsonConverter converter)
@@ -535,7 +579,9 @@ internal sealed class UnionCaseRouting
             entriesByPropertyName.Add(metadata.DiscriminatorPropertyName, entries);
         }
 
-        entries.Add(new DiscriminatorEntry(Encoding.UTF8.GetBytes(metadata.Discriminator), caseType));
+        // The marker is resolved here so the read path only tests a flag.
+        Type? refusedCase = RefusedInsideOwnMigration.Unwrap(caseType);
+        entries.Add(new DiscriminatorEntry(Encoding.UTF8.GetBytes(metadata.Discriminator), refusedCase ?? caseType, refusedCase is not null));
     }
 
     [DoesNotReturn]
@@ -544,6 +590,14 @@ internal sealed class UnionCaseRouting
     {
         throw new JsonException(
             $"No case of union '{unionType.FullName}' matches discriminator '{reader.GetString()}'. Known discriminators: {knownDiscriminatorList}.");
+    }
+
+    [DoesNotReturn]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private void ThrowRefusedInsideOwnMigration(ref Utf8JsonReader reader, Type caseType)
+    {
+        throw new JsonException(
+            $"Payload with discriminator '{reader.GetString()}' migrates into '{caseType.FullName}', but it is nested inside the migration of that same type, where the migration converter is unavailable. Model the old version of a recursive type with old types for its nested nodes instead of referencing the current union '{unionType.FullName}'.");
     }
 
     [DoesNotReturn]
@@ -580,7 +634,23 @@ internal sealed class UnionCaseRouting
 
     private sealed record DiscriminatorPropertyGroup(byte[] PropertyNameUtf8, DiscriminatorEntry[] Entries);
 
-    private sealed record DiscriminatorEntry(byte[] DiscriminatorUtf8, Type CaseType);
+    // Marker case type for a discriminator the union knows but must refuse; it doubles as the
+    // duplicate-claim key so a refused source still conflicts with another case claiming it.
+    private static class RefusedInsideOwnMigration
+    {
+        public static Type For(Type caseType) => typeof(RefusedInsideOwnMigration<>).MakeGenericType(caseType);
+
+        public static Type? Unwrap(Type type)
+            => type.IsGenericType && type.GetGenericTypeDefinition() == typeof(RefusedInsideOwnMigration<>)
+                ? type.GetGenericArguments()[0]
+                : null;
+    }
+
+#pragma warning disable S2326 // Unused type parameters should be removed - the argument identifies the refused case.
+    private sealed class RefusedInsideOwnMigration<TCase>;
+#pragma warning restore S2326
+
+    private sealed record DiscriminatorEntry(byte[] DiscriminatorUtf8, Type CaseType, bool Refused);
 
     private enum RouteKind
     {
