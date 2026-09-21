@@ -1,0 +1,105 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: egil-orleans-messaging-journaling
+on:
+  push:
+    branches: [main]
+    paths: ['Egil.Orleans.Messaging/**', '.github/workflows/egil-orleans-messaging-journaling-ci.yml', 'Directory.Build.props']
+  pull_request:
+    branches: [main]
+    paths: ['Egil.Orleans.Messaging/**', '.github/workflows/egil-orleans-messaging-journaling-ci.yml', 'Directory.Build.props']
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the journaling preview (matching core version must already be on NuGet)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.x
+      - name: Test solution
+        working-directory: Egil.Orleans.Messaging
+        run: dotnet test --solution Egil.Orleans.Messaging.slnx -c Release
+      - name: Pack consumer dependencies
+        run: |
+          dotnet pack Egil.Orleans.Messaging/src/Egil.Orleans.Messaging/Egil.Orleans.Messaging.csproj -c Release -p:ContinuousIntegrationBuild=true -o nuget
+          dotnet pack Egil.Orleans.Messaging/src/Egil.Orleans.Messaging.Journaling/Egil.Orleans.Messaging.Journaling.csproj -c Release -p:ContinuousIntegrationBuild=true -o nuget
+      - name: Validate NuGets
+        shell: pwsh
+        run: |
+          dotnet tool restore
+          dotnet meziantou.validate-nuget-package (Get-ChildItem nuget/*.nupkg) --excluded-rules IconMustBeSet
+      - name: Verify isolated consumers and process restart
+        run: python3 Egil.Orleans.Messaging/scripts/test-journaling-packages.py nuget
+      - uses: actions/upload-artifact@v4
+        with:
+          name: journaling-preview
+          path: nuget/Egil.Orleans.Messaging.Journaling.*.nupkg
+          if-no-files-found: error
+
+  publish:
+    needs: validate
+    if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.x
+      - uses: actions/download-artifact@v4
+        with:
+          name: journaling-preview
+          path: nuget
+      - name: Verify preview and published dependency availability
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $package = Get-Item nuget/*.nupkg
+          $archive = [System.IO.Compression.ZipFile]::OpenRead($package.FullName)
+          try {
+            $entry = $archive.Entries | Where-Object FullName -like '*.nuspec'
+            $reader = [System.IO.StreamReader]::new($entry.Open())
+            try { [xml]$spec = $reader.ReadToEnd() } finally { $reader.Dispose() }
+          } finally { $archive.Dispose() }
+          $version = $spec.package.metadata.version
+          if ($version -notmatch '-preview') { throw 'Only preview versions may be published by this workflow.' }
+          $consumer = Join-Path $env:RUNNER_TEMP 'journaling-release-check'
+          New-Item -ItemType Directory -Path $consumer | Out-Null
+          '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup><ItemGroup><PackageReference Include="Egil.Orleans.Messaging.Journaling" Version="' + $version + '" /></ItemGroup></Project>' | Set-Content "$consumer/check.csproj"
+          dotnet restore "$consumer/check.csproj" --source "$pwd/nuget" --source https://api.nuget.org/v3/index.json --no-cache
+          if ($LASTEXITCODE -ne 0) { throw 'Publish the matching core OM package before this companion.' }
+      - uses: NuGet/login@v1
+        id: login
+        with:
+          user: ${{ secrets.NUGET_USER }}
+      - name: Publish companion only
+        env:
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+        run: dotnet nuget push 'nuget/*.nupkg' --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+      - name: Tag companion release
+        working-directory: Egil.Orleans.Messaging/src/Egil.Orleans.Messaging.Journaling
+        run: |
+          dotnet tool restore
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
+          dotnet nbgv tag
+          git push origin 'refs/tags/egil-orleans-messaging-journaling/*'
