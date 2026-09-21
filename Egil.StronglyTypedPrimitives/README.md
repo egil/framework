@@ -174,6 +174,8 @@ An invalid value in a request body is deserialized to `Empty` by the JSON conver
 
   The generator fills in `Validate`, which calls `IsValueValid(Value, throwIfInvalid: true)` and reports the message of the `ArgumentException` or `ValidationException` it throws as a `ValidationResult` (or `"Value is not valid."` when the method returns `false` without throwing). Because the runtime calls `Validate` without a member name, .NET 10 records the result under the empty key in the problem details.
 
+Both only reject a request body when `Empty` itself violates the constraints. The conversion is lossy: the JSON converter replaces the invalid value with `Empty` and keeps nothing of the original, so the generated `Validate` cannot recover the failure that was in the request and can only report what `Empty` fails. A `Percentage([Range(0, 100)] int Value) : IValidatableObject` bound from `{"value":101}` is accepted with a `Value` of `0`: 101 became `Empty`, and zero is within range. When strict input validation is needed, the constraints must reject the default value (a `[Range(1, 100)]` or a `[Required]` string does), or invalid JSON must be rejected at conversion time, which this package does not do today.
+
 The generator never adds `IValidatableObject` on its own: the validation source generator would not see it, so the declaration has to be yours. A `Validate` you write yourself, implicitly or as an explicit interface implementation, is left alone like every other generated member. `Validate` is generated for every type that declares the interface, so a type with validation attributes gets one that evaluates the attributes, which is what `Validator.TryValidateObject` and other `IValidatableObject` consumers see. Given:
 
 ```csharp
