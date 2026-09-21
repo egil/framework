@@ -2,6 +2,8 @@ using Examples;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using System.Net;
+using System.Text;
 using System.Text.Json.Nodes;
 
 namespace Egil.StronglyTypedPrimitives;
@@ -128,6 +130,22 @@ public sealed class StronglyTypedSchemaTransformerTest(OpenApiDocumentFixture fi
         Assert.Equal(primitive.ToJsonString(), stronglyTyped.ToJsonString());
     }
 
+    // Minimal APIs read bodies with JsonSerializerDefaults.Web, which accepts a number written as a
+    // JSON string, and from .NET 10 the document advertises that with type: ["integer", "string"].
+    // Posting both forms checks that the wrapper's converter honours what the schema promises.
+    [Theory]
+    [InlineData("""{"value":42}""")]
+    [InlineData("""{"value":"42"}""")]
+    public async Task Int_property_accepts_the_json_number_and_its_string_form(string body)
+    {
+        using var content = new StringContent(body, Encoding.UTF8, "application/json");
+
+        using var response = await fixture.Client.PostAsync("/strongly-typed-int-body", content, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("""{"value":42}""", await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+    }
+
     // ASP.NET Core documents numbers as accepting both the JSON number and its string form
     // (JsonSerializerDefaults.Web reads numbers from strings) on .NET 10 and later, so "type" is
     // either a single string or an array that must contain the expected type.
@@ -201,15 +219,20 @@ public sealed record PlainCollections(
     int?[] NullableIntArray,
     Dictionary<string, int?> NullableIntByKey);
 
+public sealed record StronglyTypedIntBody(StronglyTypedInt Value);
+
 /// <summary>
 /// Boots a minimal API host once per test class with <see cref="StronglyTypedSchemaTransformer"/>
-/// registered, and exposes the OpenAPI document it serves. Every strongly typed endpoint has a
-/// "plain" twin that uses the underlying primitive, so tests can assert that the two schemas are identical.
+/// registered, and exposes the OpenAPI document it serves together with a client for the host.
+/// Every strongly typed endpoint has a "plain" twin that uses the underlying primitive, so tests
+/// can assert that the two schemas are identical.
 /// </summary>
 public sealed class OpenApiDocumentFixture : IAsyncLifetime
 {
     private WebApplication? app;
     private JsonNode document = null!;
+
+    public HttpClient Client { get; private set; } = null!;
 
     public async ValueTask InitializeAsync()
     {
@@ -223,6 +246,7 @@ public sealed class OpenApiDocumentFixture : IAsyncLifetime
         app.MapPost("/plain-scalars", (PlainScalars body) => body);
         app.MapPost("/strongly-typed-collections", (StronglyTypedCollections body) => body);
         app.MapPost("/plain-collections", (PlainCollections body) => body);
+        app.MapPost("/strongly-typed-int-body", (StronglyTypedIntBody body) => body);
         app.MapGet("/by-int/{id}", (StronglyTypedInt id) => id);
         app.MapGet("/by-plain-int/{id}", (int id) => id);
         app.MapGet("/by-guid/{id}", (StronglyTypedGuid id) => id);
@@ -235,12 +259,15 @@ public sealed class OpenApiDocumentFixture : IAsyncLifetime
         app.MapGet("/by-plain-int-query", (int id) => id);
         await app.StartAsync();
 
-        var json = await app.GetTestClient().GetStringAsync("/openapi/v1.json");
+        Client = app.GetTestClient();
+        var json = await Client.GetStringAsync("/openapi/v1.json");
         document = JsonNode.Parse(json)!;
     }
 
     public async ValueTask DisposeAsync()
     {
+        Client?.Dispose();
+
         if (app is not null)
         {
             await app.DisposeAsync();
