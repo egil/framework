@@ -25,20 +25,18 @@ public readonly partial record struct Foo : global::Egil.StronglyTypedPrimitives
         return value;
     }
 
-    private readonly int @class_ = ThrowIfValueIsInvalid(@class);
+    private readonly int @value_ = ThrowIfValueIsInvalid(Value);
 
-    public int @class
+    public int Value
     {
-        get => @class_;
+        get => @value_;
         init
         {
-            @class_ = ThrowIfValueIsInvalid(value);
+            @value_ = ThrowIfValueIsInvalid(value);
         }
     }
 
-    int global::Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<global::SomeNamespace.Foo, int>.Value => @class;
-
-    public override string ToString() => @class.ToString();
+    public override string ToString() => Value.ToString();
 
     private static class ValueValidators
     {
@@ -47,7 +45,7 @@ public readonly partial record struct Foo : global::Egil.StronglyTypedPrimitives
 
         [global::System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "DisplayName is set, so the constructor's reflection fallback for it never runs.")]
         public static global::System.ComponentModel.DataAnnotations.ValidationContext CreateInvariantContext()
-            => new global::System.ComponentModel.DataAnnotations.ValidationContext(new object()) { MemberName = "class", DisplayName = "class" };
+            => new global::System.ComponentModel.DataAnnotations.ValidationContext(new object()) { MemberName = "Value", DisplayName = "Value" };
     }
 
     public static bool IsValueValid(int value, bool throwIfInvalid)
@@ -58,7 +56,7 @@ public readonly partial record struct Foo : global::Egil.StronglyTypedPrimitives
         if (ValueValidators.valueValidator0.GetValidationResult(value, context) is { } result0)
         {
             if (!throwIfInvalid) return false;
-            error0 = result0.ErrorMessage ?? "The field class is invalid.";
+            error0 = result0.ErrorMessage ?? "The field Value is invalid.";
         }
 
         if (error0 is null) return true;
@@ -126,7 +124,7 @@ public readonly partial record struct Foo : global::Egil.StronglyTypedPrimitives
     }
     
     public int CompareTo(global::SomeNamespace.Foo other)
-        => @class.CompareTo(other.@class);
+        => Value.CompareTo(other.Value);
     
     public int CompareTo(object? obj)
     {
@@ -137,24 +135,24 @@ public readonly partial record struct Foo : global::Egil.StronglyTypedPrimitives
 
         if (obj is Foo other)
         {
-            return @class.CompareTo(other.@class);
+            return Value.CompareTo(other.Value);
         }
 
-        return ((global::System.IComparable)@class).CompareTo(obj);
+        return ((global::System.IComparable)Value).CompareTo(obj);
     }
     
     public string ToString(string? format, global::System.IFormatProvider? formatProvider)
-        => @class.ToString(format, formatProvider);
+        => Value.ToString(format, formatProvider);
     
     public bool TryFormat(global::System.Span<char> destination, out int charsWritten, global::System.ReadOnlySpan<char> format, global::System.IFormatProvider? provider)
-        => ((global::System.ISpanFormattable)@class).TryFormat(destination, out charsWritten, format, provider);
+        => ((global::System.ISpanFormattable)Value).TryFormat(destination, out charsWritten, format, provider);
     
     public bool TryFormat(global::System.Span<byte> utf8Destination, out int bytesWritten, global::System.ReadOnlySpan<char> format, global::System.IFormatProvider? provider)
-        => ((global::System.IUtf8SpanFormattable)@class).TryFormat(utf8Destination, out bytesWritten, format, provider);
+        => ((global::System.IUtf8SpanFormattable)Value).TryFormat(utf8Destination, out bytesWritten, format, provider);
 
     public global::System.Collections.Generic.IEnumerable<global::System.ComponentModel.DataAnnotations.ValidationResult> Validate(global::System.ComponentModel.DataAnnotations.ValidationContext validationContext)
     {
-        var result0 = ValueValidators.valueValidator0.GetValidationResult(this.@class, validationContext);
+        var result0 = ValueValidators.valueValidator0.GetValidationResult(this.Value, validationContext);
         if (result0 == global::System.ComponentModel.DataAnnotations.ValidationResult.Success) result0 = null;
 
         if (result0 is null) return global::System.Array.Empty<global::System.ComponentModel.DataAnnotations.ValidationResult>();
@@ -172,7 +170,7 @@ public readonly partial record struct Foo : global::Egil.StronglyTypedPrimitives
             yield return result;
         }
 
-        var asyncResult0 = await ValueValidators.asyncValueValidator0.GetValidationResultAsync(this.@class, validationContext, cancellationToken).ConfigureAwait(false);
+        var asyncResult0 = await ValueValidators.asyncValueValidator0.GetValidationResultAsync(this.Value, validationContext, cancellationToken).ConfigureAwait(false);
         if (asyncResult0 is not null && asyncResult0 != global::System.ComponentModel.DataAnnotations.ValidationResult.Success) yield return asyncResult0;
     }
     

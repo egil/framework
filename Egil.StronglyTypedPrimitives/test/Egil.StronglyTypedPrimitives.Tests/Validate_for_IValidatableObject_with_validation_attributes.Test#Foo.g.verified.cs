@@ -11,9 +11,9 @@
 
 namespace SomeNamespace;
 
-[System.CodeDom.Compiler.GeneratedCodeAttribute("Egil.StronglyTypedPrimitives, Version=x.x.x.x, Culture=neutral, PublicKeyToken=null", "x.x.x.x")]
-[System.Text.Json.Serialization.JsonConverterAttribute(typeof(Egil.StronglyTypedPrimitives.StronglyTypedJsonConverter<SomeNamespace.Foo, string>))]
-public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<string>, Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<SomeNamespace.Foo, string>, System.IParsable<SomeNamespace.Foo>, System.ISpanParsable<SomeNamespace.Foo>, System.IComparable<SomeNamespace.Foo>, System.IComparable
+[global::System.CodeDom.Compiler.GeneratedCodeAttribute("Egil.StronglyTypedPrimitives, Version=x.x.x.x, Culture=neutral, PublicKeyToken=null", "x.x.x.x")]
+[global::System.Text.Json.Serialization.JsonConverterAttribute(typeof(global::Egil.StronglyTypedPrimitives.StronglyTypedJsonConverter<global::SomeNamespace.Foo, string>))]
+public readonly partial record struct Foo : global::Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<string>, global::Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<global::SomeNamespace.Foo, string>, global::System.IParsable<global::SomeNamespace.Foo>, global::System.ISpanParsable<global::SomeNamespace.Foo>, global::System.IComparable<global::SomeNamespace.Foo>, global::System.IComparable
 {
     public static readonly Foo Empty = default;
 
@@ -74,14 +74,14 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
         throw new global::System.ComponentModel.DataAnnotations.ValidationException(message, null, value);
     }
 
-    public static Foo Parse(string s, System.IFormatProvider? provider)
+    public static Foo Parse(string s, global::System.IFormatProvider? provider)
     {
         var rawValue = s;
         IsValueValid(rawValue, throwIfInvalid: true);
         return new Foo(rawValue);
     }
 
-    public static bool TryParse(string? s, System.IFormatProvider? provider, [System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out SomeNamespace.Foo result)
+    public static bool TryParse(string? s, global::System.IFormatProvider? provider, [global::System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out global::SomeNamespace.Foo result)
     {
         if (s is {} rawValue && IsValueValid(rawValue, throwIfInvalid: false))
         {
@@ -93,14 +93,14 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
         return false;
     }
 
-    public static Foo Parse(System.ReadOnlySpan<char> s, System.IFormatProvider? provider)
+    public static Foo Parse(global::System.ReadOnlySpan<char> s, global::System.IFormatProvider? provider)
     {
         var rawValue = s.ToString();
         IsValueValid(rawValue, throwIfInvalid: true);
         return new Foo(rawValue);
     }
 
-    public static bool TryParse(System.ReadOnlySpan<char> s, System.IFormatProvider? provider, [System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out SomeNamespace.Foo result)
+    public static bool TryParse(global::System.ReadOnlySpan<char> s, global::System.IFormatProvider? provider, [global::System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out global::SomeNamespace.Foo result)
     {
         if (s.ToString() is {} rawValue && IsValueValid(rawValue, throwIfInvalid: false))
         {
@@ -112,7 +112,7 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
         return false;
     }
     
-    public int CompareTo(SomeNamespace.Foo other)
+    public int CompareTo(global::SomeNamespace.Foo other)
         => (Value ?? string.Empty).CompareTo(other.Value);
     
     public int CompareTo(object? obj)
@@ -127,19 +127,19 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
             return (Value ?? string.Empty).CompareTo(other.Value);
         }
 
-        return ((System.IComparable)(Value ?? string.Empty)).CompareTo(obj);
+        return ((global::System.IComparable)(Value ?? string.Empty)).CompareTo(obj);
     }
 
-    public System.Collections.Generic.IEnumerable<System.ComponentModel.DataAnnotations.ValidationResult> Validate(System.ComponentModel.DataAnnotations.ValidationContext validationContext)
+    public global::System.Collections.Generic.IEnumerable<global::System.ComponentModel.DataAnnotations.ValidationResult> Validate(global::System.ComponentModel.DataAnnotations.ValidationContext validationContext)
     {
         var result0 = ValueValidators.valueValidator0.GetValidationResult(this.Value, validationContext);
-        if (result0 == System.ComponentModel.DataAnnotations.ValidationResult.Success) result0 = null;
+        if (result0 == global::System.ComponentModel.DataAnnotations.ValidationResult.Success) result0 = null;
         var result1 = ValueValidators.valueValidator1.GetValidationResult(this.Value, validationContext);
-        if (result1 == System.ComponentModel.DataAnnotations.ValidationResult.Success) result1 = null;
+        if (result1 == global::System.ComponentModel.DataAnnotations.ValidationResult.Success) result1 = null;
 
-        if (result0 is null && result1 is null) return System.Array.Empty<System.ComponentModel.DataAnnotations.ValidationResult>();
+        if (result0 is null && result1 is null) return global::System.Array.Empty<global::System.ComponentModel.DataAnnotations.ValidationResult>();
 
-        var results = new System.ComponentModel.DataAnnotations.ValidationResult[(result0 is null ? 0 : 1) + (result1 is null ? 0 : 1)];
+        var results = new global::System.ComponentModel.DataAnnotations.ValidationResult[(result0 is null ? 0 : 1) + (result1 is null ? 0 : 1)];
         var index = 0;
         if (result0 is not null) results[index++] = result0;
         if (result1 is not null) results[index++] = result1;

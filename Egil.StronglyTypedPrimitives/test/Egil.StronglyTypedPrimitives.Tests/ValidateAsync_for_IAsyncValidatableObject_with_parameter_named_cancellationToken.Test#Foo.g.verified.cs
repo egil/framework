@@ -11,15 +11,15 @@
 
 namespace SomeNamespace;
 
-[System.CodeDom.Compiler.GeneratedCodeAttribute("Egil.StronglyTypedPrimitives, Version=x.x.x.x, Culture=neutral, PublicKeyToken=null", "x.x.x.x")]
-[System.Text.Json.Serialization.JsonConverterAttribute(typeof(Egil.StronglyTypedPrimitives.StronglyTypedJsonConverter<SomeNamespace.Foo, int>))]
-public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<int>, Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<SomeNamespace.Foo, int>, System.IParsable<SomeNamespace.Foo>, System.ISpanParsable<SomeNamespace.Foo>, System.IUtf8SpanParsable<SomeNamespace.Foo>, System.IComparable<SomeNamespace.Foo>, System.IComparable, System.IFormattable, System.ISpanFormattable, System.IUtf8SpanFormattable
+[global::System.CodeDom.Compiler.GeneratedCodeAttribute("Egil.StronglyTypedPrimitives, Version=x.x.x.x, Culture=neutral, PublicKeyToken=null", "x.x.x.x")]
+[global::System.Text.Json.Serialization.JsonConverterAttribute(typeof(global::Egil.StronglyTypedPrimitives.StronglyTypedJsonConverter<global::SomeNamespace.Foo, int>))]
+public readonly partial record struct Foo : global::Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<int>, global::Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<global::SomeNamespace.Foo, int>, global::System.IParsable<global::SomeNamespace.Foo>, global::System.ISpanParsable<global::SomeNamespace.Foo>, global::System.IUtf8SpanParsable<global::SomeNamespace.Foo>, global::System.IComparable<global::SomeNamespace.Foo>, global::System.IComparable, global::System.IFormattable, global::System.ISpanFormattable, global::System.IUtf8SpanFormattable
 {
     public static readonly Foo Empty = default;
 
     public static Foo Create(int value) => new Foo(value);
 
-    int Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<SomeNamespace.Foo, int>.Value => cancellationToken;
+    int global::Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<global::SomeNamespace.Foo, int>.Value => cancellationToken;
 
     public override string ToString() => cancellationToken.ToString();
 
@@ -28,18 +28,18 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
         public static readonly global::SomeNamespace.RemoteCheckAttribute asyncValueValidator0 = new global::SomeNamespace.RemoteCheckAttribute();
     }
 
-    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+    [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
     public static bool IsValueValid(int value, bool throwIfInvalid)
         => true;
 
-    public static Foo Parse(string s, System.IFormatProvider? provider)
+    public static Foo Parse(string s, global::System.IFormatProvider? provider)
     {
         var rawValue = int.Parse(s, provider);
         IsValueValid(rawValue, throwIfInvalid: true);
         return new Foo(rawValue);
     }
 
-    public static bool TryParse(string? s, System.IFormatProvider? provider, [System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out SomeNamespace.Foo result)
+    public static bool TryParse(string? s, global::System.IFormatProvider? provider, [global::System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out global::SomeNamespace.Foo result)
     {
         if (int.TryParse(s, provider, out var rawValue) && IsValueValid(rawValue, throwIfInvalid: false))
         {
@@ -51,14 +51,14 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
         return false;
     }
 
-    public static Foo Parse(System.ReadOnlySpan<char> s, System.IFormatProvider? provider)
+    public static Foo Parse(global::System.ReadOnlySpan<char> s, global::System.IFormatProvider? provider)
     {
         var rawValue = int.Parse(s, provider);
         IsValueValid(rawValue, throwIfInvalid: true);
         return new Foo(rawValue);
     }
 
-    public static bool TryParse(System.ReadOnlySpan<char> s, System.IFormatProvider? provider, [System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out SomeNamespace.Foo result)
+    public static bool TryParse(global::System.ReadOnlySpan<char> s, global::System.IFormatProvider? provider, [global::System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out global::SomeNamespace.Foo result)
     {
         if (int.TryParse(s, provider, out var rawValue) && IsValueValid(rawValue, throwIfInvalid: false))
         {
@@ -70,14 +70,14 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
         return false;
     }
 
-    public static Foo Parse(System.ReadOnlySpan<byte> utf8Text, System.IFormatProvider? provider)
+    public static Foo Parse(global::System.ReadOnlySpan<byte> utf8Text, global::System.IFormatProvider? provider)
     {
         var rawValue = int.Parse(utf8Text, provider);
         IsValueValid(rawValue, throwIfInvalid: true);
         return new Foo(rawValue);
     }
 
-    public static bool TryParse(System.ReadOnlySpan<byte> utf8Text, System.IFormatProvider? provider, [System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out SomeNamespace.Foo result)
+    public static bool TryParse(global::System.ReadOnlySpan<byte> utf8Text, global::System.IFormatProvider? provider, [global::System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out global::SomeNamespace.Foo result)
     {
         if (int.TryParse(utf8Text, provider, out var rawValue) && IsValueValid(rawValue, throwIfInvalid: false))
         {
@@ -89,7 +89,7 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
         return false;
     }
     
-    public int CompareTo(SomeNamespace.Foo other)
+    public int CompareTo(global::SomeNamespace.Foo other)
         => cancellationToken.CompareTo(other.cancellationToken);
     
     public int CompareTo(object? obj)
@@ -104,22 +104,22 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
             return cancellationToken.CompareTo(other.cancellationToken);
         }
 
-        return ((System.IComparable)cancellationToken).CompareTo(obj);
+        return ((global::System.IComparable)cancellationToken).CompareTo(obj);
     }
     
-    public string ToString(string? format, System.IFormatProvider? formatProvider)
+    public string ToString(string? format, global::System.IFormatProvider? formatProvider)
         => cancellationToken.ToString(format, formatProvider);
     
-    public bool TryFormat(System.Span<char> destination, out int charsWritten, System.ReadOnlySpan<char> format, System.IFormatProvider? provider)
-        => ((System.ISpanFormattable)cancellationToken).TryFormat(destination, out charsWritten, format, provider);
+    public bool TryFormat(global::System.Span<char> destination, out int charsWritten, global::System.ReadOnlySpan<char> format, global::System.IFormatProvider? provider)
+        => ((global::System.ISpanFormattable)cancellationToken).TryFormat(destination, out charsWritten, format, provider);
     
-    public bool TryFormat(System.Span<byte> utf8Destination, out int bytesWritten, System.ReadOnlySpan<char> format, System.IFormatProvider? provider)
-        => ((System.IUtf8SpanFormattable)cancellationToken).TryFormat(utf8Destination, out bytesWritten, format, provider);
+    public bool TryFormat(global::System.Span<byte> utf8Destination, out int bytesWritten, global::System.ReadOnlySpan<char> format, global::System.IFormatProvider? provider)
+        => ((global::System.IUtf8SpanFormattable)cancellationToken).TryFormat(utf8Destination, out bytesWritten, format, provider);
 
-    public System.Collections.Generic.IEnumerable<System.ComponentModel.DataAnnotations.ValidationResult> Validate(System.ComponentModel.DataAnnotations.ValidationContext validationContext)
-        => System.Array.Empty<System.ComponentModel.DataAnnotations.ValidationResult>();
+    public global::System.Collections.Generic.IEnumerable<global::System.ComponentModel.DataAnnotations.ValidationResult> Validate(global::System.ComponentModel.DataAnnotations.ValidationContext validationContext)
+        => global::System.Array.Empty<global::System.ComponentModel.DataAnnotations.ValidationResult>();
 
-    public async System.Collections.Generic.IAsyncEnumerable<System.ComponentModel.DataAnnotations.ValidationResult> ValidateAsync(System.ComponentModel.DataAnnotations.ValidationContext validationContext, [System.Runtime.CompilerServices.EnumeratorCancellation] System.Threading.CancellationToken cancellationToken_ = default)
+    public async global::System.Collections.Generic.IAsyncEnumerable<global::System.ComponentModel.DataAnnotations.ValidationResult> ValidateAsync(global::System.ComponentModel.DataAnnotations.ValidationContext validationContext, [global::System.Runtime.CompilerServices.EnumeratorCancellation] global::System.Threading.CancellationToken cancellationToken_ = default)
     {
         foreach (var result in Validate(validationContext))
         {
@@ -127,7 +127,7 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
         }
 
         var asyncResult0 = await ValueValidators.asyncValueValidator0.GetValidationResultAsync(this.cancellationToken, validationContext, cancellationToken_).ConfigureAwait(false);
-        if (asyncResult0 is not null && asyncResult0 != System.ComponentModel.DataAnnotations.ValidationResult.Success) yield return asyncResult0;
+        if (asyncResult0 is not null && asyncResult0 != global::System.ComponentModel.DataAnnotations.ValidationResult.Success) yield return asyncResult0;
     }
     
     public static bool operator > (Foo a, Foo b) => a.CompareTo(b) > 0;                

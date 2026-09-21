@@ -27,11 +27,30 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
 
     private static string IStronglyTypedPrimitiveOfSelf => $"{StronglyTypedPrimitivesNamespace}.IStronglyTypedPrimitive`2";
 
-    private static string StronglyTypedJsonConverter => $"{StronglyTypedPrimitivesNamespace}.StronglyTypedJsonConverter";
+    private static string StronglyTypedJsonConverter => $"global::{StronglyTypedPrimitivesNamespace}.StronglyTypedJsonConverter";
 
-    private static string GeneratedCodeConstructor => $@"System.CodeDom.Compiler.GeneratedCodeAttribute(""{typeof(StronglyTypedPrimitiveGenerator).Assembly.FullName}"", ""{typeof(StronglyTypedPrimitiveGenerator).Assembly.GetName().Version}"")";
+    private static string GeneratedCodeConstructor => $@"global::System.CodeDom.Compiler.GeneratedCodeAttribute(""{typeof(StronglyTypedPrimitiveGenerator).Assembly.FullName}"", ""{typeof(StronglyTypedPrimitiveGenerator).Assembly.GetName().Version}"")";
 
     private static string GeneratedCodeAttribute => $"[{GeneratedCodeConstructor}]";
+
+    // Every type name written into generated code goes through Parser.GlobalName, for the reason
+    // given there: the generated file sits in the target type's namespace, so an unrooted
+    // System.IFormatProvider binds to a nested SomeNamespace.System when the consumer declares one.
+    // A parameter is written from its type and name rather than by interpolating the symbol, whose
+    // display string leaves the type unrooted. The modifier is part of that display string, so it
+    // is written here too.
+    private static string GetParameter(IParameterSymbol parameter)
+    {
+        var modifier = parameter.RefKind switch
+        {
+            RefKind.Out => "out ",
+            RefKind.Ref => "ref ",
+            RefKind.In => "in ",
+            _ => string.Empty,
+        };
+
+        return $"{modifier}{Parser.GlobalName(parameter.Type)} {parameter.Name}";
+    }
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
@@ -189,6 +208,9 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         var hasUserDeclaredIsValueValid = HasPublicStaticMethod(targetTypeMembers, "IsValueValid", underlyingTypeSymbol, compilation.GetSpecialType(SpecialType.System_Boolean), compilation.GetSpecialType(SpecialType.System_Boolean));
 
         var jsonConverterSupport = Parser.GetJsonConverterSupport(compilation, targetTypeSymbol);
+
+        // The unrooted names are for the diagnostics, which quote them to the user; generated code
+        // gets the rooted ones.
         var targetTypeName = targetTypeSymbol.ToDisplayString();
         var underlyingTypeName = underlyingTypeSymbol.WithNullableAnnotation(NullableAnnotation.None).ToDisplayString();
 
@@ -202,7 +224,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             CodeHeader,
             GetNamespaceDefinition(info),
             GeneratedCodeAttribute,
-            .. GetJsonConverterAttribute(jsonConverterSupport, targetTypeName, underlyingTypeName),
+            .. GetJsonConverterAttribute(jsonConverterSupport, Parser.GlobalName(targetTypeSymbol), Parser.GlobalName(underlyingTypeSymbol.WithNullableAnnotation(NullableAnnotation.None))),
             GetPartialRecordStructDefinition(info, interfacesToImplement),
             "{",
             .. GetEmptyMember(info, targetTypeMembers, targetTypeSymbol, selfInterface),
@@ -284,7 +306,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
 
     internal static string GetPartialRecordStructDefinition(StronglyTypedTypeInfo info, IEnumerable<INamedTypeSymbol> interfaces)
         => $"""
-        {info.Target.Modifiers} record struct {info.Target.Identifier} : {string.Join(", ", interfaces.Select(x => x.ToDisplayString()))}
+        {info.Target.Modifiers} record struct {info.Target.Identifier} : {string.Join(", ", interfaces.Select(x => Parser.GlobalName(x)))}
         """;
 
     // The generated Empty is a static field, so a user replaces it by declaring any static field or
@@ -328,7 +350,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
 
         yield return $$"""
 
-                static {{info.Target.Identifier}} {{selfInterface!.ToDisplayString()}}.Empty => Empty;
+                static {{info.Target.Identifier}} {{Parser.GlobalName(selfInterface!)}}.Empty => Empty;
             """;
     }
 
@@ -357,7 +379,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
             {
                 yield return $$"""
 
-                        static {{info.Target.Identifier}} {{selfInterface!.ToDisplayString()}}.Create({{underlyingTypeSymbol.ToDisplayString()}} value) => new {{info.Target.Identifier}}(value);
+                        static {{info.Target.Identifier}} {{Parser.GlobalName(selfInterface!)}}.Create({{Parser.GlobalName(underlyingTypeSymbol)}} value) => new {{info.Target.Identifier}}(value);
                     """;
             }
 
@@ -366,7 +388,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
 
         yield return $$"""
 
-                public static {{info.Target.Identifier}} Create({{underlyingTypeSymbol.ToDisplayString()}} value) => new {{info.Target.Identifier}}(value);
+                public static {{info.Target.Identifier}} Create({{Parser.GlobalName(underlyingTypeSymbol)}} value) => new {{info.Target.Identifier}}(value);
             """;
     }
 
@@ -461,8 +483,8 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         {
             yield return $$"""
 
-                [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-                public static bool IsValueValid({{underlyingTypeSymbol.ToDisplayString()}} value, bool throwIfInvalid)
+                [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+                public static bool IsValueValid({{Parser.GlobalName(underlyingTypeSymbol)}} value, bool throwIfInvalid)
                     => true;
             """;
             yield break;
@@ -493,7 +515,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         var fallbackMessage = SymbolDisplay.FormatLiteral($"The field {info.Parameter.Identifier.ValueText} is invalid.", quote: true);
         var source = new StringBuilder();
 
-        source.Append($"\n    public static bool IsValueValid({underlyingTypeSymbol.ToDisplayString()} value, bool throwIfInvalid)\n    {{");
+        source.Append($"\n    public static bool IsValueValid({Parser.GlobalName(underlyingTypeSymbol)} value, bool throwIfInvalid)\n    {{");
         source.Append($"\n        var context = {validators}.{context.FactoryMethodName}();");
 
         foreach (var attribute in attributes)
@@ -542,6 +564,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         }
 
         const string throwIfValueIsInvalidName = "ThrowIfValueIsInvalid";
+        var underlyingTypeName = Parser.GlobalName(underlyingTypeSymbol);
         var hasThrowIfValueIsInvalid = targetTypeMembers
             .OfType<IMethodSymbol>()
             .Any(m => m.Name == throwIfValueIsInvalidName
@@ -553,7 +576,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         {
             yield return $$"""
 
-                private static {{info.UnderlyingType}} {{throwIfValueIsInvalidName}}({{info.UnderlyingType}} value)
+                private static {{underlyingTypeName}} {{throwIfValueIsInvalidName}}({{underlyingTypeName}} value)
                 {
                     IsValueValid(value, throwIfInvalid: true);
                     return value;
@@ -588,7 +611,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         {
             yield return $$"""
 
-                public {{info.UnderlyingType}} {{info.Parameter.Identifier}}
+                public {{underlyingTypeName}} {{info.Parameter.Identifier}}
                 {
                     get => {{getMethodImplementation}}
                     init
@@ -602,9 +625,9 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         {
             yield return $$"""
 
-                private readonly {{info.UnderlyingType}} {{fieldName}} = {{throwIfValueIsInvalidName}}({{info.Parameter.Identifier}});
+                private readonly {{underlyingTypeName}} {{fieldName}} = {{throwIfValueIsInvalidName}}({{info.Parameter.Identifier}});
 
-                public {{info.UnderlyingType}} {{info.Parameter.Identifier}}
+                public {{underlyingTypeName}} {{info.Parameter.Identifier}}
                 {
                     get => {{getMethodImplementation}}
                     init
@@ -642,7 +665,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
 
         yield return $$"""
 
-                {{underlyingTypeSymbol.ToDisplayString()}} {{selfInterface.ToDisplayString()}}.Value => {{info.Parameter.Identifier}};
+                {{Parser.GlobalName(underlyingTypeSymbol)}} {{Parser.GlobalName(selfInterface)}}.Value => {{info.Parameter.Identifier}};
             """;
     }
 
@@ -742,7 +765,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
     }
 
 
-    private const string ValidationResultTypeName = "System.ComponentModel.DataAnnotations.ValidationResult";
+    private const string ValidationResultTypeName = "global::System.ComponentModel.DataAnnotations.ValidationResult";
 
     // Validate reports the failures IsValueValid throws for as ValidationResults, so ASP.NET Core
     // validation can answer with a 400 instead of an exception, and evaluates the attributes that
@@ -772,10 +795,10 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         var reservedNames = new HashSet<string>(targetTypeMembers.Select(member => member.Name), StringComparer.Ordinal) { parameterName };
         var contextName = Parser.GetUnusedName("validationContext", reservedNames);
         var declaration = targetTypeMembers.Any(member => member.Name == "Validate")
-            ? $"System.Collections.Generic.IEnumerable<{ValidationResultTypeName}> System.ComponentModel.DataAnnotations.IValidatableObject.Validate"
-            : $"public System.Collections.Generic.IEnumerable<{ValidationResultTypeName}> Validate";
-        var signature = $"{declaration}(System.ComponentModel.DataAnnotations.ValidationContext {contextName})";
-        var emptyResults = $"System.Array.Empty<{ValidationResultTypeName}>()";
+            ? $"global::System.Collections.Generic.IEnumerable<{ValidationResultTypeName}> global::System.ComponentModel.DataAnnotations.IValidatableObject.Validate"
+            : $"public global::System.Collections.Generic.IEnumerable<{ValidationResultTypeName}> Validate";
+        var signature = $"{declaration}(global::System.ComponentModel.DataAnnotations.ValidationContext {contextName})";
+        var emptyResults = $"global::System.Array.Empty<{ValidationResultTypeName}>()";
         var attributes = GetInvariantAttributes(validationAttributes, hasUserDeclaredIsValueValid);
         var contextAttributes = GetContextAttributes(validationAttributes, generatesValidate);
 
@@ -796,7 +819,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         // and is left to propagate. The fallback message is the documented literal, whatever the
         // positional parameter is called.
         var invalidValueMessage = "\"Value is not valid.\"";
-        var reportedExceptions = "System.ArgumentException or System.ComponentModel.DataAnnotations.ValidationException";
+        var reportedExceptions = "global::System.ArgumentException or global::System.ComponentModel.DataAnnotations.ValidationException";
 
         if (hasUserDeclaredIsValueValid && contextAttributes.IsEmpty)
         {
@@ -809,7 +832,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
                         {
                             if (IsValueValid({{value}}, throwIfInvalid: true)) return {{emptyResults}};
                         }
-                        catch (System.Exception {{exceptionName}}) when ({{exceptionName}} is {{reportedExceptions}})
+                        catch (global::System.Exception {{exceptionName}}) when ({{exceptionName}} is {{reportedExceptions}})
                         {
                             return new[] { new {{ValidationResultTypeName}}({{exceptionName}}.Message) };
                         }
@@ -841,7 +864,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
                         {
                             if (!IsValueValid({{value}}, throwIfInvalid: true)) {{resultName}} = new {{ValidationResultTypeName}}({{invalidValueMessage}});
                         }
-                        catch (System.Exception {{exceptionName}}) when ({{exceptionName}} is {{reportedExceptions}})
+                        catch (global::System.Exception {{exceptionName}}) when ({{exceptionName}} is {{reportedExceptions}})
                         {
                             {{resultName}} = new {{ValidationResultTypeName}}({{exceptionName}}.Message);
                         }
@@ -913,8 +936,8 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         var resultName = Parser.GetUnusedName("result", reservedNames);
         var implementsExplicitly = targetTypeMembers.Any(member => member.Name == "ValidateAsync");
         var declaration = implementsExplicitly
-            ? $"async System.Collections.Generic.IAsyncEnumerable<{ValidationResultTypeName}> System.ComponentModel.DataAnnotations.IAsyncValidatableObject.ValidateAsync"
-            : $"public async System.Collections.Generic.IAsyncEnumerable<{ValidationResultTypeName}> ValidateAsync";
+            ? $"async global::System.Collections.Generic.IAsyncEnumerable<{ValidationResultTypeName}> global::System.ComponentModel.DataAnnotations.IAsyncValidatableObject.ValidateAsync"
+            : $"public async global::System.Collections.Generic.IAsyncEnumerable<{ValidationResultTypeName}> ValidateAsync";
 
         // The interface declares the token optional, so a caller of the public method can leave it
         // out the way a caller through the interface can. An explicit interface implementation
@@ -928,7 +951,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         // one the user wrote that way, or the generated one when another member is called Validate
         // (see GetValidateMethod). The cast boxes the struct, so only those cases pay for it.
         var validateInvocation = implementsValidateExplicitly || (generatesValidate && targetTypeMembers.Any(member => member.Name == "Validate"))
-            ? $"((System.ComponentModel.DataAnnotations.IValidatableObject)this).Validate({contextName})"
+            ? $"((global::System.ComponentModel.DataAnnotations.IValidatableObject)this).Validate({contextName})"
             : $"Validate({contextName})";
 
         var source = new StringBuilder();
@@ -940,7 +963,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
 
         source.Append($$"""
 
-                {{declaration}}(System.ComponentModel.DataAnnotations.ValidationContext {{contextName}}, [System.Runtime.CompilerServices.EnumeratorCancellation] System.Threading.CancellationToken {{tokenName}}{{tokenDefault}})
+                {{declaration}}(global::System.ComponentModel.DataAnnotations.ValidationContext {{contextName}}, [global::System.Runtime.CompilerServices.EnumeratorCancellation] global::System.Threading.CancellationToken {{tokenName}}{{tokenDefault}})
                 {
                     foreach (var {{resultName}} in {{validateInvocation}})
                     {
@@ -968,9 +991,9 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
     private static string GetParse(StronglyTypedTypeInfo info, IMethodSymbol method, ITypeSymbol underlyingTypeSymbol)
         => $$"""
 
-            public static {{info.Target.Identifier}} Parse({{method.Parameters[0]}}, {{method.Parameters[1]}})
+            public static {{info.Target.Identifier}} Parse({{GetParameter(method.Parameters[0])}}, {{GetParameter(method.Parameters[1])}})
             {
-                var rawValue = {{underlyingTypeSymbol.ToDisplayString()}}.Parse({{method.Parameters[0].Name}}, {{method.Parameters[1].Name}});
+                var rawValue = {{Parser.GlobalName(underlyingTypeSymbol)}}.Parse({{method.Parameters[0].Name}}, {{method.Parameters[1].Name}});
                 IsValueValid(rawValue, throwIfInvalid: true);
                 return new {{info.Target.Identifier}}(rawValue);
             }
@@ -979,9 +1002,9 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
     private static string GetTryParse(StronglyTypedTypeInfo info, IMethodSymbol method, ITypeSymbol underlyingTypeSymbol)
         => $$"""
 
-            public static bool TryParse({{method.Parameters[0]}}, {{method.Parameters[1]}}, [System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] {{method.Parameters[2]}})
+            public static bool TryParse({{GetParameter(method.Parameters[0])}}, {{GetParameter(method.Parameters[1])}}, [global::System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] {{GetParameter(method.Parameters[2])}})
             {
-                if ({{underlyingTypeSymbol.ToDisplayString()}}.TryParse({{method.Parameters[0].Name}}, {{method.Parameters[1].Name}}, out var rawValue) && IsValueValid(rawValue, throwIfInvalid: false))
+                if ({{Parser.GlobalName(underlyingTypeSymbol)}}.TryParse({{method.Parameters[0].Name}}, {{method.Parameters[1].Name}}, out var rawValue) && IsValueValid(rawValue, throwIfInvalid: false))
                 {
                     {{method.Parameters[2].Name}} = new {{info.Target.Identifier}}(rawValue);
                     return true;
@@ -1002,7 +1025,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
 
         return $$"""
 
-            public static {{info.Target.Identifier}} Parse({{method.Parameters[0]}}, {{method.Parameters[1]}})
+            public static {{info.Target.Identifier}} Parse({{GetParameter(method.Parameters[0])}}, {{GetParameter(method.Parameters[1])}})
             {
                 var rawValue = {{rawValueString}};
                 IsValueValid(rawValue, throwIfInvalid: true);
@@ -1020,7 +1043,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         };
         return $$"""
 
-            public static bool TryParse({{method.Parameters[0]}}, {{method.Parameters[1]}}, [System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] {{method.Parameters[2]}})
+            public static bool TryParse({{GetParameter(method.Parameters[0])}}, {{GetParameter(method.Parameters[1])}}, [global::System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] {{GetParameter(method.Parameters[2])}})
             {
                 if ({{rawValueString}} is {} rawValue && IsValueValid(rawValue, throwIfInvalid: false))
                 {
@@ -1037,14 +1060,14 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
     private static string GetStringCompareToOfT(StronglyTypedTypeInfo info, IMethodSymbol method, ITypeSymbol underlyingTypeSymbol)
     => $$"""
         
-        public int CompareTo({{method.Parameters[0]}})
+        public int CompareTo({{GetParameter(method.Parameters[0])}})
             => ({{info.Parameter.Identifier}} ?? string.Empty).CompareTo({{method.Parameters[0].Name}}.{{info.Parameter.Identifier}});
     """;
 
     private static string GetStringCompareTo(StronglyTypedTypeInfo info, IMethodSymbol method, ITypeSymbol underlyingTypeSymbol)
         => $$"""
         
-        public int CompareTo({{method.Parameters[0]}})
+        public int CompareTo({{GetParameter(method.Parameters[0])}})
         {
             if ({{method.Parameters[0].Name}} is null)
             {
@@ -1056,21 +1079,21 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
                 return ({{info.Parameter.Identifier}} ?? string.Empty).CompareTo(other.{{info.Parameter.Identifier}});
             }
 
-            return (({{method.ContainingType.ToDisplayString()}})({{info.Parameter.Identifier}} ?? string.Empty)).CompareTo({{method.Parameters[0].Name}});
+            return (({{Parser.GlobalName(method.ContainingType)}})({{info.Parameter.Identifier}} ?? string.Empty)).CompareTo({{method.Parameters[0].Name}});
         }
     """;
 
     private static string GetCompareToOfT(StronglyTypedTypeInfo info, IMethodSymbol method, ITypeSymbol underlyingTypeSymbol)
         => $$"""
         
-        public int CompareTo({{method.Parameters[0]}})
+        public int CompareTo({{GetParameter(method.Parameters[0])}})
             => {{info.Parameter.Identifier}}.CompareTo({{method.Parameters[0].Name}}.{{info.Parameter.Identifier}});
     """;
 
     private static string GetCompareTo(StronglyTypedTypeInfo info, IMethodSymbol method, ITypeSymbol underlyingTypeSymbol)
         => $$"""
         
-        public int CompareTo({{method.Parameters[0]}})
+        public int CompareTo({{GetParameter(method.Parameters[0])}})
         {
             if ({{method.Parameters[0].Name}} is null)
             {
@@ -1082,22 +1105,22 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
                 return {{info.Parameter.Identifier}}.CompareTo(other.{{info.Parameter.Identifier}});
             }
 
-            return (({{method.ContainingType.ToDisplayString()}}){{info.Parameter.Identifier}}).CompareTo({{method.Parameters[0].Name}});
+            return (({{Parser.GlobalName(method.ContainingType)}}){{info.Parameter.Identifier}}).CompareTo({{method.Parameters[0].Name}});
         }
     """;
 
     private static string GetToString(StronglyTypedTypeInfo info, IMethodSymbol method, ITypeSymbol underlyingTypeSymbol)
         => $$"""
         
-        public string ToString({{method.Parameters[0]}}, {{method.Parameters[1]}})
+        public string ToString({{GetParameter(method.Parameters[0])}}, {{GetParameter(method.Parameters[1])}})
             => {{info.Parameter.Identifier}}.ToString({{method.Parameters[0].Name}}, {{method.Parameters[1].Name}});
     """;
 
     private static string GetTryFormat(StronglyTypedTypeInfo info, IMethodSymbol method, ITypeSymbol underlyingTypeSymbol)
         => $$"""
         
-        public bool TryFormat({{method.Parameters[0]}}, {{method.Parameters[1]}}, {{method.Parameters[2]}}, {{method.Parameters[3]}})
-            => (({{method.ContainingType.ToDisplayString()}}){{info.Parameter.Identifier}}).TryFormat({{method.Parameters[0].Name}}, out {{method.Parameters[1].Name}}, {{method.Parameters[2].Name}}, {{method.Parameters[3].Name}});
+        public bool TryFormat({{GetParameter(method.Parameters[0])}}, {{GetParameter(method.Parameters[1])}}, {{GetParameter(method.Parameters[2])}}, {{GetParameter(method.Parameters[3])}})
+            => (({{Parser.GlobalName(method.ContainingType)}}){{info.Parameter.Identifier}}).TryFormat({{method.Parameters[0].Name}}, out {{method.Parameters[1].Name}}, {{method.Parameters[2].Name}}, {{method.Parameters[3].Name}});
     """;
 
     // The converter is declared by attribute instead of being emitted per type so the generated
@@ -1111,7 +1134,7 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         }
 
         yield return $$"""
-            [System.Text.Json.Serialization.JsonConverterAttribute(typeof({{StronglyTypedJsonConverter}}<{{targetTypeName}}, {{underlyingTypeName}}>))]
+            [global::System.Text.Json.Serialization.JsonConverterAttribute(typeof({{StronglyTypedJsonConverter}}<{{targetTypeName}}, {{underlyingTypeName}}>))]
             """;
     }
 }

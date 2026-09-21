@@ -179,7 +179,7 @@ internal static class Parser
     private static readonly SymbolDisplayFormat GlobalNameFormat = SymbolDisplayFormat.FullyQualifiedFormat
         .AddMiscellaneousOptions(SymbolDisplayMiscellaneousOptions.IncludeNullableReferenceTypeModifier);
 
-    private static string GlobalName(ITypeSymbol type)
+    internal static string GlobalName(ITypeSymbol type)
         => type.ToDisplayString(GlobalNameFormat);
 
     // Attribute arguments are re-emitted as C# so the generated field constructs the attribute

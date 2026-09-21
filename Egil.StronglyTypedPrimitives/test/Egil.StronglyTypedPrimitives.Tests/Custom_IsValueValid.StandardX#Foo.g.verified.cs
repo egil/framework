@@ -11,9 +11,9 @@
 
 namespace SomeNamespace;
 
-[System.CodeDom.Compiler.GeneratedCodeAttribute("Egil.StronglyTypedPrimitives, Version=x.x.x.x, Culture=neutral, PublicKeyToken=null", "x.x.x.x")]
-[System.Text.Json.Serialization.JsonConverterAttribute(typeof(Egil.StronglyTypedPrimitives.StronglyTypedJsonConverter<SomeNamespace.Foo, string>))]
-public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<string>, Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<SomeNamespace.Foo, string>, System.IParsable<SomeNamespace.Foo>, System.ISpanParsable<SomeNamespace.Foo>, System.IComparable<SomeNamespace.Foo>, System.IComparable
+[global::System.CodeDom.Compiler.GeneratedCodeAttribute("Egil.StronglyTypedPrimitives, Version=x.x.x.x, Culture=neutral, PublicKeyToken=null", "x.x.x.x")]
+[global::System.Text.Json.Serialization.JsonConverterAttribute(typeof(global::Egil.StronglyTypedPrimitives.StronglyTypedJsonConverter<global::SomeNamespace.Foo, string>))]
+public readonly partial record struct Foo : global::Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<string>, global::Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<global::SomeNamespace.Foo, string>, global::System.IParsable<global::SomeNamespace.Foo>, global::System.ISpanParsable<global::SomeNamespace.Foo>, global::System.IComparable<global::SomeNamespace.Foo>, global::System.IComparable
 {
     public static readonly Foo Empty = default;
 
@@ -21,18 +21,18 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
 
     public override string ToString() => Value ?? string.Empty;
 
-    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+    [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
     public static bool IsValueValid(string value, bool throwIfInvalid)
         => true;
 
-    public static Foo Parse(string s, System.IFormatProvider? provider)
+    public static Foo Parse(string s, global::System.IFormatProvider? provider)
     {
         var rawValue = s;
         IsValueValid(rawValue, throwIfInvalid: true);
         return new Foo(rawValue);
     }
 
-    public static bool TryParse(string? s, System.IFormatProvider? provider, [System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out SomeNamespace.Foo result)
+    public static bool TryParse(string? s, global::System.IFormatProvider? provider, [global::System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out global::SomeNamespace.Foo result)
     {
         if (s is {} rawValue && IsValueValid(rawValue, throwIfInvalid: false))
         {
@@ -44,14 +44,14 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
         return false;
     }
 
-    public static Foo Parse(System.ReadOnlySpan<char> s, System.IFormatProvider? provider)
+    public static Foo Parse(global::System.ReadOnlySpan<char> s, global::System.IFormatProvider? provider)
     {
         var rawValue = s.ToString();
         IsValueValid(rawValue, throwIfInvalid: true);
         return new Foo(rawValue);
     }
 
-    public static bool TryParse(System.ReadOnlySpan<char> s, System.IFormatProvider? provider, [System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out SomeNamespace.Foo result)
+    public static bool TryParse(global::System.ReadOnlySpan<char> s, global::System.IFormatProvider? provider, [global::System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out global::SomeNamespace.Foo result)
     {
         if (s.ToString() is {} rawValue && IsValueValid(rawValue, throwIfInvalid: false))
         {
@@ -63,7 +63,7 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
         return false;
     }
     
-    public int CompareTo(SomeNamespace.Foo other)
+    public int CompareTo(global::SomeNamespace.Foo other)
         => (Value ?? string.Empty).CompareTo(other.Value);
     
     public int CompareTo(object? obj)
@@ -78,7 +78,7 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
             return (Value ?? string.Empty).CompareTo(other.Value);
         }
 
-        return ((System.IComparable)(Value ?? string.Empty)).CompareTo(obj);
+        return ((global::System.IComparable)(Value ?? string.Empty)).CompareTo(obj);
     }
     
     public static bool operator > (Foo a, Foo b) => a.CompareTo(b) > 0;                

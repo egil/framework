@@ -25,26 +25,30 @@ public readonly partial record struct Foo : global::Egil.StronglyTypedPrimitives
         return value;
     }
 
-    private readonly string @value_ = ThrowIfValueIsInvalid(Value);
+    private readonly string @data = ThrowIfValueIsInvalid(Data);
 
-    public string Value
+    public string Data
     {
-        get => @value_ ?? string.Empty;
+        get => @data ?? string.Empty;
         init
         {
-            @value_ = ThrowIfValueIsInvalid(value);
+            @data = ThrowIfValueIsInvalid(value);
         }
     }
 
-    public override string ToString() => Value ?? string.Empty;
+    string global::Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<global::SomeNamespace.Foo, string>.Value => Data;
+
+    public override string ToString() => Data ?? string.Empty;
 
     private static class ValueValidators
     {
-        public static readonly global::SomeNamespace.NotBlankAttribute valueValidator0 = new global::SomeNamespace.NotBlankAttribute();
+        public static readonly global::System.ComponentModel.DataAnnotations.StringLengthAttribute valueValidator0 = new global::System.ComponentModel.DataAnnotations.StringLengthAttribute(10) { MinimumLength = 2 };
+        public static readonly global::SomeNamespace.TenantScopedAttribute contextValueValidator0 = new global::SomeNamespace.TenantScopedAttribute();
+        public static readonly global::SomeNamespace.RemoteCheckAttribute asyncValueValidator0 = new global::SomeNamespace.RemoteCheckAttribute();
 
         [global::System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "DisplayName is set, so the constructor's reflection fallback for it never runs.")]
         public static global::System.ComponentModel.DataAnnotations.ValidationContext CreateInvariantContext()
-            => new global::System.ComponentModel.DataAnnotations.ValidationContext(new object()) { MemberName = "Value", DisplayName = "Value" };
+            => new global::System.ComponentModel.DataAnnotations.ValidationContext(new object()) { MemberName = "Data", DisplayName = "Data" };
     }
 
     public static bool IsValueValid(string value, bool throwIfInvalid)
@@ -55,7 +59,7 @@ public readonly partial record struct Foo : global::Egil.StronglyTypedPrimitives
         if (ValueValidators.valueValidator0.GetValidationResult(value, context) is { } result0)
         {
             if (!throwIfInvalid) return false;
-            error0 = result0.ErrorMessage ?? "The field Value is invalid.";
+            error0 = result0.ErrorMessage ?? "The field Data is invalid.";
         }
 
         if (error0 is null) return true;
@@ -104,7 +108,7 @@ public readonly partial record struct Foo : global::Egil.StronglyTypedPrimitives
     }
     
     public int CompareTo(global::SomeNamespace.Foo other)
-        => (Value ?? string.Empty).CompareTo(other.Value);
+        => (Data ?? string.Empty).CompareTo(other.Data);
     
     public int CompareTo(object? obj)
     {
@@ -115,10 +119,37 @@ public readonly partial record struct Foo : global::Egil.StronglyTypedPrimitives
 
         if (obj is Foo other)
         {
-            return (Value ?? string.Empty).CompareTo(other.Value);
+            return (Data ?? string.Empty).CompareTo(other.Data);
         }
 
-        return ((global::System.IComparable)(Value ?? string.Empty)).CompareTo(obj);
+        return ((global::System.IComparable)(Data ?? string.Empty)).CompareTo(obj);
+    }
+
+    global::System.Collections.Generic.IEnumerable<global::System.ComponentModel.DataAnnotations.ValidationResult> global::System.ComponentModel.DataAnnotations.IValidatableObject.Validate(global::System.ComponentModel.DataAnnotations.ValidationContext validationContext)
+    {
+        var result0 = ValueValidators.valueValidator0.GetValidationResult(this.Data, validationContext);
+        if (result0 == global::System.ComponentModel.DataAnnotations.ValidationResult.Success) result0 = null;
+        var contextResult0 = ValueValidators.contextValueValidator0.GetValidationResult(this.Data, validationContext);
+        if (contextResult0 == global::System.ComponentModel.DataAnnotations.ValidationResult.Success) contextResult0 = null;
+
+        if (result0 is null && contextResult0 is null) return global::System.Array.Empty<global::System.ComponentModel.DataAnnotations.ValidationResult>();
+
+        var results = new global::System.ComponentModel.DataAnnotations.ValidationResult[(result0 is null ? 0 : 1) + (contextResult0 is null ? 0 : 1)];
+        var index = 0;
+        if (result0 is not null) results[index++] = result0;
+        if (contextResult0 is not null) results[index++] = contextResult0;
+        return results;
+    }
+
+    async global::System.Collections.Generic.IAsyncEnumerable<global::System.ComponentModel.DataAnnotations.ValidationResult> global::System.ComponentModel.DataAnnotations.IAsyncValidatableObject.ValidateAsync(global::System.ComponentModel.DataAnnotations.ValidationContext validationContext, [global::System.Runtime.CompilerServices.EnumeratorCancellation] global::System.Threading.CancellationToken cancellationToken)
+    {
+        foreach (var result in ((global::System.ComponentModel.DataAnnotations.IValidatableObject)this).Validate(validationContext))
+        {
+            yield return result;
+        }
+
+        var asyncResult0 = await ValueValidators.asyncValueValidator0.GetValidationResultAsync(this.Data, validationContext, cancellationToken).ConfigureAwait(false);
+        if (asyncResult0 is not null && asyncResult0 != global::System.ComponentModel.DataAnnotations.ValidationResult.Success) yield return asyncResult0;
     }
     
     public static bool operator > (Foo a, Foo b) => a.CompareTo(b) > 0;                
