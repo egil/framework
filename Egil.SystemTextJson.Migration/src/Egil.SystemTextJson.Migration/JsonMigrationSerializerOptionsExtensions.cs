@@ -36,6 +36,12 @@ public static class JsonMigrationSerializerOptionsExtensions
     /// <summary>
     /// Adds migration support using explicit registration and optional assembly scanning.
     /// </summary>
+    /// <remarks>
+    /// Migration support is inserted at the front of <see cref="JsonSerializerOptions.TypeInfoResolverChain"/>.
+    /// Resolvers added to the chain afterwards are used for every type that is not <see cref="JsonMigratableAttribute"/>
+    /// annotated; replacing the chain or assigning <see cref="JsonSerializerOptions.TypeInfoResolver"/> afterwards
+    /// removes migration support. Options that have no resolver keep reflection-based serialization.
+    /// </remarks>
     /// <param name="options">The serializer options to configure.</param>
     /// <param name="configure">Optional registration callback.</param>
     /// <returns>The same <paramref name="options"/> instance.</returns>
@@ -49,11 +55,17 @@ public static class JsonMigrationSerializerOptionsExtensions
         configure?.Invoke(builder);
 
         var registry = builder.Build();
-        options.Converters.Add(new JsonMigratableConverterFactory(registry));
+
+        // Migration goes in front of the resolver chain rather than into options.Converters: any
+        // entry in that list makes STJ drop source-generated fast-path serialization for every type
+        // in the options, while a resolver only costs it for the migratable contracts themselves.
+        // The converters already registered keep winning over migration, as they did when the
+        // migration converter factory was appended to the list at this point.
+        options.TypeInfoResolverChain.Insert(0, new JsonMigrationTypeInfoResolver(registry, options.Converters));
 #if NET11_0_OR_GREATER
         // Unions whose cases are [JsonMigratable] need a classifier that understands migration
         // discriminators; registering it here means reflection-based users get union support
-        // without annotating every union. The factory finds the registry through the converter
+        // without annotating every union. The classifier finds the registry through the resolver
         // registered above, so the same instance also works when applied via [JsonUnion].
         options.TypeClassifiers.Add(new JsonMigratableUnionTypeClassifier());
 #endif

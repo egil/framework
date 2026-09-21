@@ -105,7 +105,7 @@ internal static class JsonMigratableTypes
         {
             if (converter.CanConvert(type))
             {
-                return converter is not JsonMigratableConverterFactory;
+                return true;
             }
         }
 

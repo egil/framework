@@ -233,10 +233,14 @@ public partial class NumericSourceMigrationTests
     [Fact]
     public void Overridden_migratable_element_has_no_discriminator_route()
     {
-        // The resolver serves ElemV1 with a custom converter, so its discriminator must not
-        // select the collection; with two candidates the payload is ambiguous instead.
-        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web) { TypeInfoResolver = new CustomTaggedResolver() };
+        // A resolver placed ahead of migration serves Tagged with a custom converter, so its
+        // discriminator must not select the collection; with two candidates the payload is
+        // ambiguous instead. Migration sits at the front of the chain, so a resolver that
+        // overrides a [JsonMigratable] type has to be inserted before it.
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
         options.AddJsonMigrationSupport();
+        options.TypeInfoResolverChain.Insert(0, new CustomTaggedResolver());
+        options.TypeInfoResolverChain.Add(new System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver());
 
         var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<TaggedListOrItemListState>("""[{"$type":"tagged","name":"x"}]""", options));
 
@@ -665,12 +669,10 @@ public partial class NumericSourceMigrationTests
 
     public sealed class CustomTaggedResolver : System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver
     {
-        private readonly System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver inner = new();
-
         public System.Text.Json.Serialization.Metadata.JsonTypeInfo? GetTypeInfo(Type type, JsonSerializerOptions options)
             => type == typeof(Tagged)
                 ? System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateValueInfo<Tagged>(options, new TaggedNameConverter())
-                : inner.GetTypeInfo(type, options);
+                : null;
     }
 
     [JsonMigratable]
