@@ -113,7 +113,7 @@ public readonly partial record struct Email([EmailAddress, StringLength(254, Min
 
 Every attribute deriving from `ValidationAttribute` that targets the parameter itself is evaluated in declaration order. An invalid value throws a `ValidationException` whose message lists the error message of every failing attribute, one per line, and whose `Value` is the rejected value; `TryParse` and JSON deserialization return `false`/`Empty` as with a hand-written `IsValueValid`. See [Generator output for string with validation attributes](#generator-output-for-string-with-validation-attributes) for the generated code.
 
-A hand-written `IsValueValid` still wins: when the type declares the method, the attributes are not evaluated and the generator reports warning `STP002` on each of them. Attributes deriving from `AsyncValidationAttribute` (.NET 11) cannot run inside the synchronous `IsValueValid` and are left out with warning `STP003`.
+A hand-written `IsValueValid` still wins: when the type declares the method, the attributes are not evaluated and the generator reports warning `STP002` on each of them. Attributes deriving from `AsyncValidationAttribute` (.NET 11) cannot run inside the synchronous `IsValueValid` and are left out with warning `STP003`. Attributes that override `RequiresValidationContext`, such as `CustomValidation`, need a `ValidationContext` that `IsValueValid` does not have; they are left out as well with warning `STP005`.
 
 ## System.Text.Json
 
@@ -389,36 +389,39 @@ public readonly partial record struct Email([EmailAddress, StringLength(254, Min
 The `Value` property and `ThrowIfValueIsInvalid` are generated exactly as in the constraints example above, and `IsValueValid` is generated from the attributes:
 
 ```csharp
-private static readonly System.ComponentModel.DataAnnotations.EmailAddressAttribute valueValidator0 = new System.ComponentModel.DataAnnotations.EmailAddressAttribute();
-private static readonly System.ComponentModel.DataAnnotations.StringLengthAttribute valueValidator1 = new System.ComponentModel.DataAnnotations.StringLengthAttribute(254) { MinimumLength = 3 };
+private static class ValueValidators
+{
+    public static readonly global::System.ComponentModel.DataAnnotations.EmailAddressAttribute valueValidator0 = new global::System.ComponentModel.DataAnnotations.EmailAddressAttribute();
+    public static readonly global::System.ComponentModel.DataAnnotations.StringLengthAttribute valueValidator1 = new global::System.ComponentModel.DataAnnotations.StringLengthAttribute(254) { MinimumLength = 3 };
+}
 
 public static bool IsValueValid(string value, bool throwIfInvalid)
 {
     string? error0 = null;
     string? error1 = null;
 
-    if (!valueValidator0.IsValid(value))
+    if (!ValueValidators.valueValidator0.IsValid(value))
     {
         if (!throwIfInvalid) return false;
-        error0 = valueValidator0.FormatErrorMessage("Value");
+        error0 = ValueValidators.valueValidator0.FormatErrorMessage("Value");
     }
 
-    if (!valueValidator1.IsValid(value))
+    if (!ValueValidators.valueValidator1.IsValid(value))
     {
         if (!throwIfInvalid) return false;
-        error1 = valueValidator1.FormatErrorMessage("Value");
+        error1 = ValueValidators.valueValidator1.FormatErrorMessage("Value");
     }
 
     if (error0 is null && error1 is null) return true;
 
     var message = string.Empty;
     if (error0 is not null) message = error0;
-    if (error1 is not null) message = message.Length == 0 ? error1 : message + System.Environment.NewLine + error1;
-    throw new System.ComponentModel.DataAnnotations.ValidationException(message, null, value);
+    if (error1 is not null) message = message.Length == 0 ? error1 : message + global::System.Environment.NewLine + error1;
+    throw new global::System.ComponentModel.DataAnnotations.ValidationException(message, null, value);
 }
 ```
 
-With `throwIfInvalid: false` the method returns at the first failing attribute. With `throwIfInvalid: true` every attribute is evaluated so the exception reports all of them at once. The name passed to `FormatErrorMessage` is the name of the positional parameter.
+With `throwIfInvalid: false` the method returns at the first failing attribute. With `throwIfInvalid: true` every attribute is evaluated so the exception reports all of them at once. The name passed to `FormatErrorMessage` is the name of the positional parameter. The attribute instances live in a nested `ValueValidators` class (suffixed with underscores if the type already has a member of that name) so that they are initialized on first use, even from a static initializer on the type itself such as `public static readonly Email Default = new("a@b.c");`.
 
 ## .NET 9 OpenAPI support
 
