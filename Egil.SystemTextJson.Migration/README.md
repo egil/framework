@@ -17,6 +17,8 @@ When data models evolve, old JSON payloads still exist — in databases, caches,
 - **Migration tracking** — types can implement `IJsonMigrationTracked` to know whether they were migrated.
 - **Configurable failure handling** — choose between throwing, falling back to the target type, or returning null when a migrator cannot convert a payload.
 
+> **Upgrading from 1.x?** No API changed; the behavior changes and the checks to run are in [Upgrading to 2.0](https://github.com/egil/framework/tree/main/Egil.SystemTextJson.Migration/docs/recipes/upgrading-to-v2.md).
+>
 > **📖 Looking for more?** See the [Recipes](https://github.com/egil/framework/tree/main/Egil.SystemTextJson.Migration/docs/recipes/) for 39 scenario-driven guides covering nested objects, collections, DI, source generation, failure handling, ASP.NET Core, Orleans, telemetry, and more.
 
 ## Examples
