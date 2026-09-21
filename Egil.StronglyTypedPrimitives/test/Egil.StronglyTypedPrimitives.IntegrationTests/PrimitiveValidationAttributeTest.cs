@@ -95,6 +95,22 @@ namespace Egil.StronglyTypedPrimitives
         }
 
         [Fact]
+        public void User_static_initializer_built_through_the_constructor_does_not_break_type_initialization()
+        {
+            Assert.Equal(1, StronglyTypedQuantity.Default.Value);
+            Assert.Equal(50, new StronglyTypedQuantity(50).Value);
+            Assert.Throws<ValidationException>(() => new StronglyTypedQuantity(0));
+        }
+
+        [Fact]
+        public void User_declared_Empty_built_through_the_constructor_is_the_empty_value()
+        {
+            Assert.Equal(1, StronglyTypedPositiveInt.Empty.Value);
+            Assert.False(StronglyTypedPositiveInt.TryParse("0", null, out var parsed));
+            Assert.Equal(StronglyTypedPositiveInt.Empty, parsed);
+        }
+
+        [Fact]
         public void Valid_value_round_trips_through_json()
         {
             var email = new StronglyTypedShortEmail("egil@example.com");

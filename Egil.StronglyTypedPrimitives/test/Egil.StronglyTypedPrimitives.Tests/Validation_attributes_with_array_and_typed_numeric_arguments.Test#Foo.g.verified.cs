@@ -38,24 +38,27 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
 
     public override string ToString() => Value.ToString();
 
-    private static readonly System.ComponentModel.DataAnnotations.AllowedValuesAttribute valueValidator0 = new System.ComponentModel.DataAnnotations.AllowedValuesAttribute(new object?[] { (long)1, (long)2 });
-    private static readonly SomeNamespace.LimitsAttribute valueValidator1 = new SomeNamespace.LimitsAttribute(new int[] { 1, 2 }) { Weight = (float)1.5 };
+    private static class ValueValidators
+    {
+        public static readonly System.ComponentModel.DataAnnotations.AllowedValuesAttribute valueValidator0 = new System.ComponentModel.DataAnnotations.AllowedValuesAttribute(new object?[] { (long)1, (long)2 });
+        public static readonly SomeNamespace.LimitsAttribute valueValidator1 = new SomeNamespace.LimitsAttribute(new int[] { 1, 2 }) { Weight = (float)1.5 };
+    }
 
     public static bool IsValueValid(long value, bool throwIfInvalid)
     {
         string? error0 = null;
         string? error1 = null;
 
-        if (!valueValidator0.IsValid(value))
+        if (!ValueValidators.valueValidator0.IsValid(value))
         {
             if (!throwIfInvalid) return false;
-            error0 = valueValidator0.FormatErrorMessage("Value");
+            error0 = ValueValidators.valueValidator0.FormatErrorMessage("Value");
         }
 
-        if (!valueValidator1.IsValid(value))
+        if (!ValueValidators.valueValidator1.IsValid(value))
         {
             if (!throwIfInvalid) return false;
-            error1 = valueValidator1.FormatErrorMessage("Value");
+            error1 = ValueValidators.valueValidator1.FormatErrorMessage("Value");
         }
 
         if (error0 is null && error1 is null) return true;

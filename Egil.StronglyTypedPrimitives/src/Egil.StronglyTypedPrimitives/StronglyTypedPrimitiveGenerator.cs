@@ -387,15 +387,26 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         // sequence of statements: no collections, loops or helpers to trim or allocate. With
         // throwIfInvalid the checks keep going after a failure so the exception can report every
         // violated attribute at once; without it the first failure is the answer.
+        //
+        // The fields sit in a nested static class, not on the target type: a user's static
+        // initializer such as `public static readonly Foo Default = new(1);` calls IsValueValid
+        // while the target type is still initializing, and whether the generated part's fields are
+        // assigned by then depends on the order the compiler gives the partial declarations. The
+        // nested class initializes on its first use, so the validators are ready whenever the
+        // method runs.
         var attributes = validationAttributes.Attributes;
+        var validators = validationAttributes.ValidatorsTypeName;
         var parameterName = info.Parameter.Identifier.Text;
         var source = new StringBuilder();
 
+        source.Append($"\n    private static class {validators}\n    {{");
+
         foreach (var attribute in attributes)
         {
-            source.Append($"\n    private static readonly {attribute.AttributeTypeName} {attribute.FieldName} = {attribute.CreationExpression};");
+            source.Append($"\n        public static readonly {attribute.AttributeTypeName} {attribute.FieldName} = {attribute.CreationExpression};");
         }
 
+        source.Append("\n    }");
         source.Append($"\n\n    public static bool IsValueValid({underlyingTypeSymbol.ToDisplayString()} value, bool throwIfInvalid)\n    {{");
 
         foreach (var attribute in attributes)
@@ -409,10 +420,10 @@ public sealed class StronglyTypedPrimitiveGenerator : IIncrementalGenerator
         {
             source.Append($$"""
 
-                        if (!{{attribute.FieldName}}.IsValid(value))
+                        if (!{{validators}}.{{attribute.FieldName}}.IsValid(value))
                         {
                             if (!throwIfInvalid) return false;
-                            error{{attribute.Index}} = {{attribute.FieldName}}.FormatErrorMessage("{{parameterName}}");
+                            error{{attribute.Index}} = {{validators}}.{{attribute.FieldName}}.FormatErrorMessage("{{parameterName}}");
                         }
 
                 """);
