@@ -54,9 +54,14 @@ internal static class Parser
             return ValidationAttributeModel.Empty;
         }
 
-        // The generated fields share the type with whatever the user declared in their partial
-        // declaration, so a name is only used when no existing member already has it.
-        var reservedNames = new HashSet<string>(targetTypeMembers.Select(member => member.Name), StringComparer.Ordinal);
+        // The nested validators class shares the target type with whatever the user declared in
+        // their partial declaration, so its name is only used when no existing member has it. The
+        // target type's own name is reserved too: a nested type cannot share it (CS0542).
+        var reservedNames = new HashSet<string>(targetTypeMembers.Select(member => member.Name), StringComparer.Ordinal)
+        {
+            parameterSymbol.ContainingType.Name,
+        };
+        var validatorsTypeName = GetUnusedMemberName(ValidationAttributeModel.PreferredValidatorsTypeName, reservedNames);
         var attributes = ImmutableArray.CreateBuilder<ValidationAttributeInfo>();
         var asyncAttributes = ImmutableArray.CreateBuilder<ValidationAttributeInfo>();
 
@@ -72,19 +77,18 @@ internal static class Parser
             var index = target.Count;
             target.Add(new ValidationAttributeInfo(
                 index,
-                GetUnusedFieldName(isAsync ? $"asyncValueValidator{index}" : $"valueValidator{index}", reservedNames),
+                isAsync ? $"asyncValueValidator{index}" : $"valueValidator{index}",
                 attributeClass.ToDisplayString(),
                 string.Join(", ", attribute.ConstructorArguments.Select(FormatAttributeArgument)),
                 FormatNamedArguments(attribute.NamedArguments),
                 attribute.ApplicationSyntaxReference?.GetSyntax().GetLocation() ?? parameter.Identifier.GetLocation()));
         }
 
-        return new ValidationAttributeModel(attributes.ToImmutable(), asyncAttributes.ToImmutable());
+        return new ValidationAttributeModel(validatorsTypeName, attributes.ToImmutable(), asyncAttributes.ToImmutable());
     }
 
-    // Appending underscores keeps the name recognisable and deterministic; the chosen name is
-    // reserved as well so a later attribute cannot land on it.
-    private static string GetUnusedFieldName(string preferredName, HashSet<string> reservedNames)
+    // Appending underscores keeps the name recognisable and deterministic.
+    private static string GetUnusedMemberName(string preferredName, HashSet<string> reservedNames)
     {
         var name = preferredName;
         while (!reservedNames.Add(name))

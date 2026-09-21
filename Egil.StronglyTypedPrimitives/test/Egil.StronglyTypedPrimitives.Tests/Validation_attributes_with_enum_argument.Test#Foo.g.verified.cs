@@ -38,16 +38,19 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
 
     public override string ToString() => Value ?? string.Empty;
 
-    private static readonly System.ComponentModel.DataAnnotations.DataTypeAttribute valueValidator0 = new System.ComponentModel.DataAnnotations.DataTypeAttribute(System.ComponentModel.DataAnnotations.DataType.EmailAddress);
+    private static class ValueValidators
+    {
+        public static readonly System.ComponentModel.DataAnnotations.DataTypeAttribute valueValidator0 = new System.ComponentModel.DataAnnotations.DataTypeAttribute(System.ComponentModel.DataAnnotations.DataType.EmailAddress);
+    }
 
     public static bool IsValueValid(string value, bool throwIfInvalid)
     {
         string? error0 = null;
 
-        if (!valueValidator0.IsValid(value))
+        if (!ValueValidators.valueValidator0.IsValid(value))
         {
             if (!throwIfInvalid) return false;
-            error0 = valueValidator0.FormatErrorMessage("Value");
+            error0 = ValueValidators.valueValidator0.FormatErrorMessage("Value");
         }
 
         if (error0 is null) return true;

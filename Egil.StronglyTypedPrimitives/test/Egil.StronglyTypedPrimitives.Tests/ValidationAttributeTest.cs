@@ -171,7 +171,7 @@ public class Validation_attributes_with_user_written_IsValueValid : ValidationAt
             """);
 }
 
-public class Validation_attributes_when_a_user_member_takes_the_validator_field_name : ValidationAttributeTestBase
+public class Validation_attributes_when_a_user_member_takes_the_validators_type_name : ValidationAttributeTestBase
 {
     [Fact]
     public Task Test()
@@ -186,7 +186,7 @@ public class Validation_attributes_when_a_user_member_takes_the_validator_field_
             {
                 private static readonly int valueValidator0 = 1;
 
-                public static int UserField => valueValidator0;
+                public static int ValueValidators => valueValidator0;
             }
             """);
 }
