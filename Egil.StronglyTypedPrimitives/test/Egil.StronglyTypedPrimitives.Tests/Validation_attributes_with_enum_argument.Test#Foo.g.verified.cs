@@ -40,7 +40,7 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
 
     private static class ValueValidators
     {
-        public static readonly System.ComponentModel.DataAnnotations.DataTypeAttribute valueValidator0 = new System.ComponentModel.DataAnnotations.DataTypeAttribute(System.ComponentModel.DataAnnotations.DataType.EmailAddress);
+        public static readonly global::System.ComponentModel.DataAnnotations.DataTypeAttribute valueValidator0 = new global::System.ComponentModel.DataAnnotations.DataTypeAttribute(global::System.ComponentModel.DataAnnotations.DataType.EmailAddress);
     }
 
     public static bool IsValueValid(string value, bool throwIfInvalid)
@@ -57,7 +57,7 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
 
         var message = string.Empty;
         if (error0 is not null) message = error0;
-        throw new System.ComponentModel.DataAnnotations.ValidationException(message, null, value);
+        throw new global::System.ComponentModel.DataAnnotations.ValidationException(message, null, value);
     }
 
     public static Foo Parse(string s, System.IFormatProvider? provider)

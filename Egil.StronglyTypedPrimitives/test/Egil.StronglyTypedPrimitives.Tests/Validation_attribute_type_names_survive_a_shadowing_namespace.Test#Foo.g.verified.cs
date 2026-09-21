@@ -12,38 +12,38 @@
 namespace SomeNamespace;
 
 [System.CodeDom.Compiler.GeneratedCodeAttribute("Egil.StronglyTypedPrimitives, Version=x.x.x.x, Culture=neutral, PublicKeyToken=null", "x.x.x.x")]
-[System.Text.Json.Serialization.JsonConverterAttribute(typeof(Egil.StronglyTypedPrimitives.StronglyTypedJsonConverter<SomeNamespace.Foo, string>))]
-public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<string>, Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<SomeNamespace.Foo, string>, System.IParsable<SomeNamespace.Foo>, System.ISpanParsable<SomeNamespace.Foo>, System.IComparable<SomeNamespace.Foo>, System.IComparable
+[System.Text.Json.Serialization.JsonConverterAttribute(typeof(Egil.StronglyTypedPrimitives.StronglyTypedJsonConverter<SomeNamespace.Foo, int>))]
+public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<int>, Egil.StronglyTypedPrimitives.IStronglyTypedPrimitive<SomeNamespace.Foo, int>, System.IParsable<SomeNamespace.Foo>, System.ISpanParsable<SomeNamespace.Foo>, System.IUtf8SpanParsable<SomeNamespace.Foo>, System.IComparable<SomeNamespace.Foo>, System.IComparable, System.IFormattable, System.ISpanFormattable, System.IUtf8SpanFormattable
 {
     public static readonly Foo Empty = default;
 
-    public static Foo Create(string value) => new Foo(value);
+    public static Foo Create(int value) => new Foo(value);
 
-    private static string ThrowIfValueIsInvalid(string value)
+    private static int ThrowIfValueIsInvalid(int value)
     {
         IsValueValid(value, throwIfInvalid: true);
         return value;
     }
 
-    private readonly string @value = ThrowIfValueIsInvalid(Value);
+    private readonly int @value = ThrowIfValueIsInvalid(Value);
 
-    public string Value
+    public int Value
     {
-        get => @value ?? string.Empty;
+        get => @value;
         init
         {
             @value = ThrowIfValueIsInvalid(value);
         }
     }
 
-    public override string ToString() => Value ?? string.Empty;
+    public override string ToString() => Value.ToString();
 
     private static class ValueValidators
     {
-        public static readonly global::System.ComponentModel.DataAnnotations.RequiredAttribute valueValidator0 = new global::System.ComponentModel.DataAnnotations.RequiredAttribute();
+        public static readonly global::Rules.PositiveAttribute valueValidator0 = new global::Rules.PositiveAttribute(global::Rules.Mode.Strict, typeof(global::Rules.Marker));
     }
 
-    public static bool IsValueValid(string value, bool throwIfInvalid)
+    public static bool IsValueValid(int value, bool throwIfInvalid)
     {
         string? error0 = null;
 
@@ -62,14 +62,14 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
 
     public static Foo Parse(string s, System.IFormatProvider? provider)
     {
-        var rawValue = s;
+        var rawValue = int.Parse(s, provider);
         IsValueValid(rawValue, throwIfInvalid: true);
         return new Foo(rawValue);
     }
 
     public static bool TryParse(string? s, System.IFormatProvider? provider, [System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out SomeNamespace.Foo result)
     {
-        if (s is {} rawValue && IsValueValid(rawValue, throwIfInvalid: false))
+        if (int.TryParse(s, provider, out var rawValue) && IsValueValid(rawValue, throwIfInvalid: false))
         {
             result = new Foo(rawValue);
             return true;
@@ -81,14 +81,33 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
 
     public static Foo Parse(System.ReadOnlySpan<char> s, System.IFormatProvider? provider)
     {
-        var rawValue = s.ToString();
+        var rawValue = int.Parse(s, provider);
         IsValueValid(rawValue, throwIfInvalid: true);
         return new Foo(rawValue);
     }
 
     public static bool TryParse(System.ReadOnlySpan<char> s, System.IFormatProvider? provider, [System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out SomeNamespace.Foo result)
     {
-        if (s.ToString() is {} rawValue && IsValueValid(rawValue, throwIfInvalid: false))
+        if (int.TryParse(s, provider, out var rawValue) && IsValueValid(rawValue, throwIfInvalid: false))
+        {
+            result = new Foo(rawValue);
+            return true;
+        }
+
+        result = Foo.Empty;
+        return false;
+    }
+
+    public static Foo Parse(System.ReadOnlySpan<byte> utf8Text, System.IFormatProvider? provider)
+    {
+        var rawValue = int.Parse(utf8Text, provider);
+        IsValueValid(rawValue, throwIfInvalid: true);
+        return new Foo(rawValue);
+    }
+
+    public static bool TryParse(System.ReadOnlySpan<byte> utf8Text, System.IFormatProvider? provider, [System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute(returnValue: false)] out SomeNamespace.Foo result)
+    {
+        if (int.TryParse(utf8Text, provider, out var rawValue) && IsValueValid(rawValue, throwIfInvalid: false))
         {
             result = new Foo(rawValue);
             return true;
@@ -99,7 +118,7 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
     }
     
     public int CompareTo(SomeNamespace.Foo other)
-        => (Value ?? string.Empty).CompareTo(other.Value);
+        => Value.CompareTo(other.Value);
     
     public int CompareTo(object? obj)
     {
@@ -110,11 +129,20 @@ public readonly partial record struct Foo : Egil.StronglyTypedPrimitives.IStrong
 
         if (obj is Foo other)
         {
-            return (Value ?? string.Empty).CompareTo(other.Value);
+            return Value.CompareTo(other.Value);
         }
 
-        return ((System.IComparable)(Value ?? string.Empty)).CompareTo(obj);
+        return ((System.IComparable)Value).CompareTo(obj);
     }
+    
+    public string ToString(string? format, System.IFormatProvider? formatProvider)
+        => Value.ToString(format, formatProvider);
+    
+    public bool TryFormat(System.Span<char> destination, out int charsWritten, System.ReadOnlySpan<char> format, System.IFormatProvider? provider)
+        => ((System.ISpanFormattable)Value).TryFormat(destination, out charsWritten, format, provider);
+    
+    public bool TryFormat(System.Span<byte> utf8Destination, out int bytesWritten, System.ReadOnlySpan<char> format, System.IFormatProvider? provider)
+        => ((System.IUtf8SpanFormattable)Value).TryFormat(utf8Destination, out bytesWritten, format, provider);
     
     public static bool operator > (Foo a, Foo b) => a.CompareTo(b) > 0;                
 

@@ -136,6 +136,47 @@ public class Validation_attributes_with_null_arguments : ValidationAttributeTest
             """);
 }
 
+public class Validation_attribute_type_names_survive_a_shadowing_namespace : ValidationAttributeTestBase
+{
+    // SomeNamespace.Rules shadows Rules inside the generated `namespace SomeNamespace;`, so the
+    // attribute type, the enum member and the typeof argument, which the generator writes fully
+    // qualified, only resolve when rooted with global::. The user code reaches them through a
+    // using directive, which the shadowing does not affect.
+    [Fact]
+    public Task Test()
+        => VerifyGeneratedSource("""
+            using Egil.StronglyTypedPrimitives;
+            using Rules;
+
+            namespace SomeNamespace
+            {
+                [StronglyTyped]
+                public readonly partial record struct Foo([Positive(Mode.Strict, typeof(Marker))] int Value);
+            }
+
+            namespace Rules
+            {
+                public enum Mode { Lenient, Strict }
+
+                public sealed class Marker;
+
+                public sealed class PositiveAttribute(Mode mode, System.Type marker) : System.ComponentModel.DataAnnotations.ValidationAttribute
+                {
+                    public Mode Mode { get; } = mode;
+
+                    public System.Type Marker { get; } = marker;
+
+                    public override bool IsValid(object? value) => value is int number && number > 0;
+                }
+            }
+
+            namespace SomeNamespace.Rules
+            {
+                public static class Shadow;
+            }
+            """);
+}
+
 public class Validation_attributes_with_enum_argument : ValidationAttributeTestBase
 {
     [Fact]
