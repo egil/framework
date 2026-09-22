@@ -28,6 +28,12 @@ internal sealed class MigrationScope
 {
     private static readonly ConditionalWeakTable<JsonSerializerOptions, MigrationScope> Scopes = new();
 
+    // The registration made by AddJsonMigrationSupport, keyed on the chain object the options
+    // resolve through at that point. STJ's copy constructor hands a copy that same object as its
+    // resolver until the copy changes its own chain, so a copy finds the registration here when
+    // it carries none of its own.
+    private static readonly ConditionalWeakTable<IJsonTypeInfoResolver, MigrationScope> ScopesByChain = new();
+
     private readonly HashSet<Type> excludedTypes;
     private bool? usesReflectionFallback;
 
@@ -109,6 +115,19 @@ internal sealed class MigrationScope
         => Scopes.AddOrUpdate(options, scope);
 
     /// <summary>
+    /// Records the registration <c>AddJsonMigrationSupport()</c> made, under the options and under
+    /// the chain object they now resolve through.
+    /// </summary>
+    public static void RegisterRoot(JsonSerializerOptions options, MigrationScope scope)
+    {
+        Register(options, scope);
+        if (options.TypeInfoResolver is { } chain)
+        {
+            ScopesByChain.AddOrUpdate(chain, scope);
+        }
+    }
+
+    /// <summary>
     /// The scope registered for <paramref name="options"/>, if any. Callers that are themselves
     /// the resolver compare <see cref="Resolver"/> with their own identity.
     /// </summary>
@@ -123,7 +142,7 @@ internal sealed class MigrationScope
     /// </summary>
     public static MigrationScope? FindReachable(JsonSerializerOptions options)
     {
-        if (Find(options) is { } scope && IsActive(scope, options))
+        if (FindCached(options) is { } scope && IsActive(scope, options))
         {
             return scope;
         }
@@ -138,7 +157,7 @@ internal sealed class MigrationScope
     /// </summary>
     public static MigrationScope? FindRegistration(JsonSerializerOptions options)
     {
-        if (Find(options) is { } scope)
+        if (FindCached(options) is { } scope)
         {
             if (IsActive(scope, options))
             {
@@ -152,20 +171,60 @@ internal sealed class MigrationScope
     }
 
     /// <summary>
-    /// Whether the cached <paramref name="scope"/> still serves <paramref name="options"/>, that is,
-    /// its resolver is among <see cref="ActiveResolvers"/>.
+    /// The scope cached for <paramref name="options"/>, or the one registered on the chain object
+    /// they resolve through, re-rooted to them; a copy of registered options arrives that way.
+    /// </summary>
+    private static MigrationScope? FindCached(JsonSerializerOptions options)
+    {
+        if (Find(options) is { } scope)
+        {
+            return scope;
+        }
+
+        if (options.TypeInfoResolver is { } chain && ScopesByChain.TryGetValue(chain, out MigrationScope? shared))
+        {
+            var rerooted = new MigrationScope(shared.Resolver, options, []);
+            Register(options, rerooted);
+            return rerooted;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Whether the cached <paramref name="scope"/> still serves <paramref name="options"/>: its
+    /// resolver is among <see cref="ActiveResolvers"/>, or the chain holds an application-defined
+    /// resolver that did not answer the probe. Silence is not removal: such a resolver may forward
+    /// only its own application's types and never see the probe's marker while still delegating
+    /// every migratable contract to the registration, so the registration is kept. Only a chain
+    /// made of STJ's own resolvers, or one whose application-defined resolvers answer with a
+    /// different migration resolver, counts as having removed it.
     /// </summary>
     private static bool IsActive(MigrationScope scope, JsonSerializerOptions options)
     {
-        foreach (JsonMigrationTypeInfoResolver resolver in ActiveResolvers(options))
+        bool silentApplicationDefinedLeaf = false;
+        foreach (IJsonTypeInfoResolver leaf in ResolverLeaves.Of(options.TypeInfoResolver))
         {
-            if (ReferenceEquals(resolver, scope.Resolver))
+            if (ReferenceEquals(leaf, scope.Resolver))
             {
                 return true;
             }
+
+            if (!ResolverProbe.IsApplicationDefined(leaf))
+            {
+                continue;
+            }
+
+            JsonMigrationTypeInfoResolver? behind = ResolverProbe.Through(leaf, options);
+            if (ReferenceEquals(behind, scope.Resolver))
+            {
+                return true;
+            }
+
+            silentApplicationDefinedLeaf |= behind is null;
         }
 
-        return false;
+        return silentApplicationDefinedLeaf;
     }
 
     private static MigrationScope? Discover(JsonSerializerOptions options)
@@ -181,9 +240,10 @@ internal sealed class MigrationScope
     }
 
     /// <summary>
-    /// The migration resolvers <paramref name="options"/> delegate to, in chain order: those the
-    /// structural walk reaches, and those an application-defined resolver in the chain answers
-    /// the <see cref="ResolverProbe"/> with. The first is the one serving the migratable types.
+    /// The migration resolvers <paramref name="options"/> are known to delegate to, in chain order:
+    /// those the structural walk reaches, and those an application-defined resolver in the chain
+    /// answers the <see cref="ResolverProbe"/> with. The first is the one serving the migratable
+    /// types. A resolver that does not answer is not listed and proves nothing either way.
     /// </summary>
     private static IEnumerable<JsonMigrationTypeInfoResolver> ActiveResolvers(JsonSerializerOptions options)
     {

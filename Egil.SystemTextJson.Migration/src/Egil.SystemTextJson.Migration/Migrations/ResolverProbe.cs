@@ -12,11 +12,12 @@ namespace Egil.SystemTextJson.Migration.Migrations;
 /// <see cref="ResolverLeaves"/> sees through STJ's chains and decorators without calling them, but
 /// an application-defined resolver is opaque to it and may wrap the migration entry. Its
 /// <c>GetTypeInfo</c> is the only way to tell, so it is asked for <see cref="Marker"/>: the
-/// migration resolver returns a contract it has stamped as its own, and any other answer, or an
-/// exception a resolver raises for a type it does not know, means it does not delegate to
-/// migration. The call is made only for such resolvers and only when the walk has not found
-/// migration; a <see cref="DefaultJsonTypeInfoResolver"/> the wrapper forwards to freezes its
-/// <c>Modifiers</c> on that call, which is the price of asking.
+/// migration resolver returns a contract it has stamped as its own. That answer is proof; any
+/// other answer, or an exception a resolver raises for a type it does not know, is not proof of
+/// the opposite, because a resolver that forwards only its own application's types never sees the
+/// marker while still delegating every migratable contract. Callers treat silence accordingly.
+/// The call is made only for such resolvers; a <see cref="DefaultJsonTypeInfoResolver"/> the
+/// wrapper forwards to freezes its <c>Modifiers</c> on that call, which is the price of asking.
 /// </remarks>
 internal static class ResolverProbe
 {
@@ -42,7 +43,7 @@ internal static class ResolverProbe
         catch (Exception exception) when (exception is InvalidOperationException or NotSupportedException or ArgumentException or JsonException)
         {
             // A source-generated context rejects options other than its own, and a resolver may
-            // refuse a type it has no contract for; neither is a resolver that delegates to migration.
+            // refuse a type it has no contract for; neither says anything about migration.
             return null;
         }
     }
