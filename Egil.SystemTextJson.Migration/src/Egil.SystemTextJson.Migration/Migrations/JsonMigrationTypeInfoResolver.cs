@@ -150,7 +150,8 @@ internal sealed class JsonMigrationTypeInfoResolver : IJsonTypeInfoResolver
             migrators,
             sourcePropertyNames,
             undiscriminatedSourceMigrator,
-            registry.GetMigrationFailureHandling(typeToConvert));
+            registry.GetMigrationFailureHandling(typeToConvert),
+            this);
 
         MethodInfo factoryMethod = typeof(JsonMigrationTypeInfoResolver)
             .GetMethod(nameof(CreateTypeInfo), BindingFlags.NonPublic | BindingFlags.Static)!

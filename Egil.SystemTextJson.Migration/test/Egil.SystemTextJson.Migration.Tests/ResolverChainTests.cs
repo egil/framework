@@ -167,6 +167,22 @@ public class ResolverChainTests
     }
 
     [Fact]
+    public void Combine_holding_only_migration_entries_keeps_the_reflection_fallback()
+    {
+        // STJ's Combine returns a single entry unchanged and otherwise a chain the walk
+        // enumerates, so a combined resolver made only of migration entries still counts as
+        // migration alone and the reflection stand-in applies.
+        var options = new JsonSerializerOptions();
+        options.AddJsonMigrationSupport();
+        IJsonTypeInfoResolver entry = options.TypeInfoResolverChain[0];
+        options.TypeInfoResolver = JsonTypeInfoResolver.Combine(entry, entry);
+
+        var json = JsonSerializer.Serialize(new ChainWrapper(new ChainV2("Jane", "Doe")), options);
+
+        Assert.Equal("""{"Inner":{"$type":"chain-v2","FirstName":"Jane","LastName":"Doe"}}""", json);
+    }
+
+    [Fact]
     public void Application_defined_wrapper_around_the_entry_keeps_migration_with_a_downstream_resolver()
     {
         // The wrapper is opaque to structural discovery, so the resolver must recognise its own

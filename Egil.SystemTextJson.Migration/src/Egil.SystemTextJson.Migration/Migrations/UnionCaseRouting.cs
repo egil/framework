@@ -95,8 +95,12 @@ internal sealed class UnionCaseRouting
                 JsonConverter caseConverter = options.GetTypeInfo(migratableType).Converter;
                 if (!IsMigrationConverter(caseConverter) && !insideOwnMigration)
                 {
-                    throw new InvalidOperationException(
-                        $"Union '{context.DeclaringType.FullName}' case '{caseType.FullName}' is annotated with [JsonMigratable] but is served by converter '{caseConverter.GetType().FullName}'. Call AddJsonMigrationSupport() before registering other converters for the case type.");
+                    // Without a converter override the case resolved to its plain contract, which
+                    // means no migration resolver serves these options any more, whatever
+                    // registration is still cached for them.
+                    throw new InvalidOperationException(JsonMigratableTypes.HasConverterOverride(migratableType, options)
+                        ? $"Union '{context.DeclaringType.FullName}' case '{caseType.FullName}' is annotated with [JsonMigratable] but is served by converter '{caseConverter.GetType().FullName}'. Call AddJsonMigrationSupport() before registering other converters for the case type."
+                        : $"Union '{context.DeclaringType.FullName}' case '{caseType.FullName}' is annotated with [JsonMigratable] but resolves to '{caseConverter.GetType().FullName}', so the serializer options have no migration support for it. Call options.AddJsonMigrationSupport() before serializing or deserializing this union, and keep the migration resolver in the options' TypeInfoResolverChain.");
                 }
 
                 // The union converter deserializes the declared case type, so a converter

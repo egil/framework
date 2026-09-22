@@ -90,6 +90,38 @@ public partial class UnionMigrationTests
     }
 
     [Fact]
+    public void Union_reports_missing_migration_support_after_the_resolver_is_replaced_with_a_silent_wrapper()
+    {
+        // The wrapper forwards nothing to migration and answers no probe, so the cached
+        // registration stays; the classifier must still notice that the cases resolve to their
+        // plain contracts and say what is missing rather than route against that registration.
+        var options = CreateOptions();
+        options.TypeInfoResolver = new ResolverChainTests.ForwardingResolver(new DefaultJsonTypeInfoResolver());
+
+        var exception = Assert.Throws<InvalidOperationException>(() => JsonSerializer.Deserialize<Shape>("""{"$type":"circle-v1","r":3}""", options));
+
+        Assert.Contains("no migration support", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Union_routes_with_the_registry_that_serves_its_cases()
+    {
+        // These options cache their own registration, without the external migrator, but a
+        // type-selective wrapper sends the cases to another options' migration resolver. The
+        // classifier routes with the registry the cases actually resolve through. The wrapper
+        // counts as another resolver, so the union itself needs the explicit downstream default.
+        var other = CreateOptions(builder => builder.RegisterMigrator<RectangleV1, RectangleV2, RectangleMigrator>());
+        var options = CreateOptions();
+        options.TypeInfoResolver = new ResolverChainTests.AssemblyFilteringResolver(other.TypeInfoResolver!);
+        options.TypeInfoResolverChain.Add(new DefaultJsonTypeInfoResolver());
+
+        var shape = JsonSerializer.Deserialize<Shape>("""{"$type":"rect-v1","w":4,"h":5}""", options);
+
+        var rectangle = Assert.IsType<RectangleV2>(shape.Value);
+        Assert.Equal(4, rectangle.Width);
+    }
+
+    [Fact]
     public void Union_is_classified_on_a_copy_of_options_with_a_type_selective_wrapper()
     {
         // The wrapper forwards only this assembly's types, so neither the chain walk nor the probe

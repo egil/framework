@@ -457,18 +457,20 @@ public class MutationCoverageTests
         object? sourceDiscriminatorPropertyNames = contextType.GetProperty("SourceDiscriminatorPropertyNames")?.GetValue(originalContext);
         object? undiscriminatedSourceMigrator = contextType.GetProperty("UndiscriminatedSourceMigrator")?.GetValue(originalContext);
         object? migrationFailureHandling = contextType.GetProperty("MigrationFailureHandling")?.GetValue(originalContext);
+        object? resolver = contextType.GetProperty("Resolver")?.GetValue(originalContext);
 
         Assert.NotNull(targetMetadata);
         Assert.NotNull(migrators);
         Assert.NotNull(sourceDiscriminatorPropertyNames);
         Assert.NotNull(migrationFailureHandling);
+        Assert.NotNull(resolver);
 
         JsonTypeInfo untypedTargetTypeInfo = options.GetTypeInfo(typeof(object));
         object mismatchedContext = Activator.CreateInstance(
             contextType,
             BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
             binder: null,
-            args: [untypedTargetTypeInfo, targetMetadata, migrators, sourceDiscriminatorPropertyNames, undiscriminatedSourceMigrator, migrationFailureHandling],
+            args: [untypedTargetTypeInfo, targetMetadata, migrators, sourceDiscriminatorPropertyNames, undiscriminatedSourceMigrator, migrationFailureHandling, resolver],
             culture: null)!;
 
         object converterInstance = Activator.CreateInstance(

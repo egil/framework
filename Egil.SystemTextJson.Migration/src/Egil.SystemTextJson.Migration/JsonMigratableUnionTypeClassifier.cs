@@ -1,6 +1,7 @@
 #if NET11_0_OR_GREATER
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using Egil.SystemTextJson.Migration.Migrations;
 
 namespace Egil.SystemTextJson.Migration;
@@ -61,8 +62,18 @@ public sealed class JsonMigratableUnionTypeClassifier : JsonTypeClassifierFactor
 
         // The registry lives on the resolver that AddJsonMigrationSupport registers. Looking it up
         // here (instead of holding it in a field) lets the same parameterless type be used from
-        // [JsonUnion(TypeClassifier = ...)] and from source-generated contexts.
+        // [JsonUnion(TypeClassifier = ...)] and from source-generated contexts. The registry to
+        // route with is the one that serves the cases, read from the migration converter a case
+        // resolves to: a registration the options no longer use can stay cached behind an
+        // application-defined resolver that answers no probe, and a wrapper can send the cases
+        // to a resolver registered on other options. The cached lookup then supplies only the
+        // exclusions of the options being resolved.
         MigrationScope? scope = MigrationScope.FindReachable(options);
+        if (ServingResolver(context, options) is { } serving)
+        {
+            scope = scope?.ForResolver(serving) ?? new MigrationScope(serving, options, []);
+        }
+
         if (scope is null)
         {
             throw new InvalidOperationException(
@@ -71,6 +82,20 @@ public sealed class JsonMigratableUnionTypeClassifier : JsonTypeClassifierFactor
 
         var routing = UnionCaseRouting.Build(context, scope, options);
         return routing.Classify;
+    }
+
+    private static JsonMigrationTypeInfoResolver? ServingResolver(JsonTypeClassifierContext context, JsonSerializerOptions options)
+    {
+        foreach (JsonUnionCaseInfo unionCase in context.UnionCases)
+        {
+            if (JsonMigratableTypes.GetMigratableType(unionCase.CaseType) is { } migratableType
+                && options.GetTypeInfo(migratableType).Converter is IJsonMigratableConverter converter)
+            {
+                return converter.Resolver;
+            }
+        }
+
+        return null;
     }
 }
 #endif
