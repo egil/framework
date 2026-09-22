@@ -203,9 +203,10 @@ if (-not $KeepBoost) {
         Write-Host "Processor boost: $boostRow"
     }
     else {
-        $boostRow = "unchanged: powercfg refused to set PERFBOOSTMODE (was AC $($boostBefore.AC) / DC $($boostBefore.DC))"
+        # The AC value may have been set before the DC one failed, so the saved values are
+        # kept and restored in the finally block regardless.
+        $boostRow = "not reliably disabled: powercfg refused to set PERFBOOSTMODE (was AC $($boostBefore.AC) / DC $($boostBefore.DC), restored afterwards)"
         Write-Warning $boostRow
-        $boostBefore = $null
     }
 }
 $summary.Add("| Boost | $boostRow |")
