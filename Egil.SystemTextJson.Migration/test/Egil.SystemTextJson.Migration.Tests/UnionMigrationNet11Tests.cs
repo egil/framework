@@ -122,6 +122,24 @@ public partial class UnionMigrationTests
     }
 
     [Fact]
+    public void Union_routes_each_case_with_the_registry_that_serves_it()
+    {
+        // A type-selective wrapper sends one case to another options' migration resolver, whose
+        // registry holds the external migrator for it; that case's routes come from that
+        // registry while the other case keeps its own.
+        var other = CreateOptions(builder => builder.RegisterMigrator<RectangleV1, RectangleV2, RectangleMigrator>());
+        var options = CreateOptions();
+        options.TypeInfoResolverChain[0] = new RectangleResolver(options.TypeInfoResolverChain[0], other.TypeInfoResolverChain[0]);
+        options.TypeInfoResolverChain.Add(new DefaultJsonTypeInfoResolver());
+
+        var rectangle = JsonSerializer.Deserialize<Shape>("""{"$type":"rect-v1","w":4,"h":5}""", options);
+        var circle = JsonSerializer.Deserialize<Shape>("""{"$type":"circle-v1","r":3}""", options);
+
+        Assert.Equal(4, Assert.IsType<RectangleV2>(rectangle.Value).Width);
+        Assert.Equal(3, Assert.IsType<CircleV2>(circle.Value).Radius);
+    }
+
+    [Fact]
     public void Union_is_classified_on_a_copy_of_options_with_a_type_selective_wrapper()
     {
         // The wrapper forwards only this assembly's types, so neither the chain walk nor the probe
@@ -892,6 +910,16 @@ public partial class UnionMigrationTests
         Assert.Equal("root", Assert.IsType<WireTreeBranch>(flat.Value).Label);
         Assert.Contains("'tree-v1-wire'", exception.Message, StringComparison.Ordinal);
         Assert.Contains(nameof(WireTreeBranch), exception.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// An application-defined resolver that sends <see cref="RectangleV2"/> to one resolver and
+    /// every other type to another.
+    /// </summary>
+    private sealed class RectangleResolver(IJsonTypeInfoResolver original, IJsonTypeInfoResolver rectangles) : IJsonTypeInfoResolver
+    {
+        public JsonTypeInfo? GetTypeInfo(Type type, JsonSerializerOptions options)
+            => (type == typeof(RectangleV2) ? rectangles : original).GetTypeInfo(type, options);
     }
 
     private static JsonSerializerOptions CreateOptions(Action<JsonMigrationBuilder>? configure = null)

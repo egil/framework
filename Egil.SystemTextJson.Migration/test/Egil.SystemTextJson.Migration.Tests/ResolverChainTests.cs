@@ -167,6 +167,25 @@ public class ResolverChainTests
     }
 
     [Fact]
+    public void Registering_again_on_a_copy_that_extended_its_chain_behind_a_type_selective_wrapper_keeps_the_first_registration()
+    {
+        // Extending the copy's chain gives it a chain object of its own, so the chain the
+        // original registered on no longer identifies the copy; the wrapper it still carries
+        // from that chain does.
+        var original = new JsonSerializerOptions { TypeInfoResolver = new DefaultJsonTypeInfoResolver() };
+        original.AddJsonMigrationSupport(static builder => builder.RegisterMigrator<ChainExternalMigrator>());
+        original.TypeInfoResolverChain[0] = new AssemblyFilteringResolver(original.TypeInfoResolverChain[0]);
+        var copy = new JsonSerializerOptions(original);
+        copy.TypeInfoResolverChain.Add(ChainJsonContext.Default);
+        copy.AddJsonMigrationSupport();
+
+        var migrated = JsonSerializer.Deserialize<ChainV3>(LegacyPayload, copy);
+
+        Assert.Equal(new ChainV3("Jane Doe"), migrated);
+        Assert.Equal(3, copy.TypeInfoResolverChain.Count);
+    }
+
+    [Fact]
     public void Combine_holding_only_migration_entries_keeps_the_reflection_fallback()
     {
         // STJ's Combine returns a single entry unchanged and otherwise a chain the walk

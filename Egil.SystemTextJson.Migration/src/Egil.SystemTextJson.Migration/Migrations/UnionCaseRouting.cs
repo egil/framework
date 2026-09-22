@@ -113,8 +113,16 @@ internal sealed class UnionCaseRouting
                         $"Union '{context.DeclaringType.FullName}' case '{caseType.FullName}' is served by converter '{declaredConverter.GetType().FullName}' instead of the built-in nullable wrapper around the migration converter for '{migratableType.FullName}', so its payloads would bypass migration.");
                 }
 
+                // The case's routes come from the registry that built its converter: a
+                // type-selective wrapper can send different cases to different migration
+                // resolvers. A case inside its own migration build has no converter to ask and
+                // takes the registry of the scope it is being built under.
+                JsonMigrationRegistry caseRegistry = caseConverter is IJsonMigratableConverter migrationConverter
+                    ? migrationConverter.Resolver.Registry
+                    : registry;
+
                 migratableCases.Add(caseType);
-                TypeMetadata targetMetadata = registry.GetTypeMetadata(migratableType);
+                TypeMetadata targetMetadata = caseRegistry.GetTypeMetadata(migratableType);
                 AddDiscriminator(context.DeclaringType, entriesByPropertyName, caseByDiscriminator, knownDiscriminators, targetMetadata, caseType);
 
                 if (insideOwnMigration)
@@ -126,10 +134,10 @@ internal sealed class UnionCaseRouting
                     // explicitly instead of reading it as the current version and dropping data.
                     foreach (Type sourceType in StaticMigratorContracts.GetSourceTypes(migratableType))
                     {
-                        AddRefusedSourceRoute(sourceType, registry.GetTypeMetadata(sourceType), caseType);
+                        AddRefusedSourceRoute(sourceType, caseRegistry.GetTypeMetadata(sourceType), caseType);
                     }
 
-                    foreach (ExternalMigratorRegistration registration in registry.GetForTarget(migratableType))
+                    foreach (ExternalMigratorRegistration registration in caseRegistry.GetForTarget(migratableType))
                     {
                         AddRefusedSourceRoute(registration.SourceType, registration.SourceMetadata, caseType);
                     }
@@ -147,10 +155,10 @@ internal sealed class UnionCaseRouting
                 // discriminator; array, dictionary and primitive sources are routed by shape.
                 foreach (Type sourceType in StaticMigratorContracts.GetSourceTypes(migratableType))
                 {
-                    AddSourceRoute(sourceType, registry.GetTypeMetadata(sourceType), caseType);
+                    AddSourceRoute(sourceType, caseRegistry.GetTypeMetadata(sourceType), caseType);
                 }
 
-                foreach (ExternalMigratorRegistration registration in registry.GetForTarget(migratableType))
+                foreach (ExternalMigratorRegistration registration in caseRegistry.GetForTarget(migratableType))
                 {
                     AddSourceRoute(registration.SourceType, registration.SourceMetadata, caseType);
                 }

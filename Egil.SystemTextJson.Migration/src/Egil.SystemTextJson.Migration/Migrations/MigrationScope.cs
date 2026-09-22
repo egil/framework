@@ -31,7 +31,8 @@ internal sealed class MigrationScope
     // The registration made by AddJsonMigrationSupport, keyed on the chain object the options
     // resolve through at that point. STJ's copy constructor hands a copy that same object as its
     // resolver until the copy changes its own chain, so a copy finds the registration here when
-    // it carries none of its own.
+    // it carries none of its own; a copy that did change its chain is matched through the
+    // entries the two chains share (see FindByLeaf).
     private static readonly ConditionalWeakTable<IJsonTypeInfoResolver, MigrationScope> ScopesByChain = new();
 
     private readonly HashSet<Type> excludedTypes;
@@ -181,11 +182,49 @@ internal sealed class MigrationScope
             return scope;
         }
 
-        if (options.TypeInfoResolver is { } chain && ScopesByChain.TryGetValue(chain, out MigrationScope? shared))
+        if (options.TypeInfoResolver is not { } chain)
         {
-            var rerooted = new MigrationScope(shared.Resolver, options, []);
-            Register(options, rerooted);
-            return rerooted;
+            return null;
+        }
+
+        if (!ScopesByChain.TryGetValue(chain, out MigrationScope? shared))
+        {
+            shared = FindByLeaf(chain);
+        }
+
+        if (shared is null)
+        {
+            return null;
+        }
+
+        var rerooted = new MigrationScope(shared.Resolver, options, []);
+        Register(options, rerooted);
+        return rerooted;
+    }
+
+    /// <summary>
+    /// The registration of a chain that shares an application-defined resolver with
+    /// <paramref name="chain"/>. A copy that changed its own chain has a chain object of its own,
+    /// built from the entries of the chain it was copied from, so the entries are shared; an
+    /// application-defined resolver among them that also sits in a registered chain is the same
+    /// instance wrapping the same entry there, and that chain's registration is the copy's.
+    /// </summary>
+    private static MigrationScope? FindByLeaf(IJsonTypeInfoResolver chain)
+    {
+        foreach (IJsonTypeInfoResolver leaf in ResolverLeaves.Of(chain))
+        {
+            if (!ResolverProbe.IsApplicationDefined(leaf))
+            {
+                continue;
+            }
+
+            foreach ((IJsonTypeInfoResolver registeredChain, MigrationScope registered) in ScopesByChain)
+            {
+                if (ResolverLeaves.Contains(registeredChain, leaf))
+                {
+                    return registered;
+                }
+            }
         }
 
         return null;
