@@ -186,9 +186,9 @@ public class ResolverChainTests
     [Fact]
     public void Re_registering_behind_an_application_defined_wrapper_keeps_migration_working()
     {
-        // The wrapper hides the first registration from the guard, but the wrapper is an
-        // application-defined resolver that may still delegate to it, so the second call leaves
-        // the chain alone rather than putting a second registry in front of the wrapper.
+        // The wrapper hides the first registration from the chain walk, so the guard asks the
+        // wrapper for the probe contract and finds the resolver behind it; the second call leaves
+        // the chain as the user shaped it rather than putting a second registry in front.
         var options = new JsonSerializerOptions { TypeInfoResolver = new DefaultJsonTypeInfoResolver() };
         options.AddJsonMigrationSupport();
         options.TypeInfoResolverChain[0] = new ForwardingResolver(options.TypeInfoResolverChain[0]);
@@ -205,9 +205,8 @@ public class ResolverChainTests
     [Fact]
     public void Re_registering_behind_an_application_defined_wrapper_keeps_the_first_registrations_migrators()
     {
-        // The guard cannot see through the wrapper, but the registration it cached is still the
-        // one serving the options; a fresh registry in front of it would know nothing of the
-        // external migrator.
+        // The registration behind the wrapper is still the one serving the options; a fresh
+        // registry in front of it would know nothing of the external migrator.
         var options = new JsonSerializerOptions { TypeInfoResolver = new DefaultJsonTypeInfoResolver() };
         options.AddJsonMigrationSupport(static builder => builder.RegisterMigrator<ChainExternalMigrator>());
         options.TypeInfoResolverChain[0] = new ForwardingResolver(options.TypeInfoResolverChain[0]);
@@ -234,11 +233,10 @@ public class ResolverChainTests
     }
 
     [Fact]
-    public void Replacing_the_resolver_with_an_application_defined_one_then_registering_again_is_a_no_op()
+    public void Replacing_the_resolver_with_an_application_defined_one_then_registering_again_registers_it()
     {
-        // Whether an application-defined resolver delegates to the removed migration resolver is
-        // not observable, so the guard assumes the first registration is still behind it. Options
-        // that replace their resolver with their own and want migration back are created afresh.
+        // The probe through the application-defined resolver finds no migration resolver behind
+        // it, so the first registration counts as removed, as with any other replacement.
         var options = new JsonSerializerOptions();
         options.AddJsonMigrationSupport();
         options.TypeInfoResolver = new ForwardingResolver(new DefaultJsonTypeInfoResolver());
@@ -246,8 +244,26 @@ public class ResolverChainTests
 
         var json = JsonSerializer.Serialize(new ChainV2("Jane", "Doe"), options);
 
-        Assert.Equal("""{"FirstName":"Jane","LastName":"Doe"}""", json);
-        Assert.Single(options.TypeInfoResolverChain);
+        Assert.Equal("""{"$type":"chain-v2","FirstName":"Jane","LastName":"Doe"}""", json);
+        Assert.Equal(2, options.TypeInfoResolverChain.Count);
+    }
+
+    [Fact]
+    public void Registering_again_on_a_copy_of_options_with_a_wrapped_entry_keeps_the_first_registration()
+    {
+        // A copy carries no cached registration and the wrapper hides the resolver from the chain
+        // walk, so the guard has to ask the wrapper itself; a fresh registry in front of it would
+        // know nothing of the external migrator.
+        var original = new JsonSerializerOptions { TypeInfoResolver = new DefaultJsonTypeInfoResolver() };
+        original.AddJsonMigrationSupport(static builder => builder.RegisterMigrator<ChainExternalMigrator>());
+        original.TypeInfoResolverChain[0] = new ForwardingResolver(original.TypeInfoResolverChain[0]);
+        var copy = new JsonSerializerOptions(original);
+        copy.AddJsonMigrationSupport();
+
+        var migrated = JsonSerializer.Deserialize<ChainV3>(LegacyPayload, copy);
+
+        Assert.Equal(new ChainV3("Jane Doe"), migrated);
+        Assert.Equal(2, copy.TypeInfoResolverChain.Count);
     }
 
     [Fact]
