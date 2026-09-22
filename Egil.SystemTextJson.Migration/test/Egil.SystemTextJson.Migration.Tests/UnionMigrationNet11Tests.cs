@@ -59,6 +59,22 @@ public partial class UnionMigrationTests
     }
 
     [Fact]
+    public void Union_is_classified_behind_an_application_defined_wrapper_around_the_migration_entry()
+    {
+        // The wrapper hides the resolver from the chain walk, but it is an application-defined
+        // resolver that may still delegate to it, so the registration cached for these options
+        // is the one to route with rather than reporting missing support.
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web) { TypeInfoResolver = new DefaultJsonTypeInfoResolver() };
+        options.AddJsonMigrationSupport();
+        options.TypeInfoResolverChain[0] = new ResolverChainTests.ForwardingResolver(options.TypeInfoResolverChain[0]);
+
+        var shape = JsonSerializer.Deserialize<Shape>("""{"$type":"circle-v1","r":3}""", options);
+
+        var circle = Assert.IsType<CircleV2>(shape.Value);
+        Assert.Equal(3, circle.Radius);
+    }
+
+    [Fact]
     public void Union_is_classified_on_a_copy_of_options_with_a_decorated_migration_entry()
     {
         // A copy carries no registered scope and the decorator hides the resolver from the chain,

@@ -40,7 +40,9 @@ public static class JsonMigrationSerializerOptionsExtensions
     /// Migration support is inserted at the front of <see cref="JsonSerializerOptions.TypeInfoResolverChain"/>.
     /// Resolvers added to the chain afterwards are used for every type that is not <see cref="JsonMigratableAttribute"/>
     /// annotated; replacing the chain or assigning <see cref="JsonSerializerOptions.TypeInfoResolver"/> afterwards
-    /// removes migration support. Options that have no resolver keep reflection-based serialization.
+    /// removes migration support, and calling this method again restores it unless the new chain holds an
+    /// application-defined resolver, which is assumed to wrap the original entry. Options that have no
+    /// resolver keep reflection-based serialization.
     /// </remarks>
     /// <param name="options">The serializer options to configure.</param>
     /// <param name="configure">Optional registration callback.</param>
@@ -56,19 +58,12 @@ public static class JsonMigrationSerializerOptionsExtensions
         // migration resolvers in the chain would also break the reflection fallback, which
         // only stands in while the migration resolver is the sole entry. Discovery looks through
         // STJ's decorators so a decorated entry counts as registered, and a registration whose
-        // resolver was replaced or cleared afterwards does not. An application-defined wrapper
-        // around the entry is opaque to discovery, so the cached registration is kept and its
-        // resolver, with the migrators the first call configured, goes back in front where a
-        // later call finds it. The same happens when the chain was replaced with an
-        // application-defined resolver outright: whether it delegates to the removed entry is
-        // not observable, and one registry serving the options is the safer outcome.
-        if (MigrationScope.FindRegistration(options, out bool hidden) is { } registration)
+        // resolver was replaced or cleared afterwards does not. An application-defined resolver
+        // in the chain is opaque to discovery and may be wrapping the entry, so the registration is
+        // assumed to still be behind it and the chain is left as the user shaped it; a second
+        // registry in front of the wrapper would take the migratable types away from it.
+        if (MigrationScope.FindRegistration(options) is not null)
         {
-            if (hidden)
-            {
-                options.TypeInfoResolverChain.Insert(0, registration.Resolver);
-            }
-
             return options;
         }
 
