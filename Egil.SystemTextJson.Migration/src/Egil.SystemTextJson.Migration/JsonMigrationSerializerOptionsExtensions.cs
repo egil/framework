@@ -56,9 +56,19 @@ public static class JsonMigrationSerializerOptionsExtensions
         // migration resolvers in the chain would also break the reflection fallback, which
         // only stands in while the migration resolver is the sole entry. Discovery looks through
         // STJ's decorators so a decorated entry counts as registered, and a registration whose
-        // resolver was replaced or cleared afterwards does not.
-        if (MigrationScope.FindRegistration(options) is not null)
+        // resolver was replaced or cleared afterwards does not. An application-defined wrapper
+        // around the entry is opaque to discovery, so the cached registration is kept and its
+        // resolver, with the migrators the first call configured, goes back in front where a
+        // later call finds it. The same happens when the chain was replaced with an
+        // application-defined resolver outright: whether it delegates to the removed entry is
+        // not observable, and one registry serving the options is the safer outcome.
+        if (MigrationScope.FindRegistration(options, out bool hidden) is { } registration)
         {
+            if (hidden)
+            {
+                options.TypeInfoResolverChain.Insert(0, registration.Resolver);
+            }
+
             return options;
         }
 
