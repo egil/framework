@@ -40,8 +40,9 @@ public static class JsonMigrationSerializerOptionsExtensions
     /// Migration support is inserted at the front of <see cref="JsonSerializerOptions.TypeInfoResolverChain"/>.
     /// Resolvers added to the chain afterwards are used for every type that is not <see cref="JsonMigratableAttribute"/>
     /// annotated; replacing the chain or assigning <see cref="JsonSerializerOptions.TypeInfoResolver"/> afterwards
-    /// removes migration support, and calling this method again restores it. Options that have no resolver
-    /// keep reflection-based serialization.
+    /// removes migration support, and calling this method again restores it unless the new chain holds an
+    /// application-defined resolver, which is assumed to wrap the original entry. Options that have no
+    /// resolver keep reflection-based serialization.
     /// </remarks>
     /// <param name="options">The serializer options to configure.</param>
     /// <param name="configure">Optional registration callback.</param>
@@ -58,9 +59,10 @@ public static class JsonMigrationSerializerOptionsExtensions
         // only stands in while the migration resolver is the sole entry. Discovery looks through
         // STJ's decorators so a decorated entry counts as registered, and a registration whose
         // resolver was replaced or cleared afterwards does not. An application-defined resolver
-        // in the chain may be wrapping the entry, so it is asked; a registration found behind it is
-        // kept and the chain left as the user shaped it, because a second registry in front of the
-        // wrapper would take the migratable types away from it.
+        // in the chain may be wrapping the entry, so it is asked; one that answers with the
+        // registration proves it, one that stays silent may forward only its own types, and in
+        // both cases the registration is kept and the chain left as the user shaped it, because a
+        // second registry in front of the wrapper would take the migratable types away from it.
         if (MigrationScope.FindRegistration(options) is not null)
         {
             return options;
@@ -78,7 +80,7 @@ public static class JsonMigrationSerializerOptionsExtensions
         // migration converter factory was appended to the list at this point.
         var migrationResolver = new JsonMigrationTypeInfoResolver(registry, options.Converters);
         options.TypeInfoResolverChain.Insert(0, migrationResolver);
-        MigrationScope.Register(options, new MigrationScope(migrationResolver, options, []));
+        MigrationScope.RegisterRoot(options, new MigrationScope(migrationResolver, options, []));
 #if NET11_0_OR_GREATER
         // Unions whose cases are [JsonMigratable] need a classifier that understands migration
         // discriminators; registering it here means reflection-based users get union support

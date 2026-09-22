@@ -233,10 +233,13 @@ public class ResolverChainTests
     }
 
     [Fact]
-    public void Replacing_the_resolver_with_an_application_defined_one_then_registering_again_registers_it()
+    public void Replacing_the_resolver_with_an_application_defined_one_then_registering_again_is_a_no_op()
     {
-        // The probe through the application-defined resolver finds no migration resolver behind
-        // it, so the first registration counts as removed, as with any other replacement.
+        // An application-defined resolver that answers the probe proves it delegates to migration;
+        // one that does not proves nothing, since it may forward only its own application's types.
+        // The guard keeps the first registration rather than put a second registry in front of a
+        // resolver that may still delegate to it. Options that replaced their resolver and want
+        // migration back are created afresh.
         var options = new JsonSerializerOptions();
         options.AddJsonMigrationSupport();
         options.TypeInfoResolver = new ForwardingResolver(new DefaultJsonTypeInfoResolver());
@@ -244,8 +247,42 @@ public class ResolverChainTests
 
         var json = JsonSerializer.Serialize(new ChainV2("Jane", "Doe"), options);
 
-        Assert.Equal("""{"$type":"chain-v2","FirstName":"Jane","LastName":"Doe"}""", json);
+        Assert.Equal("""{"FirstName":"Jane","LastName":"Doe"}""", json);
+        Assert.Single(options.TypeInfoResolverChain);
+    }
+
+    [Fact]
+    public void Re_registering_behind_a_type_selective_wrapper_keeps_the_first_registrations_migrators()
+    {
+        // The wrapper forwards only this assembly's types, so it never sees the probe's marker;
+        // that silence must not count as the registration having been removed.
+        var options = new JsonSerializerOptions { TypeInfoResolver = new DefaultJsonTypeInfoResolver() };
+        options.AddJsonMigrationSupport(static builder => builder.RegisterMigrator<ChainExternalMigrator>());
+        options.TypeInfoResolverChain[0] = new AssemblyFilteringResolver(options.TypeInfoResolverChain[0]);
+        options.AddJsonMigrationSupport();
+
+        var migrated = JsonSerializer.Deserialize<ChainV3>(LegacyPayload, options);
+
+        Assert.Equal(new ChainV3("Jane Doe"), migrated);
         Assert.Equal(2, options.TypeInfoResolverChain.Count);
+    }
+
+    [Fact]
+    public void Registering_again_on_a_copy_of_options_with_a_type_selective_wrapper_keeps_the_first_registration()
+    {
+        // The copy has no cached registration and the wrapper answers neither the chain walk nor
+        // the probe; the copy resolves through the chain the original registered on, and that
+        // registration is the one to keep.
+        var original = new JsonSerializerOptions { TypeInfoResolver = new DefaultJsonTypeInfoResolver() };
+        original.AddJsonMigrationSupport(static builder => builder.RegisterMigrator<ChainExternalMigrator>());
+        original.TypeInfoResolverChain[0] = new AssemblyFilteringResolver(original.TypeInfoResolverChain[0]);
+        var copy = new JsonSerializerOptions(original);
+        copy.AddJsonMigrationSupport();
+
+        var migrated = JsonSerializer.Deserialize<ChainV3>(LegacyPayload, copy);
+
+        Assert.Equal(new ChainV3("Jane Doe"), migrated);
+        Assert.Equal(2, copy.TypeInfoResolverChain.Count);
     }
 
     [Fact]
@@ -302,6 +339,16 @@ public class ResolverChainTests
     {
         public JsonTypeInfo? GetTypeInfo(Type type, JsonSerializerOptions options)
             => inner.GetTypeInfo(type, options);
+    }
+
+    /// <summary>
+    /// An application-defined resolver that forwards the test assembly's types and answers
+    /// <see langword="null"/> for every other type, including the probe's marker.
+    /// </summary>
+    public sealed class AssemblyFilteringResolver(IJsonTypeInfoResolver inner) : IJsonTypeInfoResolver
+    {
+        public JsonTypeInfo? GetTypeInfo(Type type, JsonSerializerOptions options)
+            => type.Assembly == typeof(AssemblyFilteringResolver).Assembly ? inner.GetTypeInfo(type, options) : null;
     }
 
     /// <summary>
