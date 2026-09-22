@@ -36,7 +36,7 @@ options.TypeInfoResolverChain.Add(AppJsonContext.Default);
 
 Two consequences of living in the resolver chain:
 
-- Resolvers added after `AddJsonMigrationSupport()` serve every type that is not `[JsonMigratable]`, so the order shown above works. Replacing the chain, or assigning `TypeInfoResolver` afterwards, removes migration support.
+- Resolvers added after `AddJsonMigrationSupport()` serve every type that is not `[JsonMigratable]`, so the order shown above works. Replacing the chain, or assigning `TypeInfoResolver` afterwards, removes migration support unless the new resolver still delegates to the migration entry: wrapping the entry with `WithAddedModifier`, combining it with `JsonTypeInfoResolver.Combine`, or an application-defined resolver that forwards to it keeps migration working.
 - A resolver that must override a `[JsonMigratable]` type has to be inserted ahead of migration (`TypeInfoResolverChain.Insert(0, ...)` after `AddJsonMigrationSupport()`). Converters in `options.Converters` keep their previous precedence: registered before `AddJsonMigrationSupport()` they win for the type, registered after they do not.
 
 Options that have no resolver at all still serialize through reflection, as they would without the library.
