@@ -46,11 +46,6 @@ internal sealed class JsonMigrationTypeInfoResolver : IJsonTypeInfoResolver
         ArgumentNullException.ThrowIfNull(type);
         ArgumentNullException.ThrowIfNull(options);
 
-        if (type == typeof(ResolverProbe.Marker))
-        {
-            return ResolverProbe.Answer(this, options);
-        }
-
         // The scope describes the options being resolved (which types are excluded, which options
         // the user configured), so it is honoured whichever migration resolver registered it. Two
         // migration resolvers can be active at once when the options were registered again after

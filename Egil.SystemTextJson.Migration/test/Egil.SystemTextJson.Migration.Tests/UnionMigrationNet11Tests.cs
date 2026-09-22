@@ -61,8 +61,9 @@ public partial class UnionMigrationTests
     [Fact]
     public void Union_is_classified_behind_an_application_defined_wrapper_around_the_migration_entry()
     {
-        // The wrapper hides the resolver from the chain walk, so the classifier asks the wrapper
-        // for the probe contract and routes with the resolver it finds behind it.
+        // The wrapper hides the resolver from the chain walk, but the registration cached for
+        // the options is kept while such a wrapper is in the chain, and the cases resolve to its
+        // converters through the wrapper.
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web) { TypeInfoResolver = new DefaultJsonTypeInfoResolver() };
         options.AddJsonMigrationSupport();
         options.TypeInfoResolverChain[0] = new ResolverChainTests.ForwardingResolver(options.TypeInfoResolverChain[0]);
@@ -90,10 +91,10 @@ public partial class UnionMigrationTests
     }
 
     [Fact]
-    public void Union_reports_missing_migration_support_after_the_resolver_is_replaced_with_a_silent_wrapper()
+    public void Union_reports_missing_migration_support_after_the_resolver_is_replaced_with_an_application_defined_wrapper()
     {
-        // The wrapper forwards nothing to migration and answers no probe, so the cached
-        // registration stays; the classifier must still notice that the cases resolve to their
+        // The wrapper forwards nothing to migration, but the cached registration stays while it
+        // is in the chain; the classifier must still notice that the cases resolve to their
         // plain contracts and say what is missing rather than route against that registration.
         var options = CreateOptions();
         options.TypeInfoResolver = new ResolverChainTests.ForwardingResolver(new DefaultJsonTypeInfoResolver());
@@ -159,9 +160,9 @@ public partial class UnionMigrationTests
     [Fact]
     public void Union_is_classified_on_a_copy_of_options_with_a_type_selective_wrapper()
     {
-        // The wrapper forwards only this assembly's types, so neither the chain walk nor the probe
-        // finds the resolver; the copy resolves through the chain the original registered on, and
-        // the classifier routes with that registration.
+        // The wrapper forwards only this assembly's types and hides the resolver from the chain
+        // walk; the copy resolves through the chain the original registered on, and the
+        // classifier routes with that registration.
         var original = new JsonSerializerOptions(JsonSerializerDefaults.Web) { TypeInfoResolver = new DefaultJsonTypeInfoResolver() };
         original.AddJsonMigrationSupport();
         original.TypeInfoResolverChain[0] = new ResolverChainTests.AssemblyFilteringResolver(original.TypeInfoResolverChain[0]);

@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 
 namespace Egil.SystemTextJson.Migration.Migrations;
@@ -18,9 +19,9 @@ namespace Egil.SystemTextJson.Migration.Migrations;
 /// always available where the scope is needed. A scope found during resolution is honoured as
 /// is, whichever migration resolver registered it: its exclusions and root options describe the
 /// options instance, and a resolution in progress proves the options are still served by
-/// migration. Validation, which walks STJ's chains and decorators and probes application-defined
-/// resolvers, is used by the registration guard, where it must detect a resolver that was
-/// replaced or cleared, and by the union classifier; it never runs while a contract is being
+/// migration. Validation, which walks STJ's chains and decorators without calling any resolver,
+/// is used by the registration guard, where it must detect a resolver that was replaced or
+/// cleared, and by the union classifier; it never runs while a contract is being
 /// resolved through the scope, because dropping an exclusion scope then would let a type's
 /// converter build itself again without end.
 /// </remarks>
@@ -244,21 +245,23 @@ internal sealed class MigrationScope
             front ??= leaf;
         }
 
-        return front is not null && ResolverProbe.IsApplicationDefined(front) ? front : null;
+        return front is not null && IsApplicationDefined(front) ? front : null;
     }
 
     /// <summary>
     /// Whether the cached <paramref name="scope"/> still serves <paramref name="options"/>: its
-    /// resolver is among <see cref="ActiveResolvers"/>, or the chain holds an application-defined
-    /// resolver that did not answer the probe. Silence is not removal: such a resolver may forward
-    /// only its own application's types and never see the probe's marker while still delegating
-    /// every migratable contract to the registration, so the registration is kept. Only a chain
-    /// made of STJ's own resolvers, or one whose application-defined resolvers answer with a
-    /// different migration resolver, counts as having removed it.
+    /// resolver is reachable through STJ's chains and decorators, or the chain holds an
+    /// application-defined resolver. Such a resolver may be wrapping the registered entry, or
+    /// forwarding only its own application's types to it, and nothing short of resolving a
+    /// contract through it could tell; that would call a user's resolver during registration and
+    /// freeze the <c>Modifiers</c> of any <see cref="DefaultJsonTypeInfoResolver"/> behind it. So
+    /// the registration is kept, and only a chain made of STJ's own resolvers counts as having
+    /// removed it. Union routing does not rely on this: it reads each case's registry from the
+    /// converter the case resolves to.
     /// </summary>
     private static bool IsActive(MigrationScope scope, JsonSerializerOptions options)
     {
-        bool silentApplicationDefinedLeaf = false;
+        bool applicationDefinedLeaf = false;
         foreach (IJsonTypeInfoResolver leaf in ResolverLeaves.Of(options.TypeInfoResolver))
         {
             if (ReferenceEquals(leaf, scope.Resolver))
@@ -266,53 +269,33 @@ internal sealed class MigrationScope
                 return true;
             }
 
-            if (!ResolverProbe.IsApplicationDefined(leaf))
-            {
-                continue;
-            }
-
-            JsonMigrationTypeInfoResolver? behind = ResolverProbe.Through(leaf, options);
-            if (ReferenceEquals(behind, scope.Resolver))
-            {
-                return true;
-            }
-
-            silentApplicationDefinedLeaf |= behind is null;
+            applicationDefinedLeaf |= IsApplicationDefined(leaf);
         }
 
-        return silentApplicationDefinedLeaf;
+        return applicationDefinedLeaf;
     }
 
     private static MigrationScope? Discover(JsonSerializerOptions options)
     {
-        foreach (JsonMigrationTypeInfoResolver resolver in ActiveResolvers(options))
+        foreach (IJsonTypeInfoResolver leaf in ResolverLeaves.Of(options.TypeInfoResolver))
         {
-            var discovered = new MigrationScope(resolver, options, []);
-            Register(options, discovered);
-            return discovered;
+            if (leaf is JsonMigrationTypeInfoResolver resolver)
+            {
+                var discovered = new MigrationScope(resolver, options, []);
+                Register(options, discovered);
+                return discovered;
+            }
         }
 
         return null;
     }
 
     /// <summary>
-    /// The migration resolvers <paramref name="options"/> are known to delegate to, in chain order:
-    /// those the structural walk reaches, and those an application-defined resolver in the chain
-    /// answers the <see cref="ResolverProbe"/> with. The first is the one serving the migratable
-    /// types. A resolver that does not answer is not listed and proves nothing either way.
+    /// Whether <paramref name="leaf"/> may delegate to a resolver the structural walk cannot see.
+    /// STJ's own resolvers resolve contracts themselves; the walk already sees through STJ's
+    /// decorator and chains.
     /// </summary>
-    private static IEnumerable<JsonMigrationTypeInfoResolver> ActiveResolvers(JsonSerializerOptions options)
-    {
-        foreach (IJsonTypeInfoResolver leaf in ResolverLeaves.Of(options.TypeInfoResolver))
-        {
-            if (leaf is JsonMigrationTypeInfoResolver resolver)
-            {
-                yield return resolver;
-            }
-            else if (ResolverProbe.IsApplicationDefined(leaf) && ResolverProbe.Through(leaf, options) is { } behind)
-            {
-                yield return behind;
-            }
-        }
-    }
+    private static bool IsApplicationDefined(IJsonTypeInfoResolver leaf)
+        => leaf is not (JsonMigrationTypeInfoResolver or JsonSerializerContext)
+            && leaf.GetType() != typeof(DefaultJsonTypeInfoResolver);
 }

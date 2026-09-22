@@ -64,9 +64,9 @@ public sealed class JsonMigratableUnionTypeClassifier : JsonTypeClassifierFactor
         // here (instead of holding it in a field) lets the same parameterless type be used from
         // [JsonUnion(TypeClassifier = ...)] and from source-generated contexts. Each case routes
         // with the registry that built its converter (see UnionCaseRouting): a registration the
-        // options no longer use can stay cached behind an application-defined resolver that
-        // answers no probe, and a wrapper can send cases to a resolver registered on other
-        // options. The cached lookup supplies the exclusions of the options being resolved and
+        // options no longer use can stay cached behind an application-defined resolver, and a
+        // wrapper can send cases to a resolver registered on other options. The cached lookup
+        // supplies the exclusions of the options being resolved and
         // the registry for cases that have no migration converter to ask; when the options carry
         // no registration at all, the resolver serving the first case stands in for it.
         MigrationScope? scope = MigrationScope.FindReachable(options);
