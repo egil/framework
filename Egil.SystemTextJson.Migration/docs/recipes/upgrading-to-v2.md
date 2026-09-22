@@ -27,9 +27,9 @@ options.AddJsonMigrationSupport();
 options.TypeInfoResolverChain.Insert(0, new MyResolver());
 ```
 
-**Replacing the chain after registration.** Assigning `options.TypeInfoResolver = ...` or calling `options.TypeInfoResolverChain.Clear()` after `AddJsonMigrationSupport()` removes migration support. There is no error: `[JsonMigratable]` types then serialize without `$type` and old payloads deserialize as the current type. In 1.x the converter list carried migration through such changes.
+**Replacing the chain after registration.** Assigning `options.TypeInfoResolver = ...` or calling `options.TypeInfoResolverChain.Clear()` after `AddJsonMigrationSupport()` removes migration support when the new resolver no longer reaches the migration entry, for example a fresh `DefaultJsonTypeInfoResolver` or a context. There is no error: `[JsonMigratable]` types then serialize without `$type` and old payloads deserialize as the current type. In 1.x the converter list carried migration through such changes. Decorating or wrapping the entry is different: `WithAddedModifier`, `JsonTypeInfoResolver.Combine` and an application-defined resolver that forwards to the entry all keep migration working.
 
-- Check: search for `TypeInfoResolver =` and `TypeInfoResolverChain.Clear` after the call to `AddJsonMigrationSupport()`.
+- Check: search for `TypeInfoResolver =` and `TypeInfoResolverChain.Clear` after the call to `AddJsonMigrationSupport()`, and confirm the assigned resolver still delegates to the migration entry.
 - Fix: call `AddJsonMigrationSupport()` last, or use `TypeInfoResolverChain.Add(...)` to add contexts, which is the order the README shows.
 
 Unchanged: converters in `options.Converters` keep their precedence. One registered before `AddJsonMigrationSupport()` still wins for a `[JsonMigratable]` type; one registered after still does not. Calling `AddJsonMigrationSupport()` twice keeps the first registration, as before. Options without any resolver keep reflection-based serialization.
