@@ -217,29 +217,32 @@ $summary.Add("| Framework | $Framework |")
 $summary.Add("| Affinity | $Affinity (0x$([Convert]::ToString([int]$Affinity, 16))) |")
 $summary.Add("| Iterations | $IterationCount (warmup $WarmupCount), $Rounds round(s), filter ``$Filter`` |")
 
+# Initialized outside the try block so the finally block can read it; every change to the
+# boost mode happens inside the try block, so the restore covers any failure after it.
 $boostBefore = $null
-$boostRow = 'left as configured (-KeepBoost)'
-if (-not $KeepBoost) {
-    $boostBefore = Get-BoostMode
-    if ($null -eq $boostBefore) {
-        $boostRow = 'unknown: the High Performance scheme''s PERFBOOSTMODE could not be read, so it was left alone'
-        Write-Warning $boostRow
-    }
-    elseif (Set-BoostMode 0 0) {
-        $boostRow = "disabled for the run (High Performance scheme, was $(Format-BoostMode $boostBefore), restored afterwards)"
-        Write-Host "Processor boost: $boostRow"
-    }
-    else {
-        # The AC value may have been set before the DC one failed, so the saved values are
-        # kept and restored in the finally block regardless.
-        $boostRow = "not reliably disabled: powercfg refused to set PERFBOOSTMODE (was $(Format-BoostMode $boostBefore), restored afterwards)"
-        Write-Warning $boostRow
-    }
-}
-$summary.Add("| Boost | $boostRow |")
-$summary.Add('')
 
 try {
+    $boostRow = 'left as configured (-KeepBoost)'
+    if (-not $KeepBoost) {
+        $boostBefore = Get-BoostMode
+        if ($null -eq $boostBefore) {
+            $boostRow = 'unknown: the High Performance scheme''s PERFBOOSTMODE could not be read, so it was left alone'
+            Write-Warning $boostRow
+        }
+        elseif (Set-BoostMode 0 0) {
+            $boostRow = "disabled for the run (High Performance scheme, was $(Format-BoostMode $boostBefore), restored afterwards)"
+            Write-Host "Processor boost: $boostRow"
+        }
+        else {
+            # The AC value may have been set before the DC one failed, so the saved values are
+            # kept and restored in the finally block regardless.
+            $boostRow = "not reliably disabled: powercfg refused to set PERFBOOSTMODE (was $(Format-BoostMode $boostBefore), restored afterwards)"
+            Write-Warning $boostRow
+        }
+    }
+    $summary.Add("| Boost | $boostRow |")
+    $summary.Add('')
+
     foreach ($name in $refs.Keys) {
         $entry = $refs[$name]
         Write-Host "Creating worktree for $name ($($entry.Sha)) at $($entry.Dir)"
