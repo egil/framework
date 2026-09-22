@@ -59,10 +59,10 @@ public static class JsonMigrationSerializerOptionsExtensions
         // only stands in while the migration resolver is the sole entry. Discovery looks through
         // STJ's decorators so a decorated entry counts as registered, and a registration whose
         // resolver was replaced or cleared afterwards does not. An application-defined resolver
-        // in the chain may be wrapping the entry, so it is asked; one that answers with the
-        // registration proves it, one that stays silent may forward only its own types, and in
-        // both cases the registration is kept and the chain left as the user shaped it, because a
-        // second registry in front of the wrapper would take the migratable types away from it.
+        // in the chain may be wrapping the entry, and cannot be told from one that does not
+        // without calling it, which registration never does; the registration is kept and the
+        // chain left as the user shaped it, because a second registry in front of the wrapper
+        // would take the migratable types away from it.
         if (MigrationScope.FindRegistration(options) is not null)
         {
             return options;

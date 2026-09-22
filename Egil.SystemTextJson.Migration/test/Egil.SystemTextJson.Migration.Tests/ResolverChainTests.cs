@@ -139,6 +139,31 @@ public class ResolverChainTests
     }
 
     [Fact]
+    public void Registration_leaves_a_resolver_behind_an_application_defined_wrapper_mutable()
+    {
+        // The wrapper is opaque to the chain walk, and asking it would resolve through the
+        // DefaultJsonTypeInfoResolver behind it and freeze its Modifiers; registration asks
+        // nothing.
+        var resolver = new DefaultJsonTypeInfoResolver();
+        var options = new JsonSerializerOptions { TypeInfoResolver = new ForwardingResolver(resolver) };
+        options.AddJsonMigrationSupport();
+        resolver.Modifiers.Add(static typeInfo =>
+        {
+            foreach (JsonPropertyInfo property in typeInfo.Properties)
+            {
+                if (property.Name == nameof(ChainWrapper.Inner))
+                {
+                    property.Name = "inner";
+                }
+            }
+        });
+
+        var json = JsonSerializer.Serialize(new ChainWrapper(new ChainV2("Jane", "Doe")), options);
+
+        Assert.Equal("""{"inner":{"$type":"chain-v2","FirstName":"Jane","LastName":"Doe"}}""", json);
+    }
+
+    [Fact]
     public void Whole_chain_decorated_keeps_the_downstream_resolver()
     {
         // A decorator around the whole chain leaves one visible entry; the migration resolver must
@@ -242,9 +267,9 @@ public class ResolverChainTests
     [Fact]
     public void Re_registering_behind_an_application_defined_wrapper_keeps_migration_working()
     {
-        // The wrapper hides the first registration from the chain walk, so the guard asks the
-        // wrapper for the probe contract and finds the resolver behind it; the second call leaves
-        // the chain as the user shaped it rather than putting a second registry in front.
+        // The wrapper hides the first registration from the chain walk, but the registration
+        // cached for the options is kept while such a wrapper is in the chain; the second call
+        // leaves the chain as the user shaped it rather than putting a second registry in front.
         var options = new JsonSerializerOptions { TypeInfoResolver = new DefaultJsonTypeInfoResolver() };
         options.AddJsonMigrationSupport();
         options.TypeInfoResolverChain[0] = new ForwardingResolver(options.TypeInfoResolverChain[0]);
@@ -291,11 +316,11 @@ public class ResolverChainTests
     [Fact]
     public void Replacing_the_resolver_with_an_application_defined_one_then_registering_again_is_a_no_op()
     {
-        // An application-defined resolver that answers the probe proves it delegates to migration;
-        // one that does not proves nothing, since it may forward only its own application's types.
-        // The guard keeps the first registration rather than put a second registry in front of a
-        // resolver that may still delegate to it. Options that replaced their resolver and want
-        // migration back are created afresh.
+        // Whether an application-defined resolver delegates to the removed migration resolver
+        // cannot be told without calling it, which registration never does. The guard keeps the
+        // first registration rather than put a second registry in front of a resolver that may
+        // still delegate to it. Options that replaced their resolver and want migration back are
+        // created afresh.
         var options = new JsonSerializerOptions();
         options.AddJsonMigrationSupport();
         options.TypeInfoResolver = new ForwardingResolver(new DefaultJsonTypeInfoResolver());
@@ -310,8 +335,8 @@ public class ResolverChainTests
     [Fact]
     public void Re_registering_behind_a_type_selective_wrapper_keeps_the_first_registrations_migrators()
     {
-        // The wrapper forwards only this assembly's types, so it never sees the probe's marker;
-        // that silence must not count as the registration having been removed.
+        // The wrapper forwards only this assembly's types, so no walk or call could tell it from
+        // one that removed migration; the registration cached for the options is kept.
         var options = new JsonSerializerOptions { TypeInfoResolver = new DefaultJsonTypeInfoResolver() };
         options.AddJsonMigrationSupport(static builder => builder.RegisterMigrator<ChainExternalMigrator>());
         options.TypeInfoResolverChain[0] = new AssemblyFilteringResolver(options.TypeInfoResolverChain[0]);
@@ -326,8 +351,8 @@ public class ResolverChainTests
     [Fact]
     public void Registering_again_on_a_copy_of_options_with_a_type_selective_wrapper_keeps_the_first_registration()
     {
-        // The copy has no cached registration and the wrapper answers neither the chain walk nor
-        // the probe; the copy resolves through the chain the original registered on, and that
+        // The copy has no cached registration and the wrapper hides the resolver from the chain
+        // walk; the copy resolves through the chain the original registered on, and that
         // registration is the one to keep.
         var original = new JsonSerializerOptions { TypeInfoResolver = new DefaultJsonTypeInfoResolver() };
         original.AddJsonMigrationSupport(static builder => builder.RegisterMigrator<ChainExternalMigrator>());
@@ -399,7 +424,7 @@ public class ResolverChainTests
 
     /// <summary>
     /// An application-defined resolver that forwards the test assembly's types and answers
-    /// <see langword="null"/> for every other type, including the probe's marker.
+    /// <see langword="null"/> for every other type.
     /// </summary>
     public sealed class AssemblyFilteringResolver(IJsonTypeInfoResolver inner) : IJsonTypeInfoResolver
     {
