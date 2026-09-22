@@ -109,20 +109,47 @@ function Resolve-Sha([string]$ref) {
 # independent of the powercfg output language. A scheme holds an entry of its own only for
 # a value that was set on it (AC and DC separately); otherwise the setting's default for
 # that scheme applies. 0 = Disabled, 2 = Aggressive (the default). Setting a value needs no
-# elevation.
+# elevation; removing a scheme's own value again does (the registry key is under HKLM and
+# powercfg has no command for it), so a value that was inherited is put back as the same
+# number written explicitly when the shell is not elevated. Windows never changes the
+# built-in schemes' defaults, so that reads the same; the summary says which happened.
 $highPerformancePlan = '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c'
 $processorSubgroup = '54533251-82be-4824-96c1-47b60b740d00'
 $boostModeSetting = 'be337238-0d82-4146-a960-4f3749d470c7'
+$powerKey = 'HKLM:\SYSTEM\CurrentControlSet\Control\Power'
+$boostOwnKey = "$powerKey\User\PowerSchemes\$highPerformancePlan\$processorSubgroup\$boostModeSetting"
 
 function Get-BoostMode {
-    $power = 'HKLM:\SYSTEM\CurrentControlSet\Control\Power'
-    $own = Get-ItemProperty -Path "$power\User\PowerSchemes\$highPerformancePlan\$processorSubgroup\$boostModeSetting" -ErrorAction SilentlyContinue
-    $default = Get-ItemProperty -Path "$power\PowerSettings\$processorSubgroup\$boostModeSetting\DefaultPowerSchemeValues\$highPerformancePlan" -ErrorAction SilentlyContinue
+    $own = Get-ItemProperty -Path $boostOwnKey -ErrorAction SilentlyContinue
+    $default = Get-ItemProperty -Path "$powerKey\PowerSettings\$processorSubgroup\$boostModeSetting\DefaultPowerSchemeValues\$highPerformancePlan" -ErrorAction SilentlyContinue
 
-    $ac = if ($null -ne $own -and $null -ne $own.ACSettingIndex) { $own.ACSettingIndex } elseif ($null -ne $default) { $default.AcSettingIndex } else { $null }
-    $dc = if ($null -ne $own -and $null -ne $own.DCSettingIndex) { $own.DCSettingIndex } elseif ($null -ne $default) { $default.DcSettingIndex } else { $null }
+    $acExplicit = $null -ne $own -and $null -ne $own.ACSettingIndex
+    $dcExplicit = $null -ne $own -and $null -ne $own.DCSettingIndex
+    $ac = if ($acExplicit) { $own.ACSettingIndex } elseif ($null -ne $default) { $default.AcSettingIndex } else { $null }
+    $dc = if ($dcExplicit) { $own.DCSettingIndex } elseif ($null -ne $default) { $default.DcSettingIndex } else { $null }
     if ($null -eq $ac -or $null -eq $dc) { return $null }
-    return @{ AC = [int]$ac; DC = [int]$dc }
+    return @{ AC = [int]$ac; DC = [int]$dc; AcExplicit = $acExplicit; DcExplicit = $dcExplicit }
+}
+
+function Format-BoostMode($mode) {
+    $acNote = if ($mode.AcExplicit) { '' } else { ' (inherited)' }
+    $dcNote = if ($mode.DcExplicit) { '' } else { ' (inherited)' }
+    return "AC $($mode.AC)$acNote / DC $($mode.DC)$dcNote"
+}
+
+# Puts the values back, and where a value was inherited removes the scheme's own entry again
+# so the scheme keeps following the default; that removal needs elevation and is skipped
+# silently without it, leaving the same number set explicitly.
+function Restore-BoostMode($before) {
+    if (-not (Set-BoostMode $before.AC $before.DC)) { return $false }
+
+    foreach ($entry in @(@{ Explicit = $before.AcExplicit; Name = 'ACSettingIndex' }, @{ Explicit = $before.DcExplicit; Name = 'DCSettingIndex' })) {
+        if (-not $entry.Explicit) {
+            Remove-ItemProperty -Path $boostOwnKey -Name $entry.Name -ErrorAction SilentlyContinue
+        }
+    }
+
+    return $true
 }
 
 function Set-BoostMode([int]$ac, [int]$dc) {
@@ -199,13 +226,13 @@ if (-not $KeepBoost) {
         Write-Warning $boostRow
     }
     elseif (Set-BoostMode 0 0) {
-        $boostRow = "disabled for the run (High Performance scheme, was AC $($boostBefore.AC) / DC $($boostBefore.DC), restored afterwards)"
+        $boostRow = "disabled for the run (High Performance scheme, was $(Format-BoostMode $boostBefore), restored afterwards)"
         Write-Host "Processor boost: $boostRow"
     }
     else {
         # The AC value may have been set before the DC one failed, so the saved values are
         # kept and restored in the finally block regardless.
-        $boostRow = "not reliably disabled: powercfg refused to set PERFBOOSTMODE (was AC $($boostBefore.AC) / DC $($boostBefore.DC), restored afterwards)"
+        $boostRow = "not reliably disabled: powercfg refused to set PERFBOOSTMODE (was $(Format-BoostMode $boostBefore), restored afterwards)"
         Write-Warning $boostRow
     }
 }
@@ -287,8 +314,9 @@ try {
 }
 finally {
     if ($null -ne $boostBefore) {
-        if (Set-BoostMode $boostBefore.AC $boostBefore.DC) {
-            Write-Host "Processor boost restored (AC $($boostBefore.AC) / DC $($boostBefore.DC))"
+        if (Restore-BoostMode $boostBefore) {
+            $after = Get-BoostMode
+            Write-Host "Processor boost restored ($(Format-BoostMode $after))"
         }
         else {
             Write-Warning "Could not restore processor boost; run: powercfg -setacvalueindex $highPerformancePlan SUB_PROCESSOR PERFBOOSTMODE $($boostBefore.AC); powercfg -setdcvalueindex $highPerformancePlan SUB_PROCESSOR PERFBOOSTMODE $($boostBefore.DC)"
