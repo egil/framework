@@ -18,10 +18,14 @@
 
         .\Egil.SystemTextJson.Migration\scripts\perf-compare-refs.ps1 -BaselineRef main -CandidateRef HEAD
 
-    BenchmarkDotNet switches the active power scheme to High Performance for the run and
-    restores it afterwards, so this script does not touch power settings. To freeze the
-    clock, disable processor boost on the High Performance scheme by hand before running;
-    the summary records the machine but not the boost state.
+    BenchmarkDotNet switches the active power scheme to High Performance for each run and
+    restores the previous scheme afterwards; this script leaves the active scheme to it. It
+    does not touch processor boost, though (PowerManagementApplier only calls
+    PowerSetActiveScheme), and the High Performance scheme ships with boost set to
+    Aggressive, so the turbo clock would swing with load and heat. This script therefore
+    sets the High Performance scheme's processor boost mode (PERFBOOSTMODE, hidden in the
+    Windows UI) to Disabled for the run and restores the previous values afterwards, also
+    when the run fails. Pass -KeepBoost to leave it alone. The summary records what was done.
 
     Results land in <repo>\Egil.SystemTextJson.Migration\perf\Egil.SystemTextJson.Migration.PerfTests\BenchmarkDotNet.Artifacts\compare-<timestamp>\
     (git-ignored). summary.md there holds every per-round comparison plus the raw
@@ -51,6 +55,10 @@
     on hybrid Intel parts, otherwise a pair near the top of the core range (BenchmarkDotNet
     parses the mask as a signed 32-bit integer). The summary records the mask; check it
     against the machine's topology before trusting absolute numbers.
+
+.PARAMETER KeepBoost
+    Leave the High Performance scheme's processor boost mode as it is instead of disabling
+    it for the run.
 #>
 [CmdletBinding()]
 param(
@@ -62,7 +70,8 @@ param(
     [string]$Filter = '*',
     [int]$IterationCount = 15,
     [int]$WarmupCount = 3,
-    [string]$Affinity
+    [string]$Affinity,
+    [switch]$KeepBoost
 )
 
 $ErrorActionPreference = 'Stop'
@@ -92,6 +101,41 @@ function Resolve-Sha([string]$ref) {
     }
 
     return $sha
+}
+
+# The scheme BenchmarkDotNet activates for a run, and the processor boost mode setting under
+# it. PERFBOOSTMODE is a hidden attribute: powercfg -query omits it, and unhiding it needs
+# elevation, so the stored indexes are read from the registry instead, which is also
+# independent of the powercfg output language. A scheme holds an entry of its own only for
+# a value that was set on it (AC and DC separately); otherwise the setting's default for
+# that scheme applies. 0 = Disabled, 2 = Aggressive (the default). Setting a value needs no
+# elevation.
+$highPerformancePlan = '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c'
+$processorSubgroup = '54533251-82be-4824-96c1-47b60b740d00'
+$boostModeSetting = 'be337238-0d82-4146-a960-4f3749d470c7'
+
+function Get-BoostMode {
+    $power = 'HKLM:\SYSTEM\CurrentControlSet\Control\Power'
+    $own = Get-ItemProperty -Path "$power\User\PowerSchemes\$highPerformancePlan\$processorSubgroup\$boostModeSetting" -ErrorAction SilentlyContinue
+    $default = Get-ItemProperty -Path "$power\PowerSettings\$processorSubgroup\$boostModeSetting\DefaultPowerSchemeValues\$highPerformancePlan" -ErrorAction SilentlyContinue
+
+    $ac = if ($null -ne $own -and $null -ne $own.ACSettingIndex) { $own.ACSettingIndex } elseif ($null -ne $default) { $default.AcSettingIndex } else { $null }
+    $dc = if ($null -ne $own -and $null -ne $own.DCSettingIndex) { $own.DCSettingIndex } elseif ($null -ne $default) { $default.DcSettingIndex } else { $null }
+    if ($null -eq $ac -or $null -eq $dc) { return $null }
+    return @{ AC = [int]$ac; DC = [int]$dc }
+}
+
+function Set-BoostMode([int]$ac, [int]$dc) {
+    & powercfg -setacvalueindex $highPerformancePlan $processorSubgroup $boostModeSetting $ac | Out-Null
+    if ($LASTEXITCODE -ne 0) { return $false }
+    & powercfg -setdcvalueindex $highPerformancePlan $processorSubgroup $boostModeSetting $dc | Out-Null
+    if ($LASTEXITCODE -ne 0) { return $false }
+
+    # A changed index applies to the active scheme only when it is activated again. BDN
+    # activates High Performance itself for each run; this covers a shell where it already is.
+    $active = (& powercfg -getactivescheme) -join ' '
+    if ($active -match $highPerformancePlan) { & powercfg -setactive $highPerformancePlan | Out-Null }
+    return $true
 }
 
 function Get-DefaultFramework {
@@ -145,6 +189,26 @@ $summary.Add("| Candidate | ``$CandidateRef`` = ``$candidateSha`` |")
 $summary.Add("| Framework | $Framework |")
 $summary.Add("| Affinity | $Affinity (0x$([Convert]::ToString([int]$Affinity, 16))) |")
 $summary.Add("| Iterations | $IterationCount (warmup $WarmupCount), $Rounds round(s), filter ``$Filter`` |")
+
+$boostBefore = $null
+$boostRow = 'left as configured (-KeepBoost)'
+if (-not $KeepBoost) {
+    $boostBefore = Get-BoostMode
+    if ($null -eq $boostBefore) {
+        $boostRow = 'unknown: the High Performance scheme''s PERFBOOSTMODE could not be read, so it was left alone'
+        Write-Warning $boostRow
+    }
+    elseif (Set-BoostMode 0 0) {
+        $boostRow = "disabled for the run (High Performance scheme, was AC $($boostBefore.AC) / DC $($boostBefore.DC), restored afterwards)"
+        Write-Host "Processor boost: $boostRow"
+    }
+    else {
+        $boostRow = "unchanged: powercfg refused to set PERFBOOSTMODE (was AC $($boostBefore.AC) / DC $($boostBefore.DC))"
+        Write-Warning $boostRow
+        $boostBefore = $null
+    }
+}
+$summary.Add("| Boost | $boostRow |")
 $summary.Add('')
 
 try {
@@ -221,6 +285,15 @@ try {
     Write-Host "Summary written to $summaryPath"
 }
 finally {
+    if ($null -ne $boostBefore) {
+        if (Set-BoostMode $boostBefore.AC $boostBefore.DC) {
+            Write-Host "Processor boost restored (AC $($boostBefore.AC) / DC $($boostBefore.DC))"
+        }
+        else {
+            Write-Warning "Could not restore processor boost; run: powercfg -setacvalueindex $highPerformancePlan SUB_PROCESSOR PERFBOOSTMODE $($boostBefore.AC); powercfg -setdcvalueindex $highPerformancePlan SUB_PROCESSOR PERFBOOSTMODE $($boostBefore.DC)"
+        }
+    }
+
     foreach ($name in $refs.Keys) {
         if (Test-Path $refs[$name].Dir) {
             & git -C $repoRoot worktree remove --force $refs[$name].Dir | Out-Null
