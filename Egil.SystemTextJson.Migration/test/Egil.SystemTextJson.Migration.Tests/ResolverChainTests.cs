@@ -186,6 +186,27 @@ public class ResolverChainTests
     }
 
     [Fact]
+    public void Independent_options_sharing_a_downstream_resolver_register_their_own_migration()
+    {
+        // A resolver reused across independently created options says nothing about migration:
+        // in the first options it sits behind the migration entry, which the second options do
+        // not have. Their registration must run, with their own configuration.
+        var shared = new ForwardingResolver(new DefaultJsonTypeInfoResolver());
+        var first = new JsonSerializerOptions { TypeInfoResolver = shared };
+        first.AddJsonMigrationSupport();
+        var second = new JsonSerializerOptions { TypeInfoResolver = shared };
+        var configured = false;
+        second.AddJsonMigrationSupport(_ => configured = true);
+
+        var json = JsonSerializer.Serialize(new ChainV2("Jane", "Doe"), second);
+
+        Assert.True(configured);
+        Assert.Equal("""{"$type":"chain-v2","FirstName":"Jane","LastName":"Doe"}""", json);
+        Assert.Equal(2, second.TypeInfoResolverChain.Count);
+        GC.KeepAlive(first);
+    }
+
+    [Fact]
     public void Combine_holding_only_migration_entries_keeps_the_reflection_fallback()
     {
         // STJ's Combine returns a single entry unchanged and otherwise a chain the walk

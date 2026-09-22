@@ -203,31 +203,48 @@ internal sealed class MigrationScope
     }
 
     /// <summary>
-    /// The registration of a chain that shares an application-defined resolver with
-    /// <paramref name="chain"/>. A copy that changed its own chain has a chain object of its own,
-    /// built from the entries of the chain it was copied from, so the entries are shared; an
-    /// application-defined resolver among them that also sits in a registered chain is the same
-    /// instance wrapping the same entry there, and that chain's registration is the copy's.
+    /// The registration of a chain whose front entry <paramref name="chain"/> shares. A copy that
+    /// changed its own chain has a chain object of its own, built from the entries of the chain it
+    /// was copied from, so the entries are shared. Registration puts the migration resolver at
+    /// the front, so when a registered chain no longer shows it, the application-defined entry
+    /// now at the front is what hides it, and any chain holding that same instance is served by
+    /// the registration through it. A downstream resolver shared with a registered chain says
+    /// nothing: resolvers are reused across independently created options, and such options
+    /// register their own migration.
     /// </summary>
     private static MigrationScope? FindByLeaf(IJsonTypeInfoResolver chain)
     {
-        foreach (IJsonTypeInfoResolver leaf in ResolverLeaves.Of(chain))
-        {
-            if (!ResolverProbe.IsApplicationDefined(leaf))
-            {
-                continue;
-            }
+        var leaves = new HashSet<IJsonTypeInfoResolver>(ResolverLeaves.Of(chain), ReferenceEqualityComparer.Instance);
 
-            foreach ((IJsonTypeInfoResolver registeredChain, MigrationScope registered) in ScopesByChain)
+        foreach ((IJsonTypeInfoResolver registeredChain, MigrationScope registered) in ScopesByChain)
+        {
+            if (HidingFront(registeredChain, registered.Resolver) is { } front && leaves.Contains(front))
             {
-                if (ResolverLeaves.Contains(registeredChain, leaf))
-                {
-                    return registered;
-                }
+                return registered;
             }
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// The application-defined resolver at the front of <paramref name="chain"/> when
+    /// <paramref name="resolver"/> is no longer visible in it, otherwise <see langword="null"/>.
+    /// </summary>
+    private static IJsonTypeInfoResolver? HidingFront(IJsonTypeInfoResolver chain, JsonMigrationTypeInfoResolver resolver)
+    {
+        IJsonTypeInfoResolver? front = null;
+        foreach (IJsonTypeInfoResolver leaf in ResolverLeaves.Of(chain))
+        {
+            if (ReferenceEquals(leaf, resolver))
+            {
+                return null;
+            }
+
+            front ??= leaf;
+        }
+
+        return front is not null && ResolverProbe.IsApplicationDefined(front) ? front : null;
     }
 
     /// <summary>
