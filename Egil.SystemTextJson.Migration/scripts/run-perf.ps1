@@ -38,7 +38,7 @@ param(
     [Parameter(Mandatory)]
     [string]$Label,
     [string]$Filter = '*',
-    [string]$Framework = 'net10.0',
+    [string]$Framework,
     [int]$IterationCount = 15,
     [int]$WarmupCount = 3,
     [string]$Affinity
@@ -46,6 +46,17 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
+
+# Same default as perf-compare-refs.ps1 and the README's perf tables: the net11.0 build once
+# an 11.0.100-rc or later SDK is installed (its union scenario only exists there), else net10.0.
+function Get-DefaultFramework {
+    $sdks = & dotnet --list-sdks
+    $hasRc = $sdks | Where-Object { $_ -match '^11\.0\.\d+(-rc|-rtm|\s)' -or $_ -match '^11\.0\.\d+ ' }
+    if ($hasRc) { return 'net11.0' }
+    return 'net10.0'
+}
+
+if (-not $Framework) { $Framework = Get-DefaultFramework }
 $perfProject = Join-Path $root 'perf\Egil.SystemTextJson.Migration.PerfTests'
 $artifacts = Join-Path $perfProject "BenchmarkDotNet.Artifacts\$Label"
 
