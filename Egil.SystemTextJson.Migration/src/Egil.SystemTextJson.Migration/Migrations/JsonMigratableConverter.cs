@@ -6,8 +6,19 @@ using System.Text.Json.Serialization.Metadata;
 
 namespace Egil.SystemTextJson.Migration.Migrations;
 
-internal sealed partial class JsonMigratableConverter<T>(MigratorContext context) : JsonConverter<T>
+/// <summary>
+/// The non-generic view of <see cref="JsonMigratableConverter{T}"/>, for callers that hold a
+/// contract's converter and need to know which migration resolver built it.
+/// </summary>
+internal interface IJsonMigratableConverter
 {
+    JsonMigrationTypeInfoResolver Resolver { get; }
+}
+
+internal sealed partial class JsonMigratableConverter<T>(MigratorContext context) : JsonConverter<T>, IJsonMigratableConverter
+{
+    public JsonMigrationTypeInfoResolver Resolver => context.Resolver;
+
     private readonly JsonTypeInfo<T>? targetTypeInfo = context.TargetTypeInfo as JsonTypeInfo<T>;
 
     // Cache the target converter and options to call Read directly, bypassing

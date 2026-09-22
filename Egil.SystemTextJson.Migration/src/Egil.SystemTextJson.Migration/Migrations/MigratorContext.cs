@@ -8,7 +8,8 @@ internal sealed record MigratorContext(
     MigratorReference[] Migrators,
     string[] SourceDiscriminatorPropertyNames,
     MigratorReference? UndiscriminatedSourceMigrator,
-    JsonMigrationFailureHandling MigrationFailureHandling)
+    JsonMigrationFailureHandling MigrationFailureHandling,
+    JsonMigrationTypeInfoResolver Resolver)
 {
     public byte[] TargetDiscriminatorPropertyNameUtf8 { get; } = System.Text.Encoding.UTF8.GetBytes(TargetMetadata.DiscriminatorPropertyName);
 
