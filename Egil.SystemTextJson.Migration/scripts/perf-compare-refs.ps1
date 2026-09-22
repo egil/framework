@@ -31,7 +31,9 @@
     Git ref of the library to compare against, for example main or a commit SHA.
 
 .PARAMETER CandidateRef
-    Git ref of the library under test. Defaults to HEAD.
+    Git ref of the library under test. Defaults to HEAD. A branch name resolves to the
+    local branch; the script fetches origin first and refuses a local branch that is
+    behind its origin counterpart, so a stale checkout is not measured by mistake.
 
 .PARAMETER Framework
     Target framework to benchmark. Defaults to net11.0 when an 11.0.100-rc or later SDK is
@@ -74,6 +76,21 @@ $worktreeRoot = Join-Path ([IO.Path]::GetTempPath()) "stjm-perf-$stamp"
 function Resolve-Sha([string]$ref) {
     $sha = (& git -C $repoRoot rev-parse --verify --quiet "$ref^{commit}").Trim()
     if (-not $sha) { throw "Cannot resolve git ref '$ref'" }
+
+    # A branch name resolves to the local branch, which on a machine used only for measuring
+    # is whatever was last checked out there. Refuse it when origin has moved on, so the run
+    # measures the commit the caller thinks it does.
+    $remoteSha = (& git -C $repoRoot rev-parse --verify --quiet "origin/$ref^{commit}" 2>$null)
+    if ($remoteSha) {
+        $remoteSha = $remoteSha.Trim()
+        if ($remoteSha -ne $sha) {
+            & git -C $repoRoot merge-base --is-ancestor $sha $remoteSha 2>$null
+            if ($LASTEXITCODE -eq 0) {
+                throw "Local branch '$ref' ($($sha.Substring(0, 7))) is behind origin/$ref ($($remoteSha.Substring(0, 7))). Pull it, or pass -CandidateRef origin/$ref."
+            }
+        }
+    }
+
     return $sha
 }
 
@@ -102,6 +119,9 @@ function Get-DefaultAffinity {
 
 if (-not $Framework) { $Framework = Get-DefaultFramework }
 if (-not $Affinity) { $Affinity = Get-DefaultAffinity }
+
+& git -C $repoRoot fetch origin --quiet
+if ($LASTEXITCODE -ne 0) { Write-Warning "git fetch origin failed; refs resolve against the last fetched state" }
 
 $baselineSha = Resolve-Sha $BaselineRef
 $candidateSha = Resolve-Sha $CandidateRef
