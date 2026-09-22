@@ -360,14 +360,20 @@ internal sealed class UnionCaseRouting
                 Type nestedType = nestedCase.CaseType;
                 if (JsonMigratableTypes.GetMigratableType(nestedType) is { } nestedMigratableType)
                 {
-                    AddNestedDiscriminator(registry.GetTypeMetadata(nestedMigratableType), caseType, directClaims);
+                    // As for a direct case, the nested case's routes come from the registry that
+                    // built its converter; the nested union's own classifier will route with it.
+                    JsonMigrationRegistry nestedRegistry = options.GetTypeInfo(nestedMigratableType).Converter is IJsonMigratableConverter nestedConverter
+                        ? nestedConverter.Resolver.Registry
+                        : registry;
+
+                    AddNestedDiscriminator(nestedRegistry.GetTypeMetadata(nestedMigratableType), caseType, directClaims);
 
                     foreach (Type sourceType in StaticMigratorContracts.GetSourceTypes(nestedMigratableType))
                     {
-                        AddNestedSource(sourceType, registry.GetTypeMetadata(sourceType), caseType, directClaims);
+                        AddNestedSource(sourceType, nestedRegistry.GetTypeMetadata(sourceType), caseType, directClaims);
                     }
 
-                    foreach (ExternalMigratorRegistration registration in registry.GetForTarget(nestedMigratableType))
+                    foreach (ExternalMigratorRegistration registration in nestedRegistry.GetForTarget(nestedMigratableType))
                     {
                         AddNestedSource(registration.SourceType, registration.SourceMetadata, caseType, directClaims);
                     }

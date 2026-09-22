@@ -140,6 +140,23 @@ public partial class UnionMigrationTests
     }
 
     [Fact]
+    public void Nested_union_forwards_the_sources_of_the_registry_that_serves_its_case()
+    {
+        // The nested union's rectangle case is served by another options' migration resolver,
+        // whose registry holds the external migrator; the outer union must forward that source
+        // from the same registry, or the old payload is not classified although the inner union
+        // can migrate it.
+        var other = CreateOptions(builder => builder.RegisterMigrator<RectangleV1, RectangleV2, RectangleMigrator>());
+        var options = CreateOptions();
+        options.TypeInfoResolverChain[0] = new RectangleResolver(options.TypeInfoResolverChain[0], other.TypeInfoResolverChain[0]);
+        options.TypeInfoResolverChain.Add(new DefaultJsonTypeInfoResolver());
+
+        var migrated = JsonSerializer.Deserialize<NoteOrShape>("""{"$type":"rect-v1","w":3,"h":4}""", options);
+
+        Assert.Equal(3, Assert.IsType<RectangleV2>(Assert.IsType<Shape>(migrated.Value).Value).Width);
+    }
+
+    [Fact]
     public void Union_is_classified_on_a_copy_of_options_with_a_type_selective_wrapper()
     {
         // The wrapper forwards only this assembly's types, so neither the chain walk nor the probe
