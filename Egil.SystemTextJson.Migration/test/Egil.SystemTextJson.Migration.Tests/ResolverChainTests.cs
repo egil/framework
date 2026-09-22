@@ -192,22 +192,30 @@ public class ResolverChainTests
     }
 
     [Fact]
-    public void Registering_again_on_a_copy_that_extended_its_chain_behind_a_type_selective_wrapper_keeps_the_first_registration()
+    public void Registering_on_a_copy_that_extended_its_chain_behind_a_type_selective_wrapper_registers_its_own_configuration()
     {
         // Extending the copy's chain gives it a chain object of its own, so the chain the
-        // original registered on no longer identifies the copy; the wrapper it still carries
-        // from that chain does.
+        // original registered on no longer identifies the copy, and the wrapper it carries from
+        // that chain is no proof either: a resolver at the front of a chain that no longer shows
+        // the migration entry looks the same whether it wraps the entry or replaced it. The copy
+        // registers like any other options, with the configuration it passes.
         var original = new JsonSerializerOptions { TypeInfoResolver = new DefaultJsonTypeInfoResolver() };
         original.AddJsonMigrationSupport(static builder => builder.RegisterMigrator<ChainExternalMigrator>());
         original.TypeInfoResolverChain[0] = new AssemblyFilteringResolver(original.TypeInfoResolverChain[0]);
         var copy = new JsonSerializerOptions(original);
         copy.TypeInfoResolverChain.Add(ChainJsonContext.Default);
-        copy.AddJsonMigrationSupport();
+        var configured = false;
+        copy.AddJsonMigrationSupport(builder =>
+        {
+            configured = true;
+            builder.RegisterMigrator<ChainExternalMigrator>();
+        });
 
         var migrated = JsonSerializer.Deserialize<ChainV3>(LegacyPayload, copy);
 
+        Assert.True(configured);
         Assert.Equal(new ChainV3("Jane Doe"), migrated);
-        Assert.Equal(3, copy.TypeInfoResolverChain.Count);
+        Assert.Equal(4, copy.TypeInfoResolverChain.Count);
     }
 
     [Fact]
@@ -219,6 +227,29 @@ public class ResolverChainTests
         var shared = new ForwardingResolver(new DefaultJsonTypeInfoResolver());
         var first = new JsonSerializerOptions { TypeInfoResolver = shared };
         first.AddJsonMigrationSupport();
+        var second = new JsonSerializerOptions { TypeInfoResolver = shared };
+        var configured = false;
+        second.AddJsonMigrationSupport(_ => configured = true);
+
+        var json = JsonSerializer.Serialize(new ChainV2("Jane", "Doe"), second);
+
+        Assert.True(configured);
+        Assert.Equal("""{"$type":"chain-v2","FirstName":"Jane","LastName":"Doe"}""", json);
+        Assert.Equal(2, second.TypeInfoResolverChain.Count);
+        GC.KeepAlive(first);
+    }
+
+    [Fact]
+    public void Independent_options_sharing_the_resolver_left_after_removing_migration_register_their_own_migration()
+    {
+        // After the first options removed their migration entry, the shared resolver is at the
+        // front of a registered chain that no longer shows its resolver, exactly as a wrapper
+        // around the entry would be. That shape proves nothing; the second options have never
+        // had migration support and must register their own.
+        var shared = new ForwardingResolver(new DefaultJsonTypeInfoResolver());
+        var first = new JsonSerializerOptions { TypeInfoResolver = shared };
+        first.AddJsonMigrationSupport();
+        first.TypeInfoResolverChain.RemoveAt(0);
         var second = new JsonSerializerOptions { TypeInfoResolver = shared };
         var configured = false;
         second.AddJsonMigrationSupport(_ => configured = true);

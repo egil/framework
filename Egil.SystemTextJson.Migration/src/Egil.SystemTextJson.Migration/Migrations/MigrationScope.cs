@@ -32,8 +32,11 @@ internal sealed class MigrationScope
     // The registration made by AddJsonMigrationSupport, keyed on the chain object the options
     // resolve through at that point. STJ's copy constructor hands a copy that same object as its
     // resolver until the copy changes its own chain, so a copy finds the registration here when
-    // it carries none of its own; a copy that did change its chain is matched through the
-    // entries the two chains share (see FindByLeaf).
+    // it carries none of its own. A copy that did change its chain gets a chain object of its
+    // own and registers like any other options: the entries it shares with the registered chain
+    // are no proof of anything, since a resolver reused across independently created options
+    // sits at the front of a registered chain just as a wrapper around the entry does once the
+    // entry was removed.
     private static readonly ConditionalWeakTable<IJsonTypeInfoResolver, MigrationScope> ScopesByChain = new();
 
     private readonly HashSet<Type> excludedTypes;
@@ -183,69 +186,14 @@ internal sealed class MigrationScope
             return scope;
         }
 
-        if (options.TypeInfoResolver is not { } chain)
+        if (options.TypeInfoResolver is { } chain && ScopesByChain.TryGetValue(chain, out MigrationScope? shared))
         {
-            return null;
-        }
-
-        if (!ScopesByChain.TryGetValue(chain, out MigrationScope? shared))
-        {
-            shared = FindByLeaf(chain);
-        }
-
-        if (shared is null)
-        {
-            return null;
-        }
-
-        var rerooted = new MigrationScope(shared.Resolver, options, []);
-        Register(options, rerooted);
-        return rerooted;
-    }
-
-    /// <summary>
-    /// The registration of a chain whose front entry <paramref name="chain"/> shares. A copy that
-    /// changed its own chain has a chain object of its own, built from the entries of the chain it
-    /// was copied from, so the entries are shared. Registration puts the migration resolver at
-    /// the front, so when a registered chain no longer shows it, the application-defined entry
-    /// now at the front is what hides it, and any chain holding that same instance is served by
-    /// the registration through it. A downstream resolver shared with a registered chain says
-    /// nothing: resolvers are reused across independently created options, and such options
-    /// register their own migration.
-    /// </summary>
-    private static MigrationScope? FindByLeaf(IJsonTypeInfoResolver chain)
-    {
-        var leaves = new HashSet<IJsonTypeInfoResolver>(ResolverLeaves.Of(chain), ReferenceEqualityComparer.Instance);
-
-        foreach ((IJsonTypeInfoResolver registeredChain, MigrationScope registered) in ScopesByChain)
-        {
-            if (HidingFront(registeredChain, registered.Resolver) is { } front && leaves.Contains(front))
-            {
-                return registered;
-            }
+            var rerooted = new MigrationScope(shared.Resolver, options, []);
+            Register(options, rerooted);
+            return rerooted;
         }
 
         return null;
-    }
-
-    /// <summary>
-    /// The application-defined resolver at the front of <paramref name="chain"/> when
-    /// <paramref name="resolver"/> is no longer visible in it, otherwise <see langword="null"/>.
-    /// </summary>
-    private static IJsonTypeInfoResolver? HidingFront(IJsonTypeInfoResolver chain, JsonMigrationTypeInfoResolver resolver)
-    {
-        IJsonTypeInfoResolver? front = null;
-        foreach (IJsonTypeInfoResolver leaf in ResolverLeaves.Of(chain))
-        {
-            if (ReferenceEquals(leaf, resolver))
-            {
-                return null;
-            }
-
-            front ??= leaf;
-        }
-
-        return front is not null && IsApplicationDefined(front) ? front : null;
     }
 
     /// <summary>
