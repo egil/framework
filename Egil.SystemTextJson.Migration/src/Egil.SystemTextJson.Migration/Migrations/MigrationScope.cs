@@ -20,10 +20,10 @@ namespace Egil.SystemTextJson.Migration.Migrations;
 /// is, whichever migration resolver registered it: its exclusions and root options describe the
 /// options instance, and a resolution in progress proves the options are still served by
 /// migration. Structural validation, which sees through STJ's chains and decorators but not
-/// through application-defined wrappers, is used only by the registration guard, where it must
-/// detect a resolver that was replaced or cleared; it never runs while a resolution is in
-/// progress, because dropping an exclusion scope then would let a type's converter build itself
-/// again without end.
+/// through application-defined wrappers, is used by the registration guard, where it must
+/// detect a resolver that was replaced or cleared, and by the union classifier; it never runs
+/// while a contract is being resolved through the scope, because dropping an exclusion scope
+/// then would let a type's converter build itself again without end.
 /// </remarks>
 internal sealed class MigrationScope
 {
@@ -117,14 +117,14 @@ internal sealed class MigrationScope
         => Scopes.TryGetValue(options, out MigrationScope? scope) ? scope : null;
 
     /// <summary>
-    /// The scope to build union routing from: the cached scope while its resolver is still reachable
-    /// through STJ's chains and decorators, otherwise one discovered from the current resolver, or
-    /// <see langword="null"/> when the options no longer carry migration support. Nothing is
-    /// removed, so this is safe during resolution; an application-defined wrapper is opaque to it.
+    /// The scope to build union routing from: the cached scope while it <see cref="IsActive"/>,
+    /// otherwise one discovered from the current resolver, or <see langword="null"/> when the
+    /// options no longer carry migration support. Nothing is removed, so this is safe during
+    /// resolution.
     /// </summary>
     public static MigrationScope? FindReachable(JsonSerializerOptions options)
     {
-        if (Find(options) is { } scope && ResolverLeaves.Contains(options.TypeInfoResolver, scope.Resolver))
+        if (Find(options) is { } scope && IsActive(scope, options))
         {
             return scope;
         }
@@ -133,33 +133,17 @@ internal sealed class MigrationScope
     }
 
     /// <summary>
-    /// The registration to honour when <c>AddJsonMigrationSupport()</c> is called again: a cached
-    /// scope while its resolver is still reachable through STJ's chains and decorators, otherwise
-    /// one discovered from the current resolver. A cached scope whose resolver was replaced or
-    /// cleared is dropped so the options count as unregistered, unless the chain holds a resolver
-    /// the walk cannot see through; an application-defined wrapper around the migration entry
-    /// looks exactly like that, and the cached registration, with the migrators the user
-    /// configured, is then the one still serving the options. <paramref name="hidden"/> reports
-    /// that case so the caller can put the resolver back where the walk sees it.
+    /// The registration to honour when <c>AddJsonMigrationSupport()</c> is called again: the cached
+    /// scope while it <see cref="IsActive"/>, otherwise one discovered from the current resolver. A
+    /// cached scope that is no longer active is dropped so the options count as unregistered.
     /// </summary>
-    public static MigrationScope? FindRegistration(JsonSerializerOptions options, out bool hidden)
+    public static MigrationScope? FindRegistration(JsonSerializerOptions options)
     {
-        hidden = false;
-
         if (Find(options) is { } scope)
         {
-            if (ResolverLeaves.Contains(options.TypeInfoResolver, scope.Resolver))
+            if (IsActive(scope, options))
             {
                 return scope;
-            }
-
-            foreach (IJsonTypeInfoResolver leaf in ResolverLeaves.Of(options.TypeInfoResolver))
-            {
-                if (MayDelegateToMigration(leaf))
-                {
-                    hidden = true;
-                    return scope;
-                }
             }
 
             Scopes.Remove(options);
@@ -169,13 +153,30 @@ internal sealed class MigrationScope
     }
 
     /// <summary>
-    /// Whether <paramref name="leaf"/> may forward to a migration resolver the structural walk
-    /// cannot see. STJ's own resolvers resolve contracts themselves, so only an application-defined
-    /// resolver can; the walk already sees through STJ's decorator and chains.
+    /// Whether the cached <paramref name="scope"/> still serves <paramref name="options"/>: its
+    /// resolver is reachable through STJ's chains and decorators, or the chain holds a resolver
+    /// the walk cannot see through. An application-defined resolver may delegate to the migration
+    /// resolver, as a wrapper around the chain entry does, and nothing short of resolving a
+    /// contract through it would tell; that would freeze any <see cref="DefaultJsonTypeInfoResolver"/>
+    /// it forwards to while the options are still being configured. So the registration is assumed
+    /// to be behind it, and only a chain made of STJ's own resolvers counts as having removed it.
     /// </summary>
-    private static bool MayDelegateToMigration(IJsonTypeInfoResolver leaf)
-        => leaf is not (JsonMigrationTypeInfoResolver or JsonSerializerContext)
-            && leaf.GetType() != typeof(DefaultJsonTypeInfoResolver);
+    private static bool IsActive(MigrationScope scope, JsonSerializerOptions options)
+    {
+        bool applicationDefinedLeaf = false;
+        foreach (IJsonTypeInfoResolver leaf in ResolverLeaves.Of(options.TypeInfoResolver))
+        {
+            if (ReferenceEquals(leaf, scope.Resolver))
+            {
+                return true;
+            }
+
+            applicationDefinedLeaf |= leaf is not (JsonMigrationTypeInfoResolver or JsonSerializerContext)
+                && leaf.GetType() != typeof(DefaultJsonTypeInfoResolver);
+        }
+
+        return applicationDefinedLeaf;
+    }
 
     private static MigrationScope? Discover(JsonSerializerOptions options)
     {
