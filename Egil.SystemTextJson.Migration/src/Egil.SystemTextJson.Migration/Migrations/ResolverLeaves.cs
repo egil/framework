@@ -16,7 +16,8 @@ namespace Egil.SystemTextJson.Migration.Migrations;
 /// is an <see cref="IList{T}"/> of its entries, and <c>WithAddedModifier</c> wraps a resolver in the
 /// internal <c>JsonTypeInfoResolverWithAddedModifiers</c>, whose <c>_source</c> field holds the
 /// wrapped resolver; that field is read by reflection. A resolver of any other type is a leaf,
-/// including application-defined decorators, which discovery cannot see through.
+/// including application-defined decorators, which the walk cannot see through; those are left
+/// to <see cref="ResolverProbe"/>, which does call them.
 /// </remarks>
 internal static class ResolverLeaves
 {

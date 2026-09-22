@@ -1,6 +1,5 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 
 namespace Egil.SystemTextJson.Migration.Migrations;
@@ -19,11 +18,11 @@ namespace Egil.SystemTextJson.Migration.Migrations;
 /// always available where the scope is needed. A scope found during resolution is honoured as
 /// is, whichever migration resolver registered it: its exclusions and root options describe the
 /// options instance, and a resolution in progress proves the options are still served by
-/// migration. Structural validation, which sees through STJ's chains and decorators but not
-/// through application-defined wrappers, is used by the registration guard, where it must
-/// detect a resolver that was replaced or cleared, and by the union classifier; it never runs
-/// while a contract is being resolved through the scope, because dropping an exclusion scope
-/// then would let a type's converter build itself again without end.
+/// migration. Validation, which walks STJ's chains and decorators and probes application-defined
+/// resolvers, is used by the registration guard, where it must detect a resolver that was
+/// replaced or cleared, and by the union classifier; it never runs while a contract is being
+/// resolved through the scope, because dropping an exclusion scope then would let a type's
+/// converter build itself again without end.
 /// </remarks>
 internal sealed class MigrationScope
 {
@@ -153,43 +152,51 @@ internal sealed class MigrationScope
     }
 
     /// <summary>
-    /// Whether the cached <paramref name="scope"/> still serves <paramref name="options"/>: its
-    /// resolver is reachable through STJ's chains and decorators, or the chain holds a resolver
-    /// the walk cannot see through. An application-defined resolver may delegate to the migration
-    /// resolver, as a wrapper around the chain entry does, and nothing short of resolving a
-    /// contract through it would tell; that would freeze any <see cref="DefaultJsonTypeInfoResolver"/>
-    /// it forwards to while the options are still being configured. So the registration is assumed
-    /// to be behind it, and only a chain made of STJ's own resolvers counts as having removed it.
+    /// Whether the cached <paramref name="scope"/> still serves <paramref name="options"/>, that is,
+    /// its resolver is among <see cref="ActiveResolvers"/>.
     /// </summary>
     private static bool IsActive(MigrationScope scope, JsonSerializerOptions options)
     {
-        bool applicationDefinedLeaf = false;
-        foreach (IJsonTypeInfoResolver leaf in ResolverLeaves.Of(options.TypeInfoResolver))
+        foreach (JsonMigrationTypeInfoResolver resolver in ActiveResolvers(options))
         {
-            if (ReferenceEquals(leaf, scope.Resolver))
+            if (ReferenceEquals(resolver, scope.Resolver))
             {
                 return true;
             }
-
-            applicationDefinedLeaf |= leaf is not (JsonMigrationTypeInfoResolver or JsonSerializerContext)
-                && leaf.GetType() != typeof(DefaultJsonTypeInfoResolver);
         }
 
-        return applicationDefinedLeaf;
+        return false;
     }
 
     private static MigrationScope? Discover(JsonSerializerOptions options)
+    {
+        foreach (JsonMigrationTypeInfoResolver resolver in ActiveResolvers(options))
+        {
+            var discovered = new MigrationScope(resolver, options, []);
+            Register(options, discovered);
+            return discovered;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The migration resolvers <paramref name="options"/> delegate to, in chain order: those the
+    /// structural walk reaches, and those an application-defined resolver in the chain answers
+    /// the <see cref="ResolverProbe"/> with. The first is the one serving the migratable types.
+    /// </summary>
+    private static IEnumerable<JsonMigrationTypeInfoResolver> ActiveResolvers(JsonSerializerOptions options)
     {
         foreach (IJsonTypeInfoResolver leaf in ResolverLeaves.Of(options.TypeInfoResolver))
         {
             if (leaf is JsonMigrationTypeInfoResolver resolver)
             {
-                var discovered = new MigrationScope(resolver, options, []);
-                Register(options, discovered);
-                return discovered;
+                yield return resolver;
+            }
+            else if (ResolverProbe.IsApplicationDefined(leaf) && ResolverProbe.Through(leaf, options) is { } behind)
+            {
+                yield return behind;
             }
         }
-
-        return null;
     }
 }
