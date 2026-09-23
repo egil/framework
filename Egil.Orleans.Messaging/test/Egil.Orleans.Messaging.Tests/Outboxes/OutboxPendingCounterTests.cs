@@ -70,6 +70,31 @@ public sealed class OutboxPendingCounterTests
     }
 
     [Fact]
+    public void Tracking_preserves_caller_owned_flow_suppression_and_cleans_up()
+    {
+        var total = new OutboxPendingCounter();
+        var lifetime = new TaskCompletionSource();
+        Assert.False(ExecutionContext.IsFlowSuppressed());
+
+        using (ExecutionContext.SuppressFlow())
+        {
+            using var contribution = total.Track(lifetime.Task);
+            Assert.True(ExecutionContext.IsFlowSuppressed());
+            contribution.SetPending(true);
+            Assert.Equal(1, total.Count);
+
+            lifetime.SetResult();
+
+            Assert.Equal(0, total.Count);
+            Assert.True(ExecutionContext.IsFlowSuppressed());
+            contribution.SetPending(true);
+            Assert.Equal(0, total.Count);
+        }
+
+        Assert.False(ExecutionContext.IsFlowSuppressed());
+    }
+
+    [Fact]
     public void Tracking_does_not_capture_application_objects_from_execution_context()
     {
         var total = new OutboxPendingCounter();
