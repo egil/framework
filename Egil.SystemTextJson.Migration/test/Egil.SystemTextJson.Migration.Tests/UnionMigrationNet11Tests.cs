@@ -634,6 +634,19 @@ public partial class UnionMigrationTests
     }
 
     [Fact]
+    public void Union_case_with_a_1x_and_a_2_0_numeric_source_takes_the_number_through_the_1x_source()
+    {
+        // Union routing picks the case by shape; within the case, the converter's tiers pick the
+        // source, so a number stored by 1.x through the int source still reaches it rather than
+        // the Half source 2.0 added.
+        var options = CreateOptions();
+
+        var value = JsonSerializer.Deserialize<IntOrHalfCounterOrNote>("3", options);
+
+        Assert.Equal("from-int", Assert.IsType<IntOrHalfCounter>(value.Value).Source);
+    }
+
+    [Fact]
     public void Union_numeric_case_also_takes_strings_when_reading_numbers_from_strings_is_allowed()
     {
         var options = CreateOptions();
@@ -1209,6 +1222,26 @@ public partial class UnionMigrationTests
     public union CounterOrInt(Counter, int);
 
     public union CounterOrNote(Counter, Note);
+
+    public union IntOrHalfCounterOrNote(IntOrHalfCounter, Note);
+
+    [JsonMigratable(TypeDiscriminator = "int-or-half-counter")]
+    public record class IntOrHalfCounter(string Source)
+        : IMigrateFrom<int, IntOrHalfCounter>,
+          IMigrateFrom<Half, IntOrHalfCounter>
+    {
+        public static bool TryMigrateFrom(int source, out IntOrHalfCounter result)
+        {
+            result = new IntOrHalfCounter("from-int");
+            return true;
+        }
+
+        public static bool TryMigrateFrom(Half source, out IntOrHalfCounter result)
+        {
+            result = new IntOrHalfCounter("from-half");
+            return true;
+        }
+    }
 
     public union ShapeOrDouble(CircleV2, double);
 
