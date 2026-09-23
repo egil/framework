@@ -18,15 +18,18 @@ internal sealed partial class JsonMigratableConverter<T>
         // matched, plain ones ahead of ones behind a converter override (1.x reported that pair as
         // ambiguous; the plain source is the safer pick), then the shapes 2.0 recognises, then a
         // quoted number for numeric sources under AllowReadingFromString ("NaN"/"Infinity" for
-        // floating-point sources only), and last the 2.0 shapes of overridden sources. Within a
-        // tier two candidates are ambiguous.
+        // floating-point sources only), 1.x's numeric types before 2.0's as for a plain number,
+        // and last the 2.0 shapes of overridden sources. Within a tier two candidates are
+        // ambiguous.
         MigratorReference? match = MatchPrimitive(tokenType, MatchTier.PlainLegacy)
             ?? MatchPrimitive(tokenType, MatchTier.OverriddenLegacy)
             ?? MatchPrimitive(tokenType, MatchTier.PlainWidened);
 
         if (match is null && tokenType is JsonTokenType.String)
         {
-            match = MatchPrimitive(tokenType, MatchTier.QuotedNumber, SourceValueShapes.IsNamedFloatingPointLiteral(ref reader));
+            bool namedLiteral = SourceValueShapes.IsNamedFloatingPointLiteral(ref reader);
+            match = MatchPrimitive(tokenType, MatchTier.QuotedLegacyNumber, namedLiteral)
+                ?? MatchPrimitive(tokenType, MatchTier.QuotedWidenedNumber, namedLiteral);
         }
 
         return match ?? MatchPrimitive(tokenType, MatchTier.OverriddenWidened);
@@ -37,7 +40,8 @@ internal sealed partial class JsonMigratableConverter<T>
         PlainLegacy,
         OverriddenLegacy,
         PlainWidened,
-        QuotedNumber,
+        QuotedLegacyNumber,
+        QuotedWidenedNumber,
         OverriddenWidened,
     }
 
@@ -61,7 +65,8 @@ internal sealed partial class JsonMigratableConverter<T>
                 case MatchTier.OverriddenWidened when !migrator.IsLegacyShape:
                     shape = migrator.OverriddenShape;
                     break;
-                case MatchTier.QuotedNumber:
+                case MatchTier.QuotedLegacyNumber when migrator.IsLegacyShape:
+                case MatchTier.QuotedWidenedNumber when !migrator.IsLegacyShape:
                     shape = migrator.SourceShape;
                     allowQuoted = namedLiteral ? migrator.AllowsNamedFloatingPointLiterals : migrator.AllowsQuotedNumbers;
                     break;
@@ -142,7 +147,8 @@ internal sealed partial class JsonMigratableConverter<T>
 
         if (match is null && valueToken is JsonTokenType.String)
         {
-            match = MatchByPrimitiveElementType(kind, valueToken, ElementTier.QuotedNumber, namedLiteral);
+            match = MatchByPrimitiveElementType(kind, valueToken, ElementTier.QuotedLegacyNumber, namedLiteral)
+                ?? MatchByPrimitiveElementType(kind, valueToken, ElementTier.QuotedWidenedNumber, namedLiteral);
         }
 
         if (match is null)
@@ -206,7 +212,8 @@ internal sealed partial class JsonMigratableConverter<T>
     {
         Legacy,
         Widened,
-        QuotedNumber,
+        QuotedLegacyNumber,
+        QuotedWidenedNumber,
     }
 
     private MigratorReference? MatchByPrimitiveElementType(JsonTypeInfoKind kind, JsonTokenType valueToken, ElementTier tier, bool namedLiteral = false)
@@ -225,7 +232,8 @@ internal sealed partial class JsonMigratableConverter<T>
                 case ElementTier.Legacy when migrator.ElementIsLegacyShape:
                 case ElementTier.Widened when !migrator.ElementIsLegacyShape:
                     break;
-                case ElementTier.QuotedNumber:
+                case ElementTier.QuotedLegacyNumber when migrator.ElementIsLegacyShape:
+                case ElementTier.QuotedWidenedNumber when !migrator.ElementIsLegacyShape:
                     allowQuoted = namedLiteral ? migrator.ElementAllowsNamedFloatingPointLiterals : migrator.ElementAllowsQuotedNumbers;
                     break;
                 default:
