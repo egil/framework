@@ -19,8 +19,6 @@ namespace Egil.SystemTextJson.Migration.Migrations;
 /// </remarks>
 internal sealed class JsonMigrationTypeInfoResolver : IJsonTypeInfoResolver
 {
-    private const string TryMigrateFromMethodName = nameof(IMigrateFrom<,>.TryMigrateFrom);
-
     private readonly JsonMigrationRegistry registry;
     private readonly JsonConverter[] precedingConverters;
     private DefaultJsonTypeInfoResolver? reflectionFallback;
@@ -165,11 +163,9 @@ internal sealed class JsonMigrationTypeInfoResolver : IJsonTypeInfoResolver
         foreach (ExternalMigratorRegistration registration in registry.GetForTarget(targetType))
         {
             JsonTypeInfo sourceTypeInfo = GetRequiredTypeInfo(metadataOptions, registration.SourceType);
-            var migrator = new MigratorReference(
-                registration.SourceType,
+            var migrator = registration.Invoker.Bind(
                 registration.SourceMetadata,
                 sourceTypeInfo,
-                registration.Invoker,
                 MigratorReference.ResolveElementMetadata(registration.SourceType, sourceTypeInfo, registry),
                 MigratorReference.ResolveElementAcceptsNonObjectShapes(registration.SourceType, sourceTypeInfo, registry));
 
@@ -181,17 +177,14 @@ internal sealed class JsonMigrationTypeInfoResolver : IJsonTypeInfoResolver
 
         // Static target-owned migration is preferred
         // over external migrators for deterministic behavior.
-        foreach (StaticMigratorContract contract in FindStaticMigratorMethods(targetType))
+        foreach (Type sourceType in StaticMigratorContracts.GetSourceTypes(targetType))
         {
-            Type sourceType = contract.SourceType;
             TypeMetadata sourceMetadata = registry.GetTypeMetadata(sourceType);
 
             JsonTypeInfo sourceTypeInfo = GetRequiredTypeInfo(metadataOptions, sourceType);
-            var migrator = new MigratorReference(
-                sourceType,
+            var migrator = MigratorInvokerFactory.CreateStaticInvoker(sourceType, targetType).Bind(
                 sourceMetadata,
                 sourceTypeInfo,
-                MigratorInvokerFactory.CreateStaticInvoker(sourceType, targetType, contract.Method),
                 MigratorReference.ResolveElementMetadata(sourceType, sourceTypeInfo, registry),
                 MigratorReference.ResolveElementAcceptsNonObjectShapes(sourceType, sourceTypeInfo, registry));
 
@@ -270,56 +263,6 @@ internal sealed class JsonMigrationTypeInfoResolver : IJsonTypeInfoResolver
             candidate.Migrator.SourceType);
     }
 
-    private static IEnumerable<StaticMigratorContract> FindStaticMigratorMethods(Type targetType)
-    {
-        foreach (Type sourceType in StaticMigratorContracts.GetSourceTypes(targetType))
-        {
-            MethodInfo method = ResolveStaticTryMigrateMethod(targetType, sourceType);
-
-            yield return new StaticMigratorContract(sourceType, method);
-        }
-    }
-
-    private static MethodInfo ResolveStaticTryMigrateMethod(Type targetType, Type sourceType)
-    {
-        MethodInfo[] candidates = targetType
-            .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
-            .Where(static method => method.Name.Equals(TryMigrateFromMethodName, StringComparison.Ordinal)
-                || method.Name.EndsWith($".{TryMigrateFromMethodName}", StringComparison.Ordinal))
-            .Where(static method => method.ReturnType == typeof(bool))
-            .Where(method =>
-            {
-                if (method.GetParameters() is not [{ ParameterType: { } firstParameterType }, { IsOut: true } resultParameter])
-                {
-                    return false;
-                }
-
-                if (firstParameterType != sourceType)
-                {
-                    return false;
-                }
-
-                Type? outType = resultParameter.ParameterType.IsByRef
-                    ? resultParameter.ParameterType.GetElementType()
-                    : resultParameter.ParameterType;
-
-                return outType == targetType;
-            })
-            .ToArray();
-
-        // Explicit static interface implementations have fully qualified method names,
-        // so prefer those when both explicit and public shape matches exist.
-        MethodInfo? explicitContractMethod = candidates.FirstOrDefault(IsExplicitContractImplementation);
-        return explicitContractMethod
-            ?? candidates.First(static method => method.Name.Equals(TryMigrateFromMethodName, StringComparison.Ordinal));
-    }
-
-    private static bool IsExplicitContractImplementation(MethodInfo method)
-    {
-        return method.Name.EndsWith($".{TryMigrateFromMethodName}", StringComparison.Ordinal)
-            && method.Name.Contains("IMigrateFrom<", StringComparison.Ordinal);
-    }
-
     private static JsonTypeInfo GetRequiredTypeInfo(JsonSerializerOptions options, Type type)
     {
         try
@@ -364,6 +307,4 @@ internal sealed class JsonMigrationTypeInfoResolver : IJsonTypeInfoResolver
         External,
         Static,
     }
-
-    private readonly record struct StaticMigratorContract(Type SourceType, MethodInfo Method);
 }

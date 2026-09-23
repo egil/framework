@@ -1,16 +1,14 @@
 namespace Egil.SystemTextJson.Migration.Migrations;
 
-internal sealed class StaticMigratorInvoker<TSource, TTarget>(TryMigrateDelegate<TSource, TTarget> migrator) : IMigratorInvoker
+internal sealed class StaticMigratorInvoker<TSource, TTarget> : MigratorInvoker<TSource, TTarget>
+    where TTarget : IMigrateFrom<TSource, TTarget>
 {
-    public bool TryMigrate(object? source, out object? migrated)
-    {
-        if (source is TSource typed && migrator(typed, out TTarget? result))
-        {
-            migrated = result;
-            return true;
-        }
+    public override bool TryMigrate(TSource source, out TTarget migrated)
+        => TTarget.TryMigrateFrom(source, out migrated);
+}
 
-        migrated = null;
-        return false;
-    }
+internal sealed class InheritedMigratorInvoker<TSource, TTarget>(TryMigrateDelegate<TSource, TTarget> migrate)
+    : MigratorInvoker<TSource, TTarget>
+{
+    public override bool TryMigrate(TSource source, out TTarget migrated) => migrate(source, out migrated);
 }
