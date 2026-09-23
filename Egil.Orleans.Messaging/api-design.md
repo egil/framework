@@ -705,12 +705,14 @@ mutates payload objects or existing snapshots.
 initialisation and deliberate ops-level sequence-space resets.
 Document and warn.
 
-### Outbox depth telemetry and owner policy
+### Pending-outbox telemetry and owner policy
 
 The outbox can grow unbounded if postman targets are down. Mitigation:
 
-- **Telemetry:** gauge for outbox depth per grain type, emitted on every
-  write. Operators see growth before it becomes a crisis.
+- **Telemetry:** an observable up/down counter of active activations with
+  processor-observed pending outboxes, grouped by grain type. Sustained pending
+  counts alongside dispatch errors indicate delivery problems; message growth
+  within an individual outbox remains the owner's responsibility.
 - **Owner policy:** the owning grain controls the outbox. In
   `AcknowledgeFailuresAsync`, it can leave failed items pending, remove them,
   dead-letter them, or trim old entries according to domain policy.
@@ -2286,10 +2288,26 @@ metrics for state read/write, activation lifecycle, messaging layer.
 |---------------------------|-----------|--------------------------------------|
 | `outbox.post.duration`    | Histogram | Post run duration (ms)               |
 | `outbox.post.item.duration` | Histogram | Per-item postman dispatch duration |
-| `outbox.post.item.age`    | Histogram | Message age at dispatch time (ms), when the item carries a sent/enqueued timestamp |
 | `outbox.post.items`       | Counter   | Items successfully dispatched        |
 | `outbox.post.errors`      | Counter   | Items that failed dispatch           |
-| `outbox.depth`            | Gauge     | Pending items per grain type         |
+| `outbox.grains.pending`   | ObservableUpDownCounter | Active activations with observed nonempty outboxes, by `grain.type` |
+
+`outbox.grains.pending` reports an absolute process-local total, including all
+in-process silos. Each processor contributes once while its observed outbox is
+nonempty and removes its contribution on an empty observation or deactivation.
+The total is maintained without listeners; late or reconnected collection receives
+the current value, including explicit zero for previously registered grain types.
+Shared storage holds only per-type atomic totals, never activation identities,
+processors, or payloads. Deactivation closes the local contribution so late
+updates cannot restore it, and cleanup cannot decrement twice.
+
+Snapshots are refreshed when the processor reads the outbox for posting,
+background scheduling, reconciliation, or failure retry scheduling. Inactive
+persisted backlog is invisible until reactivation and observation. Deferred
+acknowledgements can differ from durable state. Sum distinct `service.instance.id`
+series across processes; alert on sustained pending counts and delivery errors,
+not on an assumption that nonempty always means stuck. Exporter health requires
+separate monitoring. No per-message recovery history is maintained.
 
 **Tags** (matching spike pattern):
 - `grain.type` — owning grain type name

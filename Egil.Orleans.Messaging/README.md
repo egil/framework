@@ -650,6 +650,32 @@ processor.AddStreamPostman<OrderSubmitted>(
 This is the recommended alternative to storing the sender in the outbox payload.
 Both direct and grouped registration offer it, with either stream selector shape.
 
+### Outbox metrics
+
+The `egil.orleans.messaging` meter reports `outbox.grains.pending` as an
+observable up/down counter, tagged by `grain.type`. It counts active activations
+whose latest processor-observed outbox is nonempty, not the number of messages.
+Empty/nonempty transitions adjust the total once; deactivation removes an
+activation's contribution automatically. Previously observed types report zero
+when none remain pending.
+
+Counts stay current without listeners, so attaching or reconnecting collection
+reports the existing total. Shared telemetry stores only a total per grain-type
+label, never a registry of grains or their messages. Collection reads those totals
+without invoking grain code.
+
+This is a process-local snapshot, including all silos hosted in that process.
+Across deployed processes, sum distinct `service.instance.id` series. Inactive
+grains with persisted backlog are invisible until reactivated and observed by the
+processor. Outbox mutations become visible at the processor's next snapshot read;
+this includes background scheduling, dispatch, acknowledgement reconciliation,
+and failure retry scheduling. Deferred acknowledgement writes mean this is not
+a measure of durable storage backlog.
+
+Alert on sustained pending counts alongside `outbox.post.errors` and
+`outbox.post.items`, and monitor exporter health separately. A nonempty outbox
+alone does not prove that delivery is stuck.
+
 ### OpenTelemetry trace correlation
 
 Adding a message to the outbox captures the current `Activity` as a W3C
@@ -990,6 +1016,13 @@ This package is messaging infrastructure, not an event-sourcing or CQRS framewor
 ## Beta API changes
 
 - Added the opt-in `Egil.Orleans.Messaging.Journaling` preview package with named durable trackers and outboxes; the core immutable APIs remain available.
+
+`outbox.depth` is removed because it reported the last observed activation's
+message count rather than aggregate backlog. Migrate backlog dashboards and alerts
+to `outbox.grains.pending`, which counts active activations with observed pending
+work and explicitly reports zero after they drain or deactivate
+([issue #221](https://github.com/egil/framework/issues/221)). Adjust thresholds to
+count activations rather than messages. Existing success/error metrics are unchanged.
 
 A grain can now inject `IStateManager<T>` on its `[PersistentState]` constructor
 parameter instead of `IPersistentState<T>`, and a state type can supply its own
