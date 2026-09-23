@@ -49,6 +49,9 @@ jobs:
 
       - name: Build and pack
         run: |
+          # The expanded solution can emit a malformed runner environment command
+          # after packing; subsequent steps do not consume values from this step.
+          export GITHUB_ENV=/dev/null
           dotnet tool restore
           messaging_version=$(dotnet nbgv get-version -p ./Egil.Orleans.Messaging --variable SimpleVersion)
           journaling_version="${messaging_version}-preview"
