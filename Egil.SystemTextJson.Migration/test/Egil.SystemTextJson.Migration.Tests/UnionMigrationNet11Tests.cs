@@ -848,6 +848,21 @@ public partial class UnionMigrationTests
     }
 
     [Fact]
+    public void Union_case_served_by_a_resolver_ahead_of_migration_names_the_resolver_chain()
+    {
+        // The override comes from a resolver, not from options.Converters, so the diagnostic must
+        // point at the resolver chain rather than at converter registration order.
+        var options = CreateOptions();
+        options.TypeInfoResolverChain.Insert(0, new CircleConverterResolver());
+        options.TypeInfoResolverChain.Add(new DefaultJsonTypeInfoResolver());
+
+        var exception = Assert.Throws<InvalidOperationException>(() => JsonSerializer.Deserialize<Shape>("""{"$type":"circle-v2","radius":1}""", options));
+
+        Assert.Contains("TypeInfoResolverChain", exception.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("before registering other converters", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Recursive_union_keeps_the_building_registry_when_its_first_case_is_served_elsewhere()
     {
         // KindBranch's converter is built by these options' registry, which names the
@@ -960,6 +975,28 @@ public partial class UnionMigrationTests
         Assert.Equal("root", Assert.IsType<WireTreeBranch>(flat.Value).Label);
         Assert.Contains("'tree-v1-wire'", exception.Message, StringComparison.Ordinal);
         Assert.Contains(nameof(WireTreeBranch), exception.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// An application-defined resolver that serves <see cref="CircleV2"/> with its own converter
+    /// and nothing else.
+    /// </summary>
+    private sealed class CircleConverterResolver : IJsonTypeInfoResolver
+    {
+        public JsonTypeInfo? GetTypeInfo(Type type, JsonSerializerOptions options)
+            => type == typeof(CircleV2) ? JsonMetadataServices.CreateValueInfo<CircleV2>(options, new CircleConverter()) : null;
+
+        private sealed class CircleConverter : JsonConverter<CircleV2>
+        {
+            public override CircleV2 Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+            {
+                reader.Skip();
+                return new CircleV2(0);
+            }
+
+            public override void Write(Utf8JsonWriter writer, CircleV2 value, JsonSerializerOptions options)
+                => writer.WriteNullValue();
+        }
     }
 
     /// <summary>
