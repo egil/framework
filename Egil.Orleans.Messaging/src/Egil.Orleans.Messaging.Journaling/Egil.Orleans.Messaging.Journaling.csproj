@@ -7,9 +7,23 @@
     <IsPackable>true</IsPackable>
     <DebugType>embedded</DebugType>
     <NoWarn>$(NoWarn);ORLEANSEXP005</NoWarn>
-    <ReleaseNotesTagPrefix>egil-orleans-messaging-journaling/v</ReleaseNotesTagPrefix>
+    <ReleaseNotesTagPrefix>egil-orleans-messaging/v</ReleaseNotesTagPrefix>
     <ReleaseNotesProjectPath>Egil.Orleans.Messaging/src/Egil.Orleans.Messaging.Journaling/</ReleaseNotesProjectPath>
   </PropertyGroup>
+
+  <!-- NuGet captures the expected nupkg path before GenerateNuspec, so set the
+       preview version before that path and the assembly metadata are computed. -->
+  <Target Name="SetMessagingAlignedPreviewVersion"
+          BeforeTargets="GenerateAssemblyNBGVVersionInfo;_GetOutputItemsFromPack"
+          DependsOnTargets="GetBuildVersion"
+          Condition="'$(MessagingAlignedPreviewVersion)' != ''">
+    <PropertyGroup>
+      <Version>$(MessagingAlignedPreviewVersion)</Version>
+      <PackageVersion>$(MessagingAlignedPreviewVersion)</PackageVersion>
+      <NuGetPackageVersion>$(MessagingAlignedPreviewVersion)</NuGetPackageVersion>
+      <AssemblyInformationalVersion>$(MessagingAlignedPreviewVersion)+$(GitCommitIdShort)</AssemblyInformationalVersion>
+    </PropertyGroup>
+  </Target>
 
   <PropertyGroup>
     <PackageId>Egil.Orleans.Messaging.Journaling</PackageId>

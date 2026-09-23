@@ -186,8 +186,9 @@ The dedicated tests exercise shared recovery, processor acknowledgements, immedi
 posting without saving, compaction, net diffs, failures, and mutations during a
 pending write.
 
-The separate `egil-orleans-messaging-journaling` workflow validates this package.
-Publishing is an explicit dispatch on `main` with `publish` selected; publish the
-matching core dependency first. Configure NuGet trusted publishing for that
-workflow before the first release. Version and tag configuration live in this
-project's `version.json`; core releases cannot promote this preview to stable.
+The `egil-orleans-messaging` workflow builds, validates, and releases this package
+alongside the core messaging packages.
+The package is published with the matching core package from the messaging
+release branch. Its NuGet version uses the core messaging version with a
+`-preview` suffix. Configure NuGet trusted publishing for the
+`egil-orleans-messaging` workflow before the first release.
