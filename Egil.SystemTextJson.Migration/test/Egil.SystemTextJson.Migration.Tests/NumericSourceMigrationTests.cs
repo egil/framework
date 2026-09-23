@@ -111,6 +111,28 @@ public partial class NumericSourceMigrationTests
     }
 
     [Fact]
+    public void Int_source_wins_over_half_source_for_a_quoted_number()
+    {
+        // The quoted-number tier keeps the same precedence as a plain number: the source 1.x
+        // matched by TypeCode first, then the numeric types 2.0 added.
+        var options = CreateOptions();
+
+        var result = JsonSerializer.Deserialize<AmbiguousNumericState>("\"42\"", options);
+
+        Assert.Equal("from-int", result!.Source);
+    }
+
+    [Fact]
+    public void Int_list_source_wins_over_half_list_source_for_a_quoted_number_element()
+    {
+        var options = CreateOptions();
+
+        var result = JsonSerializer.Deserialize<IntListOrHalfListState>("""["42"]""", options);
+
+        Assert.Equal("from-int-list", result!.Source);
+    }
+
+    [Fact]
     public void Two_numeric_sources_that_1x_matched_are_ambiguous_for_a_number()
     {
         var options = CreateOptions();
@@ -1093,6 +1115,24 @@ public partial class NumericSourceMigrationTests
         public static bool TryMigrateFrom(long source, out IntOrLongState result)
         {
             result = new IntOrLongState("from-long");
+            return true;
+        }
+    }
+
+    [JsonMigratable]
+    public record class IntListOrHalfListState(string Source)
+        : IMigrateFrom<List<int>, IntListOrHalfListState>,
+          IMigrateFrom<List<Half>, IntListOrHalfListState>
+    {
+        public static bool TryMigrateFrom(List<int> source, out IntListOrHalfListState result)
+        {
+            result = new IntListOrHalfListState("from-int-list");
+            return true;
+        }
+
+        public static bool TryMigrateFrom(List<Half> source, out IntListOrHalfListState result)
+        {
+            result = new IntListOrHalfListState("from-half-list");
             return true;
         }
     }
