@@ -9,8 +9,8 @@ share one journal write. Core `Egil.Orleans.Messaging` does not depend on Journa
 
 This preview targets **Microsoft.Orleans.Journaling 10.3.1-alpha.1** and Orleans
 10.3.1. Its NuGet dependency specifies the matching minimum core OM version; use
-the core version from the same release or a compatible later version. The companion
-has its own `0.1-preview` version series and is published separately from core OM.
+the core version from the same release or a compatible later version. Journaling
+is released alongside core OM with the same numeric version and a `-preview` suffix.
 Use the exact tested Journaling version: newer previews can change lifecycle APIs.
 
 The pinned Orleans package calls its internal lifecycle protocol `IJournaledState`
@@ -176,12 +176,11 @@ From `Egil.Orleans.Messaging`, run:
 
 ```sh
 dotnet test --solution Egil.Orleans.Messaging.slnx -c Release --report-xunit-trx
-dotnet pack src/Egil.Orleans.Messaging/Egil.Orleans.Messaging.csproj -c Release -o /tmp/om-packages
-dotnet pack src/Egil.Orleans.Messaging.Journaling/Egil.Orleans.Messaging.Journaling.csproj -c Release -o /tmp/om-packages
 ```
 
-Packing release notes uses PowerShell (`pwsh`); local environments without it can
-pass `-p:SkipReleaseNotes=true`. CI generates notes from package-specific tags.
+The release pipeline packs both packages and passes the matching core version with
+the `-preview` suffix to the Journaling build. CI generates Journaling notes from
+shared Messaging release tags and commits touching this project.
 The dedicated tests exercise shared recovery, processor acknowledgements, immediate
 posting without saving, compaction, net diffs, failures, and mutations during a
 pending write.
