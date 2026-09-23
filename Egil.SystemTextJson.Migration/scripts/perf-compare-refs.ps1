@@ -66,6 +66,11 @@
 .PARAMETER KeepBoost
     Leave the High Performance scheme's processor boost mode as it is instead of disabling
     it for the run.
+
+.PARAMETER IsolateHotPathCases
+    Runs each hot-path benchmark parameter combination in a fresh process, avoiding
+    cross-case JIT state in the in-process toolchain required by the current .NET 11
+    benchmark package. Filter matches the case names printed by --list-hot-path-cases.
 #>
 [CmdletBinding()]
 param(
@@ -78,7 +83,8 @@ param(
     [int]$IterationCount = 15,
     [int]$WarmupCount = 3,
     [string]$Affinity,
-    [switch]$KeepBoost
+    [switch]$KeepBoost,
+    [switch]$IsolateHotPathCases
 )
 
 $ErrorActionPreference = 'Stop'
@@ -223,6 +229,7 @@ $summary.Add("| Candidate | ``$CandidateRef`` = ``$candidateSha`` |")
 $summary.Add("| Framework | $Framework |")
 $summary.Add("| Affinity | $Affinity (0x$([Convert]::ToString([int]$Affinity, 16))) |")
 $summary.Add("| Iterations | $IterationCount (warmup $WarmupCount), $Rounds round(s), filter ``$Filter`` |")
+$summary.Add("| Case isolation | $IsolateHotPathCases |")
 
 # Initialized outside the try block so the finally block can read it; every change to the
 # boost mode happens inside the try block, so the restore covers any failure after it.
@@ -287,20 +294,54 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Build failed for $name" }
     }
 
+    $isolatedCases = @()
+    if ($IsolateHotPathCases) {
+        $candidateDll = Join-Path $candidatePerf "bin\Release\$Framework\Egil.SystemTextJson.Migration.PerfTests.dll"
+        $caseJson = & dotnet $candidateDll --list-hot-path-cases
+        if ($LASTEXITCODE -ne 0) { throw 'Could not enumerate hot-path cases' }
+        $isolatedCases = @($caseJson | ConvertFrom-Json | Where-Object { $_ -like $Filter })
+        if ($isolatedCases.Count -eq 0) { throw "No hot-path cases match '$Filter'" }
+        Write-Stage "Running $($isolatedCases.Count) cases in separate processes per revision per round"
+    }
+
     for ($round = 1; $round -le $Rounds; $round++) {
         foreach ($name in $refs.Keys) {
             $label = "$name-r$round"
             $perfDir = Join-Path $refs[$name].Dir $perfRelative
             $artifacts = Join-Path $outputDir $label
             Write-Stage "Round $round`: running $name -> $artifacts"
-            & dotnet run --project $perfDir -c Release --framework $Framework --no-build -- `
-                --filter $Filter `
-                --affinity $Affinity `
-                --iterationCount $IterationCount `
-                --warmupCount $WarmupCount `
-                --exporters json github `
-                --artifacts $artifacts
-            if ($LASTEXITCODE -ne 0) { throw "Benchmark run failed for $label" }
+            if ($IsolateHotPathCases) {
+                $benchmarkDll = Join-Path $perfDir "bin\Release\$Framework\Egil.SystemTextJson.Migration.PerfTests.dll"
+                $results = Join-Path $artifacts 'results'
+                New-Item -ItemType Directory -Force $results | Out-Null
+                for ($caseIndex = 0; $caseIndex -lt $isolatedCases.Count; $caseIndex++) {
+                    $caseName = $isolatedCases[$caseIndex]
+                    $caseLabel = 'case-{0:D3}' -f $caseIndex
+                    $caseArtifacts = Join-Path $artifacts $caseLabel
+                    Write-Stage "$label $caseLabel`: $caseName"
+                    & dotnet $benchmarkDll --hot-path-case $caseName `
+                        --filter '*' --affinity $Affinity --iterationCount $IterationCount `
+                        --warmupCount $WarmupCount --exporters json github --artifacts $caseArtifacts
+                    if ($LASTEXITCODE -ne 0) { throw "Benchmark failed for $label $caseName" }
+                    $reports = @(Get-ChildItem (Join-Path $caseArtifacts 'results') -File)
+                    if ($reports.Count -eq 0) { throw "No reports produced for $label $caseName" }
+                    # Prefix filenames so different cases of the same benchmark class do
+                    # not overwrite each other in the existing comparison reader's folder.
+                    foreach ($report in $reports) {
+                        Copy-Item -LiteralPath $report.FullName -Destination (Join-Path $results "$caseLabel-$($report.Name)")
+                    }
+                }
+            }
+            else {
+                & dotnet run --project $perfDir -c Release --framework $Framework --no-build -- `
+                    --filter $Filter `
+                    --affinity $Affinity `
+                    --iterationCount $IterationCount `
+                    --warmupCount $WarmupCount `
+                    --exporters json github `
+                    --artifacts $artifacts
+                if ($LASTEXITCODE -ne 0) { throw "Benchmark run failed for $label" }
+            }
             if (-not (Test-Path (Join-Path $artifacts 'results'))) { throw "No results produced for $label; check the BenchmarkDotNet output above" }
         }
 
@@ -325,7 +366,7 @@ try {
         $summary.Add('')
     }
 
-    foreach ($report in Get-ChildItem $outputDir -Recurse -Filter '*-report-github.md') {
+    foreach ($report in Get-ChildItem (Join-Path $outputDir '*\results\*-report-github.md')) {
         $label = $report.Directory.Parent.Name
         $summary.Add("## Raw report: $label / $($report.BaseName -replace '-report-github$', '' -replace '^Egil\.SystemTextJson\.Migration\.PerfTests\.', '')")
         $summary.Add('')
@@ -353,9 +394,15 @@ finally {
 
     foreach ($name in $refs.Keys) {
         if (Test-Path $refs[$name].Dir) {
+            $expectedPath = [IO.Path]::GetFullPath((Join-Path $worktreeRoot $name))
+            if ([IO.Path]::GetFullPath($refs[$name].Dir) -ne $expectedPath) { throw 'Unexpected benchmark worktree cleanup path' }
             & git -C $repoRoot worktree remove --force $refs[$name].Dir | Out-Null
         }
     }
 
-    if (Test-Path $worktreeRoot) { Remove-Item -Recurse -Force $worktreeRoot -ErrorAction SilentlyContinue }
+    if (Test-Path $worktreeRoot) {
+        $expectedRoot = [IO.Path]::GetFullPath((Join-Path ([IO.Path]::GetTempPath()) "stjm-perf-$stamp"))
+        if ([IO.Path]::GetFullPath($worktreeRoot) -ne $expectedRoot) { throw 'Unexpected benchmark cleanup root' }
+        Remove-Item -LiteralPath $worktreeRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
