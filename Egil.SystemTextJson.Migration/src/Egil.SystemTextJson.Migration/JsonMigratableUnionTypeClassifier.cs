@@ -66,13 +66,15 @@ public sealed class JsonMigratableUnionTypeClassifier : JsonTypeClassifierFactor
         // with the registry that built its converter (see UnionCaseRouting): a registration the
         // options no longer use can stay cached behind an application-defined resolver, and a
         // wrapper can send cases to a resolver registered on other options. The cached lookup
-        // supplies the exclusions of the options being resolved and
-        // the registry for cases that have no migration converter to ask; when the options carry
-        // no registration at all, the resolver serving the first case stands in for it.
+        // supplies the exclusions of the options being resolved and the registry for cases that
+        // have no migration converter to ask, such as a case whose own converter is being built
+        // through these options; it is kept as is, because inside such a build it is the
+        // building registry, whichever resolver serves the other cases. Only when the options
+        // carry no registration at all does the resolver serving a case stand in for it.
         MigrationScope? scope = MigrationScope.FindReachable(options);
-        if (ServingResolver(context, options) is { } serving)
+        if (scope is null && ServingResolver(context, options) is { } serving)
         {
-            scope = scope?.ForResolver(serving) ?? new MigrationScope(serving, options, []);
+            scope = new MigrationScope(serving, options, []);
         }
 
         if (scope is null)

@@ -848,6 +848,25 @@ public partial class UnionMigrationTests
     }
 
     [Fact]
+    public void Recursive_union_keeps_the_building_registry_when_its_first_case_is_served_elsewhere()
+    {
+        // KindBranch's converter is built by these options' registry, which names the
+        // discriminator "kind"; its children are the same union, configured again inside that
+        // build. Leaf, the union's first case, is served by another options' registry, which
+        // uses the default "$type". The excluded KindBranch must keep the building registry's
+        // discriminator there, or a nested branch is not recognized.
+        var other = CreateOptions();
+        var options = CreateOptions(static builder => builder.SetTypeDiscriminatorPropertyName("kind"));
+        options.TypeInfoResolverChain[0] = new CaseResolver(typeof(Leaf), options.TypeInfoResolverChain[0], other.TypeInfoResolverChain[0]);
+        options.TypeInfoResolverChain.Add(new DefaultJsonTypeInfoResolver());
+
+        var value = JsonSerializer.Deserialize<LeafFirstNode>("""{"kind":"kind-branch","children":[{"kind":"kind-branch","children":[]}]}""", options);
+
+        var branch = Assert.IsType<KindBranch>(value.Value);
+        Assert.IsType<KindBranch>(Assert.Single(branch.Children).Value);
+    }
+
+    [Fact]
     public void Nullable_migratable_case_round_trips_through_its_discriminator()
     {
         var options = CreateOptions();
@@ -947,6 +966,16 @@ public partial class UnionMigrationTests
     /// An application-defined resolver that sends <see cref="RectangleV2"/> to one resolver and
     /// every other type to another.
     /// </summary>
+    /// <summary>
+    /// An application-defined resolver that sends one type to one resolver and every other type
+    /// to another.
+    /// </summary>
+    private sealed class CaseResolver(Type routed, IJsonTypeInfoResolver original, IJsonTypeInfoResolver other) : IJsonTypeInfoResolver
+    {
+        public JsonTypeInfo? GetTypeInfo(Type type, JsonSerializerOptions options)
+            => (type == routed ? other : original).GetTypeInfo(type, options);
+    }
+
     private sealed class RectangleResolver(IJsonTypeInfoResolver original, IJsonTypeInfoResolver rectangles) : IJsonTypeInfoResolver
     {
         public JsonTypeInfo? GetTypeInfo(Type type, JsonSerializerOptions options)
@@ -1405,6 +1434,11 @@ public partial class UnionMigrationTests
     public record class Branch(Node[] Children);
 
     public union Node(Branch, Leaf);
+
+    [JsonMigratable(TypeDiscriminator = "kind-branch")]
+    public record class KindBranch(LeafFirstNode[] Children);
+
+    public union LeafFirstNode(Leaf, KindBranch);
 
     [JsonMigratable(TypeDiscriminator = "value-leaf-v1")]
     public record struct ValueLeafV1([property: JsonPropertyName("n")] int N);
