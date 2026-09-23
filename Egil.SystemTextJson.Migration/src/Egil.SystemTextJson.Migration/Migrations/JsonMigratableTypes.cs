@@ -24,6 +24,7 @@ internal static class JsonMigratableTypes
         return IsMigratable(underlyingType) ? underlyingType : null;
     }
 
+#if NET11_0_OR_GREATER
     /// <summary>
     /// Returns whether <paramref name="type"/> is a C# union (marked with
     /// <c>System.Runtime.CompilerServices.UnionAttribute</c>) that has, directly or through a
@@ -40,11 +41,13 @@ internal static class JsonMigratableTypes
 
         foreach (ConstructorInfo constructor in type.GetConstructors())
         {
-            if (constructor.GetParameters() is not [{ ParameterType: { } caseType }])
+            ParameterInfo[] parameters = constructor.GetParameters();
+            if (parameters.Length != 1)
             {
                 continue;
             }
 
+            Type caseType = parameters[0].ParameterType;
             if (GetMigratableType(caseType) is not null || IsUnionWithMigratableCase(caseType))
             {
                 return true;
@@ -66,6 +69,7 @@ internal static class JsonMigratableTypes
 
         return false;
     }
+#endif
 
     /// <summary>
     /// Returns whether a converter other than the built-in one handles <paramref name="type"/>:

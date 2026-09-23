@@ -33,19 +33,6 @@ internal static class ResolverLeaves
         return leaves;
     }
 
-    public static bool Contains(IJsonTypeInfoResolver? resolver, IJsonTypeInfoResolver leaf)
-    {
-        foreach (IJsonTypeInfoResolver candidate in Of(resolver))
-        {
-            if (ReferenceEquals(candidate, leaf))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     private static void Collect(IJsonTypeInfoResolver? resolver, List<IJsonTypeInfoResolver> leaves, HashSet<IJsonTypeInfoResolver> visited)
     {
         // An options-bound chain that was wrapped and assigned back to the same options contains
