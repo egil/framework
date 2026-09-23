@@ -154,6 +154,27 @@ public partial class NumericSourceMigrationTests
         Assert.Equal(42, result.Value);
     }
 
+    [Theory]
+    [InlineData("42", 42f)]
+    [InlineData("NaN", float.NaN)]
+    public void Source_contract_number_handling_allows_quoted_half_with_strict_root_options(string value, float expected)
+    {
+        var resolver = new System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver();
+        resolver.Modifiers.Add(info =>
+        {
+            if (info.Type == typeof(Half))
+            {
+                info.NumberHandling = JsonNumberHandling.AllowReadingFromString | JsonNumberHandling.AllowNamedFloatingPointLiterals;
+            }
+        });
+        var options = new JsonSerializerOptions { TypeInfoResolver = resolver }.AddJsonMigrationSupport();
+
+        var result = JsonSerializer.Deserialize<HalfState>($"\"{value}\"", options);
+
+        Assert.NotNull(result);
+        Assert.Equal((Half)expected, result.Value);
+    }
+
     [Fact]
     public void Named_floating_point_literal_reaches_floating_point_source()
     {
@@ -545,6 +566,16 @@ public partial class NumericSourceMigrationTests
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
         options.AddJsonMigrationSupport();
         return options;
+    }
+
+    [JsonMigratable]
+    public sealed record HalfState(Half Value) : IMigrateFrom<Half, HalfState>
+    {
+        public static bool TryMigrateFrom(Half source, out HalfState result)
+        {
+            result = new(source);
+            return true;
+        }
     }
 
     public record class Item(string Name);

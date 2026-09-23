@@ -105,6 +105,34 @@ public partial class UnionMigrationTests
     }
 
     [Fact]
+    public void Union_on_fresh_options_discovers_an_opaque_imported_migration_resolver()
+    {
+        var imported = CreateOptions(builder => builder.RegisterMigrator<RectangleV1, RectangleV2, RectangleMigrator>());
+        imported.TypeInfoResolverChain.Add(new DefaultJsonTypeInfoResolver());
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        {
+            TypeInfoResolver = new ResolverChainTests.ForwardingResolver(imported.TypeInfoResolver!),
+        };
+
+        var shape = JsonSerializer.Deserialize<AnnotatedShape>("""{"$type":"rect-v1","w":4,"h":5}""", options);
+
+        var rectangle = Assert.IsType<RectangleV2>(shape.Value);
+        Assert.Equal(new RectangleV2(4, 5), rectangle);
+    }
+
+    [Fact]
+    public void Union_with_one_migratable_object_case_reads_legacy_payload_without_discriminator()
+    {
+        var options = CreateOptions();
+
+        var shape = JsonSerializer.Deserialize<ShapeOrScalar>("""{"radius":3}""", options);
+
+        var circle = Assert.IsType<CircleV2>(shape.Value);
+        Assert.Equal(3, circle.Radius);
+        Assert.True(circle.MigratedDuringDeserialization);
+    }
+
+    [Fact]
     public void Union_routes_with_the_registry_that_serves_its_cases()
     {
         // These options cache their own registration, without the external migrator, but a
