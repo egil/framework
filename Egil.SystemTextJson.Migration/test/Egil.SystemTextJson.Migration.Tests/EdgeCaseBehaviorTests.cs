@@ -202,6 +202,18 @@ public class EdgeCaseBehaviorTests
     }
 
     [Theory]
+    [InlineData("42")]
+    [InlineData("null")]
+    [InlineData("\"unknown\"")]
+    public void Invalid_source_specific_discriminator_does_not_invoke_migration(string discriminator)
+    {
+        var options = new JsonSerializerOptions().AddJsonMigrationSupport();
+
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<RenamedTarget>(
+            $"{{\"version\":{discriminator},\"Value\":42}}", options));
+    }
+
+    [Theory]
     [InlineData("a", 1)]
     [InlineData("bb", 2)]
     [InlineData("cc", 3)]
@@ -307,6 +319,16 @@ public class EdgeCaseBehaviorTests
         .RegisterMigrator<VersionMigrator<SourceD>>()
         .RegisterMigrator<VersionMigrator<SourceE>>()
         .RegisterMigrator<VersionMigrator<SourceF>>();
+
+    [JsonMigratable(TypeDiscriminator = "renamed-v1", TypeDiscriminatorPropertyName = "version")]
+    public sealed record RenamedSource(int Value);
+
+    [JsonMigratable]
+    public sealed record RenamedTarget(int Value) : IMigrateFrom<RenamedSource, RenamedTarget>
+    {
+        public static bool TryMigrateFrom(RenamedSource source, out RenamedTarget result)
+            => throw new InvalidOperationException("An invalid discriminator must not reach migration.");
+    }
 
     private sealed class Segment : ReadOnlySequenceSegment<byte>
     {

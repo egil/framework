@@ -59,6 +59,26 @@ public class ExternalMigratorResolutionTests
         Assert.Contains("could not be created", first.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Service_provider_overload_invokes_registration_callback()
+    {
+        var options = new JsonSerializerOptions().AddJsonMigrationSupport(new EmptyProvider(), b => b.RegisterMigrator<ChainExternalMigrator>());
+
+        var result = JsonSerializer.Deserialize<ChainV3>("""{"$type":"chain-v1","Name":"Jane Doe"}""", options);
+
+        Assert.Equal(new ChainV3("Jane Doe"), result);
+    }
+
+    [Fact]
+    public void Service_provider_overload_without_callback_supports_static_migration()
+    {
+        var options = new JsonSerializerOptions().AddJsonMigrationSupport(new EmptyProvider());
+
+        var result = JsonSerializer.Deserialize<ChainV2>("""{"$type":"chain-v1","Name":"Jane Doe"}""", options);
+
+        Assert.Equal(new ChainV2("Jane", "Doe"), result);
+    }
+
     private static async Task<IdentifiedTarget[]> MigrateConcurrently(JsonSerializerOptions options, CancellationToken cancellationToken)
     {
         // Dedicated threads meet before the first migration so the thread pool and
@@ -98,6 +118,11 @@ public class ExternalMigratorResolutionTests
         public StructMigrator? Migrator { get; set; }
 
         public object? GetService(Type serviceType) => serviceType == typeof(StructMigrator) ? Migrator : null;
+    }
+
+    private sealed class EmptyProvider : IServiceProvider
+    {
+        public object? GetService(Type serviceType) => null;
     }
 
     [JsonMigratable]

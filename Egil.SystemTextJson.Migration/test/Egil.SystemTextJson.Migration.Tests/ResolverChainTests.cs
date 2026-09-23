@@ -448,6 +448,71 @@ public class ResolverChainTests
     }
 
     [Fact]
+    public void Independently_composed_chain_discovers_existing_external_registration()
+    {
+        var original = new JsonSerializerOptions().AddJsonMigrationSupport(b => b.RegisterMigrator<ChainExternalMigrator>());
+        var options = new JsonSerializerOptions();
+        options.TypeInfoResolverChain.Add(original.TypeInfoResolverChain[0]);
+        options.TypeInfoResolverChain.Add(new DefaultJsonTypeInfoResolver());
+
+        options.AddJsonMigrationSupport(_ => Assert.Fail("Existing registration must be retained."));
+        var result = JsonSerializer.Deserialize<ChainV3>("""{"$type":"chain-v1","Name":"Jane Doe"}""", options);
+
+        Assert.Equal(new ChainV3("Jane Doe"), result);
+    }
+
+    [Fact]
+    public void Source_generation_context_replacing_migration_allows_fresh_registration()
+    {
+        var options = new JsonSerializerOptions().AddJsonMigrationSupport();
+        options.TypeInfoResolver = ChainJsonContext.Default;
+        bool configured = false;
+
+        options.AddJsonMigrationSupport(_ => configured = true);
+        var result = JsonSerializer.Deserialize<ChainV2>("""{"$type":"chain-v1","Name":"Jane Doe"}""", options);
+
+        Assert.True(configured);
+        Assert.Equal(new ChainV2("Jane", "Doe"), result);
+    }
+
+    [Fact]
+    public void Replacement_migration_resolver_retains_its_external_registration()
+    {
+        var original = new JsonSerializerOptions().AddJsonMigrationSupport();
+        var replacement = new JsonSerializerOptions().AddJsonMigrationSupport(b => b.RegisterMigrator<ChainExternalMigrator>());
+        original.TypeInfoResolver = replacement.TypeInfoResolverChain[0];
+
+        original.AddJsonMigrationSupport(_ => Assert.Fail("Replacement registration must be retained."));
+        var result = JsonSerializer.Deserialize<ChainV3>("""{"$type":"chain-v1","Name":"Jane Doe"}""", original);
+
+        Assert.Equal(new ChainV3("Jane Doe"), result);
+    }
+
+    [Fact]
+    public void Cyclic_decorated_chain_registration_terminates_without_resolving_contracts()
+    {
+        var options = new JsonSerializerOptions().AddJsonMigrationSupport();
+        options.TypeInfoResolver = options.TypeInfoResolver!.WithAddedModifier(_ => Assert.Fail("Registration must not resolve contracts."));
+
+        options.AddJsonMigrationSupport(_ => Assert.Fail("Existing registration must be retained."));
+
+        Assert.Single(options.TypeInfoResolverChain);
+    }
+
+    [Fact]
+    public void Imported_resolver_keeps_its_registration_when_serving_previously_registered_options()
+    {
+        var imported = new JsonSerializerOptions { TypeInfoResolver = new DefaultJsonTypeInfoResolver() }
+            .AddJsonMigrationSupport(b => b.RegisterMigrator<ChainExternalMigrator>());
+        var options = new JsonSerializerOptions().AddJsonMigrationSupport();
+        options.TypeInfoResolver = new ForwardingResolver(imported.TypeInfoResolver!);
+
+        var result = JsonSerializer.Deserialize<ChainV3>("""{"$type":"chain-v1","Name":"Jane Doe"}""", options);
+
+        Assert.Equal(new ChainV3("Jane Doe"), result);
+    }
+
+    [Fact]
     public void A_source_converter_for_a_base_type_remains_supported()
     {
         var options = new JsonSerializerOptions();
