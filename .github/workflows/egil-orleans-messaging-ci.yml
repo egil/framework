@@ -49,10 +49,17 @@ jobs:
 
       - name: Build and pack
         run: |
-          dotnet build ./Egil.Orleans.Messaging/Egil.Orleans.Messaging.slnx -c Release -p:ContinuousIntegrationBuild=true
-          for name in Egil.Orleans.Messaging Egil.Orleans.Messaging.State.AzureStorage Egil.Orleans.Messaging.Streams.EventHubs; do
+          dotnet tool restore
+          messaging_version=$(dotnet nbgv get-version -p ./Egil.Orleans.Messaging --variable SimpleVersion)
+          journaling_version="${messaging_version}-preview"
+          dotnet build ./Egil.Orleans.Messaging/Egil.Orleans.Messaging.slnx -c Release -p:ContinuousIntegrationBuild=true -p:MessagingAlignedPreviewVersion="$journaling_version"
+          for name in Egil.Orleans.Messaging Egil.Orleans.Messaging.Journaling Egil.Orleans.Messaging.State.AzureStorage Egil.Orleans.Messaging.Streams.EventHubs; do
             project="./Egil.Orleans.Messaging/src/$name/$name.csproj"
-            dotnet pack "$project" -c Release --no-build -p:ContinuousIntegrationBuild=true --output ${{ env.NuGetDirectory }}
+            if [[ "$name" == "Egil.Orleans.Messaging.Journaling" ]]; then
+              dotnet pack "$project" -c Release --no-build -p:ContinuousIntegrationBuild=true -p:MessagingAlignedPreviewVersion="$journaling_version" --output ${{ env.NuGetDirectory }}
+            else
+              dotnet pack "$project" -c Release --no-build -p:ContinuousIntegrationBuild=true --output ${{ env.NuGetDirectory }}
+            fi
           done
 
       - uses: actions/upload-artifact@v4
