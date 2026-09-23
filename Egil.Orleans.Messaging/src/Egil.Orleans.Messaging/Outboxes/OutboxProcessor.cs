@@ -38,6 +38,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     private readonly ILogger logger;
     private readonly string grainType;
     private readonly string reminderName;
+    private readonly OutboxPendingCounter.Contribution pendingOutbox;
     private IGrainTimer? dispatchTimer;
     private IGrainTimer? acknowledgementTimer;
     private IGrainReminder? reminder;
@@ -86,6 +87,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
             options.AcknowledgePosted,
             options.AcknowledgePostedAsync,
             options.AcknowledgeFailuresAsync);
+        pendingOutbox = MessagingTelemetry.TrackPendingOutbox(grainType, owner.GrainContext.Deactivated);
     }
 
     internal string ReminderName => reminderName;
@@ -336,15 +338,19 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         }
     }
 
-    private ImmutableArray<OutboxMessageEnvelope<TOutbox>> GetPendingItems() =>
-        (options.OutboxAccessor() ?? throw new InvalidOperationException("OutboxAccessor must return a non-null outbox snapshot.")).Envelopes;
+    private ImmutableArray<OutboxMessageEnvelope<TOutbox>> GetPendingItems()
+    {
+        var pending = (options.OutboxAccessor()
+            ?? throw new InvalidOperationException("OutboxAccessor must return a non-null outbox snapshot.")).Envelopes;
+        pendingOutbox.SetPending(!pending.IsDefaultOrEmpty);
+        return pending;
+    }
 
     private async Task<OutboxAcknowledgementBatch<OutboxMessageEnvelope<TOutbox>>> ProcessPendingItemsAsync(
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var pending = GetPendingItems();
-        MessagingTelemetry.RecordOutboxDepth(grainType, pending.IsDefault ? 0 : pending.Length);
 
         if (pending.IsDefaultOrEmpty)
         {
@@ -371,7 +377,6 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     private async Task ReconcileRetryStateAsync()
     {
         var pending = GetPendingItems();
-        MessagingTelemetry.RecordOutboxDepth(grainType, pending.IsDefault ? 0 : pending.Length);
 
         // Items the grain removed without a successful post (dead-lettered or
         // dropped in AcknowledgeFailuresAsync) would otherwise leak their attempt

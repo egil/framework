@@ -17,11 +17,12 @@ internal static class MessagingTelemetry
     private static readonly Counter<long> OutboxPostErrors = Meter.CreateCounter<long>("outbox.post.errors");
     private static readonly Histogram<double> OutboxPostDuration = Meter.CreateHistogram<double>("outbox.post.duration", "ms");
     private static readonly Histogram<double> OutboxPostItemDuration = Meter.CreateHistogram<double>("outbox.post.item.duration", "ms");
-    private static readonly ConcurrentDictionary<string, long> OutboxDepthValues = [];
-    private static readonly ObservableGauge<long> OutboxDepth = Meter.CreateObservableGauge(
-        "outbox.depth",
-        ObserveOutboxDepth,
-        description: "Pending outbox items by grain type.");
+    // Retain zero totals for stable series; storage grows with type labels, not activations.
+    private static readonly ConcurrentDictionary<string, OutboxPendingCounter> PendingOutboxCounts = [];
+    private static readonly ObservableUpDownCounter<long> PendingOutboxes = Meter.CreateObservableUpDownCounter(
+        "outbox.grains.pending",
+        ObservePendingOutboxes,
+        description: "Active activations with observed pending outbox items by grain type.");
     private static readonly Histogram<double> StreamReceiveLag = Meter.CreateHistogram<double>(
         "stream.message.receive.lag",
         "ms",
@@ -84,10 +85,10 @@ internal static class MessagingTelemetry
             });
     }
 
-    public static void RecordOutboxDepth(string grainType, int depth)
+    public static OutboxPendingCounter.Contribution TrackPendingOutbox(string grainType, Task deactivated)
     {
-        _ = OutboxDepth;
-        OutboxDepthValues[grainType] = depth;
+        _ = PendingOutboxes;
+        return PendingOutboxCounts.GetOrAdd(grainType, static _ => new()).Track(deactivated);
     }
 
     public static void RecordOutboxReceiveLag(OutboxSequenceToken token, DateTimeOffset receivedAt)
@@ -154,13 +155,13 @@ internal static class MessagingTelemetry
         };
     }
 
-    private static IEnumerable<Measurement<long>> ObserveOutboxDepth()
+    private static IEnumerable<Measurement<long>> ObservePendingOutboxes()
     {
-        foreach (var depth in OutboxDepthValues)
+        foreach (var total in PendingOutboxCounts)
         {
             yield return new Measurement<long>(
-                depth.Value,
-                new KeyValuePair<string, object?>("grain.type", depth.Key));
+                total.Value.Count,
+                new KeyValuePair<string, object?>("grain.type", total.Key));
         }
     }
 }

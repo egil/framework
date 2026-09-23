@@ -57,7 +57,7 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// <para>
 /// <b>Unbounded growth risk:</b> If postman targets are down, the outbox grows
 /// without limit unless the owning grain applies a policy. The processor
-/// reports depth telemetry and passes failures to
+/// reports pending-activation telemetry and passes failures to
 /// <see cref="OutboxProcessorOptions{TOutbox}.AcknowledgeFailuresAsync"/>, where
 /// the grain can leave items pending, dead-letter them, or drop old entries
 /// before storage-provider entity limits are reached.
