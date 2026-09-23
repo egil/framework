@@ -2,7 +2,7 @@ using System.Reflection;
 
 namespace Egil.SystemTextJson.Migration.Migrations;
 
-internal sealed class ExternalMigratorInvoker<TSource, TTarget> : IMigratorInvoker
+internal sealed class ExternalMigratorInvoker<TSource, TTarget> : MigratorInvoker<TSource, TTarget>
 {
     private readonly Type migratorType;
     private readonly IServiceProvider? serviceProvider;
@@ -24,17 +24,8 @@ internal sealed class ExternalMigratorInvoker<TSource, TTarget> : IMigratorInvok
         fallbackMigrator = new Lazy<IMigrate<TSource, TTarget>>(CreateFallbackMigrator, true);
     }
 
-    public bool TryMigrate(object? source, out object? migrated)
-    {
-        if (source is TSource typed && ResolveMigrator().TryMigrateFrom(typed, out TTarget? result))
-        {
-            migrated = result;
-            return true;
-        }
-
-        migrated = null;
-        return false;
-    }
+    public override bool TryMigrate(TSource source, out TTarget migrated)
+        => ResolveMigrator().TryMigrateFrom(source, out migrated);
 
     private IMigrate<TSource, TTarget> ResolveMigrator()
     {

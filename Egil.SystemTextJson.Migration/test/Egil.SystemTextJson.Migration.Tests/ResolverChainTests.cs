@@ -447,6 +447,18 @@ public class ResolverChainTests
         Assert.Equal(new ChainV2("Jane", "Doe"), JsonSerializer.Deserialize<ChainV2>(LegacyPayload, copy));
     }
 
+    [Fact]
+    public void A_source_converter_for_a_base_type_remains_supported()
+    {
+        var options = new JsonSerializerOptions();
+        options.Converters.Add(new BaseTypeSourceConverter());
+        options.AddJsonMigrationSupport();
+
+        var result = JsonSerializer.Deserialize<BaseConverterTarget>("""{"$type":"base-converter-source","Value":41}""", options);
+
+        Assert.Equal(42, result.Value);
+    }
+
     public sealed class ForwardingResolver(IJsonTypeInfoResolver inner) : IJsonTypeInfoResolver
     {
         public JsonTypeInfo? GetTypeInfo(Type type, JsonSerializerOptions options)
@@ -473,6 +485,23 @@ public class ResolverChainTests
             => type == typeof(ChainV2)
                 ? JsonMetadataServices.CreateValueInfo<ChainV2>(options, new ChainV2Converter())
                 : inner.GetTypeInfo(type, options);
+    }
+
+    /// <summary>
+    /// A converter declared for <see cref="object"/> that claims <see cref="BaseConverterSource"/>,
+    /// so its contract's converter is not a <c>JsonConverter&lt;BaseConverterSource&gt;</c>.
+    /// </summary>
+    public sealed class BaseTypeSourceConverter : JsonConverter<object>
+    {
+        public override bool CanConvert(Type typeToConvert) => typeToConvert == typeof(BaseConverterSource);
+
+        public override object Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            using var document = JsonDocument.ParseValue(ref reader);
+            return new BaseConverterSource(document.RootElement.GetProperty("Value").GetInt32());
+        }
+
+        public override void Write(Utf8JsonWriter writer, object value, JsonSerializerOptions options) => throw new NotSupportedException();
     }
 
     public sealed class ChainV2Converter : JsonConverter<ChainV2>
@@ -512,6 +541,19 @@ public sealed class ChainExternalMigrator : IMigrate<ChainV1, ChainV3>
     public bool TryMigrateFrom(ChainV1 source, out ChainV3 result)
     {
         result = new ChainV3(source.Name);
+        return true;
+    }
+}
+
+[JsonMigratable(TypeDiscriminator = "base-converter-source")]
+public readonly record struct BaseConverterSource(int Value);
+
+[JsonMigratable(TypeDiscriminator = "base-converter-target")]
+public readonly record struct BaseConverterTarget(int Value) : IMigrateFrom<BaseConverterSource, BaseConverterTarget>
+{
+    public static bool TryMigrateFrom(BaseConverterSource source, out BaseConverterTarget result)
+    {
+        result = new(source.Value + 1);
         return true;
     }
 }

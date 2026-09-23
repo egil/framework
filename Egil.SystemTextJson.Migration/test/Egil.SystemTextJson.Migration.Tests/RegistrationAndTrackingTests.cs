@@ -67,6 +67,50 @@ public class RegistrationAndTrackingTests
     }
 
     [Fact]
+    public void An_inherited_static_contract_can_use_a_derived_target_overload()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web).AddJsonMigrationSupport();
+
+        var result = JsonSerializer.Deserialize<InheritedContractTarget>("""{"$type":"inherited-contract-source","value":41}""", options);
+
+        Assert.Equal(42, Assert.IsType<InheritedContractTarget>(result).Value);
+    }
+
+    [Fact]
+    public void An_inherited_static_contract_can_use_a_non_public_derived_target_overload()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web).AddJsonMigrationSupport();
+
+        var result = JsonSerializer.Deserialize<InheritedContractPrivateTarget>("""{"$type":"inherited-contract-source","value":41}""", options);
+
+        Assert.Equal(43, Assert.IsType<InheritedContractPrivateTarget>(result).Value);
+    }
+
+    [Fact]
+    public void An_inherited_static_contract_does_not_accept_a_ref_derived_target_overload()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web).AddJsonMigrationSupport();
+
+        var exception = Record.Exception(() => JsonSerializer.Deserialize<InheritedContractRefTarget>(
+            """{"$type":"inherited-contract-source","value":41}""",
+            options));
+
+        Assert.IsType<InvalidOperationException>(exception);
+    }
+
+    [Fact]
+    public void An_inherited_static_contract_does_not_accept_a_non_boolean_derived_target_overload()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web).AddJsonMigrationSupport();
+
+        var exception = Record.Exception(() => JsonSerializer.Deserialize<InheritedContractNonBooleanTarget>(
+            """{"$type":"inherited-contract-source","value":41}""",
+            options));
+
+        Assert.IsType<InvalidOperationException>(exception);
+    }
+
+    [Fact]
     public void Json_migratable_type_implementing_external_migrator_contract_for_itself_throws_detailed_error()
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
@@ -783,6 +827,57 @@ public sealed class CallbackLifecycleTarget :
 
     public void OnDeserialized()
         => OnDeserializedCalled = true;
+}
+
+[JsonMigratable(TypeDiscriminator = "inherited-contract-source")]
+public readonly record struct InheritedContractSource(int Value);
+
+[JsonMigratable]
+public class InheritedContractBase : IMigrateFrom<InheritedContractSource, InheritedContractBase>
+{
+    public int Value { get; init; }
+
+    public static bool TryMigrateFrom(InheritedContractSource source, out InheritedContractBase result)
+    {
+        result = new() { Value = source.Value };
+        return true;
+    }
+}
+
+[JsonMigratable]
+public sealed class InheritedContractTarget : InheritedContractBase
+{
+    public static bool TryMigrateFrom(InheritedContractSource source, out InheritedContractTarget result)
+    {
+        result = new() { Value = source.Value + 1 };
+        return true;
+    }
+}
+
+[JsonMigratable]
+public sealed class InheritedContractPrivateTarget : InheritedContractBase
+{
+    private static bool TryMigrateFrom(InheritedContractSource source, out InheritedContractPrivateTarget result)
+    {
+        result = new() { Value = source.Value + 2 };
+        return true;
+    }
+}
+
+[JsonMigratable]
+public sealed class InheritedContractRefTarget : InheritedContractBase
+{
+    public static bool TryMigrateFrom(InheritedContractSource source, ref InheritedContractRefTarget result) => true;
+}
+
+[JsonMigratable]
+public sealed class InheritedContractNonBooleanTarget : InheritedContractBase
+{
+    public static int TryMigrateFrom(InheritedContractSource source, out InheritedContractNonBooleanTarget result)
+    {
+        result = new() { Value = source.Value };
+        return 1;
+    }
 }
 
 [JsonSourceGenerationOptions]

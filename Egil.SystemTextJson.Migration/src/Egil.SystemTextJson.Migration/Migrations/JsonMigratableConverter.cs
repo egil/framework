@@ -50,8 +50,7 @@ internal sealed partial class JsonMigratableConverter<T>(MigratorContext context
         Debug.Assert(migrator is not null);
 
         var sourceReader = reader;
-        object? source = ReadSource(ref reader, migrator);
-        if (!migrator.Invoker.TryMigrate(source, out object? migrated) || migrated is not T typedMigrated)
+        if (!((MigratorReference<T>)migrator).TryRead(ref reader, out T? typedMigrated))
         {
             JsonMigrationMeter.RecordMigration(migrator.SourceTypeName, targetTypeName, success: false);
 
@@ -91,24 +90,6 @@ internal sealed partial class JsonMigratableConverter<T>(MigratorContext context
         {
             JsonSerializer.Serialize(writer, value, context.TargetTypeInfo);
         }
-    }
-
-    private static object? ReadSource(ref Utf8JsonReader reader, MigratorReference migrator)
-    {
-        // Calling the converter's Read directly skips the ReadStack that carries
-        // JsonNumberHandling, so a quoted number would fail in the plain numeric converter.
-        // That case takes the full serializer path instead; it only occurs for top-level
-        // primitive sources with AllowReadingFromString, so the happy path keeps the fast call.
-        if (reader.TokenType is JsonTokenType.String && migrator.SourceShape is SourceValueShape.Number)
-        {
-            return JsonSerializer.Deserialize(ref reader, migrator.SourceTypeInfo);
-        }
-
-        return StjInternals.ReadAsObject(
-            migrator.SourceTypeInfo.Converter,
-            ref reader,
-            migrator.SourceType,
-            migrator.SourceTypeInfo.Options);
     }
 
     private T? DeserializeTarget(ref Utf8JsonReader reader, Type typeToConvert)

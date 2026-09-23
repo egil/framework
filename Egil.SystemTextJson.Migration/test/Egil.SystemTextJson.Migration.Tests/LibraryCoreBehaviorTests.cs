@@ -50,6 +50,27 @@ public class LibraryCoreBehaviorTests
 
         Assert.Equal(v1, result);
     }
+
+    [Fact]
+    public void Struct_sources_migrate_to_struct_targets_through_both_contracts()
+    {
+        var structOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web).AddJsonMigrationSupport(
+            builder => builder.RegisterMigrator<CoreStructMigrator>());
+
+        var staticResult = JsonSerializer.Deserialize<CoreStructStaticV2>("""{"$type":"core-struct-v1","value":41}""", structOptions);
+        var externalResult = JsonSerializer.Deserialize<CoreStructExternalV2>("""{"$type":"core-struct-v1","value":41}""", structOptions);
+
+        Assert.Equal(42, staticResult.Value);
+        Assert.Equal(42, externalResult.Value);
+    }
+
+    [Fact]
+    public void A_successful_migrator_returning_null_still_uses_failure_handling()
+    {
+        var nullResultOptions = new JsonSerializerOptions().AddJsonMigrationSupport();
+
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<CoreNullResultTarget>("""{"$type":"core-struct-v1","Value":41}""", nullResultOptions));
+    }
 }
 
 [JsonMigratable]
@@ -90,6 +111,41 @@ public class CoreSampleMigrator :
     public bool TryMigrateFrom(CoreSampleV2 source, out CoreSampleV3 result)
     {
         result = new CoreSampleV3(source.FirstName, source.LastName, source.Age);
+        return true;
+    }
+}
+
+[JsonMigratable(TypeDiscriminator = "core-struct-v1")]
+public readonly record struct CoreStructV1(int Value);
+
+[JsonMigratable(TypeDiscriminator = "core-struct-static-v2")]
+public readonly record struct CoreStructStaticV2(int Value) : IMigrateFrom<CoreStructV1, CoreStructStaticV2>
+{
+    public static bool TryMigrateFrom(CoreStructV1 source, out CoreStructStaticV2 result)
+    {
+        result = new(source.Value + 1);
+        return true;
+    }
+}
+
+[JsonMigratable(TypeDiscriminator = "core-struct-external-v2")]
+public readonly record struct CoreStructExternalV2(int Value);
+
+public sealed class CoreStructMigrator : IMigrate<CoreStructV1, CoreStructExternalV2>
+{
+    public bool TryMigrateFrom(CoreStructV1 source, out CoreStructExternalV2 result)
+    {
+        result = new(source.Value + 1);
+        return true;
+    }
+}
+
+[JsonMigratable]
+public sealed class CoreNullResultTarget : IMigrateFrom<CoreStructV1, CoreNullResultTarget>
+{
+    public static bool TryMigrateFrom(CoreStructV1 source, out CoreNullResultTarget result)
+    {
+        result = null!;
         return true;
     }
 }
