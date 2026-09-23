@@ -47,8 +47,9 @@ public abstract record VersionedState
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Fresh records get a non-empty version from the initializer. The manager
-    /// overwrites it with a new v7 UUID before each <c>WriteAsync</c> call.
+    /// Fresh records get a non-empty version from the initializer. Before each
+    /// write, the manager stamps a copy with a new v7 UUID; the caller's record
+    /// retains its original version.
     /// </para>
     /// <para>
     /// The public <c>init</c> accessor lets both reflection and source-generated
