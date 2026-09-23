@@ -97,16 +97,15 @@ internal sealed class UnionCaseRouting
                 {
                     // Without a converter override the case resolved to its plain contract, which
                     // means no migration resolver serves these options any more, whatever
-                    // registration is still cached for them. With one, the fix depends on where
-                    // the override comes from: a converter in options.Converters registered ahead
-                    // of migration, or a resolver (or attribute) that serves the type itself.
+                    // registration is still cached for them. With one, the override can come from
+                    // a converter registered in options.Converters before migration, from a
+                    // resolver ahead of the migration entry, or from an attribute; which of them
+                    // served this contract is not recorded on it, so every route is named.
                     string prefix = $"Union '{context.DeclaringType.FullName}' case '{caseType.FullName}' is annotated with [JsonMigratable] but";
                     throw new InvalidOperationException(
                         !JsonMigratableTypes.HasConverterOverride(migratableType, options)
                             ? $"{prefix} resolves to '{caseConverter.GetType().FullName}', so the serializer options have no migration support for it. Call options.AddJsonMigrationSupport() before serializing or deserializing this union, and keep the migration resolver in the options' TypeInfoResolverChain."
-                        : options.Converters.Any(converter => converter.CanConvert(migratableType))
-                            ? $"{prefix} is served by converter '{caseConverter.GetType().FullName}' from options.Converters, which was registered before AddJsonMigrationSupport() and so takes precedence. Register it after AddJsonMigrationSupport(), or remove it, so the union's payloads reach migration."
-                            : $"{prefix} is served by converter '{caseConverter.GetType().FullName}', supplied by a resolver ahead of the migration entry in TypeInfoResolverChain or by a [JsonConverter] attribute, so the union's payloads would bypass migration. Move that resolver after the migration entry, or remove the override, for union cases.");
+                            : $"{prefix} is served by converter '{caseConverter.GetType().FullName}' instead of the migration converter, so the union's payloads would bypass migration. A converter in options.Converters registered before AddJsonMigrationSupport(), a resolver ahead of the migration entry in TypeInfoResolverChain, and a [JsonConverter] attribute each take precedence over migration; register the converter after AddJsonMigrationSupport(), move the resolver after the migration entry, or remove the override.");
                 }
 
                 // The union converter deserializes the declared case type, so a converter
