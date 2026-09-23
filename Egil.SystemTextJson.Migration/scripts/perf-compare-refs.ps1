@@ -27,6 +27,13 @@
     Windows UI) to Disabled for the run and restores the previous values afterwards, also
     when the run fails. Pass -KeepBoost to leave it alone. The summary records what was done.
 
+    The machine is kept awake with the display on for the whole run (SetThreadExecutionState,
+    released when the script ends; no power setting changes). Without it a laptop that goes
+    into standby when the display turns off suspends the benchmark process: one run on
+    2026-09-22 spent 14 hours on four 26-minute BenchmarkDotNet runs. Locking the screen is
+    fine; closing the lid still sleeps the machine unless the lid action says otherwise.
+    Progress lines carry a timestamp so a stall shows in the console output.
+
     Results land in <repo>\Egil.SystemTextJson.Migration\perf\Egil.SystemTextJson.Migration.PerfTests\BenchmarkDotNet.Artifacts\compare-<timestamp>\
     (git-ignored). summary.md there holds every per-round comparison plus the raw
     BenchmarkDotNet tables; send that file back.
@@ -221,7 +228,23 @@ $summary.Add("| Iterations | $IterationCount (warmup $WarmupCount), $Rounds roun
 # boost mode happens inside the try block, so the restore covers any failure after it.
 $boostBefore = $null
 
+# ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED. The display flag matters: on
+# Modern Standby laptops the display turning off is what starts standby and suspends
+# desktop processes, whatever the sleep timeout says. The request belongs to this thread
+# and ends with ES_CONTINUOUS alone, or when the process exits.
+Add-Type -Namespace PerfCompare -Name Power -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint esFlags);'
+$keepAwake = [uint32]'0x80000003'
+$releaseAwake = [uint32]'0x80000000'
+
+function Write-Stage([string]$message) {
+    Write-Host "[$(Get-Date -Format 'HH:mm:ss')] $message"
+}
+
 try {
+    if ([PerfCompare.Power]::SetThreadExecutionState($keepAwake) -eq 0) {
+        Write-Warning 'Could not ask Windows to stay awake; keep the display on or the run may be suspended'
+    }
+
     $boostRow = 'left as configured (-KeepBoost)'
     if (-not $KeepBoost) {
         $boostBefore = Get-BoostMode
@@ -231,7 +254,7 @@ try {
         }
         elseif (Set-BoostMode 0 0) {
             $boostRow = "disabled for the run (High Performance scheme, was $(Format-BoostMode $boostBefore), restored afterwards)"
-            Write-Host "Processor boost: $boostRow"
+            Write-Stage "Processor boost: $boostRow"
         }
         else {
             # The AC value may have been set before the DC one failed, so the saved values are
@@ -245,7 +268,7 @@ try {
 
     foreach ($name in $refs.Keys) {
         $entry = $refs[$name]
-        Write-Host "Creating worktree for $name ($($entry.Sha)) at $($entry.Dir)"
+        Write-Stage "Creating worktree for $name ($($entry.Sha)) at $($entry.Dir)"
         & git -C $repoRoot worktree add --detach $entry.Dir $entry.Sha | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "git worktree add failed for $name" }
     }
@@ -259,7 +282,7 @@ try {
 
     foreach ($name in $refs.Keys) {
         $perfDir = Join-Path $refs[$name].Dir $perfRelative
-        Write-Host "Building $name ($Framework)"
+        Write-Stage "Building $name ($Framework)"
         & dotnet build $perfDir -c Release --framework $Framework --nologo -v quiet
         if ($LASTEXITCODE -ne 0) { throw "Build failed for $name" }
     }
@@ -269,7 +292,7 @@ try {
             $label = "$name-r$round"
             $perfDir = Join-Path $refs[$name].Dir $perfRelative
             $artifacts = Join-Path $outputDir $label
-            Write-Host "Round $round`: running $name -> $artifacts"
+            Write-Stage "Round $round`: running $name -> $artifacts"
             & dotnet run --project $perfDir -c Release --framework $Framework --no-build -- `
                 --filter $Filter `
                 --affinity $Affinity `
@@ -313,13 +336,15 @@ try {
     $summaryPath = Join-Path $outputDir 'summary.md'
     Set-Content -Path $summaryPath -Value ($summary -join "`n") -NoNewline
     Write-Host ''
-    Write-Host "Summary written to $summaryPath"
+    Write-Stage "Summary written to $summaryPath"
 }
 finally {
+    [void][PerfCompare.Power]::SetThreadExecutionState($releaseAwake)
+
     if ($null -ne $boostBefore) {
         if (Restore-BoostMode $boostBefore) {
             $after = Get-BoostMode
-            Write-Host "Processor boost restored ($(Format-BoostMode $after))"
+            Write-Stage "Processor boost restored ($(Format-BoostMode $after))"
         }
         else {
             Write-Warning "Could not restore processor boost; run: powercfg -setacvalueindex $highPerformancePlan SUB_PROCESSOR PERFBOOSTMODE $($boostBefore.AC); powercfg -setdcvalueindex $highPerformancePlan SUB_PROCESSOR PERFBOOSTMODE $($boostBefore.DC)"
