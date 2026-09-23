@@ -12,8 +12,11 @@ public sealed class VersionedStateSourceGenerationTests
 
         var json = JsonSerializer.Serialize(original, StateJsonContext.Default.SourceGeneratedState);
         var restored = JsonSerializer.Deserialize(json, StateJsonContext.Default.SourceGeneratedState);
+        using var document = JsonDocument.Parse(json);
 
         Assert.NotNull(restored);
+        Assert.True(document.RootElement.TryGetProperty("Version", out var serializedVersion));
+        Assert.Equal(original.Version, serializedVersion.GetGuid());
         Assert.Equal(original.Version, restored.Version);
         Assert.Equal(original.Name, restored.Name);
         Assert.Equal(original.Count, restored.Count);
