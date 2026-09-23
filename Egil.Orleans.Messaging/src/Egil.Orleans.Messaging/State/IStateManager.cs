@@ -182,13 +182,14 @@ public interface IStateManager<T>
 
     /// <summary>
     /// Atomically writes <paramref name="newState"/> to durable storage.
-    /// On success, <see cref="State"/> reflects <paramref name="newState"/>.
+    /// On success, <see cref="State"/> reflects the written value.
     /// </summary>
     /// <remarks>
     /// <para>
     /// If <paramref name="newState"/> derives from <see cref="VersionedState"/>,
-    /// a fresh <see cref="Guid"/> version (v7) is stamped on it before writing.
-    /// The caller's reference is mutated — this is a documented contract.
+    /// a copy is stamped with a fresh <see cref="Guid"/> version (v7) before
+    /// writing. The caller's record keeps its original version; read the
+    /// persisted version from <see cref="State"/> after the write.
     /// </para>
     /// <para>
     /// <b>Recovery on failure:</b> Re-reads from storage. If the write actually

@@ -24,8 +24,8 @@ namespace Egil.Orleans.Messaging.State;
 /// <para>
 /// <b>Version stamping:</b> If <typeparamref name="T"/> derives from
 /// <see cref="VersionedState"/>, the manager stamps a fresh
-/// <see cref="Guid.CreateVersion7()"/> on the <see cref="VersionedState.Version"/>
-/// property before every write. The recovery path then compares versions
+/// <see cref="Guid.CreateVersion7()"/> on a copy before every write. The
+/// caller's record remains unchanged. The recovery path then compares versions
 /// directly (pattern-matched via <c>is VersionedState</c>) instead of
 /// relying on <see cref="IEquatable{T}.Equals(T)"/>, which avoids the
 /// <see cref="System.Collections.Immutable.ImmutableArray{T}"/>
@@ -189,7 +189,9 @@ public abstract class StateManagerBase<T> : IStateManager<T>
 
         if (newState is VersionedState versioned)
         {
-            versioned.Version = Guid.CreateVersion7();
+            // Record cloning preserves the concrete state type. This manager also accepts
+            // non-versioned T, so its generic constraint cannot express that invariant.
+            newState = (T)(object)(versioned with { Version = Guid.CreateVersion7() });
         }
 
         // The guard spans the storage call and the adoption that follows it, not just
