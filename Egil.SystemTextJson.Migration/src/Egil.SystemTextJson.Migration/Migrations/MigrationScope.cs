@@ -139,6 +139,7 @@ internal sealed class MigrationScope
     public static MigrationScope? Find(JsonSerializerOptions options)
         => Scopes.TryGetValue(options, out MigrationScope? scope) ? scope : null;
 
+#if NET11_0_OR_GREATER
     /// <summary>
     /// The scope to build union routing from: the cached scope while it <see cref="IsActive"/>,
     /// otherwise one discovered from the current resolver, or <see langword="null"/> when the
@@ -154,6 +155,7 @@ internal sealed class MigrationScope
 
         return Discover(options);
     }
+#endif
 
     /// <summary>
     /// The registration to honour when <c>AddJsonMigrationSupport()</c> is called again: the cached
