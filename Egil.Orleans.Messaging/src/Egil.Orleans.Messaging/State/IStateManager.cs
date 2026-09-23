@@ -241,12 +241,11 @@ public interface IStateManager<T>
     /// grain with nothing outstanding should not have to handle an exception for it.
     /// </para>
     /// <para>
-    /// Because it writes the very instance <see cref="State"/> returns, a
-    /// <see cref="VersionedState"/> has its <see cref="VersionedState.Version"/> stamped
-    /// in place, exactly as <c>WriteAsync(State, cancellationToken)</c> would. An
-    /// interleaved reader can therefore see the new version before it is durable, and see
-    /// it revert if the write fails. The version is recovery bookkeeping, not business
-    /// data, and the accompanying state is the value the reader could already see.
+    /// For a <see cref="VersionedState"/>, the manager stamps a copy of the
+    /// currently visible state. The staged instance and any references held by
+    /// callers retain their original version. While the write is in flight,
+    /// <see cref="State"/> continues to expose that staged instance; the stamped
+    /// copy becomes visible only after the write is known to have persisted.
     /// </para>
     /// </remarks>
     /// <example>
