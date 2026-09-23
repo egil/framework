@@ -1,5 +1,3 @@
-using System.Text.Json.Serialization;
-
 namespace Egil.Orleans.Messaging.State;
 
 /// <summary>
@@ -21,10 +19,10 @@ namespace Egil.Orleans.Messaging.State;
 /// types the manager falls back to <c>T.Equals()</c>.
 /// </para>
 /// <para>
-/// <see cref="Version"/> has <c>internal set</c> — library code can stamp it;
-/// user code cannot. This is a hard compile-time fence. The <c>set</c> (not
-/// <c>init</c>) accessor allows mutation of the caller's reference during
-/// <see cref="IStateManager{T}.WriteAsync(T, CancellationToken)"/>.
+/// <see cref="Version"/> has a public <c>init</c> accessor so System.Text.Json
+/// source generation in a consumer assembly can restore it. The manager stamps
+/// a copy before <see cref="IStateManager{T}.WriteAsync(T, CancellationToken)"/>
+/// persists it; the caller's record is not changed.
 /// </para>
 /// <para>
 /// <b>Usage:</b>
@@ -53,12 +51,11 @@ public abstract record VersionedState
     /// overwrites it with a new v7 UUID before each <c>WriteAsync</c> call.
     /// </para>
     /// <para>
-    /// For System.Text.Json serialization: the <c>internal set</c> accessor
-    /// is invisible to STJ by default. The <see cref="JsonIncludeAttribute"/>
-    /// makes it visible without requiring a custom converter.
+    /// The public <c>init</c> accessor lets both reflection and source-generated
+    /// System.Text.Json serializers restore stored versions, including snapshots
+    /// written by earlier package versions.
     /// </para>
     /// </remarks>
     [Id(0)]
-    [JsonInclude]
-    public Guid Version { get; internal set; } = Guid.CreateVersion7();
+    public Guid Version { get; init; } = Guid.CreateVersion7();
 }

@@ -182,6 +182,11 @@ non-trivial state graphs, inherit from `VersionedState` so the recovery path
 compares a library-stamped version rather than relying on structural
 collection equality.
 
+`VersionedState.Version` has a public `init` accessor so a consumer's
+`JsonSerializerContext` can restore it without a custom resolver. A write stamps
+a fresh version on a copy of the record; the input record keeps its original
+version. Use `manager.State` after the write to observe the persisted version.
+
 ### Injecting the manager
 
 A grain can inject `IStateManager<T>` directly on its `[PersistentState]` parameter,
@@ -1016,6 +1021,14 @@ guaranteed; use a System.Text.Json serializer or the Orleans binary serializer.
 This package is messaging infrastructure, not an event-sourcing or CQRS framework. It wraps Orleans state, outbox dispatch, receiver deduplication, and stream subscription management while leaving domain modeling, read models, transport targets, and operational policy to the application.
 
 ## Beta API changes
+
+- `VersionedState.Version` now uses public `init` so state records can be included
+  in a consumer's System.Text.Json source-generated context
+  ([issue #224](https://github.com/egil/framework/issues/224)). Remove any
+  reflection-only serialization workaround and add the state type to your
+  `JsonSerializerContext`. `IStateManager<T>.WriteAsync` now stamps a copy, so
+  code that reads the version after a write should use `manager.State.Version`
+  rather than the input record's version. Stored JSON remains compatible.
 
 - Added the opt-in `Egil.Orleans.Messaging.Journaling` preview package with named durable trackers and outboxes; the core immutable APIs remain available.
 

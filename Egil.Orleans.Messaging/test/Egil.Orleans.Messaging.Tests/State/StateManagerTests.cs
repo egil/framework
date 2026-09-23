@@ -210,8 +210,9 @@ public sealed class StateManagerTests
 
         await manager.WriteAsync(next, TestContext.Current.CancellationToken);
 
-        Assert.NotEqual(Guid.Empty, next.Version);
-        Assert.Equal(next.Version, manager.State!.Version);
+        Assert.Equal(Guid.Empty, next.Version);
+        Assert.NotEqual(Guid.Empty, manager.State.Version);
+        Assert.NotSame(next, manager.State);
     }
 
     [Fact]
@@ -628,7 +629,8 @@ public sealed class StateManagerTests
 
         await manager.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        Assert.NotEqual(Guid.Empty, staged.Version);
+        Assert.Equal(Guid.Empty, staged.Version);
+        Assert.NotEqual(Guid.Empty, manager.State.Version);
     }
 
     [Fact]

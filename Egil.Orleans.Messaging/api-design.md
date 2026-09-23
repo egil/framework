@@ -412,9 +412,9 @@ by the same unconditional hook.
   matches. A coincidental match would silently swallow a real concurrent
   write; the contract "if we threw conflict, your command read stale
   data" must hold.
-- **`newState`'s reference is mutated for versioned state.** `Version`
-  is `set` (not `init`), so `versioned.Version = ...` updates the
-  caller's reference. Documented contract.
+- **Versioned writes copy the candidate.** `Version` is public `init`
+  for consumer source-generated JSON. The manager stamps a `with` copy,
+  leaving the caller's record unchanged.
 - **No `ReferenceEquals` pre-write short-circuit.** Functional
   `with { ... }` produces a fresh reference even when no fields changed.
 
@@ -802,7 +802,7 @@ arrays. This breaks `IStateManager.WriteAsync`'s recovery path.
 [GenerateSerializer]
 public abstract record VersionedState
 {
-    [Id(0)] public Guid Version { get; internal set; } = Guid.CreateVersion7();
+    [Id(0)] public Guid Version { get; init; } = Guid.CreateVersion7();
 }
 ```
 
@@ -838,12 +838,14 @@ reference-equality. However:
 
 The non-generic `VersionedState` provides everything the library needs:
 the `Version` property, a single type for pattern matching at runtime,
-and the `[JsonInclude]` + `internal set` fence.
+and a public `init` property that source-generated JSON can restore.
 
-### Why `Version` is internal-set, not user-settable
+### Why `Version` has a public `init` accessor
 
 `IPersistentState<T>.Etag` is storage concurrency. `Version` is
-library-internal recovery decoration. Conflating them erases a layer.
+library recovery decoration. Consumer source-generated serializers need a
+public setter to restore persisted versions. Callers can initialize the
+property, but each write replaces it with a fresh version on a copy.
 
 ---
 
@@ -2201,7 +2203,7 @@ convention). New fields get the next number. Never reuse removed IDs.
 [GenerateSerializer]
 public abstract record VersionedState
 {
-    [Id(0)] public Guid Version { get; internal set; }
+    [Id(0)] public Guid Version { get; init; }
 }
 ```
 
@@ -2229,7 +2231,7 @@ Documented as a known limitation.
 | `MessageTracker` | `[JsonConverter(typeof(MessageTrackerJsonConverter))]` |
 | `OutboxSequenceToken` | `[JsonConverter(typeof(OutboxSequenceTokenJsonConverter))]` |
 | `StreamCursor` | `[JsonConverter(typeof(StreamCursorJsonConverter))]` |
-| `VersionedState` | No custom converter — `[JsonInclude]` on `Version` property makes `internal set` visible to STJ |
+| `VersionedState` | No custom converter — public `init` on `Version` works with reflection and source generation |
 
 `StreamCursorJsonConverter` and `MessageTrackerJsonConverter` share the
 process-wide `StreamSequenceTokenJsonConverters` registry for polymorphic
@@ -2253,9 +2255,8 @@ and allow malformed snapshot identity. Custom converters keep
 encapsulation intact and control the exact wire format.
 
 **`VersionedState` exception:** `Version` is a single `Guid` property
-with `internal set`. `[JsonInclude]` is sufficient — no encapsulation
-risk, and a full custom converter for an abstract base class is
-unnecessary complexity.
+with public `init` so consumer source-generated serializers can restore it.
+A full custom converter for an abstract base class is unnecessary.
 
 **Generic converters:** STJ requires `JsonConverterFactory` for open
 generic types. The factory's `CreateConverter` method creates the closed
