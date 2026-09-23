@@ -130,7 +130,7 @@ public partial class UnionMigrationTests
         // registry while the other case keeps its own.
         var other = CreateOptions(builder => builder.RegisterMigrator<RectangleV1, RectangleV2, RectangleMigrator>());
         var options = CreateOptions();
-        options.TypeInfoResolverChain[0] = new RectangleResolver(options.TypeInfoResolverChain[0], other.TypeInfoResolverChain[0]);
+        options.TypeInfoResolverChain[0] = new CaseResolver(typeof(RectangleV2), options.TypeInfoResolverChain[0], other.TypeInfoResolverChain[0]);
         options.TypeInfoResolverChain.Add(new DefaultJsonTypeInfoResolver());
 
         var rectangle = JsonSerializer.Deserialize<Shape>("""{"$type":"rect-v1","w":4,"h":5}""", options);
@@ -149,7 +149,7 @@ public partial class UnionMigrationTests
         // can migrate it.
         var other = CreateOptions(builder => builder.RegisterMigrator<RectangleV1, RectangleV2, RectangleMigrator>());
         var options = CreateOptions();
-        options.TypeInfoResolverChain[0] = new RectangleResolver(options.TypeInfoResolverChain[0], other.TypeInfoResolverChain[0]);
+        options.TypeInfoResolverChain[0] = new CaseResolver(typeof(RectangleV2), options.TypeInfoResolverChain[0], other.TypeInfoResolverChain[0]);
         options.TypeInfoResolverChain.Add(new DefaultJsonTypeInfoResolver());
 
         var migrated = JsonSerializer.Deserialize<NoteOrShape>("""{"$type":"rect-v1","w":3,"h":4}""", options);
@@ -963,23 +963,13 @@ public partial class UnionMigrationTests
     }
 
     /// <summary>
-    /// An application-defined resolver that sends <see cref="RectangleV2"/> to one resolver and
-    /// every other type to another.
-    /// </summary>
-    /// <summary>
-    /// An application-defined resolver that sends one type to one resolver and every other type
-    /// to another.
+    /// An application-defined resolver that sends <paramref name="routed"/> to
+    /// <paramref name="other"/> and every other type to <paramref name="original"/>.
     /// </summary>
     private sealed class CaseResolver(Type routed, IJsonTypeInfoResolver original, IJsonTypeInfoResolver other) : IJsonTypeInfoResolver
     {
         public JsonTypeInfo? GetTypeInfo(Type type, JsonSerializerOptions options)
             => (type == routed ? other : original).GetTypeInfo(type, options);
-    }
-
-    private sealed class RectangleResolver(IJsonTypeInfoResolver original, IJsonTypeInfoResolver rectangles) : IJsonTypeInfoResolver
-    {
-        public JsonTypeInfo? GetTypeInfo(Type type, JsonSerializerOptions options)
-            => (type == typeof(RectangleV2) ? rectangles : original).GetTypeInfo(type, options);
     }
 
     private static JsonSerializerOptions CreateOptions(Action<JsonMigrationBuilder>? configure = null)
