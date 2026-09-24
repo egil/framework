@@ -275,10 +275,12 @@ was unchanged. Hooks provide no deduplication across attempts or activations:
 external effects must be idempotent, for example keyed by a persisted state
 version.
 
-Custom lifecycle integrations constructing managers directly should configure
-hooks and await `InitializeAsync` after hydration. This emits the initial read
-notification once without storage I/O; subsequent calls do not replay it, even
-after failure. Normal grain registration handles this automatically.
+Initial notification belongs to registration; consumers have no separate
+initialization step. Configure injected or constructor-registered managers in the
+constructor, or await `RegisterStateManagerAsync` inside `OnActivateAsync` when
+initial hooks are needed. Configuring hooks after the initial load affects only
+subsequent operations and never replays that load. Managers constructed directly
+outside registration run hooks on subsequent explicit storage operations.
 
 ### Injecting the manager
 
@@ -1131,13 +1133,13 @@ This package is messaging infrastructure, not an event-sourcing or CQRS framewor
   (auth, missing container/table, payload too large) still return
   `DidNotPersist`.
 
-- `IStateManager<T>` gains `ConfigureHooks(Action<StateManagerHooks<T>>)` and
-  `InitializeAsync(CancellationToken)`. Custom provider implementations should derive
-  from `StateManagerBase<T>` to inherit atomic hook replacement and one-time awaited
-  initial notification. Wrappers should forward both methods to their underlying
+- `IStateManager<T>` gains `ConfigureHooks(Action<StateManagerHooks<T>>)`. Custom
+  provider implementations should derive from `StateManagerBase<T>` to inherit
+  atomic hook replacement. Wrappers should forward configuration to their underlying
   manager. Hook configuration objects are library-owned, so independent implementations
-  cannot construct the callback argument themselves. Existing `IStateManagerFactory`
-  signatures are unchanged. Configure hooks in the constructor for injected or
+  cannot construct the callback argument themselves. Registration handles awaited
+  initial notification internally; there is no public initialization method.
+  Existing `IStateManagerFactory` signatures are unchanged. Configure hooks in the constructor for injected or
   constructor-registered managers; use and await `RegisterStateManagerAsync` when
   registering with hooks in `OnActivateAsync`. Keep transient dependency wiring
   in `configureState`; move confirmed-storage effects to lifecycle hooks.

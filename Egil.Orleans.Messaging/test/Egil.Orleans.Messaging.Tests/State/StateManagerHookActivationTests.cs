@@ -30,6 +30,14 @@ public sealed class StateManagerHookActivationTests(MessagingTestClusterFixture 
         Assert.Contains("initial hook failed", error.ToString(), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Initial_handler_can_read_state_but_cannot_reenter_storage_after_awaiting()
+    {
+        var grain = fixture.GrainFactory.GetGrain<IInitialHookGuardGrain>(Guid.NewGuid());
+
+        Assert.True(await grain.CompletedAsync());
+    }
+
     public enum Registration { Injected, Constructor, AsyncRegistration }
 
     private IHookActivationGrain GetGrain(Registration registration, string key) => registration switch
@@ -50,6 +58,35 @@ public interface IHookActivationGrain : IGrainWithStringKey
 public interface IInjectedHookGrain : IHookActivationGrain;
 public interface IConstructorHookGrain : IHookActivationGrain;
 public interface IAsyncRegisteredHookGrain : IHookActivationGrain;
+
+public interface IInitialHookGuardGrain : IGrainWithGuidKey
+{
+    Task<bool> CompletedAsync();
+}
+
+public sealed class InitialHookGuardGrain : Grain, IInitialHookGuardGrain
+{
+    private bool completed;
+
+    public InitialHookGuardGrain([PersistentState("state", "Default")] IStateManager<HookActivationState> manager)
+    {
+        manager.ConfigureHooks(hooks =>
+        {
+            hooks.OnReadAsync = async (state, token) =>
+            {
+                await Task.Yield();
+                Assert.Same(state, manager.State);
+                await Assert.ThrowsAsync<InvalidOperationException>(() => manager.ReadAsync(token));
+                await Assert.ThrowsAsync<InvalidOperationException>(() => manager.WriteAsync(new(), token));
+                await Assert.ThrowsAsync<InvalidOperationException>(() => manager.ClearAsync(token));
+                await Assert.ThrowsAsync<InvalidOperationException>(() => manager.SaveChangesAsync(token));
+                completed = true;
+            };
+        });
+    }
+
+    public Task<bool> CompletedAsync() => Task.FromResult(completed);
+}
 
 [GenerateSerializer]
 public sealed record HookActivationState

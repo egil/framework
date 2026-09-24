@@ -183,19 +183,20 @@ public sealed class StateManagerHookTests
     }
 
     [Fact]
-    public async Task Initial_notification_runs_once_without_reading_storage_and_reconfiguration_does_not_replay()
+    public async Task Ad_hoc_configuration_does_not_replay_state_or_read_storage()
     {
         var storage = new FakeHookPersistentState(null);
         var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"));
         var events = new List<string>();
         manager.ConfigureHooks(hooks => { hooks.OnRead = state => events.Add(state.Value); });
 
-        await manager.InitializeAsync(TestContext.Current.CancellationToken);
+        Assert.Empty(events);
+        Assert.Equal(0, storage.Reads);
+        await manager.ReadAsync(TestContext.Current.CancellationToken);
         manager.ConfigureHooks(hooks => { hooks.OnRead = _ => events.Add("replacement"); });
-        await manager.InitializeAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(["default"], events);
-        Assert.Equal(0, storage.Reads);
+        Assert.Equal(1, storage.Reads);
     }
 
     [Fact]
@@ -458,6 +459,13 @@ public sealed class StateManagerHookTests
     {
         Assert.Empty(typeof(StateManagerHooks<HookSnapshot>).GetConstructors());
         Assert.True(typeof(StateManagerHooks<HookSnapshot>).IsSealed);
+    }
+
+    [Fact]
+    public void Consumers_have_no_explicit_initialization_step()
+    {
+        Assert.Null(typeof(IStateManager<HookSnapshot>).GetMethod("InitializeAsync"));
+        Assert.Null(typeof(DefaultStateManager<HookSnapshot>).GetMethod("InitializeAsync"));
     }
 
     private sealed class RejectingManager(FakeHookPersistentState storage) : StateManagerBase<HookSnapshot>(storage, () => new("default"))

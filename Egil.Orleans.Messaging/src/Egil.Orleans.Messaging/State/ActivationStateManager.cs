@@ -8,21 +8,25 @@ internal sealed class ActivationStateManager<T> : IStateManager<T>
 {
     private IStateManager<T>? manager;
     private StateManagerHooks<T> hooks = new();
+    private readonly Func<bool> recordExists;
+    private readonly StateManagerHookDispatcher<T> initialReadDispatcher = new();
 
     public void ConfigureHooks(Action<StateManagerHooks<T>> configure)
     {
-        if (manager is not null)
-        {
-            manager.ConfigureHooks(configure);
-            return;
-        }
-        hooks = StateManagerHooks<T>.Create(configure);
+        var snapshot = StateManagerHooks<T>.Create(configure);
+        manager?.ConfigureHooks(snapshot.CopyTo);
+        hooks = snapshot;
     }
 
-    public Task InitializeAsync(CancellationToken cancellationToken = default) => Manager.InitializeAsync(cancellationToken);
-
-    public ActivationStateManager(IGrainLifecycle lifecycle, Func<IStateManager<T>> create)
+    public ActivationStateManager(Func<IStateManager<T>> create, Func<bool> recordExists, IGrainLifecycle? lifecycle)
     {
+        this.recordExists = recordExists;
+        if (lifecycle is null)
+        {
+            manager = create();
+            return;
+        }
+
         // A distinct stage is essential: callbacks at SetupState can run in
         // parallel with Orleans' persistent-state hydration.
         lifecycle.Subscribe(GetType().FullName!, GrainLifecycleStage.SetupState + 1, cancellationToken =>
@@ -30,12 +34,24 @@ internal sealed class ActivationStateManager<T> : IStateManager<T>
             cancellationToken.ThrowIfCancellationRequested();
             manager = create();
             manager.ConfigureHooks(hooks.CopyTo);
-            return manager.InitializeAsync(cancellationToken);
+            return NotifyInitialReadAsync(cancellationToken);
         });
     }
 
+    // Only registration owns initial notification: a lifecycle subscription invokes
+    // this after hydration, or async registration awaits it before returning the handle.
+    // ConfigureHooks never calls it, so ad-hoc configuration cannot replay a load.
+    internal Task NotifyInitialReadAsync(CancellationToken cancellationToken)
+        => initialReadDispatcher.InvokeAsync(hooks, Manager.State, StateManagerOperation.Read, recordExists(), cancellationToken);
+
     private IStateManager<T> Manager => manager
         ?? throw new InvalidOperationException("State is not initialized. Access it after persistent state hydration, starting in OnActivateAsync.");
+
+    // The underlying manager guards its normal operation hooks. The registration
+    // wrapper owns the initial hook, so it must guard calls through this same handle.
+    private IStateManager<T> OperationManager => initialReadDispatcher.IsInvoking
+        ? throw new InvalidOperationException("Storage operations on this manager cannot be called from a lifecycle handler.")
+        : Manager;
 
     public T State
     {
@@ -45,11 +61,11 @@ internal sealed class ActivationStateManager<T> : IStateManager<T>
 
     public bool HasUnsavedChanges => Manager.HasUnsavedChanges;
 
-    public Task ReadAsync(CancellationToken cancellationToken = default) => Manager.ReadAsync(cancellationToken);
+    public Task ReadAsync(CancellationToken cancellationToken = default) => OperationManager.ReadAsync(cancellationToken);
 
-    public Task SaveChangesAsync(CancellationToken cancellationToken = default) => Manager.SaveChangesAsync(cancellationToken);
+    public Task SaveChangesAsync(CancellationToken cancellationToken = default) => OperationManager.SaveChangesAsync(cancellationToken);
 
-    public Task WriteAsync(T newState, CancellationToken cancellationToken = default) => Manager.WriteAsync(newState, cancellationToken);
+    public Task WriteAsync(T newState, CancellationToken cancellationToken = default) => OperationManager.WriteAsync(newState, cancellationToken);
 
-    public Task ClearAsync(CancellationToken cancellationToken = default) => Manager.ClearAsync(cancellationToken);
+    public Task ClearAsync(CancellationToken cancellationToken = default) => OperationManager.ClearAsync(cancellationToken);
 }
