@@ -11,6 +11,9 @@ internal sealed record MigratorContext(
     JsonMigrationFailureHandling MigrationFailureHandling,
     JsonMigrationTypeInfoResolver Resolver)
 {
+    public bool HasDistinctDiscriminatorProperties { get; } = SourceDiscriminatorPropertyNames
+        .Any(name => !StringComparer.Ordinal.Equals(name, TargetMetadata.DiscriminatorPropertyName));
+
     public byte[] TargetDiscriminatorPropertyNameUtf8 { get; } = System.Text.Encoding.UTF8.GetBytes(TargetMetadata.DiscriminatorPropertyName);
 
     // Pre-encoded target discriminator value for zero-allocation comparison in the happy path.

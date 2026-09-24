@@ -153,14 +153,16 @@ internal sealed partial class JsonMigratableConverter<T>(MigratorContext context
             // to avoid a string allocation when the payload matches the target type.
             if (probe.ValueTextEquals(context.TargetDiscriminatorUtf8))
             {
+                EnsureUnambiguousDiscriminator(probe, selected: null);
                 return InspectionResult.TargetType;
             }
 
             // Zero-allocation: match discriminator directly against known migrators
             // using pre-encoded UTF-8 bytes instead of allocating a string.
-            migrator = FindMigratorByDiscriminator(ref probe);
+            migrator = FindMigratorByDiscriminator(ref probe, context.TargetDiscriminatorPropertyNameUtf8);
             if (migrator is not null)
             {
+                EnsureUnambiguousDiscriminator(probe, migrator);
                 return InspectionResult.MigrationRequired;
             }
 
@@ -180,10 +182,11 @@ internal sealed partial class JsonMigratableConverter<T>(MigratorContext context
                 throw new JsonException($"Expected discriminator string, got '{probe.TokenType}'.");
             }
 
-            // Zero-allocation: match discriminator directly against known migrators.
-            migrator = FindMigratorByDiscriminator(ref probe);
+            // Match both the property and its value; different source contracts can reuse a value.
+            migrator = FindMigratorByDiscriminator(ref probe, sourcePropertyName);
             if (migrator is not null)
             {
+                EnsureUnambiguousDiscriminator(probe, migrator);
                 return InspectionResult.MigrationRequired;
             }
 
@@ -217,11 +220,12 @@ internal sealed partial class JsonMigratableConverter<T>(MigratorContext context
             : InspectionResult.LegacyPayload;
     }
 
-    private MigratorReference? FindMigratorByDiscriminator(ref Utf8JsonReader reader)
+    private MigratorReference? FindMigratorByDiscriminator(ref Utf8JsonReader reader, byte[] propertyName)
     {
         foreach (MigratorReference migrator in context.Migrators)
         {
-            if (reader.ValueTextEquals(migrator.DiscriminatorUtf8))
+            if (propertyName.AsSpan().SequenceEqual(migrator.DiscriminatorPropertyNameUtf8)
+                && reader.ValueTextEquals(migrator.DiscriminatorUtf8))
             {
                 return migrator;
             }
@@ -229,6 +233,51 @@ internal sealed partial class JsonMigratableConverter<T>(MigratorContext context
 
         return null;
     }
+
+    private void EnsureUnambiguousDiscriminator(Utf8JsonReader probe, MigratorReference? selected)
+    {
+        // Only layouts with distinct discriminator properties require a second pass. Single-property layouts keep their
+        // first-property dispatch and avoid scanning the entire object twice.
+        if (!context.HasDistinctDiscriminatorProperties)
+        {
+            return;
+        }
+
+        while (probe.Read() && probe.TokenType is not JsonTokenType.EndObject)
+        {
+            if (probe.TokenType is not JsonTokenType.PropertyName)
+            {
+                throw new JsonException($"Expected '{JsonTokenType.PropertyName}', got '{probe.TokenType}'.");
+            }
+
+            if (selected is not null && probe.ValueTextEquals(context.TargetDiscriminatorPropertyNameUtf8)
+                && HasDiscriminatorValue(probe, context.TargetDiscriminatorUtf8))
+            {
+                throw new JsonException("Multiple discriminator properties matched target or source contracts.");
+            }
+
+            foreach (MigratorReference candidate in context.Migrators)
+            {
+                if (candidate != selected && probe.ValueTextEquals(candidate.DiscriminatorPropertyNameUtf8))
+                {
+                    if (HasDiscriminatorValue(probe, candidate.DiscriminatorUtf8))
+                    {
+                        throw new JsonException("Multiple discriminator properties matched target or source contracts.");
+                    }
+                }
+            }
+
+            if (!probe.Read())
+            {
+                throw new JsonException("Unexpected end of JSON payload.");
+            }
+
+            probe.Skip();
+        }
+    }
+
+    private static bool HasDiscriminatorValue(Utf8JsonReader probe, byte[] discriminator) =>
+        probe.Read() && probe.TokenType is JsonTokenType.String && probe.ValueTextEquals(discriminator);
 
     [DoesNotReturn]
     [MethodImpl(MethodImplOptions.NoInlining)]

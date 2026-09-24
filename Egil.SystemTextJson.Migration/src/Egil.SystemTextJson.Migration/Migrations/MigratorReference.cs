@@ -9,6 +9,8 @@ internal abstract record MigratorReference(
     TypeMetadata? ElementMetadata,
     bool ElementAcceptsNonObjectShapes)
 {
+    public byte[] DiscriminatorPropertyNameUtf8 { get; } = System.Text.Encoding.UTF8.GetBytes(SourceMetadata.DiscriminatorPropertyName);
+
     // Pre-encoded discriminator value for zero-allocation matching via Utf8JsonReader.ValueTextEquals.
     public byte[] DiscriminatorUtf8 { get; } = System.Text.Encoding.UTF8.GetBytes(SourceMetadata.Discriminator);
 

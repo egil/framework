@@ -3,7 +3,7 @@ using System.Text.Json;
 namespace Egil.SystemTextJson.Migration;
 
 /// <summary>
-/// Thrown when multiple migrator source types resolve to the same discriminator for one migration target type.
+/// Thrown when multiple migrator source types resolve to the same discriminator property name and value for one migration target type.
 /// </summary>
 public sealed class JsonMigrationDuplicateTypeDiscriminatorException : JsonException
 {
