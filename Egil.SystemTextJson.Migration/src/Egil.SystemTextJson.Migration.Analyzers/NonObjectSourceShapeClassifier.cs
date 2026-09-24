@@ -6,7 +6,8 @@ internal sealed class NonObjectSourceShapeClassifier
 {
     private readonly ShapeSymbols shapes;
 
-    public NonObjectSourceShapeClassifier(Compilation compilation) => shapes = ShapeSymbols.Create(compilation);
+    public NonObjectSourceShapeClassifier(Compilation compilation, HashSet<INamedTypeSymbol> selectorAttributes, bool hasBuilderPropertyOverride) =>
+        shapes = ShapeSymbols.Create(compilation, selectorAttributes, hasBuilderPropertyOverride);
 
     public ClassifiedShape? Classify(ITypeSymbol source, INamedTypeSymbol marker) => shapes.Classify(source, marker);
 }
@@ -26,12 +27,19 @@ internal sealed class ClassifiedShape
     public ClassifiedShape(SourceShape shape, bool isLegacy, string? elementDiscriminator)
     {
         Shape = shape;
-        Key = $"{shape}:{isLegacy}:{elementDiscriminator}";
+        IsLegacy = isLegacy;
+        ElementDiscriminator = elementDiscriminator;
     }
 
     public SourceShape Shape { get; }
 
-    public string Key { get; }
+    public bool IsLegacy { get; }
+
+    public string? ElementDiscriminator { get; }
+
+    public bool CanCollideWith(ClassifiedShape other) => Shape == other.Shape && IsLegacy == other.IsLegacy
+        && (string.IsNullOrEmpty(ElementDiscriminator) || string.IsNullOrEmpty(other.ElementDiscriminator)
+            || ElementDiscriminator == other.ElementDiscriminator);
 }
 
 internal sealed class ShapeSymbols
@@ -47,9 +55,13 @@ internal sealed class ShapeSymbols
     private readonly INamedTypeSymbol? readOnlyMemory;
     private readonly INamedTypeSymbol? jsonConverter;
     private readonly ITypeSymbol objectType;
+    private readonly HashSet<INamedTypeSymbol> selectorAttributes;
+    private readonly bool hasBuilderPropertyOverride;
 
-    private ShapeSymbols(Compilation compilation)
+    private ShapeSymbols(Compilation compilation, HashSet<INamedTypeSymbol> selectorAttributes, bool hasBuilderPropertyOverride)
     {
+        this.selectorAttributes = selectorAttributes;
+        this.hasBuilderPropertyOverride = hasBuilderPropertyOverride;
         stringTypes = CreateSet(compilation, "System.DateTime", "System.DateTimeOffset", "System.DateOnly", "System.TimeOnly", "System.TimeSpan", "System.Guid", "System.Uri", "System.Version");
         numberTypes = CreateSet(compilation, "System.Half", "System.Int128", "System.UInt128", "System.Numerics.BFloat16", "System.Numerics.Decimal32", "System.Numerics.Decimal64", "System.Numerics.Decimal128");
         enumerable = compilation.GetTypeByMetadataName("System.Collections.IEnumerable");
@@ -63,7 +75,8 @@ internal sealed class ShapeSymbols
         objectType = compilation.GetSpecialType(SpecialType.System_Object);
     }
 
-    public static ShapeSymbols Create(Compilation compilation) => new(compilation);
+    public static ShapeSymbols Create(Compilation compilation, HashSet<INamedTypeSymbol> selectorAttributes, bool hasBuilderPropertyOverride) =>
+        new(compilation, selectorAttributes, hasBuilderPropertyOverride);
 
     public ClassifiedShape? Classify(ITypeSymbol source, INamedTypeSymbol marker)
     {
@@ -186,7 +199,7 @@ internal sealed class ShapeSymbols
         return false;
     }
 
-    private static string GetElementDiscriminatorKey(ITypeSymbol elementType, INamedTypeSymbol marker)
+    private string GetElementDiscriminatorKey(ITypeSymbol elementType, INamedTypeSymbol marker)
     {
         elementType = UnwrapNullable(elementType);
         if (elementType is IArrayTypeSymbol or ITypeParameterSymbol)
@@ -194,7 +207,14 @@ internal sealed class ShapeSymbols
             return "";
         }
 
-        if (elementType is not INamedTypeSymbol named)
+        if (elementType is not INamedTypeSymbol named || HasConverterOverride(named))
+        {
+            return "";
+        }
+
+        // Builder callbacks can replace a declared discriminator, and a configured
+        // default property can collide with a source's explicit property name.
+        if (named.GetAttributes().Any(attribute => selectorAttributes.Any(selector => IsOrDerivesFrom(attribute.AttributeClass, selector))))
         {
             return "";
         }
@@ -217,7 +237,13 @@ internal sealed class ShapeSymbols
             return "";
         }
 
-        var propertyName = inheritedAttribute?.NamedArguments.FirstOrDefault(argument => argument.Key == "TypeDiscriminatorPropertyName").Value.Value as string ?? "$type";
+        var configuredProperty = inheritedAttribute.NamedArguments.FirstOrDefault(argument => argument.Key == "TypeDiscriminatorPropertyName").Value.Value as string;
+        if (configuredProperty is null && hasBuilderPropertyOverride)
+        {
+            return "";
+        }
+
+        var propertyName = configuredProperty ?? "$type";
         var declaredAttribute = named.GetAttributes().FirstOrDefault(candidate => SymbolEqualityComparer.Default.Equals(candidate.AttributeClass, marker));
         var discriminator = declaredAttribute?.NamedArguments.FirstOrDefault(argument => argument.Key == "TypeDiscriminator").Value.Value as string ?? GetRuntimeFullName(named);
         return propertyName + ":" + discriminator;

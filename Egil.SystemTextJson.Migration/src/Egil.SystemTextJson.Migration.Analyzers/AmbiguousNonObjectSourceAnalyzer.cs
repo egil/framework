@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Diagnostics;
 
 namespace Egil.SystemTextJson.Migration.Analyzers;
@@ -22,14 +24,43 @@ public sealed class AmbiguousNonObjectSourceAnalyzer : DiagnosticAnalyzer
     {
         context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
         context.EnableConcurrentExecution();
-        context.RegisterCompilationAction(static compilationContext =>
+        context.RegisterCompilationStartAction(static start =>
         {
-            if (!MigrationSymbols.TryCreate(compilationContext.Compilation, out var symbols) || symbols is null)
+            if (!MigrationSymbols.TryCreate(start.Compilation, out var symbols) || symbols is null)
             {
                 return;
             }
 
-            AnalyzeCompilation(compilationContext, symbols, new NonObjectSourceShapeClassifier(compilationContext.Compilation));
+            var builder = start.Compilation.GetTypeByMetadataName("Egil.SystemTextJson.Migration.JsonMigrationBuilder");
+            var selectorAttributes = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
+            var hasBuilderPropertyOverride = false;
+            if (builder is not null)
+            {
+                start.RegisterSyntaxNodeAction(node =>
+                {
+                    if (node.Node is not InvocationExpressionSyntax invocation
+                        || node.SemanticModel.GetSymbolInfo(invocation, node.CancellationToken).Symbol is not IMethodSymbol method
+                        || !SymbolEqualityComparer.Default.Equals(method.ContainingType, builder))
+                    {
+                        return;
+                    }
+
+                    lock (selectorAttributes)
+                    {
+                        if (method.Name == "GetTypeDiscriminatorFrom" && method.TypeArguments.FirstOrDefault() is INamedTypeSymbol attribute)
+                        {
+                            selectorAttributes.Add(attribute);
+                        }
+                        else if (method.Name == "SetTypeDiscriminatorPropertyName")
+                        {
+                            hasBuilderPropertyOverride = true;
+                        }
+                    }
+                }, SyntaxKind.InvocationExpression);
+            }
+
+            start.RegisterCompilationEndAction(end => AnalyzeCompilation(end, symbols,
+                new NonObjectSourceShapeClassifier(end.Compilation, selectorAttributes, hasBuilderPropertyOverride)));
         });
     }
 
@@ -43,7 +74,7 @@ public sealed class AmbiguousNonObjectSourceAnalyzer : DiagnosticAnalyzer
                 continue;
             }
 
-            var sourcesByShape = new Dictionary<string, (SourceShape Shape, HashSet<ITypeSymbol> Sources)>();
+            var sourcesByTier = new Dictionary<(SourceShape Shape, bool IsLegacy), List<(ITypeSymbol Source, ClassifiedShape Shape)>>();
             foreach (var contract in target.AllInterfaces)
             {
                 if (!SymbolEqualityComparer.Default.Equals(contract.OriginalDefinition, symbols.MigrateFrom)
@@ -58,25 +89,30 @@ public sealed class AmbiguousNonObjectSourceAnalyzer : DiagnosticAnalyzer
                     continue;
                 }
 
-                if (!sourcesByShape.TryGetValue(shape.Key, out var entry))
+                var tier = (shape.Shape, shape.IsLegacy);
+                if (!sourcesByTier.TryGetValue(tier, out var sources))
                 {
-                    entry = (shape.Shape, new HashSet<ITypeSymbol>(SymbolEqualityComparer.Default));
-                    sourcesByShape.Add(shape.Key, entry);
+                    sources = new List<(ITypeSymbol Source, ClassifiedShape Shape)>();
+                    sourcesByTier.Add(tier, sources);
                 }
 
-                entry.Sources.Add(contract.TypeArguments[0]);
+                var source = contract.TypeArguments[0];
+                if (!sources.Any(candidate => SymbolEqualityComparer.Default.Equals(candidate.Source, source)))
+                {
+                    sources.Add((source, shape));
+                }
             }
 
-            foreach (var entry in sourcesByShape)
+            foreach (var tier in sourcesByTier)
             {
-                var shape = entry.Value.Shape;
-                var sources = entry.Value.Sources;
-                if (sources.Count < 2)
+                var sources = tier.Value;
+                if (!sources.Where((candidate, index) => sources.Skip(index + 1)
+                        .Any(other => candidate.Shape.CanCollideWith(other.Shape))).Any())
                 {
                     continue;
                 }
 
-                context.ReportDiagnostic(Diagnostic.Create(Rule, target.Locations[0], target.Name, shape.ToString().ToLowerInvariant()));
+                context.ReportDiagnostic(Diagnostic.Create(Rule, target.Locations[0], target.Name, tier.Key.Shape.ToString().ToLowerInvariant()));
             }
         }
     }
