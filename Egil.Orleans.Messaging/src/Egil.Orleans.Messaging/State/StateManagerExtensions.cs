@@ -7,7 +7,7 @@ namespace Orleans;
 /// Extension methods for wiring <see cref="IStateManager{T}"/> into a grain's
 /// activation lifecycle.
 /// </summary>
-public static class StateManagerExtensions
+public static partial class StateManagerExtensions
 {
     extension<TGrain>(TGrain grain)
         where TGrain : IGrainBase

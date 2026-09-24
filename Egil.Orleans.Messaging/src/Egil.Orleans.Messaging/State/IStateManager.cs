@@ -110,6 +110,17 @@ namespace Egil.Orleans.Messaging.State;
 public interface IStateManager<T>
     where T : class, IEquatable<T>
 {
+    /// <summary>Atomically replaces all lifecycle handlers without replaying state.</summary>
+    /// <remarks>Omitted slots are cleared. Each operation retains the configuration captured at its start.</remarks>
+    void ConfigureHooks(StateManagerHooks<T> hooks);
+
+    /// <summary>Awaits the initial read notification for an already hydrated manager, without reading storage.</summary>
+    /// <remarks>
+    /// Registration helpers call this once before activation completes. Custom lifecycle integrations
+    /// must call it after configuring hooks. Subsequent calls do nothing, including after a handler fails.
+    /// </remarks>
+    Task InitializeAsync(CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Gets or sets the grain's state snapshot: the loaded or successfully written value,
     /// a configured default when no persisted record exists, or a value assigned here and

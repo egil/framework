@@ -112,6 +112,41 @@ public abstract class StateManagerBase<T> : IStateManager<T>
     private T lastStored;
     private bool hasUnsavedChanges;
     private bool operationInProgress;
+    private StateManagerHooks<T> hooks = new();
+    private readonly StateManagerHookDispatcher<T> hookDispatcher = new();
+    private bool initialized;
+
+    /// <inheritdoc/>
+    public void ConfigureHooks(StateManagerHooks<T> hooks)
+    {
+        ArgumentNullException.ThrowIfNull(hooks);
+        hooks.Validate();
+        Volatile.Write(ref this.hooks, hooks);
+    }
+
+    /// <inheritdoc/>
+    public Task InitializeAsync(CancellationToken cancellationToken = default)
+    {
+        ThrowIfInsideHandler();
+        if (initialized)
+        {
+            return Task.CompletedTask;
+        }
+
+        // A failed notification is still an attempted initial notification; calling
+        // this again must not replay side effects which may already have completed.
+        initialized = true;
+        return hookDispatcher.InvokeAsync(Volatile.Read(ref hooks), state, StateManagerOperation.Read,
+            storage.RecordExists, cancellationToken);
+    }
+
+    private void ThrowIfInsideHandler()
+    {
+        if (hookDispatcher.IsInvoking)
+        {
+            throw new InvalidOperationException("Storage operations on this manager cannot be called from a lifecycle handler.");
+        }
+    }
 
     /// <summary>
     /// Initializes the manager over the grain's persistent state facet,
@@ -166,6 +201,8 @@ public abstract class StateManagerBase<T> : IStateManager<T>
     /// <inheritdoc/>
     public async Task ReadAsync(CancellationToken cancellationToken = default)
     {
+        ThrowIfInsideHandler();
+        var operationHooks = Volatile.Read(ref hooks);
         cancellationToken.ThrowIfCancellationRequested();
     // The guard spans the storage call and the adoption that follows it, not just
     // the await. Adoption reads the facet back — ResolveLoadedState and the recovery
@@ -177,6 +214,8 @@ public abstract class StateManagerBase<T> : IStateManager<T>
         {
             await storage.ReadStateAsync(cancellationToken);
             AdoptLoadedState();
+            await hookDispatcher.InvokeAsync(operationHooks, state, StateManagerOperation.Read,
+                storage.RecordExists, cancellationToken);
         }
         finally
         {
@@ -186,14 +225,19 @@ public abstract class StateManagerBase<T> : IStateManager<T>
 
     /// <inheritdoc/>
     public Task SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        ThrowIfInsideHandler();
         // Deliberately does not observe the token when there is nothing to write: this
         // method exists to be called unconditionally from deactivation hooks, where the
         // token is routinely already canceled.
-        => hasUnsavedChanges ? WriteAsync(state, cancellationToken) : Task.CompletedTask;
+        return hasUnsavedChanges ? WriteAsync(state, cancellationToken) : Task.CompletedTask;
+    }
 
     /// <inheritdoc/>
     public async Task WriteAsync(T newState, CancellationToken cancellationToken = default)
     {
+        ThrowIfInsideHandler();
+        var operationHooks = Volatile.Read(ref hooks);
         ArgumentNullException.ThrowIfNull(newState);
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -212,7 +256,7 @@ public abstract class StateManagerBase<T> : IStateManager<T>
         operationInProgress = true;
         try
         {
-            await WriteCoreAsync(newState, cancellationToken);
+            await WriteCoreAsync(newState, operationHooks, cancellationToken);
         }
         finally
         {
@@ -220,7 +264,7 @@ public abstract class StateManagerBase<T> : IStateManager<T>
         }
     }
 
-    private async Task WriteCoreAsync(T newState, CancellationToken cancellationToken)
+    private async Task WriteCoreAsync(T newState, StateManagerHooks<T> operationHooks, CancellationToken cancellationToken)
     {
         storage.State = newState;
 
@@ -254,12 +298,15 @@ public abstract class StateManagerBase<T> : IStateManager<T>
                 && storage.RecordExists
                 && IsEquivalent(persisted, newState))
             {
+                await hookDispatcher.InvokeAsync(operationHooks, state, StateManagerOperation.Write, true, cancellationToken);
                 return;
             }
 
             // A mismatch proves the write did not land. A concurrency conflict
             // must be surfaced even if values happen to match. Once read-back
             // succeeds, keep the server value paired with its refreshed ETag.
+            await hookDispatcher.InvokeAsync(operationHooks, state, StateManagerOperation.Read,
+                storage.RecordExists, cancellationToken, ex);
             throw;
         }
 
@@ -270,16 +317,19 @@ public abstract class StateManagerBase<T> : IStateManager<T>
         // A callback failure must not trigger another storage read or be mistaken for
         // a lost response and silently retried.
         Adopt(newState);
+        await hookDispatcher.InvokeAsync(operationHooks, state, StateManagerOperation.Write, true, cancellationToken);
     }
 
     /// <inheritdoc/>
     public async Task ClearAsync(CancellationToken cancellationToken = default)
     {
+        ThrowIfInsideHandler();
+        var operationHooks = Volatile.Read(ref hooks);
         cancellationToken.ThrowIfCancellationRequested();
         operationInProgress = true;
         try
         {
-            await ClearCoreAsync(cancellationToken);
+            await ClearCoreAsync(operationHooks, cancellationToken);
         }
         finally
         {
@@ -287,7 +337,7 @@ public abstract class StateManagerBase<T> : IStateManager<T>
         }
     }
 
-    private async Task ClearCoreAsync(CancellationToken cancellationToken)
+    private async Task ClearCoreAsync(StateManagerHooks<T> operationHooks, CancellationToken cancellationToken)
     {
         try
         {
@@ -314,9 +364,12 @@ public abstract class StateManagerBase<T> : IStateManager<T>
                 && ex is not InconsistentStateException
                 && !storage.RecordExists)
             {
+                await hookDispatcher.InvokeAsync(operationHooks, state, StateManagerOperation.Clear, false, cancellationToken);
                 return;
             }
 
+            await hookDispatcher.InvokeAsync(operationHooks, state, StateManagerOperation.Read,
+                storage.RecordExists, cancellationToken, ex);
             throw;
         }
 
@@ -332,6 +385,7 @@ public abstract class StateManagerBase<T> : IStateManager<T>
         // grain just asked to delete.
         hasUnsavedChanges = false;
         Adopt(CreateInitialState());
+        await hookDispatcher.InvokeAsync(operationHooks, state, StateManagerOperation.Clear, false, cancellationToken);
     }
 
     private async Task<bool> TryReadForRecoveryAsync(CancellationToken cancellationToken)
