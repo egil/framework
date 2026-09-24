@@ -229,3 +229,17 @@ If the migrator lives in another assembly, set `MigratedExternally = true` on th
 Use an ordinary class or struct as the target, with collection or dictionary values in its properties. For a .NET 11 union, mark its object case types with `[JsonMigratable]` and leave the union itself unmarked. A `GetEnumerator` method alone does not make an ordinary object target a collection; the analyzer checks the collection interfaces.
 
 This warning covers statically identifiable collection and union shapes. The runtime still validates the resolved JSON contract, including contracts supplied by converters or custom resolvers.
+
+## STJM0006: `JsonSerializerContext` is missing migration source metadata
+
+A source-generated `JsonSerializerContext` needs metadata for a migratable target and every source type named by its `IMigrateFrom<TSource, TTarget>` contracts. Registering the types explicitly is the simplest way to ensure historical payloads have metadata:
+
+```csharp
+[JsonSerializable(typeof(UserV1))]
+[JsonSerializable(typeof(UserV2))]
+public partial class AppJsonContext : JsonSerializerContext;
+```
+
+Explicit source registration is unnecessary when the generator already reaches that source through registered members or collection elements. The analyzer follows inherited public properties and fields, `[JsonInclude]` members, arrays, and collection element contracts. `[JsonIgnore]` members and unused generic arguments do not supply source metadata.
+
+STJM0006 reports each missing target/source pair once per context, on the root `JsonSerializable` registration that reaches the target. This also covers targets reached through wrapper properties or collection elements. Types with a type-level `[JsonConverter]` or unresolved generic contract are not inspected for migration requirements or member metadata; their JSON contract cannot be inferred from CLR members. Other ordinary targets in the same context are still checked. Resolver chains and metadata supplied at runtime remain runtime configuration.
