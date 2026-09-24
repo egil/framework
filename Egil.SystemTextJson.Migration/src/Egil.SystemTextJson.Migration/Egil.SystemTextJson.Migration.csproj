@@ -36,6 +36,17 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Build the analyzer before this package is packed, without exposing it as a runtime reference. -->
+    <ProjectReference Include="..\Egil.SystemTextJson.Migration.Analyzers\Egil.SystemTextJson.Migration.Analyzers.csproj"
+                      ReferenceOutputAssembly="false"
+                      PrivateAssets="all" />
+    <None Include="..\Egil.SystemTextJson.Migration.Analyzers\bin\$(Configuration)\netstandard2.0\Egil.SystemTextJson.Migration.Analyzers.dll"
+          Pack="true"
+          PackagePath="analyzers/dotnet/cs"
+          Visible="false" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Include="..\..\..\LICENSE">
       <Pack>True</Pack>
       <PackagePath>\</PackagePath>
