@@ -58,7 +58,7 @@ var ex = Assert.Throws<JsonException>(
 
 ## Duplicate discriminator detection
 
-If two different source types resolve to the same discriminator value for the same target type, the library throws `JsonMigrationDuplicateTypeDiscriminatorException` when the first deserialization is attempted:
+If two different source types resolve to the same discriminator property name and value for the same target type, the library throws `JsonMigrationDuplicateTypeDiscriminatorException` when the first deserialization is attempted:
 
 <!-- snippet: error_duplicate_discriminator_types -->
 <a id='snippet-error_duplicate_discriminator_types'></a>
@@ -114,7 +114,9 @@ var ex = Assert.Throws<JsonMigrationDuplicateTypeDiscriminatorException>(
 <sup><a href='/samples/Egil.SystemTextJson.Migration.Samples/ErrorDiagnosticsSample.cs#L39-L54' title='Snippet source file'>snippet source</a> | <a href='#snippet-error_duplicate_discriminator' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
-> **Note:** This is a configuration error. Each source type must have a unique discriminator value within the scope of a single target type. Use explicit `TypeDiscriminator` values on `[JsonMigratable]` to avoid collisions.
+> **Note:** This is a configuration error. Each source type must have a unique pair of discriminator property name and value within a single target type. Property names are case-sensitive. Sources can reuse a value when their `TypeDiscriminatorPropertyName` overrides differ; sources without an override use the builder default. Static migration still takes precedence over an external migrator for the same source and target.
+
+For layouts with different discriminator property names, a payload containing multiple matching target or source discriminator properties throws `JsonException` rather than choosing a source by property order. The discriminator must still be the first property in the object.
 
 ## `UnmappedMemberHandling.Disallow` compatibility
 

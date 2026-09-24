@@ -123,7 +123,7 @@ internal sealed class JsonMigrationTypeInfoResolver : IJsonTypeInfoResolver
 
         var sourcePropertyNames = migrators
             .Select(static migrator => migrator.SourceMetadata.DiscriminatorPropertyName)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Distinct(StringComparer.Ordinal)
             .ToArray();
 
         MigratorReference? undiscriminatedSourceMigrator = ResolveUndiscriminatedSourceMigrator(
@@ -158,7 +158,7 @@ internal sealed class JsonMigrationTypeInfoResolver : IJsonTypeInfoResolver
 
     private MigratorReference[] BuildMigratorMap(Type targetType, JsonSerializerOptions metadataOptions)
     {
-        var migrators = new Dictionary<string, MigratorCandidate>(StringComparer.Ordinal);
+        var migrators = new Dictionary<(string PropertyName, string Discriminator), MigratorCandidate>();
 
         foreach (ExternalMigratorRegistration registration in registry.GetForTarget(targetType))
         {
@@ -234,15 +234,16 @@ internal sealed class JsonMigrationTypeInfoResolver : IJsonTypeInfoResolver
     }
 
     private static void AddMigratorCandidate(
-        Dictionary<string, MigratorCandidate> migrators,
+        Dictionary<(string PropertyName, string Discriminator), MigratorCandidate> migrators,
         Type targetType,
         MigratorCandidate candidate)
     {
         string discriminator = candidate.Migrator.SourceMetadata.Discriminator;
+        var key = (candidate.Migrator.SourceMetadata.DiscriminatorPropertyName, discriminator);
 
-        if (!migrators.TryGetValue(discriminator, out MigratorCandidate existing))
+        if (!migrators.TryGetValue(key, out MigratorCandidate existing))
         {
-            migrators.Add(discriminator, candidate);
+            migrators.Add(key, candidate);
             return;
         }
 
@@ -252,7 +253,7 @@ internal sealed class JsonMigrationTypeInfoResolver : IJsonTypeInfoResolver
             && candidate.Kind == MigratorCandidateKind.Static
             && existing.Migrator.SourceType == candidate.Migrator.SourceType)
         {
-            migrators[discriminator] = candidate;
+            migrators[key] = candidate;
             return;
         }
 
