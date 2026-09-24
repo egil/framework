@@ -14,7 +14,7 @@ Nested unions and nullable migratable struct cases are checked as well.
 
 ## Analyzer warning: invalid migratable target contract (STJM0002)
 
-`[JsonMigratable]` target types use `IMigrateFrom<TSource, TTarget>` for migrations declared on the target. `IMigrate<TSource, TTarget>` is reserved for a separate external migrator type. The analyzer reports STJM0002 on an `IMigrate` interface implemented directly by a migratable target:
+`[JsonMigratable]` target types use `IMigrateFrom<TSource, TTarget>` for migrations declared on the target. `IMigrate<TSource, TTarget>` is reserved for a separate external migrator type. STJM0002 reports a directly declared `IMigrate` contract on its base-list entry and an inherited contract on the target declaration. The contract is invalid even when its `TTarget` names another type:
 
 ```cs
 [JsonMigratable]
@@ -68,7 +68,7 @@ A source-generated `JsonSerializerContext` containing a `[JsonMigratable]` type 
 public partial class ProductJsonContext : JsonSerializerContext;
 ```
 
-An explicit string registration is unnecessary when a registered type already supplies reachable string metadata, including inherited or nested members and collection elements or dictionary keys. Public fields also supply metadata, even with the default `IncludeFields` setting. Static members, indexers, private members without `[JsonInclude]`, and `[JsonIgnore]` members do not supply it. Registrations in a different context do not satisfy this context.
+An explicit string registration is unnecessary when a registered type already supplies reachable string metadata, including inherited or nested members and collection elements or dictionary keys. Public fields also supply metadata, even with the default `IncludeFields` setting. Static members, indexers, private members without `[JsonInclude]`, and members with unconditional `[JsonIgnore]` or `Condition = Always` do not supply it. Conditionally ignored members can still supply metadata. Registrations in a different context do not satisfy this context.
 
 The analysis uses declared contracts. It avoids warning for unresolved generic graphs and type-level custom converters whose metadata requirements cannot be determined from members. Runtime resolver composition remains outside its scope.
 ## STJM0001: duplicate migration source discriminator

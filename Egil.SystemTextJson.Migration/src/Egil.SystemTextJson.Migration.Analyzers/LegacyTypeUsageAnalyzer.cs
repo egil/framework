@@ -134,7 +134,7 @@ public sealed class LegacyTypeUsageAnalyzer : DiagnosticAnalyzer
         {
             foreach (var contract in method.ContainingType.AllInterfaces.Where(contract => IsMigrationContract(contract, symbols)))
             {
-                if (!contract.TypeArguments.Any(argument => SymbolEqualityComparer.Default.Equals(argument, legacy)))
+                if (!contract.TypeArguments.Any(argument => ContainsType(argument, legacy)))
                 {
                     continue;
                 }
@@ -171,7 +171,8 @@ public sealed class LegacyTypeUsageAnalyzer : DiagnosticAnalyzer
             }
         }
 
-        var typeArguments = node.Ancestors().OfType<TypeArgumentListSyntax>().FirstOrDefault();
+        var typeArguments = node.Ancestors().OfType<TypeArgumentListSyntax>().FirstOrDefault(arguments =>
+            arguments.Parent is GenericNameSyntax name && name.Identifier.ValueText == "RegisterMigrator");
         if (typeArguments?.Parent is GenericNameSyntax generic
             && typeArguments.Arguments.Count == 3
             && typeArguments.Arguments[0].Span.Contains(node.Span)
@@ -188,4 +189,12 @@ public sealed class LegacyTypeUsageAnalyzer : DiagnosticAnalyzer
     private static bool IsMigrationContract(INamedTypeSymbol type, MigrationSymbols symbols) =>
         SymbolEqualityComparer.Default.Equals(type.OriginalDefinition, symbols.Migrate)
         || SymbolEqualityComparer.Default.Equals(type.OriginalDefinition, symbols.MigrateFrom);
+
+    private static bool ContainsType(ITypeSymbol candidate, INamedTypeSymbol sought) => candidate switch
+    {
+        IArrayTypeSymbol array => ContainsType(array.ElementType, sought),
+        INamedTypeSymbol named => SymbolEqualityComparer.Default.Equals(named.OriginalDefinition, sought.OriginalDefinition)
+            || named.TypeArguments.Any(argument => ContainsType(argument, sought)),
+        _ => false,
+    };
 }
