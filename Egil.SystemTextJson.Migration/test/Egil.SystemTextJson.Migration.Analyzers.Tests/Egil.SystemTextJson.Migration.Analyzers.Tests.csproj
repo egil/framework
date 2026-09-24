@@ -27,6 +27,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Egil.SystemTextJson.Migration.Analyzers\Egil.SystemTextJson.Migration.Analyzers.csproj" />
+    <Compile Remove="Net11UnionFixture\**\*.cs" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net11.0'">
+    <ProjectReference Include="Net11UnionFixture\Net11UnionFixture.csproj"
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <ItemGroup>
