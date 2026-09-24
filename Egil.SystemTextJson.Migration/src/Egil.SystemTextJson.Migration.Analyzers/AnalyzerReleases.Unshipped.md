@@ -7,3 +7,4 @@ Rule ID | Category | Severity | Notes
 --------|----------|----------|-------
 STJM0002 | Egil.SystemTextJson.Migration | Warning | [JsonMigratable] targets must implement IMigrateFrom instead of IMigrate.
 STJM0010 | Egil.SystemTextJson.Migration | Warning | Legacy payload type used outside migration
+STJM0011 | Egil.SystemTextJson.Migration | Warning | Legacy payload type has no visible migration source contract.

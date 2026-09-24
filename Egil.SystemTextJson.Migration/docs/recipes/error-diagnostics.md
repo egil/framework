@@ -157,4 +157,10 @@ public record UserV2(string Name) : IMigrateFrom<UserV1, UserV2>
 
 Deserialize application payloads as the current type and keep legacy access within the direct migration implementation. When an intentional exception is necessary, use the standard C# diagnostic suppression mechanisms at the narrowest useful scope.
 
-`JsonMigrationLegacyTypeAttribute.MigratedExternally` defaults to `false`. It is reserved for future orphan-source analysis (STJM0011), indicating a migration supplied outside the current compilation. Setting it does not suppress STJM0010. This release does not implement STJM0011.
+`JsonMigrationLegacyTypeAttribute.MigratedExternally` defaults to `false`. It indicates a migration supplied outside the current compilation and does not suppress STJM0010.
+
+## Orphaned legacy payload types (STJM0011)
+
+STJM0011 warns when a `[JsonMigrationLegacyType]` declaration has no visible `IMigrateFrom<TSource, TTarget>` or `IMigrate<TSource, TTarget>` contract that uses it as `TSource` in the same compilation. Any target type satisfies the rule because the marker records that the legacy type still has a migration source edge.
+
+If the migrator lives in another assembly, set `MigratedExternally = true` on the marker. This suppresses STJM0011 only; STJM0010 still restricts ordinary use of the marked type. If there is no migration remaining, remove the marker and consider deleting the historical type.
