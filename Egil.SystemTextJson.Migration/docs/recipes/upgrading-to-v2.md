@@ -11,7 +11,7 @@ JSON written by 1.x reads the same under 2.0. That rests on three rules that did
 - Scalar payloads are matched in tiers, and the first tier is 1.x's own rule: a source whose CLR type 1.x matched by `TypeCode` (`string`, `bool`, the primitive numerics, enums) takes the token before any type 2.0 added is considered, and a converter override on such a source only ranks it behind other 1.x sources, not behind 2.0 ones. A source that 1.x selected is therefore still selected, also when a 2.0 source of the same JSON shape (`Guid` next to `string`, `Half` next to `int`) is registered on the same target; a 2.0 source is only selected where 1.x had no match. The one departure is deliberate: where 1.x reported two of its sources as ambiguous because one was behind a converter override, 2.0 picks the plain one. The same order applies to the first element when several collection sources compete.
 - Migrators, failure handling, tracking and nested migration run the same code as before.
 
-The 1.7 release's test suite, run unmodified against 2.0, passes every payload test; the one failing test covers the options-setup change described below. Issue #218 tracks running the previous release's suite in CI so this stays true.
+`StoredJsonCompatibilityTests` reads fixed payloads emitted by the 1.7.4 package, including default and explicit discriminators, with the current library. These smoke tests protect the old read path without generating their input with the current writer.
 
 ## Migration support lives in the resolver chain
 

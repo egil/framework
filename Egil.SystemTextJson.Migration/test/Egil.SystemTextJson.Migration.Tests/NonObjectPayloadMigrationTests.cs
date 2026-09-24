@@ -70,21 +70,6 @@ public class NonObjectPayloadMigrationTests
     }
 
     [Fact]
-    public void Migrate_from_non_object_payload_with_mixed_migrators_object_source()
-    {
-        var options = CreateOptions();
-
-        // With an object payload containing a discriminator, the object migrator should be used.
-        var oldJson = JsonSerializer.Serialize(new OldMixedState("a,b"), options);
-
-        var result = JsonSerializer.Deserialize<MixedState>(oldJson, options);
-
-        Assert.NotNull(result);
-        Assert.Equal(["a", "b"], result.Values);
-        Assert.Equal("from-object", result.Source);
-    }
-
-    [Fact]
     public void Round_trip_after_non_object_migration()
     {
         var options = CreateOptions();

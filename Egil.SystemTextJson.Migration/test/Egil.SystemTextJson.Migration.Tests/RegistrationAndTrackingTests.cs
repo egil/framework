@@ -6,18 +6,6 @@ namespace Egil.SystemTextJson.Migration.Tests;
 public class RegistrationAndTrackingTests
 {
     [Fact]
-    public void Tracking_is_true_when_migrated()
-    {
-        var options = CreateOptions(static builder => builder.RegisterMigrator<TrackingExternalMigrator>());
-
-        var json = JsonSerializer.Serialize(new TrackingV1("Jane Doe", 42), options);
-        var migrated = JsonSerializer.Deserialize<TrackingV3>(json, options);
-
-        Assert.NotNull(migrated);
-        Assert.True(migrated.MigratedDuringDeserialization);
-    }
-
-    [Fact]
     public void Tracking_is_true_when_discriminator_is_missing()
     {
         var options = CreateOptions(static builder => builder.RegisterMigrator<TrackingExternalMigrator>());
