@@ -1,5 +1,27 @@
 # Error Handling & Diagnostics
 
+## Analyzer warning: invalid migratable target contract (STJM0002)
+
+`[JsonMigratable]` target types use `IMigrateFrom<TSource, TTarget>` for migrations declared on the target. `IMigrate<TSource, TTarget>` is reserved for a separate external migrator type. The analyzer reports STJM0002 on an `IMigrate` interface implemented directly by a migratable target:
+
+```cs
+[JsonMigratable]
+public sealed class ProductV2 : IMigrate<ProductV1, ProductV2> // STJM0002
+{
+}
+```
+
+Move the external migration contract to another type, or use the target-owned contract instead:
+
+```cs
+[JsonMigratable]
+public sealed class ProductV2 : IMigrateFrom<ProductV1, ProductV2>
+{
+}
+```
+
+For a directly declared contract, the warning is attached to that interface in the target's base list. When the contract is inherited, the warning is attached to the derived migratable target because no direct interface occurrence exists there.
+
 ## Handling unknown discriminators
 
 When a `$type` discriminator value doesn't match any registered source type or the target type itself, the library throws a `JsonException` with a clear message identifying the unrecognized discriminator:
