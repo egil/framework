@@ -225,10 +225,13 @@ public sealed class PerfBenchmarkConfig : ManualConfig
     public PerfBenchmarkConfig()
     {
         AddColumnProvider(DefaultColumnProviders.Instance);
+
+        // No fixed warmup count: a single warmup iteration can end before tiered compilation has
+        // settled, and the transition then lands in the measured iterations. BenchmarkDotNet's
+        // automatic warmup keeps going while iterations are still trending.
         AddJob(Job.Default
             .WithToolchain(InProcessNoEmitToolchain.Instance)
             .WithLaunchCount(1)
-            .WithWarmupCount(1)
             .WithIterationCount(5));
     }
 }

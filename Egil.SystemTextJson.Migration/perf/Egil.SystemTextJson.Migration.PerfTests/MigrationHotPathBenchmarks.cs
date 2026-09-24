@@ -2,11 +2,17 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using BenchmarkDotNet.Attributes;
+using BenchmarkDotNet.Columns;
+using BenchmarkDotNet.Configs;
+using BenchmarkDotNet.Jobs;
+#if NET11_0_OR_GREATER
+using BenchmarkDotNet.Toolchains.InProcess.NoEmit;
+#endif
 
 namespace Egil.SystemTextJson.Migration.PerfTests;
 
 [MemoryDiagnoser]
-[Config(typeof(PerfBenchmarkConfig))]
+[Config(typeof(HotPathBenchmarkConfig))]
 public class StructMigrationHotPathBenchmarks
 {
     private JsonSerializerOptions plainOptions = null!;
@@ -47,7 +53,7 @@ public class StructMigrationHotPathBenchmarks
 }
 
 [MemoryDiagnoser]
-[Config(typeof(PerfBenchmarkConfig))]
+[Config(typeof(HotPathBenchmarkConfig))]
 public class VersionsMigrationHotPathBenchmarks
 {
     private JsonSerializerOptions options = null!;
@@ -117,6 +123,31 @@ public readonly record struct VersionPosition(int Selected, int SourceCount)
 }
 
 public enum DiscriminatorLayout { SharedPrefix, DifferentLengths }
+
+/// <summary>
+/// The job for the hot-path benchmarks, whose differences are a few nanoseconds per operation.
+/// </summary>
+public sealed class HotPathBenchmarkConfig : ManualConfig
+{
+    public HotPathBenchmarkConfig()
+    {
+        AddColumnProvider(DefaultColumnProviders.Instance);
+
+        // No fixed warmup count: these paths take seconds to reach their final tiered code, and
+        // BenchmarkDotNet's automatic warmup keeps going while iterations are still trending.
+#if NET11_0_OR_GREATER
+        // BenchmarkDotNet 0.15.x cannot validate a .NET 11 child process (GetRuntimeVersion throws
+        // for the unrecognized runtime), so .NET 11 runs in process and
+        // perf-compare-refs.ps1 -IsolateHotPathCases gives each case its own process instead.
+        // TODO: Use the out-of-process job on .NET 11 too once BenchmarkDotNet 0.16 is adopted.
+        AddJob(Job.Default.WithToolchain(InProcessNoEmitToolchain.Instance));
+#else
+        // Out of process, so every case starts from fresh runtime state, and several launches
+        // sample the variance between processes (tiering timing, code layout).
+        AddJob(Job.Default.WithLaunchCount(5));
+#endif
+    }
+}
 
 internal static class HotPathOptions
 {
