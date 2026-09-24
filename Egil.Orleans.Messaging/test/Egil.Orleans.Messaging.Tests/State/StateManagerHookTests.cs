@@ -16,19 +16,19 @@ public sealed class StateManagerHookTests
         var configured = false;
         var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"), _ => configured = true);
         var events = new List<string>();
-        manager.ConfigureHooks(new()
+        manager.ConfigureHooks(hooks =>
         {
-            OnChange = (state, kind, recordExists) =>
+            hooks.OnChange = (state, kind, recordExists) =>
             {
                 Assert.True(configured);
                 Assert.Same(state, manager.State);
                 Assert.Equal(operation, kind);
                 Assert.Equal(exists, recordExists);
                 events.Add($"common:{state.Value}");
-            },
-            OnRead = state => events.Add($"specific:{state.Value}"),
-            OnWrite = state => events.Add($"specific:{state.Value}"),
-            OnClear = state => events.Add($"specific:{state.Value}")
+            };
+            hooks.OnRead = state => events.Add($"specific:{state.Value}");
+            hooks.OnWrite = state => events.Add($"specific:{state.Value}");
+            hooks.OnClear = state => events.Add($"specific:{state.Value}");
         });
         configured = false;
 
@@ -48,7 +48,7 @@ public sealed class StateManagerHookTests
         var storage = new FakeHookPersistentState(new("stored")) { MutationError = new IOException("lost"), PersistBeforeError = persisted };
         var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"));
         var events = new List<StateManagerOperation>();
-        manager.ConfigureHooks(new() { OnChange = (_, kind, _) => events.Add(kind) });
+        manager.ConfigureHooks(hooks => { hooks.OnChange = (_, kind, _) => events.Add(kind); });
 
         var error = await Record.ExceptionAsync(() => Invoke(manager, attempted, TestContext.Current.CancellationToken));
 
@@ -66,11 +66,11 @@ public sealed class StateManagerHookTests
         var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"));
         var common = new InvalidOperationException("common");
         var specific = new IOException("specific");
-        manager.ConfigureHooks(new()
+        manager.ConfigureHooks(hooks =>
         {
-            OnChange = (_, _, _) => throw common,
-            OnWrite = _ => throw specific,
-            OnClear = _ => throw specific
+            hooks.OnChange = (_, _, _) => throw common;
+            hooks.OnWrite = _ => throw specific;
+            hooks.OnClear = _ => throw specific;
         });
 
         var error = await Assert.ThrowsAsync<AggregateException>(() => Invoke(manager, operation, TestContext.Current.CancellationToken));
@@ -92,7 +92,7 @@ public sealed class StateManagerHookTests
         var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"));
         var common = new InvalidOperationException("common");
         var specific = new IOException("specific");
-        manager.ConfigureHooks(new() { OnChange = (_, _, _) => throw common, OnRead = _ => throw specific });
+        manager.ConfigureHooks(hooks => { hooks.OnChange = (_, _, _) => throw common; hooks.OnRead = _ => throw specific; });
 
         var error = await Assert.ThrowsAsync<AggregateException>(() => Invoke(manager, operation, TestContext.Current.CancellationToken));
 
@@ -108,14 +108,14 @@ public sealed class StateManagerHookTests
         var storage = new FakeHookPersistentState(new("stored")) { Started = started, Release = release.Task };
         var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"));
         var events = new List<string>();
-        manager.ConfigureHooks(new()
+        manager.ConfigureHooks(hooks =>
         {
-            OnChange = (_, _, _) => { events.Add("old common"); manager.ConfigureHooks(new()); },
-            OnWrite = _ => events.Add("old write")
+            hooks.OnChange = (_, _, _) => { events.Add("old common"); manager.ConfigureHooks(_ => { }); };
+            hooks.OnWrite = _ => events.Add("old write");
         });
         var pending = manager.WriteAsync(new("next"), TestContext.Current.CancellationToken);
         await started.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
-        manager.ConfigureHooks(new() { OnWrite = _ => events.Add("new write") });
+        manager.ConfigureHooks(hooks => { hooks.OnWrite = _ => events.Add("new write"); });
 
         release.SetResult();
         await pending;
@@ -134,16 +134,16 @@ public sealed class StateManagerHookTests
         var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"));
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        manager.ConfigureHooks(new()
+        manager.ConfigureHooks(hooks =>
         {
-            OnChangeAsync = async (_, _, _, token) =>
+            hooks.OnChangeAsync = async (_, _, _, token) =>
             {
                 Assert.Equal(cancellation.Token, token);
                 Assert.True(token.IsCancellationRequested);
                 started.SetResult();
                 await release.Task;
                 token.ThrowIfCancellationRequested();
-            }
+            };
         });
         var pending = Invoke(manager, operation, cancellation.Token);
         await started.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
@@ -162,9 +162,9 @@ public sealed class StateManagerHookTests
         var storage = new FakeHookPersistentState(new("stored"));
         var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"));
         var invoked = false;
-        manager.ConfigureHooks(new()
+        manager.ConfigureHooks(hooks =>
         {
-            OnReadAsync = async (state, _) =>
+            hooks.OnReadAsync = async (state, _) =>
             {
                 Assert.Same(state, manager.State);
                 await Assert.ThrowsAsync<InvalidOperationException>(() => manager.ReadAsync(TestContext.Current.CancellationToken));
@@ -172,7 +172,7 @@ public sealed class StateManagerHookTests
                 await Assert.ThrowsAsync<InvalidOperationException>(() => manager.ClearAsync(TestContext.Current.CancellationToken));
                 await Assert.ThrowsAsync<InvalidOperationException>(() => manager.SaveChangesAsync(TestContext.Current.CancellationToken));
                 invoked = true;
-            }
+            };
         });
 
         await manager.ReadAsync(TestContext.Current.CancellationToken);
@@ -188,10 +188,10 @@ public sealed class StateManagerHookTests
         var storage = new FakeHookPersistentState(null);
         var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"));
         var events = new List<string>();
-        manager.ConfigureHooks(new() { OnRead = state => events.Add(state.Value) });
+        manager.ConfigureHooks(hooks => { hooks.OnRead = state => events.Add(state.Value); });
 
         await manager.InitializeAsync(TestContext.Current.CancellationToken);
-        manager.ConfigureHooks(new() { OnRead = _ => events.Add("replacement") });
+        manager.ConfigureHooks(hooks => { hooks.OnRead = _ => events.Add("replacement"); });
         await manager.InitializeAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(["default"], events);
@@ -203,7 +203,7 @@ public sealed class StateManagerHookTests
     {
         var storage = new FakeHookPersistentState(new("stored")) { MutationError = new IOException("write"), ReadError = new IOException("read") };
         var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"));
-        manager.ConfigureHooks(new() { OnChange = (_, _, _) => Assert.Fail("Unexpected hook") });
+        manager.ConfigureHooks(hooks => { hooks.OnChange = (_, _, _) => Assert.Fail("Unexpected hook"); });
 
         await manager.SaveChangesAsync(TestContext.Current.CancellationToken);
         manager.State = new("unsaved");
@@ -216,9 +216,9 @@ public sealed class StateManagerHookTests
     {
         var manager = new DefaultStateManager<HookSnapshot>(new FakeHookPersistentState(new("stored")), () => new("default"));
         var calls = 0;
-        manager.ConfigureHooks(new() { OnRead = _ => calls++ });
+        manager.ConfigureHooks(hooks => { hooks.OnRead = _ => calls++; });
 
-        Assert.Throws<ArgumentException>(() => manager.ConfigureHooks(new() { OnRead = _ => { }, OnReadAsync = (_, _) => Task.CompletedTask }));
+        Assert.Throws<ArgumentException>(() => manager.ConfigureHooks(hooks => { hooks.OnRead = _ => { }; hooks.OnReadAsync = (_, _) => Task.CompletedTask; }));
         await manager.ReadAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(1, calls);
@@ -231,7 +231,7 @@ public sealed class StateManagerHookTests
     {
         var storage = new FakeHookPersistentState(new("stored")) { MutationError = new IOException("rejected") };
         var manager = new RejectingManager(storage);
-        manager.ConfigureHooks(new() { OnChange = (_, _, _) => Assert.Fail("Unexpected hook") });
+        manager.ConfigureHooks(hooks => { hooks.OnChange = (_, _, _) => Assert.Fail("Unexpected hook"); });
 
         var error = await Assert.ThrowsAsync<IOException>(() => Invoke(manager, operation, TestContext.Current.CancellationToken));
 
@@ -251,7 +251,7 @@ public sealed class StateManagerHookTests
         {
             if (fail) throw new InvalidOperationException("configuration");
         });
-        manager.ConfigureHooks(new() { OnChange = (_, _, _) => Assert.Fail("Unexpected hook") });
+        manager.ConfigureHooks(hooks => { hooks.OnChange = (_, _, _) => Assert.Fail("Unexpected hook"); });
         fail = true;
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => Invoke(manager, operation, TestContext.Current.CancellationToken));
@@ -272,7 +272,7 @@ public sealed class StateManagerHookTests
         };
         var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"));
         var events = new List<StateManagerOperation>();
-        manager.ConfigureHooks(new() { OnChange = (_, kind, _) => events.Add(kind) });
+        manager.ConfigureHooks(hooks => { hooks.OnChange = (_, kind, _) => events.Add(kind); });
 
         await Assert.ThrowsAsync<global::Orleans.Storage.InconsistentStateException>(() => Invoke(manager, operation, TestContext.Current.CancellationToken));
 
@@ -284,7 +284,7 @@ public sealed class StateManagerHookTests
     {
         var manager = new DefaultStateManager<HookSnapshot>(new FakeHookPersistentState(new("stored")), () => new("default"));
         var events = new List<StateManagerOperation>();
-        manager.ConfigureHooks(new() { OnChange = (_, kind, _) => events.Add(kind) });
+        manager.ConfigureHooks(hooks => { hooks.OnChange = (_, kind, _) => events.Add(kind); });
 
         manager.State = new("next");
         await manager.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -309,9 +309,9 @@ public sealed class StateManagerHookTests
         };
         var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"));
         var handlers = 0;
-        manager.ConfigureHooks(new()
+        manager.ConfigureHooks(hooks =>
         {
-            OnReadAsync = async (_, token) =>
+            hooks.OnReadAsync = async (_, token) =>
             {
                 if (++handlers != 1) return;
                 handlerStarted.SetResult();
@@ -320,7 +320,7 @@ public sealed class StateManagerHookTests
                 await Assert.ThrowsAsync<InvalidOperationException>(() => manager.WriteAsync(new("nested"), token));
                 await Assert.ThrowsAsync<InvalidOperationException>(() => manager.ClearAsync(token));
                 await Assert.ThrowsAsync<InvalidOperationException>(() => manager.SaveChangesAsync(token));
-            }
+            };
         });
         var first = manager.ReadAsync(TestContext.Current.CancellationToken);
         var second = manager.ReadAsync(TestContext.Current.CancellationToken);
@@ -334,7 +334,7 @@ public sealed class StateManagerHookTests
 
         Assert.Equal(2, storage.Reads);
         Assert.Equal(0, storage.Mutations);
-        manager.ConfigureHooks(new());
+        manager.ConfigureHooks(_ => { });
         await manager.ReadAsync(TestContext.Current.CancellationToken);
         Assert.Equal(3, storage.Reads);
     }
@@ -357,7 +357,7 @@ public sealed class StateManagerHookTests
             await release.Task.WaitAsync(token);
             throw failure;
         }
-        manager.ConfigureHooks(new() { OnWriteAsync = Handle, OnClearAsync = Handle });
+        manager.ConfigureHooks(hooks => { hooks.OnWriteAsync = Handle; hooks.OnClearAsync = Handle; });
         var pending = Invoke(manager, operation, TestContext.Current.CancellationToken);
         await started.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         Assert.False(pending.IsCompleted);
@@ -379,15 +379,15 @@ public sealed class StateManagerHookTests
         var storage = new FakeHookPersistentState(new("stored"));
         var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"));
         var handlers = 0;
-        manager.ConfigureHooks(new()
+        manager.ConfigureHooks(hooks =>
         {
-            OnReadAsync = async (_, token) =>
+            hooks.OnReadAsync = async (_, token) =>
             {
                 if (++handlers != 1) return;
                 started.SetResult();
                 await release.Task.WaitAsync(token);
                 await Assert.ThrowsAsync<InvalidOperationException>(() => manager.ReadAsync(token));
-            }
+            };
         });
         var first = manager.ReadAsync(TestContext.Current.CancellationToken);
         await started.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
@@ -399,6 +399,65 @@ public sealed class StateManagerHookTests
         Assert.Null(independentError);
         Assert.Equal(2, storage.Reads);
         Assert.Equal(2, handlers);
+    }
+
+    [Fact]
+    public async Task Retaining_the_configuration_object_cannot_change_installed_or_in_flight_handlers()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var storage = new FakeHookPersistentState(new("stored")) { Started = started, Release = release.Task };
+        var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"));
+        StateManagerHooks<HookSnapshot>? retained = null;
+        var events = new List<string>();
+        var configurations = 0;
+        manager.ConfigureHooks(hooks =>
+        {
+            configurations++;
+            retained = hooks;
+            hooks.OnWrite = _ => events.Add("installed");
+        });
+        Assert.NotNull(retained);
+        var pending = manager.WriteAsync(new("next"), TestContext.Current.CancellationToken);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        retained.OnWrite = _ => events.Add("mutated");
+        release.SetResult();
+        await pending;
+        await manager.WriteAsync(new("later"), TestContext.Current.CancellationToken);
+
+        Assert.Equal(["installed", "installed"], events);
+        Assert.Equal(1, configurations);
+    }
+
+    [Fact]
+    public async Task A_throwing_configuration_callback_leaves_all_previous_hooks_installed()
+    {
+        var manager = new DefaultStateManager<HookSnapshot>(new FakeHookPersistentState(new("stored")), () => new("default"));
+        var events = new List<string>();
+        var failure = new InvalidOperationException("configuration failed");
+        manager.ConfigureHooks(hooks =>
+        {
+            hooks.OnChange = (_, _, _) => events.Add("common");
+            hooks.OnRead = _ => events.Add("read");
+        });
+
+        var error = Assert.Throws<InvalidOperationException>(() => manager.ConfigureHooks(hooks =>
+        {
+            hooks.OnRead = _ => events.Add("partial");
+            throw failure;
+        }));
+        await manager.ReadAsync(TestContext.Current.CancellationToken);
+
+        Assert.Same(failure, error);
+        Assert.Equal(["common", "read"], events);
+    }
+
+    [Fact]
+    public void Hook_configuration_cannot_be_constructed_or_derived_by_consumers()
+    {
+        Assert.Empty(typeof(StateManagerHooks<HookSnapshot>).GetConstructors());
+        Assert.True(typeof(StateManagerHooks<HookSnapshot>).IsSealed);
     }
 
     private sealed class RejectingManager(FakeHookPersistentState storage) : StateManagerBase<HookSnapshot>(storage, () => new("default"))

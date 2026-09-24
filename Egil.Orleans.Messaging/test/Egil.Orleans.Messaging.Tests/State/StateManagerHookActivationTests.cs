@@ -61,16 +61,20 @@ public abstract class HookActivationGrain : Grain, IHookActivationGrain
 {
     protected IStateManager<HookActivationState> Manager { get; set; } = null!;
     private readonly List<string> events = [];
+    private StateManagerHooks<HookActivationState>? retainedConfiguration;
+    private int configurationCalls;
 
-    protected StateManagerHooks<HookActivationState> Hooks => new()
+    protected void ConfigureInitialHooks(StateManagerHooks<HookActivationState> hooks)
     {
-        OnChangeAsync = async (state, operation, exists, _) =>
+        retainedConfiguration = hooks;
+        configurationCalls++;
+        hooks.OnChangeAsync = async (state, operation, exists, _) =>
         {
             await Task.Yield();
             Assert.Equal(StateManagerOperation.Read, operation);
             events.Add($"common:{state.Value}:{exists}");
-        },
-        OnReadAsync = async (state, _) =>
+        };
+        hooks.OnReadAsync = async (state, _) =>
         {
             await Task.Yield();
             if (this.GetPrimaryKeyString().StartsWith("fail-", StringComparison.Ordinal))
@@ -78,8 +82,8 @@ public abstract class HookActivationGrain : Grain, IHookActivationGrain
                 throw new InvalidOperationException("initial hook failed");
             }
             events.Add($"read:{state.Value}");
-        }
-    };
+        };
+    }
 
     public override Task OnActivateAsync(CancellationToken cancellationToken)
     {
@@ -87,11 +91,21 @@ public abstract class HookActivationGrain : Grain, IHookActivationGrain
         return Task.CompletedTask;
     }
 
-    public Task<string> ObserveAsync() => Task.FromResult(string.Join(',', events));
+    public Task<string> ObserveAsync()
+    {
+        Assert.Equal(1, configurationCalls);
+        return Task.FromResult(string.Join(',', events));
+    }
+
+    protected void ChangeRetainedConfiguration()
+    {
+        Assert.NotNull(retainedConfiguration);
+        retainedConfiguration.OnReadAsync = (_, _) => throw new InvalidOperationException("Retained configuration escaped into activation");
+    }
 
     public async Task SaveAndDeactivateAsync()
     {
-        Manager.ConfigureHooks(new());
+        Manager.ConfigureHooks(_ => { });
         await Manager.WriteAsync(new() { Value = "saved" });
         DeactivateOnIdle();
     }
@@ -102,7 +116,8 @@ public sealed class InjectedHookGrain : HookActivationGrain, IInjectedHookGrain
     public InjectedHookGrain([PersistentState("state", "Default")] IStateManager<HookActivationState> manager)
     {
         Manager = manager;
-        manager.ConfigureHooks(Hooks);
+        manager.ConfigureHooks(ConfigureInitialHooks);
+        ChangeRetainedConfiguration();
     }
 }
 
@@ -111,7 +126,8 @@ public sealed class ConstructorHookGrain : HookActivationGrain, IConstructorHook
     public ConstructorHookGrain([PersistentState("state", "Default")] IPersistentState<HookActivationState> storage)
     {
         Manager = this.RegisterStateManager("Default", storage);
-        Manager.ConfigureHooks(Hooks);
+        Manager.ConfigureHooks(ConfigureInitialHooks);
+        ChangeRetainedConfiguration();
     }
 }
 
@@ -121,7 +137,7 @@ public sealed class AsyncRegisteredHookGrain(
 {
     public override async Task OnActivateAsync(CancellationToken cancellationToken)
     {
-        Manager = await this.RegisterStateManagerAsync("Default", storage, Hooks, cancellationToken: cancellationToken);
+        Manager = await this.RegisterStateManagerAsync("Default", storage, ConfigureInitialHooks, cancellationToken: cancellationToken);
         await base.OnActivateAsync(cancellationToken);
     }
 }
