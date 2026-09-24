@@ -128,3 +128,33 @@ var item = JsonSerializer.Deserialize<ItemV2>(json, options);
 <!-- endSnippet -->
 
 > **Note:** This means you can use strict unmapped-member validation in your application without any special configuration for migratable types.
+
+## Legacy payload types (STJM0010)
+
+Apply `[JsonMigrationLegacyType]` to a class, struct, or enum kept only to read historical JSON. A **source** is the input to one migration edge; a **target** is that edge's output. An intermediate type in a chain can be both a target and a source, and can itself be marked legacy. A **current type** is the type application code uses after migration.
+
+The marker has no runtime effect. It neither enables migration nor registers a migrator, and it is not inherited by derived types. Keep `[JsonMigratable]` and existing registration where they are needed.
+
+STJM0010 warns when a marked type is named or inferred outside its own declaration or the method implementing its direct `IMigrateFrom<TSource, TTarget>` / `IMigrate<TSource, TTarget>` edge. This includes object creation, `var`, ordinary fields, properties, constructors and APIs on the replacement type, and unrelated helper methods. Tests follow the same rule. A migration from V2 to V3 does not allow unrelated V1 usage merely because V1 can migrate to V2.
+
+Required setup remains allowed: the direct migration interface declaration, the first (`TSource`) type argument of `RegisterMigrator<TSource, TTarget, TMigrator>` on `JsonMigrationBuilder`, `[JsonSerializable(typeof(LegacyType))]`, and `[JsonMigratable(UndiscriminatedSourceType = typeof(LegacyType))]`. Exemptions use the actual STJM and System.Text.Json symbols; unrelated APIs with matching names do not qualify.
+
+```csharp
+[JsonMigrationLegacyType]
+[JsonMigratable(TypeDiscriminator = "user-v1")]
+public record UserV1(string Name);
+
+[JsonMigratable(TypeDiscriminator = "user-v2")]
+public record UserV2(string Name) : IMigrateFrom<UserV1, UserV2>
+{
+    public static bool TryMigrateFrom(UserV1 source, out UserV2 result)
+    {
+        result = new UserV2(source.Name);
+        return true;
+    }
+}
+```
+
+Deserialize application payloads as the current type and keep legacy access within the direct migration implementation. When an intentional exception is necessary, use the standard C# diagnostic suppression mechanisms at the narrowest useful scope.
+
+`JsonMigrationLegacyTypeAttribute.MigratedExternally` defaults to `false`. It is reserved for future orphan-source analysis (STJM0011), indicating a migration supplied outside the current compilation. Setting it does not suppress STJM0010. This release does not implement STJM0011.

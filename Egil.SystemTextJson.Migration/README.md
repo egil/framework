@@ -72,7 +72,7 @@ public record UserV2(string FirstName, string LastName, int Age)
     }
 }
 ```
-<sup><a href='/samples/Egil.SystemTextJson.Migration.Samples/StaticMigrationSample.cs#L6-L18' title='Snippet source file'>snippet source</a> | <a href='#snippet-static_migration_type' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/samples/Egil.SystemTextJson.Migration.Samples/StaticMigrationSample.cs#L7-L19' title='Snippet source file'>snippet source</a> | <a href='#snippet-static_migration_type' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 Enable migration support on the serializer options and deserialize as usual:
@@ -88,7 +88,7 @@ var json = """{"$type":"user-v1","name":"Jane Doe","age":30}""";
 UserV2 user = JsonSerializer.Deserialize<UserV2>(json, options)!;
 // user is UserV2 { FirstName = "Jane", LastName = "Doe", Age = 30 }
 ```
-<sup><a href='/samples/Egil.SystemTextJson.Migration.Samples/StaticMigrationSample.cs#L25-L33' title='Snippet source file'>snippet source</a> | <a href='#snippet-static_migration_usage' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/samples/Egil.SystemTextJson.Migration.Samples/StaticMigrationSample.cs#L26-L34' title='Snippet source file'>snippet source</a> | <a href='#snippet-static_migration_usage' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 ### Brownfield adoption
