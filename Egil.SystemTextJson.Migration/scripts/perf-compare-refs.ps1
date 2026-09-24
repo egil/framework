@@ -316,37 +316,45 @@ try {
             $perfDir = Join-Path $refs[$name].Dir $perfRelative
             $artifacts = Join-Path $outputDir $label
             Write-Stage "Round $round`: running $name -> $artifacts"
-            if ($IsolateHotPathCases) {
-                $benchmarkDll = Join-Path $perfDir "bin\Release\$Framework\Egil.SystemTextJson.Migration.PerfTests.dll"
-                $results = Join-Path $artifacts 'results'
-                New-Item -ItemType Directory -Force $results | Out-Null
-                for ($caseIndex = 0; $caseIndex -lt $isolatedCases.Count; $caseIndex++) {
-                    $caseName = $isolatedCases[$caseIndex]
-                    $caseLabel = 'case-{0:D3}' -f $caseIndex
-                    $caseArtifacts = Join-Path $artifacts $caseLabel
-                    Write-Stage "$label $caseLabel`: $caseName"
-                    & dotnet $benchmarkDll --hot-path-case $caseName `
-                        --filter '*' --affinity $Affinity --iterationCount $IterationCount `
-                        @warmupArgs --exporters json github --artifacts $caseArtifacts
-                    if ($LASTEXITCODE -ne 0) { throw "Benchmark failed for $label $caseName" }
-                    $reports = @(Get-ChildItem (Join-Path $caseArtifacts 'results') -File)
-                    if ($reports.Count -eq 0) { throw "No reports produced for $label $caseName" }
-                    # Prefix filenames so different cases of the same benchmark class do
-                    # not overwrite each other in the existing comparison reader's folder.
-                    foreach ($report in $reports) {
-                        Copy-Item -LiteralPath $report.FullName -Destination (Join-Path $results "$caseLabel-$($report.Name)")
+            # Out-of-process BenchmarkDotNet jobs locate the project from the working
+            # directory, so an absolute DLL path alone can still rebuild the caller's ref.
+            Push-Location -LiteralPath $perfDir
+            try {
+                if ($IsolateHotPathCases) {
+                    $benchmarkDll = Join-Path $perfDir "bin\Release\$Framework\Egil.SystemTextJson.Migration.PerfTests.dll"
+                    $results = Join-Path $artifacts 'results'
+                    New-Item -ItemType Directory -Force $results | Out-Null
+                    for ($caseIndex = 0; $caseIndex -lt $isolatedCases.Count; $caseIndex++) {
+                        $caseName = $isolatedCases[$caseIndex]
+                        $caseLabel = 'case-{0:D3}' -f $caseIndex
+                        $caseArtifacts = Join-Path $artifacts $caseLabel
+                        Write-Stage "$label $caseLabel`: $caseName"
+                        & dotnet $benchmarkDll --hot-path-case $caseName `
+                            --filter '*' --affinity $Affinity --iterationCount $IterationCount `
+                            @warmupArgs --exporters json github --artifacts $caseArtifacts
+                        if ($LASTEXITCODE -ne 0) { throw "Benchmark failed for $label $caseName" }
+                        $reports = @(Get-ChildItem (Join-Path $caseArtifacts 'results') -File)
+                        if ($reports.Count -eq 0) { throw "No reports produced for $label $caseName" }
+                        # Prefix filenames so different cases of the same benchmark class do
+                        # not overwrite each other in the existing comparison reader's folder.
+                        foreach ($report in $reports) {
+                            Copy-Item -LiteralPath $report.FullName -Destination (Join-Path $results "$caseLabel-$($report.Name)")
+                        }
                     }
                 }
+                else {
+                    & dotnet run --project $perfDir -c Release --framework $Framework --no-build -- `
+                        --filter $Filter `
+                        --affinity $Affinity `
+                        --iterationCount $IterationCount `
+                        @warmupArgs `
+                        --exporters json github `
+                        --artifacts $artifacts
+                    if ($LASTEXITCODE -ne 0) { throw "Benchmark run failed for $label" }
+                }
             }
-            else {
-                & dotnet run --project $perfDir -c Release --framework $Framework --no-build -- `
-                    --filter $Filter `
-                    --affinity $Affinity `
-                    --iterationCount $IterationCount `
-                    @warmupArgs `
-                    --exporters json github `
-                    --artifacts $artifacts
-                if ($LASTEXITCODE -ne 0) { throw "Benchmark run failed for $label" }
+            finally {
+                Pop-Location
             }
             if (-not (Test-Path (Join-Path $artifacts 'results'))) { throw "No results produced for $label; check the BenchmarkDotNet output above" }
         }
