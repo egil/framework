@@ -1,5 +1,17 @@
 # Error Handling & Diagnostics
 
+## Analyzer warning: source-generated migratable union needs a classifier (STJM0008)
+
+When a source-generated `JsonSerializerContext` includes a union with a `[JsonMigratable]` case, annotate the union with `JsonMigratableUnionTypeClassifier`. This supplies migration routing while satisfying the compiler's `SYSLIB1227` classifier requirement:
+
+```cs
+[JsonUnion(TypeClassifier = typeof(JsonMigratableUnionTypeClassifier))]
+public union ProductOrText(ProductV2, string);
+```
+
+STJM0008 also checks union case constructors for unions imported from another assembly. Configure the classifier on the union declaration, even when its source-generated context is in a different assembly.
+Nested unions and nullable migratable struct cases are checked as well.
+
 ## Analyzer warning: invalid migratable target contract (STJM0002)
 
 `[JsonMigratable]` target types use `IMigrateFrom<TSource, TTarget>` for migrations declared on the target. `IMigrate<TSource, TTarget>` is reserved for a separate external migrator type. The analyzer reports STJM0002 on an `IMigrate` interface implemented directly by a migratable target:

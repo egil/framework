@@ -6,7 +6,7 @@ namespace Egil.SystemTextJson.Migration.Analyzers.Tests;
 
 internal static class SdkAnalyzerFixture
 {
-    public static async Task<(int ExitCode, string Output, string Diagnostics)> BuildAsync(string source, string analyzerPath, CancellationToken cancellationToken)
+    public static async Task<(int ExitCode, string Output, string Diagnostics)> BuildAsync(string source, string analyzerPath, CancellationToken cancellationToken, string? referencedSource = null)
     {
         // The analyzer targets Roslyn 4.8 for compiler compatibility. Only the SDK compiler
         // can bind actual C# unions, so this boundary test must compile through dotnet build.
@@ -16,6 +16,12 @@ internal static class SdkAnalyzerFixture
         try
         {
             var project = Path.Combine(directory.FullName, "Fixture.csproj");
+            if (referencedSource is not null)
+            {
+                var referenceDirectory = Directory.CreateDirectory(Path.Combine(directory.FullName, "Reference"));
+                await File.WriteAllTextAsync(Path.Combine(referenceDirectory.FullName, "Reference.csproj"), "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net11.0</TargetFramework><LangVersion>preview</LangVersion></PropertyGroup></Project>", cancellationToken);
+                await File.WriteAllTextAsync(Path.Combine(referenceDirectory.FullName, "Reference.cs"), referencedSource, cancellationToken);
+            }
             var errorLog = Path.Combine(directory.FullName, "diagnostics.sarif");
             await File.WriteAllTextAsync(project, $"""
                 <Project Sdk="Microsoft.NET.Sdk">
@@ -28,6 +34,7 @@ internal static class SdkAnalyzerFixture
                   </PropertyGroup>
                   <ItemGroup>
                     <Analyzer Include="{SecurityElement.Escape(analyzerPath)}" />
+                    {(referencedSource is null ? "" : "<ProjectReference Include=\"Reference/Reference.csproj\" /><Compile Remove=\"Reference/**/*.cs\" />")}
                   </ItemGroup>
                 </Project>
                 """, cancellationToken);
