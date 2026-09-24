@@ -14,8 +14,9 @@
     scheme; perf-compare-refs.ps1 does that for the run and restores it, this
     script does not.
 
-    The benchmark config uses InProcessNoEmitToolchain, so the affinity mask pins
-    the process that actually executes the benchmarks. The default mask is one
+    BenchmarkDotNet applies the affinity mask to the process that executes the benchmarks:
+    this one for the in-process scenario config, the child process for the hot-path config
+    on .NET 10. The default mask is one
     SMT pair (both logical threads of one physical core), so no other thread
     shares that core's pipeline: a P-core pair on hybrid Intel parts, otherwise a
     high-numbered pair because the scheduler fills low cores first.
@@ -28,6 +29,10 @@
 
 .PARAMETER Affinity
     Decimal affinity mask passed to BenchmarkDotNet. Defaults to the last SMT pair.
+
+.PARAMETER WarmupCount
+    Fixed number of warmup iterations. By default each benchmark's job decides: the jobs warm
+    up until iterations stop trending, because tiered compilation can take seconds to settle.
 
 .EXAMPLE
     ./scripts/run-perf.ps1 -Label baseline
@@ -42,11 +47,13 @@ param(
     [string]$Filter = '*',
     [string]$Framework,
     [int]$IterationCount = 15,
-    [int]$WarmupCount = 3,
+    [int]$WarmupCount,
     [string]$Affinity
 )
 
 $ErrorActionPreference = 'Stop'
+$warmupArgs = if ($PSBoundParameters.ContainsKey('WarmupCount')) { @('--warmupCount', $WarmupCount) } else { @() }
+$warmupText = if ($warmupArgs) { "warmup $WarmupCount" } else { 'automatic warmup' }
 $root = Split-Path $PSScriptRoot -Parent
 
 # Same default as perf-compare-refs.ps1 and the README's perf tables: the net11.0 build once
@@ -85,7 +92,7 @@ if (-not $Affinity) {
 Write-Host "Label:      $Label"
 Write-Host "Framework:  $Framework"
 Write-Host "Affinity:   $Affinity"
-Write-Host "Iterations: $IterationCount (warmup $WarmupCount)"
+Write-Host "Iterations: $IterationCount ($warmupText)"
 Write-Host "Artifacts:  $artifacts"
 
 # Build first so the run itself uses --no-build: a rebuild inside dotnet run would race a
@@ -99,7 +106,7 @@ if ($LASTEXITCODE -ne 0) {
     --filter $Filter `
     --affinity $Affinity `
     --iterationCount $IterationCount `
-    --warmupCount $WarmupCount `
+    @warmupArgs `
     --exporters json github `
     --artifacts $artifacts
 

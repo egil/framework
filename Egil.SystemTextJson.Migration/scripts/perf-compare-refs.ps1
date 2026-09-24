@@ -63,6 +63,10 @@
     parses the mask as a signed 32-bit integer). The summary records the mask; check it
     against the machine's topology before trusting absolute numbers.
 
+.PARAMETER WarmupCount
+    Fixed number of warmup iterations. By default each benchmark's job decides: the jobs warm
+    up until iterations stop trending, because tiered compilation can take seconds to settle.
+
 .PARAMETER KeepBoost
     Leave the High Performance scheme's processor boost mode as it is instead of disabling
     it for the run.
@@ -81,13 +85,15 @@ param(
     [int]$Rounds = 2,
     [string]$Filter = '*',
     [int]$IterationCount = 15,
-    [int]$WarmupCount = 3,
+    [int]$WarmupCount,
     [string]$Affinity,
     [switch]$KeepBoost,
     [switch]$IsolateHotPathCases
 )
 
 $ErrorActionPreference = 'Stop'
+$warmupArgs = if ($PSBoundParameters.ContainsKey('WarmupCount')) { @('--warmupCount', $WarmupCount) } else { @() }
+$warmupText = if ($warmupArgs) { "warmup $WarmupCount" } else { 'automatic warmup' }
 $projectRoot = Split-Path $PSScriptRoot -Parent
 $repoRoot = (& git -C $projectRoot rev-parse --show-toplevel).Trim()
 $perfRelative = 'Egil.SystemTextJson.Migration\perf\Egil.SystemTextJson.Migration.PerfTests'
@@ -228,7 +234,7 @@ $summary.Add("| Baseline | ``$BaselineRef`` = ``$baselineSha`` |")
 $summary.Add("| Candidate | ``$CandidateRef`` = ``$candidateSha`` |")
 $summary.Add("| Framework | $Framework |")
 $summary.Add("| Affinity | $Affinity (0x$([Convert]::ToString([int]$Affinity, 16))) |")
-$summary.Add("| Iterations | $IterationCount (warmup $WarmupCount), $Rounds round(s), filter ``$Filter`` |")
+$summary.Add("| Iterations | $IterationCount ($warmupText), $Rounds round(s), filter ``$Filter`` |")
 $summary.Add("| Case isolation | $IsolateHotPathCases |")
 
 # Initialized outside the try block so the finally block can read it; every change to the
@@ -321,7 +327,7 @@ try {
                     Write-Stage "$label $caseLabel`: $caseName"
                     & dotnet $benchmarkDll --hot-path-case $caseName `
                         --filter '*' --affinity $Affinity --iterationCount $IterationCount `
-                        --warmupCount $WarmupCount --exporters json github --artifacts $caseArtifacts
+                        @warmupArgs --exporters json github --artifacts $caseArtifacts
                     if ($LASTEXITCODE -ne 0) { throw "Benchmark failed for $label $caseName" }
                     $reports = @(Get-ChildItem (Join-Path $caseArtifacts 'results') -File)
                     if ($reports.Count -eq 0) { throw "No reports produced for $label $caseName" }
@@ -337,7 +343,7 @@ try {
                     --filter $Filter `
                     --affinity $Affinity `
                     --iterationCount $IterationCount `
-                    --warmupCount $WarmupCount `
+                    @warmupArgs `
                     --exporters json github `
                     --artifacts $artifacts
                 if ($LASTEXITCODE -ne 0) { throw "Benchmark run failed for $label" }
