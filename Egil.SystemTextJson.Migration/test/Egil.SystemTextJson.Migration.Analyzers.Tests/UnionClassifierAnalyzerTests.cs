@@ -17,7 +17,7 @@ public sealed class UnionClassifierAnalyzerTests
     }
 
     [Fact]
-    public async Task Sdk_context_with_classifier_or_non_union_does_not_report()
+    public async Task Sdk_context_with_classifier_does_not_report()
     {
         var result = await SdkAnalyzerFixture.BuildAsync(Source("[JsonUnion(TypeClassifier = typeof(Egil.SystemTextJson.Migration.JsonMigratableUnionTypeClassifier))]"), typeof(UnionClassifierAnalyzer).Assembly.Location, TestContext.Current.CancellationToken);
 
