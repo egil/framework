@@ -22,6 +22,18 @@ public sealed class ProductV2 : IMigrateFrom<ProductV1, ProductV2>
 
 For a directly declared contract, the warning is attached to that interface in the target's base list. When the contract is inherited, the warning is attached to the derived migratable target because no direct interface occurrence exists there.
 
+## Analyzer warning: undiscriminated source without a migrator (STJM0003)
+
+`UndiscriminatedSourceType` selects a source type for payloads that do not contain a discriminator. The selected source needs either a target-owned `IMigrateFrom<TSource, TTarget>` contract or a visible external `IMigrate<TSource, TTarget>` contract. STJM0003 warns when neither contract is available:
+
+```cs
+[JsonMigratable(UndiscriminatedSourceType = typeof(ProductV1))] // STJM0003
+public sealed class ProductV2
+{
+}
+```
+
+Add a matching target-owned migration or an external migrator contract before configuring the undiscriminated source.
 ## Handling unknown discriminators
 
 When a `$type` discriminator value doesn't match any registered source type or the target type itself, the library throws a `JsonException` with a clear message identifying the unrecognized discriminator:
