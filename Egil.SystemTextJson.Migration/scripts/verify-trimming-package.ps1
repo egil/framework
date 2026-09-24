@@ -25,7 +25,10 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 if ($NativeCompileOnly -and -not $Publish) { throw '-NativeCompileOnly requires -Publish.' }
 $package = Get-Item -LiteralPath $PackagePath
-$version = $package.BaseName.Substring('Egil.SystemTextJson.Migration.'.Length)
+if ($package.Extension -ne '.nupkg' -or $package.BaseName -notmatch '^Egil\.SystemTextJson\.Migration\.(?<version>\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)$') {
+    throw "Unexpected package file name: $($package.Name)"
+}
+$version = $Matches.version
 $run = Join-Path ([System.IO.Path]::GetFullPath($EvidenceDirectory)) ([guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $run -Force | Out-Null
 Write-Host "Diagnostic evidence: $run"
@@ -48,7 +51,7 @@ function Invoke-DotNet([string[]]$Arguments, [string]$Log) {
     return $output
 }
 
-function Assert-Diagnostics([string]$Output, [string]$Mode, [string[]]$Sites, [string]$Stage = 'build') {
+function Assert-Diagnostics([string]$Output, [string]$Mode, [string[]]$Sites, [hashtable]$Locations, [string]$Stage = 'build') {
     if ($Mode -eq 'plain') {
         if ($Output -match '\b(?:warning|error) [A-Z]+\d+') { throw 'The untrimmed consumer was not warning-free.' }
         return
@@ -66,8 +69,11 @@ function Assert-Diagnostics([string]$Output, [string]$Mode, [string[]]$Sites, [s
                 if ($message -notmatch 'PublishAot=false' -or $message -notmatch 'https://github.com/egil/framework/') {
                     throw "Missing corrective action or context URL: $message"
                 }
-                if ($id -eq 'IL2026' -and ($message -notmatch 'PublishTrimmed=false' -or $message -notmatch 'source-generated JsonSerializerContext')) {
+                if ($id -eq 'IL2026' -and ($message -notmatch 'trimming may remove' -or $message -notmatch 'PublishTrimmed=false' -or $message -notmatch 'source-generated JsonSerializerContext')) {
                     throw "Missing trimming/source-generation guidance: $message"
+                }
+                if ($id -eq 'IL3050' -and $message -notmatch 'generic converters and invokers at runtime') {
+                    throw "Missing dynamic-code explanation: $message"
                 }
             }
         }
@@ -92,12 +98,13 @@ function Assert-Diagnostics([string]$Output, [string]$Mode, [string[]]$Sites, [s
     }
     $locationPattern = 'Program\.cs\((' + ($allowedLines -join '|') + ')(?:,\d+)?\):'
     $unexpected = @($warnings | Where-Object {
+        $isRequirement = $_ -match '\b(IL2026|IL3050)\b'
         $knownLocation = $_ -match $locationPattern
         $unionActivation = $Sites -contains 'Classifier' -and $_ -match 'JsonMigratableUnionTypeClassifier' -and
             ($_ -match 'Context\.Result\.g\.cs\(' -or $_ -match '(?:ILLink|ILC) : (?:Trim|AOT) analysis warning IL(?:2026|3050): Result:')
-        $_ -notmatch '\b(IL2026|IL3050)\b' -or -not ($knownLocation -or $unionActivation) -or
-            $_ -notmatch 'PublishAot=false' -or $_ -notmatch 'source-generated JsonSerializerContext' -or
-            $_ -notmatch 'https://github.com/egil/framework/'
+        $hasGuidance = $_ -match 'PublishAot=false' -and $_ -match 'source-generated JsonSerializerContext' -and
+            $_ -match 'https://github.com/egil/framework/'
+        -not ($isRequirement -and ($knownLocation -or $unionActivation) -and $hasGuidance)
     })
     if ($unexpected.Count) { throw "Unexpected diagnostics: $($unexpected -join [Environment]::NewLine)" }
 }
@@ -107,6 +114,7 @@ $source = Get-Content (Join-Path $PSScriptRoot 'trimming-consumer/Program.cs') -
 # Keep real source locations (also embedded in publish PDBs), avoiding synthetic #line files.
 $locations = @{}
 $sourceLines = $source -split '\r?\n'
+# Each '// diagnostic: <Site>' marker names the call on the line directly below it.
 for ($index = 0; $index -lt $sourceLines.Length; $index++) {
     if ($sourceLines[$index] -match '// diagnostic: (.+)') { $locations[$Matches[1]] = $index + 2 }
 }
@@ -152,7 +160,7 @@ foreach ($framework in $TargetFrameworks) {
         $output = Invoke-DotNet @('build', $project, '-c', 'Release', '--no-restore', '-r', $RuntimeIdentifier) (Join-Path $directory 'build.log')
         $sites = @('Setup', 'Provider', 'Generated', 'GeneratedProvider', 'RegisteredGenerated', 'GeneratedGeneric', 'Generic', 'Discovered', 'Assembly', 'Assemblies')
         if ($framework -eq 'net11.0') { $sites += @('Classifier', 'UnionSetup') }
-        Assert-Diagnostics $output $mode $sites
+        Assert-Diagnostics $output $mode $sites $locations
         if ($mode -eq 'plain') {
             $null = Invoke-DotNet @('run', '--project', $project, '-c', 'Release', '--no-build', '--no-restore', '-r', $RuntimeIdentifier) (Join-Path $directory 'run.log')
         }
@@ -167,7 +175,7 @@ foreach ($framework in $TargetFrameworks) {
             else {
                 $output = Invoke-DotNet @('publish', $project, '-c', 'Release', '--no-restore', '-r', $RuntimeIdentifier) (Join-Path $directory 'publish.log')
             }
-            Assert-Diagnostics $output $mode $sites 'publish'
+            Assert-Diagnostics $output $mode $sites $locations 'publish'
         }
         $stage = if ($mode -eq 'aot' -and $NativeCompileOnly) { 'native compilation (linking not verified)' } elseif ($Publish -and $mode -ne 'plain') { 'publish' } else { 'build/run' }
         Write-Host "PASS $framework $mode $stage"

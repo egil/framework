@@ -16,14 +16,16 @@ namespace Egil.SystemTextJson.Migration.Migrations;
 /// modified here, and wrapping the inherited resolver instead of editing the chain works when the
 /// migration resolver is not directly visible in it.
 /// </remarks>
+[method: RequiresUnreferencedCode(MigrationCompatibility.Trimming, Url = MigrationCompatibility.Url)]
+[method: RequiresDynamicCode(MigrationCompatibility.DynamicCode, Url = MigrationCompatibility.Url)]
 internal sealed class PlainContractResolver(IJsonTypeInfoResolver inner, MigrationScope scope) : IJsonTypeInfoResolver
 {
     public IJsonTypeInfoResolver Inner { get; } = inner;
 
     // Keep the interface contract unchanged; this wrapper is created only while building a
     // converter behind the annotated AddJsonMigrationSupport registration boundary.
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Discriminator injection is deferred work enabled only by the annotated AddJsonMigrationSupport overloads.")]
-    [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Discriminator injection is deferred work enabled only by the annotated AddJsonMigrationSupport overloads.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = MigrationCompatibility.DeferredResolution)]
+    [UnconditionalSuppressMessage("AOT", "IL3050", Justification = MigrationCompatibility.DeferredResolution)]
     public JsonTypeInfo? GetTypeInfo(Type type, JsonSerializerOptions options)
     {
         JsonTypeInfo? typeInfo = Inner.GetTypeInfo(type, options);

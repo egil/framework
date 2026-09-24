@@ -22,6 +22,8 @@ internal static class ResolverLeaves
 {
     // Resolved once; null when the runtime no longer has the type or field, in which case a
     // decorated entry is reported as an opaque leaf rather than failing.
+    // Unlike Assembly.GetType, the constant assembly-qualified Type.GetType lookup lets the
+    // trimmer identify the type and preserve the field accessed below without requiring IL2026.
     private static readonly FieldInfo? DecoratorSourceField = Type
         .GetType("System.Text.Json.Serialization.Metadata.JsonTypeInfoResolverWithAddedModifiers, System.Text.Json")?
         .GetField("_source", BindingFlags.NonPublic | BindingFlags.Instance);
