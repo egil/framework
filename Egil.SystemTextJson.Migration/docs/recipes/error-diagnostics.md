@@ -222,6 +222,14 @@ STJM0011 warns when a `[JsonMigrationLegacyType]` declaration has no visible `IM
 
 If the migrator lives in another assembly, set `MigratedExternally = true` on the marker. This suppresses STJM0011 only; STJM0010 still restricts ordinary use of the marked type. If there is no migration remaining, remove the marker and consider deleting the historical type.
 
+## STJM0009: migration sources have an ambiguous non-object JSON shape
+
+Multiple `IMigrateFrom<TSource, TTarget>` sources cannot share the same runtime selection tier for a primitive or collection JSON shape. For example, `int` and `long` sources both read a JSON number in the legacy primitive tier. Types added by newer runtime support are selected after the legacy tier, so pairing `int` with `Half` does not trigger this diagnostic.
+
+Collections can be selected from a visible discriminator on their first object element. STJM0009 does not report collections whose element discriminator property and value are provably different. Empty collections still have no element to inspect, so use one source collection when an empty payload must be supported.
+
+Use sources with different JSON shapes, combine the old formats into one source type, or migrate from an object payload that can carry a discriminator. The analyzer reports statically identifiable string, number, boolean, and collection shapes. Custom converters and other runtime metadata remain runtime configuration.
+
 ## STJM0004: migratable targets must be JSON objects
 
 `[JsonMigratable]` adds a discriminator property to the target's JSON contract. Collections, dictionaries, and .NET 11 unions cannot carry that property, so the runtime rejects them. STJM0004 warns at the target declaration before serialization or deserialization is attempted. It also recognizes inherited migration markers and asynchronous enumerable targets.
