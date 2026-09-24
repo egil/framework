@@ -1,5 +1,6 @@
 namespace Egil.SystemTextJson.Migration.Samples.StaticMigration;
 
+[JsonMigrationLegacyType]
 [JsonMigratable(TypeDiscriminator = "user-v1")]
 public record UserV1(string Name, int Age);
 
