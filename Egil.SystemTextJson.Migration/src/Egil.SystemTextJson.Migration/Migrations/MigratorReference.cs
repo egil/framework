@@ -126,6 +126,7 @@ internal abstract record MigratorReference(
     /// not a JSON object (a primitive, array or dictionary), in which case its converter accepts
     /// elements of those shapes too.
     /// </summary>
+    [RequiresUnreferencedCode(MigrationCompatibility.Trimming, Url = MigrationCompatibility.Url)]
     public static bool ResolveElementAcceptsNonObjectShapes(Type sourceType, JsonTypeInfo sourceTypeInfo, JsonMigrationRegistry registry)
     {
         if (sourceTypeInfo.Kind is not (JsonTypeInfoKind.Enumerable or JsonTypeInfoKind.Dictionary))

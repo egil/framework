@@ -18,6 +18,8 @@ public sealed class JsonMigrationBuilder
     /// <summary>
     /// Registers a migrator instance type for a single source/target pair.
     /// </summary>
+    [RequiresUnreferencedCode(MigrationCompatibility.Trimming, Url = MigrationCompatibility.Url)]
+    [RequiresDynamicCode(MigrationCompatibility.DynamicCode, Url = MigrationCompatibility.Url)]
     public JsonMigrationBuilder RegisterMigrator<TSource, TTarget, TMigrator>()
         where TMigrator : class, IMigrate<TSource, TTarget>
     {
@@ -28,6 +30,8 @@ public sealed class JsonMigrationBuilder
     /// <summary>
     /// Registers one migrator type for all implemented <see cref="IMigrate{TSource, TTarget}"/> interfaces.
     /// </summary>
+    [RequiresUnreferencedCode(MigrationCompatibility.Trimming, Url = MigrationCompatibility.Url)]
+    [RequiresDynamicCode(MigrationCompatibility.DynamicCode, Url = MigrationCompatibility.Url)]
     public JsonMigrationBuilder RegisterMigrator<TMigrator>()
         where TMigrator : class
     {
@@ -51,6 +55,8 @@ public sealed class JsonMigrationBuilder
     /// <summary>
     /// Scans one assembly for migrator types.
     /// </summary>
+    [RequiresUnreferencedCode(MigrationCompatibility.Trimming, Url = MigrationCompatibility.Url)]
+    [RequiresDynamicCode(MigrationCompatibility.DynamicCode, Url = MigrationCompatibility.Url)]
     public JsonMigrationBuilder RegisterMigratorsFromAssembly(Assembly assembly)
     {
         ArgumentNullException.ThrowIfNull(assembly);
@@ -76,6 +82,8 @@ public sealed class JsonMigrationBuilder
     /// <summary>
     /// Scans multiple assemblies for migrator types.
     /// </summary>
+    [RequiresUnreferencedCode(MigrationCompatibility.Trimming, Url = MigrationCompatibility.Url)]
+    [RequiresDynamicCode(MigrationCompatibility.DynamicCode, Url = MigrationCompatibility.Url)]
     public JsonMigrationBuilder RegisterMigratorsFromAssemblies(params Assembly[] assemblies)
     {
         ArgumentNullException.ThrowIfNull(assemblies);
@@ -153,6 +161,8 @@ public sealed class JsonMigrationBuilder
         return new JsonMigrationRegistry(byTarget.ToFrozenDictionary(), resolver, defaultDiscriminatorPropertyName, migrationFailureHandling);
     }
 
+    [RequiresUnreferencedCode(MigrationCompatibility.Trimming, Url = MigrationCompatibility.Url)]
+    [RequiresDynamicCode(MigrationCompatibility.DynamicCode, Url = MigrationCompatibility.Url)]
     private void RegisterMigratorType(Type migratorType)
     {
         var contracts = GetMigrationContracts(migratorType).ToArray();
@@ -167,6 +177,8 @@ public sealed class JsonMigrationBuilder
         }
     }
 
+    [RequiresUnreferencedCode(MigrationCompatibility.Trimming, Url = MigrationCompatibility.Url)]
+    [RequiresDynamicCode(MigrationCompatibility.DynamicCode, Url = MigrationCompatibility.Url)]
     private void AddRegistration(Type sourceType, Type targetType, Type migratorType)
     {
         var key = (Source: sourceType, Target: targetType);
@@ -184,6 +196,7 @@ public sealed class JsonMigrationBuilder
                 MigratorInvokerFactory.CreateExternalInvoker(sourceType, targetType, migratorType, migratorServiceProvider)));
     }
 
+    [RequiresUnreferencedCode(MigrationCompatibility.Trimming, Url = MigrationCompatibility.Url)]
     private static IEnumerable<(Type Source, Type Target)> GetMigrationContracts(Type type)
     {
         foreach (Type @interface in type.GetInterfaces())
@@ -198,6 +211,7 @@ public sealed class JsonMigrationBuilder
         }
     }
 
+    [RequiresUnreferencedCode(MigrationCompatibility.Trimming, Url = MigrationCompatibility.Url)]
     private static IEnumerable<Type> GetLoadableTypes(Assembly assembly)
     {
         try

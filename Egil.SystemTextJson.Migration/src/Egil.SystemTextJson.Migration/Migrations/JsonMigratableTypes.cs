@@ -32,6 +32,7 @@ internal static class JsonMigratableTypes
     /// read from the compiler-generated single-parameter constructors, the same source
     /// System.Text.Json uses, because no options are available where this is needed.
     /// </summary>
+    [RequiresUnreferencedCode(MigrationCompatibility.Trimming, Url = MigrationCompatibility.Url)]
     public static bool IsUnionWithMigratableCase(Type type)
     {
         if (!IsUnion(type))

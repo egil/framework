@@ -20,6 +20,10 @@ internal sealed class PlainContractResolver(IJsonTypeInfoResolver inner, Migrati
 {
     public IJsonTypeInfoResolver Inner { get; } = inner;
 
+    // Keep the interface contract unchanged; this wrapper is created only while building a
+    // converter behind the annotated AddJsonMigrationSupport registration boundary.
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Discriminator injection is deferred work enabled only by the annotated AddJsonMigrationSupport overloads.")]
+    [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Discriminator injection is deferred work enabled only by the annotated AddJsonMigrationSupport overloads.")]
     public JsonTypeInfo? GetTypeInfo(Type type, JsonSerializerOptions options)
     {
         JsonTypeInfo? typeInfo = Inner.GetTypeInfo(type, options);

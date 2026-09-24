@@ -6,6 +6,8 @@
     <Nullable>enable</Nullable>
     <IsPackable>true</IsPackable>
     <DebugType>embedded</DebugType>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableAotAnalyzer>true</EnableAotAnalyzer>
   </PropertyGroup>
 
   <PropertyGroup>

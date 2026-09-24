@@ -22,8 +22,8 @@ internal static class ResolverLeaves
 {
     // Resolved once; null when the runtime no longer has the type or field, in which case a
     // decorated entry is reported as an opaque leaf rather than failing.
-    private static readonly FieldInfo? DecoratorSourceField = typeof(JsonSerializerOptions).Assembly
-        .GetType("System.Text.Json.Serialization.Metadata.JsonTypeInfoResolverWithAddedModifiers")?
+    private static readonly FieldInfo? DecoratorSourceField = Type
+        .GetType("System.Text.Json.Serialization.Metadata.JsonTypeInfoResolverWithAddedModifiers, System.Text.Json")?
         .GetField("_source", BindingFlags.NonPublic | BindingFlags.Instance);
 
     public static IEnumerable<IJsonTypeInfoResolver> Of(IJsonTypeInfoResolver? resolver)
