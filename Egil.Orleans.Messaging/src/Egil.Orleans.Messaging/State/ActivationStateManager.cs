@@ -9,12 +9,14 @@ internal sealed class ActivationStateManager<T> : IStateManager<T>
     private IStateManager<T>? manager;
     private StateManagerHooks<T> hooks = new();
 
-    public void ConfigureHooks(StateManagerHooks<T> hooks)
+    public void ConfigureHooks(Action<StateManagerHooks<T>> configure)
     {
-        ArgumentNullException.ThrowIfNull(hooks);
-        hooks.Validate();
-        this.hooks = hooks;
-        manager?.ConfigureHooks(hooks);
+        if (manager is not null)
+        {
+            manager.ConfigureHooks(configure);
+            return;
+        }
+        hooks = StateManagerHooks<T>.Create(configure);
     }
 
     public Task InitializeAsync(CancellationToken cancellationToken = default) => Manager.InitializeAsync(cancellationToken);
@@ -27,7 +29,7 @@ internal sealed class ActivationStateManager<T> : IStateManager<T>
         {
             cancellationToken.ThrowIfCancellationRequested();
             manager = create();
-            manager.ConfigureHooks(hooks);
+            manager.ConfigureHooks(hooks.CopyTo);
             return manager.InitializeAsync(cancellationToken);
         });
     }

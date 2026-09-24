@@ -111,8 +111,13 @@ public interface IStateManager<T>
     where T : class, IEquatable<T>
 {
     /// <summary>Atomically replaces all lifecycle handlers without replaying state.</summary>
-    /// <remarks>Omitted slots are cleared. Each operation retains the configuration captured at its start.</remarks>
-    void ConfigureHooks(StateManagerHooks<T> hooks);
+    /// <remarks>
+    /// Invokes the callback once with a fresh configuration object, validates and copies its handlers,
+    /// then replaces the installed configuration. Omitted slots are cleared; a throwing callback or
+    /// invalid configuration leaves the previous handlers intact. Retaining and editing the supplied
+    /// object has no effect afterward. Each operation retains the configuration captured at its start.
+    /// </remarks>
+    void ConfigureHooks(Action<StateManagerHooks<T>> configure);
 
     /// <summary>Awaits the initial read notification for an already hydrated manager, without reading storage.</summary>
     /// <remarks>

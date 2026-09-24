@@ -117,11 +117,9 @@ public abstract class StateManagerBase<T> : IStateManager<T>
     private bool initialized;
 
     /// <inheritdoc/>
-    public void ConfigureHooks(StateManagerHooks<T> hooks)
+    public void ConfigureHooks(Action<StateManagerHooks<T>> configure)
     {
-        ArgumentNullException.ThrowIfNull(hooks);
-        hooks.Validate();
-        Volatile.Write(ref this.hooks, hooks);
+        Volatile.Write(ref hooks, StateManagerHooks<T>.Create(configure));
     }
 
     /// <inheritdoc/>

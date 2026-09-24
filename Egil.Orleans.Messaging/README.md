@@ -198,7 +198,7 @@ version. Use `manager.State` after the write to observe the persisted version.
 
 ### State manager lifecycle hooks
 
-Use `StateManagerHooks<T>` to rebuild in-memory data or copy confirmed state
+Use `ConfigureHooks` to rebuild in-memory data or copy confirmed state
 elsewhere. Configure an injected or constructor-registered manager in the grain
 constructor to observe its initial load:
 
@@ -206,11 +206,11 @@ constructor to observe its initial load:
 public OrderGrain(
     [PersistentState("state", "Default")] IStateManager<OrderState> state)
 {
-    state.ConfigureHooks(new StateManagerHooks<OrderState>
+    state.ConfigureHooks(hooks =>
     {
-        OnRead = loaded => RebuildIndex(loaded),
-        OnChangeAsync = (adopted, operation, recordExists, token) =>
-            CopyStateAsync(adopted, operation, recordExists, token)
+        hooks.OnRead = loaded => RebuildIndex(loaded);
+        hooks.OnChangeAsync = (adopted, operation, recordExists, token) =>
+            CopyStateAsync(adopted, operation, recordExists, token);
     });
 }
 ```
@@ -220,7 +220,7 @@ For registration inside `OnActivateAsync`, await the registration itself:
 ```csharp
 state = await this.RegisterStateManagerAsync(
     "Default", storage,
-    new StateManagerHooks<OrderState> { OnRead = loaded => RebuildIndex(loaded) },
+    hooks => { hooks.OnRead = loaded => RebuildIndex(loaded); },
     cancellationToken: cancellationToken);
 ```
 
@@ -233,8 +233,12 @@ awaits them before returning. An initial handler failure fails activation.
 There are four slots: `OnRead`, `OnWrite`, `OnClear`, and the common `OnChange`.
 Each has an `Async` alternative returning `Task` and receiving a cancellation
 token. Setting both forms of the same slot is rejected. `ConfigureHooks` replaces
-all slots atomically; omitted slots are cleared, and an empty options object
-removes all hooks. It never replays state. An operation keeps the configuration it
+all slots atomically; omitted slots are cleared, and `ConfigureHooks(_ => { })`
+removes all hooks. The library supplies a fresh configuration object to the callback;
+consumers cannot construct or derive `StateManagerHooks<T>`. The callback runs once,
+then the manager validates and copies its handlers. Retaining and editing that object
+afterward cannot change installed hooks. A throwing callback or invalid configuration
+leaves the previous hooks intact. Configuration never replays state. An operation keeps the configuration it
 captured at its start, including if a handler reconfigures the manager.
 
 | Outcome | Notification |
@@ -1127,14 +1131,19 @@ This package is messaging infrastructure, not an event-sourcing or CQRS framewor
   (auth, missing container/table, payload too large) still return
   `DidNotPersist`.
 
-- `IStateManager<T>` gains `ConfigureHooks(StateManagerHooks<T>)` and
-  `InitializeAsync(CancellationToken)`. Custom implementations must implement
-  atomic hook replacement and one-time awaited initial notification; implementations
-  deriving from `StateManagerBase<T>` inherit both. Existing `IStateManagerFactory`
+- `IStateManager<T>` gains `ConfigureHooks(Action<StateManagerHooks<T>>)` and
+  `InitializeAsync(CancellationToken)`. Custom provider implementations should derive
+  from `StateManagerBase<T>` to inherit atomic hook replacement and one-time awaited
+  initial notification. Wrappers should forward both methods to their underlying
+  manager. Hook configuration objects are library-owned, so independent implementations
+  cannot construct the callback argument themselves. Existing `IStateManagerFactory`
   signatures are unchanged. Configure hooks in the constructor for injected or
   constructor-registered managers; use and await `RegisterStateManagerAsync` when
   registering with hooks in `OnActivateAsync`. Keep transient dependency wiring
   in `configureState`; move confirmed-storage effects to lifecycle hooks.
+  Both configuration and async registration accept a callback such as
+  `hooks => { hooks.OnRead = loaded => RebuildIndex(loaded); }`; consumers do not
+  instantiate hook configuration objects.
 
 - `VersionedState.Version` now uses public `init` so state records can be included
   in a consumer's System.Text.Json source-generated context
