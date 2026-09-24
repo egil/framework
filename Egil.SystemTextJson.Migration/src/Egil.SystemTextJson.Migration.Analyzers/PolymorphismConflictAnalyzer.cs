@@ -29,7 +29,8 @@ public sealed class PolymorphismConflictAnalyzer : DiagnosticAnalyzer
         context.EnableConcurrentExecution();
         context.RegisterCompilationStartAction(static compilationContext =>
         {
-            if (!MigrationSymbols.TryCreate(compilationContext.Compilation, out var symbols) || symbols is null)
+            if (!MigrationSymbols.TryCreate(compilationContext.Compilation, out var symbols)
+                || symbols?.JsonPolymorphicAttribute is null)
             {
                 return;
             }

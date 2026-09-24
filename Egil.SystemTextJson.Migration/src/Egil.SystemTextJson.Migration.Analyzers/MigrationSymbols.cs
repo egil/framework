@@ -8,7 +8,7 @@ internal sealed class MigrationSymbols
         INamedTypeSymbol migrate,
         INamedTypeSymbol migrateFrom,
         INamedTypeSymbol jsonMigratableAttribute,
-        INamedTypeSymbol jsonPolymorphicAttribute,
+        INamedTypeSymbol? jsonPolymorphicAttribute,
         INamedTypeSymbol? jsonDerivedTypeAttribute)
     {
         Migrate = migrate;
@@ -24,7 +24,7 @@ internal sealed class MigrationSymbols
 
     public INamedTypeSymbol JsonMigratableAttribute { get; }
 
-    public INamedTypeSymbol JsonPolymorphicAttribute { get; }
+    public INamedTypeSymbol? JsonPolymorphicAttribute { get; }
 
     public INamedTypeSymbol? JsonDerivedTypeAttribute { get; }
 
@@ -36,7 +36,7 @@ internal sealed class MigrationSymbols
         var jsonPolymorphicAttribute = compilation.GetTypeByMetadataName("System.Text.Json.Serialization.JsonPolymorphicAttribute");
         var jsonDerivedTypeAttribute = compilation.GetTypeByMetadataName("System.Text.Json.Serialization.JsonDerivedTypeAttribute");
 
-        if (migrate is null || migrateFrom is null || jsonMigratableAttribute is null || jsonPolymorphicAttribute is null)
+        if (migrate is null || migrateFrom is null || jsonMigratableAttribute is null)
         {
             symbols = null;
             return false;
