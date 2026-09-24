@@ -22,7 +22,7 @@ The diagnostics include the corrective action and an optional link to this recip
 
 ## Using with source-generated `JsonSerializerContext`
 
-The library is compatible with System.Text.Json source generation. Register both old (source) and current (target) types in your `JsonSerializerContext`:
+The library works with System.Text.Json source generation for serialization metadata, subject to the [deployment requirements above](#aot--source-generation). Register both old (source) and current (target) types in your `JsonSerializerContext`:
 
 <!-- snippet: source_gen_context -->
 <a id='snippet-source_gen_context'></a>
@@ -69,6 +69,6 @@ Discovery does. When a converter is created for a `[JsonMigratable]` type — on
 
 ## NativeAOT and trimming
 
-**Publishing with `PublishAot` or `PublishTrimmed` is not supported yet.** JSON source generation supplies serialization metadata; it does not replace migration's interface discovery, assembly scanning, external migrator activation, or runtime generic construction. Even `RegisterMigrator<TSource, TTarget, TMigrator>()` currently enters the reflection-based invoker factory. Trimming can remove required contracts or constructors, and NativeAOT may lack code for runtime generic instantiations. Failures can include missing migrators when reading old payloads even when current payloads appear to work.
+The [deployment requirements above](#aot--source-generation) follow from migration's interface discovery, assembly scanning, external migrator activation, and runtime generic construction. JSON source generation supplies serialization metadata but does not replace those operations. Even `RegisterMigrator<TSource, TTarget, TMigrator>()` currently enters the reflection-based invoker factory. Trimming can remove required contracts or constructors, and NativeAOT may lack code for runtime generic instantiations. Failures can include missing migrators when reading old payloads even when current payloads appear to work.
 
-The library enables trim and AOT analyzers on both supported target frameworks without declaring `IsTrimmable` or `IsAotCompatible`. Member-preservation annotations and warning-free library analysis do not establish compatibility. A supported NativeAOT path requires separate implementation and published runtime evidence; until then, use the deployment settings above.
+The library enables trim and AOT analyzers on both supported target frameworks without declaring `IsTrimmable` or `IsAotCompatible`. Member-preservation annotations and warning-free library analysis do not establish compatibility. A supported NativeAOT path requires separate implementation and published runtime evidence.
