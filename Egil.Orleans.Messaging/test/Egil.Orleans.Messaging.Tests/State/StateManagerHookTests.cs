@@ -295,6 +295,112 @@ public sealed class StateManagerHookTests
         Assert.Equal([StateManagerOperation.Write, StateManagerOperation.Read, StateManagerOperation.Read], events);
     }
 
+    [Fact]
+    public async Task Completing_an_overlapping_dispatch_does_not_allow_nested_operations_in_a_suspended_handler()
+    {
+        var firstRead = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondRead = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handlerStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseHandler = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reads = 0;
+        var storage = new FakeHookPersistentState(new("stored"))
+        {
+            BeforeRead = () => ++reads == 1 ? firstRead.Task : secondRead.Task
+        };
+        var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"));
+        var handlers = 0;
+        manager.ConfigureHooks(new()
+        {
+            OnReadAsync = async (_, token) =>
+            {
+                if (++handlers != 1) return;
+                handlerStarted.SetResult();
+                await releaseHandler.Task.WaitAsync(token);
+                await Assert.ThrowsAsync<InvalidOperationException>(() => manager.ReadAsync(token));
+                await Assert.ThrowsAsync<InvalidOperationException>(() => manager.WriteAsync(new("nested"), token));
+                await Assert.ThrowsAsync<InvalidOperationException>(() => manager.ClearAsync(token));
+                await Assert.ThrowsAsync<InvalidOperationException>(() => manager.SaveChangesAsync(token));
+            }
+        });
+        var first = manager.ReadAsync(TestContext.Current.CancellationToken);
+        var second = manager.ReadAsync(TestContext.Current.CancellationToken);
+        firstRead.SetResult();
+        await handlerStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        secondRead.SetResult();
+        await second;
+        releaseHandler.SetResult();
+        await first;
+
+        Assert.Equal(2, storage.Reads);
+        Assert.Equal(0, storage.Mutations);
+        manager.ConfigureHooks(new());
+        await manager.ReadAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(3, storage.Reads);
+    }
+
+    [Theory]
+    [InlineData(StateManagerOperation.Write)]
+    [InlineData(StateManagerOperation.Clear)]
+    public async Task Async_specific_handlers_are_awaited_and_fail_without_retrying_durable_storage(StateManagerOperation operation)
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var storage = new FakeHookPersistentState(new("stored"));
+        var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"));
+        var failure = new IOException("async specific handler failed");
+        async Task Handle(HookSnapshot state, CancellationToken token)
+        {
+            Assert.Same(state, manager.State);
+            Assert.Equal(TestContext.Current.CancellationToken, token);
+            started.SetResult();
+            await release.Task.WaitAsync(token);
+            throw failure;
+        }
+        manager.ConfigureHooks(new() { OnWriteAsync = Handle, OnClearAsync = Handle });
+        var pending = Invoke(manager, operation, TestContext.Current.CancellationToken);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.False(pending.IsCompleted);
+
+        release.SetResult();
+        var error = await Assert.ThrowsAsync<IOException>(() => pending);
+
+        Assert.Same(failure, error);
+        Assert.Equal(operation == StateManagerOperation.Write ? new("next") : null, storage.Persisted);
+        Assert.Equal(1, storage.Mutations);
+        Assert.Equal(0, storage.Reads);
+    }
+
+    [Fact]
+    public async Task An_independent_read_is_not_rejected_while_another_flows_handler_is_suspended()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var storage = new FakeHookPersistentState(new("stored"));
+        var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"));
+        var handlers = 0;
+        manager.ConfigureHooks(new()
+        {
+            OnReadAsync = async (_, token) =>
+            {
+                if (++handlers != 1) return;
+                started.SetResult();
+                await release.Task.WaitAsync(token);
+                await Assert.ThrowsAsync<InvalidOperationException>(() => manager.ReadAsync(token));
+            }
+        });
+        var first = manager.ReadAsync(TestContext.Current.CancellationToken);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        var independentError = await Record.ExceptionAsync(() => manager.ReadAsync(TestContext.Current.CancellationToken));
+        release.SetResult();
+        await first;
+
+        Assert.Null(independentError);
+        Assert.Equal(2, storage.Reads);
+        Assert.Equal(2, handlers);
+    }
+
     private sealed class RejectingManager(FakeHookPersistentState storage) : StateManagerBase<HookSnapshot>(storage, () => new("default"))
     {
         protected override StorageFailureKind ClassifyWriteFailure(Exception exception) => StorageFailureKind.DidNotPersist;
