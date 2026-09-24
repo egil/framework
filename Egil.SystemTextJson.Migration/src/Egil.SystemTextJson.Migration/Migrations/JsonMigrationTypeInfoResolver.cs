@@ -39,6 +39,10 @@ internal sealed class JsonMigrationTypeInfoResolver : IJsonTypeInfoResolver
     internal JsonMigrationRegistry Registry => registry;
 
     /// <inheritdoc/>
+    // IJsonTypeInfoResolver has no Requires* contract. This deferred callback is reachable only
+    // through AddJsonMigrationSupport, whose package-consumer diagnostics cover both requirements.
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Deferred migration resolution is enabled only by the annotated AddJsonMigrationSupport overloads.")]
+    [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Deferred migration resolution is enabled only by the annotated AddJsonMigrationSupport overloads.")]
     public JsonTypeInfo? GetTypeInfo(Type type, JsonSerializerOptions options)
     {
         ArgumentNullException.ThrowIfNull(type);
@@ -85,6 +89,8 @@ internal sealed class JsonMigrationTypeInfoResolver : IJsonTypeInfoResolver
         return false;
     }
 
+    [RequiresUnreferencedCode(MigrationCompatibility.Trimming, Url = MigrationCompatibility.Url)]
+    [RequiresDynamicCode(MigrationCompatibility.DynamicCode, Url = MigrationCompatibility.Url)]
     internal JsonTypeInfo? ResolveReflectionFallback(Type type, JsonSerializerOptions options, MigrationScope? scope)
     {
         // See MigrationScope.UsesReflectionFallback for when the resolver stands in for the default.
@@ -99,6 +105,8 @@ internal sealed class JsonMigrationTypeInfoResolver : IJsonTypeInfoResolver
         return reflectionFallback.GetTypeInfo(type, options);
     }
 
+    [RequiresUnreferencedCode(MigrationCompatibility.Trimming, Url = MigrationCompatibility.Url)]
+    [RequiresDynamicCode(MigrationCompatibility.DynamicCode, Url = MigrationCompatibility.Url)]
     private JsonTypeInfo CreateMigrationTypeInfo(Type typeToConvert, JsonSerializerOptions options, MigrationScope? scope)
     {
         ValidateTargetMigratorContracts(typeToConvert);
@@ -156,6 +164,8 @@ internal sealed class JsonMigrationTypeInfoResolver : IJsonTypeInfoResolver
     private static JsonTypeInfo CreateTypeInfo<T>(JsonSerializerOptions options, MigratorContext context)
         => JsonMetadataServices.CreateValueInfo<T>(options, new JsonMigratableConverter<T>(context));
 
+    [RequiresUnreferencedCode(MigrationCompatibility.Trimming, Url = MigrationCompatibility.Url)]
+    [RequiresDynamicCode(MigrationCompatibility.DynamicCode, Url = MigrationCompatibility.Url)]
     private MigratorReference[] BuildMigratorMap(Type targetType, JsonSerializerOptions metadataOptions)
     {
         var migrators = new Dictionary<(string PropertyName, string Discriminator), MigratorCandidate>();
@@ -197,6 +207,7 @@ internal sealed class JsonMigrationTypeInfoResolver : IJsonTypeInfoResolver
         return [.. migrators.Values.Select(static candidate => candidate.Migrator)];
     }
 
+    [RequiresUnreferencedCode(MigrationCompatibility.Trimming, Url = MigrationCompatibility.Url)]
     private static void ValidateTargetMigratorContracts(Type targetType)
     {
         foreach (Type @interface in targetType.GetInterfaces())
@@ -278,6 +289,8 @@ internal sealed class JsonMigrationTypeInfoResolver : IJsonTypeInfoResolver
         }
     }
 
+    [RequiresUnreferencedCode(MigrationCompatibility.Trimming, Url = MigrationCompatibility.Url)]
+    [RequiresDynamicCode(MigrationCompatibility.DynamicCode, Url = MigrationCompatibility.Url)]
     internal static void AddDiscriminatorProperty(JsonTypeInfo typeInfo, TypeMetadata metadata)
     {
         // Properties can only be added to object contracts. Unions (.NET 11), collections and

@@ -6,6 +6,7 @@ internal static class StaticMigratorContracts
     /// Enumerates the source types of every <see cref="IMigrateFrom{TSource, TTarget}"/> contract
     /// implemented by <paramref name="targetType"/>.
     /// </summary>
+    [RequiresUnreferencedCode(MigrationCompatibility.Trimming, Url = MigrationCompatibility.Url)]
     public static IEnumerable<Type> GetSourceTypes(Type targetType)
     {
         foreach (Type @interface in targetType.GetInterfaces())

@@ -58,6 +58,8 @@ internal sealed class UnionCaseRouting
         this.booleanRoute = booleanRoute;
     }
 
+    [RequiresUnreferencedCode(MigrationCompatibility.Trimming, Url = MigrationCompatibility.Url)]
+    [RequiresDynamicCode(MigrationCompatibility.DynamicCode, Url = MigrationCompatibility.Url)]
     public static UnionCaseRouting Build(JsonTypeClassifierContext context, MigrationScope scope, JsonSerializerOptions options)
     {
         JsonMigrationRegistry registry = scope.Registry;
@@ -661,6 +663,7 @@ internal sealed class UnionCaseRouting
     // duplicate-claim key so a refused source still conflicts with another case claiming it.
     private static class RefusedInsideOwnMigration
     {
+        [RequiresDynamicCode(MigrationCompatibility.DynamicCode, Url = MigrationCompatibility.Url)]
         public static Type For(Type caseType) => typeof(RefusedInsideOwnMigration<>).MakeGenericType(caseType);
 
         public static Type? Unwrap(Type type)

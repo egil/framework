@@ -4,11 +4,14 @@ namespace Egil.SystemTextJson.Migration.Migrations;
 
 internal sealed class ExternalMigratorInvoker<TSource, TTarget> : MigratorInvoker<TSource, TTarget>
 {
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)]
     private readonly Type migratorType;
     private readonly IServiceProvider? serviceProvider;
     private readonly Lazy<IMigrate<TSource, TTarget>> fallbackMigrator;
 
-    public ExternalMigratorInvoker(Type migratorType, IServiceProvider? serviceProvider)
+    public ExternalMigratorInvoker(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] Type migratorType,
+        IServiceProvider? serviceProvider)
     {
         ArgumentNullException.ThrowIfNull(migratorType);
 

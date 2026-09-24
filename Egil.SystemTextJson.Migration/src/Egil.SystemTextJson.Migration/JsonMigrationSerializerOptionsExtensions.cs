@@ -17,6 +17,8 @@ public static class JsonMigrationSerializerOptionsExtensions
     /// <param name="serviceProvider">The service provider used to resolve migrator types.</param>
     /// <param name="configure">Optional registration callback.</param>
     /// <returns>The same <paramref name="options"/> instance.</returns>
+    [RequiresUnreferencedCode(MigrationCompatibility.Trimming, Url = MigrationCompatibility.Url)]
+    [RequiresDynamicCode(MigrationCompatibility.DynamicCode, Url = MigrationCompatibility.Url)]
     public static JsonSerializerOptions AddJsonMigrationSupport(
         this JsonSerializerOptions options,
         IServiceProvider serviceProvider,
@@ -47,6 +49,8 @@ public static class JsonMigrationSerializerOptionsExtensions
     /// <param name="options">The serializer options to configure.</param>
     /// <param name="configure">Optional registration callback.</param>
     /// <returns>The same <paramref name="options"/> instance.</returns>
+    [RequiresUnreferencedCode(MigrationCompatibility.Trimming, Url = MigrationCompatibility.Url)]
+    [RequiresDynamicCode(MigrationCompatibility.DynamicCode, Url = MigrationCompatibility.Url)]
     public static JsonSerializerOptions AddJsonMigrationSupport(
         this JsonSerializerOptions options,
         Action<JsonMigrationBuilder>? configure = null)

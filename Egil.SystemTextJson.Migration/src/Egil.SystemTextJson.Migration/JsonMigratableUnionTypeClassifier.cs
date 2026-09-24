@@ -33,7 +33,19 @@ namespace Egil.SystemTextJson.Migration;
 /// </remarks>
 public sealed class JsonMigratableUnionTypeClassifier : JsonTypeClassifierFactory
 {
+    /// <summary>
+    /// Creates a classifier for migration-enabled, untrimmed applications.
+    /// </summary>
+    [RequiresUnreferencedCode(MigrationCompatibility.Trimming, Url = MigrationCompatibility.Url)]
+    [RequiresDynamicCode(MigrationCompatibility.DynamicCode, Url = MigrationCompatibility.Url)]
+    public JsonMigratableUnionTypeClassifier()
+    {
+    }
+
     /// <inheritdoc/>
+    // The base virtual contract cannot acquire Requires* annotations. Construction warns even
+    // without migration options; successful routing also requires annotated migration registration.
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "The annotated classifier constructor warns before this override can discover union cases.")]
     public override bool CanClassify(JsonTypeClassifierContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
@@ -55,6 +67,8 @@ public sealed class JsonMigratableUnionTypeClassifier : JsonTypeClassifierFactor
     }
 
     /// <inheritdoc/>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "The annotated constructor and required AddJsonMigrationSupport registration warn before deferred union routing.")]
+    [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "The annotated constructor and required AddJsonMigrationSupport registration warn before deferred union routing.")]
     public override JsonTypeClassifier CreateJsonClassifier(JsonTypeClassifierContext context, JsonSerializerOptions options)
     {
         ArgumentNullException.ThrowIfNull(context);

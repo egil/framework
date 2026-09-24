@@ -4,6 +4,8 @@ namespace Egil.SystemTextJson.Migration.Migrations;
 
 internal static class MigratorInvokerFactory
 {
+    [RequiresUnreferencedCode(MigrationCompatibility.Trimming, Url = MigrationCompatibility.Url)]
+    [RequiresDynamicCode(MigrationCompatibility.DynamicCode, Url = MigrationCompatibility.Url)]
     public static IMigratorInvoker CreateExternalInvoker(
         Type sourceType,
         Type targetType,
@@ -19,6 +21,8 @@ internal static class MigratorInvokerFactory
         return (IMigratorInvoker)method.Invoke(null, [migratorType, serviceProvider])!;
     }
 
+    [RequiresUnreferencedCode(MigrationCompatibility.Trimming, Url = MigrationCompatibility.Url)]
+    [RequiresDynamicCode(MigrationCompatibility.DynamicCode, Url = MigrationCompatibility.Url)]
     public static IMigratorInvoker CreateStaticInvoker(Type sourceType, Type targetType)
     {
         if (ImplementsMigrationContract(targetType, sourceType))
@@ -38,10 +42,11 @@ internal static class MigratorInvokerFactory
     }
 
     private static IMigratorInvoker CreateExternalInvokerGeneric<TSource, TTarget>(
-        Type migratorType,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] Type migratorType,
         IServiceProvider? serviceProvider)
         => new ExternalMigratorInvoker<TSource, TTarget>(migratorType, serviceProvider);
 
+    [RequiresUnreferencedCode(MigrationCompatibility.Trimming, Url = MigrationCompatibility.Url)]
     private static bool ImplementsMigrationContract(Type targetType, Type sourceType)
         => targetType.GetInterfaces().Any(contract =>
             contract.IsGenericType
@@ -49,6 +54,7 @@ internal static class MigratorInvokerFactory
             && contract.GenericTypeArguments[0] == sourceType
             && contract.GenericTypeArguments[1] == targetType);
 
+    [RequiresUnreferencedCode(MigrationCompatibility.Trimming, Url = MigrationCompatibility.Url)]
     private static MethodInfo FindInheritedTargetOverload(Type sourceType, Type targetType)
     {
         MethodInfo? method = targetType.GetMethod(
