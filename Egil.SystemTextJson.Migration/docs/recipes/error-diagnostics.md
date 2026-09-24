@@ -59,6 +59,12 @@ public partial class ProductJsonContext : JsonSerializerContext;
 An explicit string registration is unnecessary when a registered type already supplies reachable string metadata, including inherited or nested members and collection elements or dictionary keys. Public fields also supply metadata, even with the default `IncludeFields` setting. Static members, indexers, private members without `[JsonInclude]`, and `[JsonIgnore]` members do not supply it. Registrations in a different context do not satisfy this context.
 
 The analysis uses declared contracts. It avoids warning for unresolved generic graphs and type-level custom converters whose metadata requirements cannot be determined from members. Runtime resolver composition remains outside its scope.
+## STJM0001: duplicate migration source discriminator
+
+Two source types for one target cannot use the same discriminator and discriminator
+property name. Give each source a distinct `TypeDiscriminator`, or use a different
+`TypeDiscriminatorPropertyName`. The analyzer does not infer discriminator values from
+runtime `GetTypeDiscriminatorFrom` callbacks.
 ## Handling unknown discriminators
 
 When a `$type` discriminator value doesn't match any registered source type or the target type itself, the library throws a `JsonException` with a clear message identifying the unrecognized discriminator:
