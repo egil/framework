@@ -208,7 +208,7 @@ public static partial class StateManagerExtensions
         }
     }
 
-    internal static IStateManager<TState> RegisterStateManagerCore<TState>(
+    internal static ActivationStateManager<TState> RegisterStateManagerCore<TState>(
         IGrainContext grainContext,
         string? storageName,
         IPersistentState<TState> storage,
@@ -245,10 +245,8 @@ public static partial class StateManagerExtensions
         var initialState = ResolveInitialState(grainContext, grainType, createInitialState);
         var configure = ComposeConfiguration<TState>(grainContext, configureState);
 
-        return lifecycle is null
-            ? factory.Create(storage, initialState, configure)
-            : new ActivationStateManager<TState>(lifecycle,
-                () => factory.Create(storage, initialState, configure));
+        return new ActivationStateManager<TState>(
+            () => factory.Create(storage, initialState, configure), () => storage.RecordExists, lifecycle);
     }
 
     private static Func<TState> ResolveInitialState<TState>(

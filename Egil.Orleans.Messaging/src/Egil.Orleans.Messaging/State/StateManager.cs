@@ -114,28 +114,11 @@ public abstract class StateManagerBase<T> : IStateManager<T>
     private bool operationInProgress;
     private StateManagerHooks<T> hooks = new();
     private readonly StateManagerHookDispatcher<T> hookDispatcher = new();
-    private bool initialized;
 
     /// <inheritdoc/>
     public void ConfigureHooks(Action<StateManagerHooks<T>> configure)
     {
         Volatile.Write(ref hooks, StateManagerHooks<T>.Create(configure));
-    }
-
-    /// <inheritdoc/>
-    public Task InitializeAsync(CancellationToken cancellationToken = default)
-    {
-        ThrowIfInsideHandler();
-        if (initialized)
-        {
-            return Task.CompletedTask;
-        }
-
-        // A failed notification is still an attempted initial notification; calling
-        // this again must not replay side effects which may already have completed.
-        initialized = true;
-        return hookDispatcher.InvokeAsync(Volatile.Read(ref hooks), state, StateManagerOperation.Read,
-            storage.RecordExists, cancellationToken);
     }
 
     private void ThrowIfInsideHandler()

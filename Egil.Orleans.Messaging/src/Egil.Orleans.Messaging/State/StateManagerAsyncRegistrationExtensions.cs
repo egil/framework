@@ -62,7 +62,7 @@ public static partial class StateManagerExtensions
         var manager = RegisterStateManagerCore(grain.GrainContext, storageName, storage, grain.GetType(),
             createInitialState, configureState);
         manager.ConfigureHooks(hooks.CopyTo);
-        await manager.InitializeAsync(cancellationToken);
+        await manager.NotifyInitialReadAsync(cancellationToken);
         return manager;
     }
 }
