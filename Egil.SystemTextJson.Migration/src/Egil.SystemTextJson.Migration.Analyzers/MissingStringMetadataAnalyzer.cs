@@ -99,7 +99,8 @@ public sealed class MissingStringMetadataAnalyzer : DiagnosticAnalyzer
 
             // Open/expanding generic graphs and custom converters cannot be resolved reliably
             // from members alone. Avoid claiming missing metadata for those configurations.
-            if (depth > 32 || type.TypeKind is TypeKind.TypeParameter or TypeKind.Error)
+            if (depth > 32 || type.TypeKind is TypeKind.TypeParameter or TypeKind.Error
+                || type is INamedTypeSymbol { IsUnboundGenericType: true })
             {
                 HasUnknownContract = true;
                 return;

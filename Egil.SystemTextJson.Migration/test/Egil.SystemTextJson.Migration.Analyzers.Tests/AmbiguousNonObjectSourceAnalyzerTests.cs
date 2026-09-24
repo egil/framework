@@ -109,6 +109,83 @@ public sealed class AmbiguousNonObjectSourceAnalyzerTests
         Assert.Empty(await AnalyzerTestHelper.GetAnalyzerDiagnosticsAsync(compilation, new AmbiguousNonObjectSourceAnalyzer()));
     }
 
+    [Fact]
+    public async Task Runtime_selector_can_collapse_distinct_element_discriminators()
+    {
+        var compilation = AnalyzerTestHelper.CreateCompilation(Contracts + """
+            namespace Egil.SystemTextJson.Migration
+            {
+                public sealed class SchemaAttribute : System.Attribute { }
+                public sealed class JsonMigrationBuilder
+                {
+                    public void GetTypeDiscriminatorFrom<T>(System.Func<T, string> selector) where T : System.Attribute { }
+                }
+            }
+            [Egil.SystemTextJson.Migration.Schema]
+            [Egil.SystemTextJson.Migration.JsonMigratable(TypeDiscriminator = "first")] public class First { }
+            [Egil.SystemTextJson.Migration.Schema]
+            [Egil.SystemTextJson.Migration.JsonMigratable(TypeDiscriminator = "second")] public class Second { }
+            [Egil.SystemTextJson.Migration.JsonMigratable]
+            public class Current : Egil.SystemTextJson.Migration.IMigrateFrom<System.Collections.Generic.List<First>, Current>, Egil.SystemTextJson.Migration.IMigrateFrom<System.Collections.Generic.List<Second>, Current> { }
+            public class Setup
+            {
+                public void Configure(Egil.SystemTextJson.Migration.JsonMigrationBuilder builder) =>
+                    builder.GetTypeDiscriminatorFrom<Egil.SystemTextJson.Migration.SchemaAttribute>(_ => "same");
+            }
+            """);
+        Assert.Empty(compilation.GetDiagnostics(TestContext.Current.CancellationToken).Where(d => d.Severity == DiagnosticSeverity.Error));
+
+        Assert.Equal("STJM0009", Assert.Single(await AnalyzerTestHelper.GetAnalyzerDiagnosticsAsync(compilation, new AmbiguousNonObjectSourceAnalyzer())).Id);
+    }
+
+    [Fact]
+    public async Task Builder_property_override_can_collapse_explicit_and_default_element_properties()
+    {
+        var compilation = AnalyzerTestHelper.CreateCompilation(Contracts + """
+            namespace Egil.SystemTextJson.Migration
+            {
+                public sealed class JsonMigrationBuilder { public void SetTypeDiscriminatorPropertyName(string name) { } }
+            }
+            [Egil.SystemTextJson.Migration.JsonMigratable(TypeDiscriminator = "same", TypeDiscriminatorPropertyName = "kind")] public class First { }
+            [Egil.SystemTextJson.Migration.JsonMigratable(TypeDiscriminator = "same")] public class Second { }
+            [Egil.SystemTextJson.Migration.JsonMigratable]
+            public class Current : Egil.SystemTextJson.Migration.IMigrateFrom<System.Collections.Generic.List<First>, Current>, Egil.SystemTextJson.Migration.IMigrateFrom<System.Collections.Generic.List<Second>, Current> { }
+            public class Setup
+            {
+                public void Configure(Egil.SystemTextJson.Migration.JsonMigrationBuilder builder) => builder.SetTypeDiscriminatorPropertyName("kind");
+            }
+            """);
+        Assert.Empty(compilation.GetDiagnostics(TestContext.Current.CancellationToken).Where(d => d.Severity == DiagnosticSeverity.Error));
+
+        Assert.Equal("STJM0009", Assert.Single(await AnalyzerTestHelper.GetAnalyzerDiagnosticsAsync(compilation, new AmbiguousNonObjectSourceAnalyzer())).Id);
+    }
+
+    [Fact]
+    public async Task Element_converter_prevents_discriminator_exemption()
+    {
+        var compilation = AnalyzerTestHelper.CreateCompilation(Contracts + """
+            [System.Text.Json.Serialization.JsonConverter(typeof(FirstConverter))]
+            [Egil.SystemTextJson.Migration.JsonMigratable(TypeDiscriminator = "first")] public class First { }
+            [System.Text.Json.Serialization.JsonConverter(typeof(SecondConverter))]
+            [Egil.SystemTextJson.Migration.JsonMigratable(TypeDiscriminator = "second")] public class Second { }
+            public class FirstConverter : System.Text.Json.Serialization.JsonConverter<First>
+            {
+                public override First Read(ref System.Text.Json.Utf8JsonReader reader, System.Type type, System.Text.Json.JsonSerializerOptions options) => new();
+                public override void Write(System.Text.Json.Utf8JsonWriter writer, First value, System.Text.Json.JsonSerializerOptions options) => writer.WriteNullValue();
+            }
+            public class SecondConverter : System.Text.Json.Serialization.JsonConverter<Second>
+            {
+                public override Second Read(ref System.Text.Json.Utf8JsonReader reader, System.Type type, System.Text.Json.JsonSerializerOptions options) => new();
+                public override void Write(System.Text.Json.Utf8JsonWriter writer, Second value, System.Text.Json.JsonSerializerOptions options) => writer.WriteNullValue();
+            }
+            [Egil.SystemTextJson.Migration.JsonMigratable]
+            public class Current : Egil.SystemTextJson.Migration.IMigrateFrom<System.Collections.Generic.List<First>, Current>, Egil.SystemTextJson.Migration.IMigrateFrom<System.Collections.Generic.List<Second>, Current> { }
+            """);
+        Assert.Empty(compilation.GetDiagnostics(TestContext.Current.CancellationToken).Where(d => d.Severity == DiagnosticSeverity.Error));
+
+        Assert.Equal("STJM0009", Assert.Single(await AnalyzerTestHelper.GetAnalyzerDiagnosticsAsync(compilation, new AmbiguousNonObjectSourceAnalyzer())).Id);
+    }
+
     [Theory]
     [InlineData("System.Collections.Generic.IDictionary<string, int>", "System.Collections.Generic.IDictionary<string, long>", "dictionary")]
     [InlineData("System.Collections.Generic.IAsyncEnumerable<int>", "System.Collections.Generic.IAsyncEnumerable<long>", "collection")]

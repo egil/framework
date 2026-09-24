@@ -79,6 +79,22 @@ public sealed class LegacyTypeUsageAnalyzerTests
     }
 
     [Fact]
+    public async Task Generic_source_in_direct_migration_method_is_allowed()
+    {
+        await VerifyAsync("""
+            public class Current : Egil.SystemTextJson.Migration.IMigrateFrom<System.Collections.Generic.List<Old>, Current>
+            {
+                public static bool TryMigrateFrom(System.Collections.Generic.List<Old> source, out Current target)
+                {
+                    System.Collections.Generic.List<Old> copy = source;
+                    target = new Current();
+                    return copy.Count > 0;
+                }
+            }
+            """);
+    }
+
+    [Fact]
     public async Task Direct_chain_does_not_allow_unrelated_legacy_types_or_helper_methods()
     {
         await VerifyAsync("""
@@ -107,6 +123,7 @@ public sealed class LegacyTypeUsageAnalyzerTests
                 public void Register(Egil.SystemTextJson.Migration.JsonMigrationBuilder builder)
                 {
                     builder.RegisterMigrator<Old, Current, Setup>();
+                    builder.RegisterMigrator<System.Collections.Generic.List<Old>, Current, Setup>();
                     builder.RegisterMigrator<[|Old|]>();
                     builder.RegisterMigrator<Current, [|Old|], Setup>();
                     builder.RegisterMigrator<Current, Current, [|Old|]>();

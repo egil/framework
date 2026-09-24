@@ -74,17 +74,24 @@ public sealed class ContextSourceMetadataAnalyzer : DiagnosticAnalyzer
 
         var reachableTypes = new HashSet<ITypeSymbol>(SymbolEqualityComparer.Default);
         var targets = new Dictionary<INamedTypeSymbol, Location>(SymbolEqualityComparer.Default);
+        var hasUnresolvedGraph = false;
         foreach (var (registeredType, location) in registrations)
         {
-            foreach (var reachable in GetReachableTypes(registeredType, context, type, jsonIgnore, jsonInclude))
+            foreach (var (reachable, canRequireMigration) in GetReachableTypes(registeredType, context, type, jsonIgnore, jsonInclude,
+                () => hasUnresolvedGraph = true))
             {
                 reachableTypes.Add(reachable);
-                if (reachable is INamedTypeSymbol target && !HasUnknownContract(target, context.Compilation)
+                if (canRequireMigration && reachable is INamedTypeSymbol target && !HasUnknownContract(target, context.Compilation)
                     && HasMigrationMarker(target, marker) && !targets.ContainsKey(target))
                 {
                     targets.Add(target, location);
                 }
             }
+        }
+
+        if (hasUnresolvedGraph)
+        {
+            return;
         }
 
         foreach (var target in targets)
@@ -138,26 +145,46 @@ public sealed class ContextSourceMetadataAnalyzer : DiagnosticAnalyzer
         }
     }
 
-    private static IEnumerable<ITypeSymbol> GetReachableTypes(
+    private static IEnumerable<(ITypeSymbol Type, bool CanRequireMigration)> GetReachableTypes(
         ITypeSymbol root,
         SymbolAnalysisContext analysis,
         INamedTypeSymbol contextType,
         INamedTypeSymbol jsonIgnore,
-        INamedTypeSymbol? jsonInclude)
+        INamedTypeSymbol? jsonInclude,
+        Action markUnresolved)
     {
-        var pending = new Stack<ITypeSymbol>();
-        var visited = new HashSet<ITypeSymbol>(SymbolEqualityComparer.Default);
-        pending.Push(root);
+        var pending = new Stack<(ITypeSymbol Type, int Depth, bool CanRequireMigration)>();
+        var visitedNormal = new HashSet<ITypeSymbol>(SymbolEqualityComparer.Default);
+        var visitedConverted = new HashSet<ITypeSymbol>(SymbolEqualityComparer.Default);
+        var derivedType = analysis.Compilation.GetTypeByMetadataName("System.Text.Json.Serialization.JsonDerivedTypeAttribute");
+        var constructor = analysis.Compilation.GetTypeByMetadataName("System.Text.Json.Serialization.JsonConstructorAttribute");
+        var converter = analysis.Compilation.GetTypeByMetadataName("System.Text.Json.Serialization.JsonConverterAttribute");
+        pending.Push((root, 0, true));
         while (pending.Count > 0)
         {
             analysis.CancellationToken.ThrowIfCancellationRequested();
-            var current = pending.Pop();
-            if (!visited.Add(current))
+            var (current, depth, canRequireMigration) = pending.Pop();
+            // Constructed recursive generics can expand forever without repeating a symbol.
+            // Beyond this bound, source metadata cannot be proven absent from the graph.
+            if (depth > 32 || current.TypeKind is TypeKind.Error or TypeKind.TypeParameter
+                || current is INamedTypeSymbol unresolved && (unresolved.IsUnboundGenericType
+                    || unresolved.TypeArguments.Any(argument => argument.TypeKind is TypeKind.Error or TypeKind.TypeParameter)))
+            {
+                markUnresolved();
+                continue;
+            }
+            if (!(canRequireMigration ? visitedNormal : visitedConverted).Add(current))
             {
                 continue;
             }
 
-            yield return current;
+            yield return (current, canRequireMigration);
+            // STJ still emits metadata for a member with its own converter, but that
+            // member does not invoke migration for its type through this path.
+            if (!canRequireMigration)
+            {
+                continue;
+            }
             // A converter owns its JSON contract, so CLR members cannot establish generated
             // metadata or migration requirements beneath this node. Keep the node itself:
             // explicitly generated converter metadata still satisfies a source registration.
@@ -168,7 +195,7 @@ public sealed class ContextSourceMetadataAnalyzer : DiagnosticAnalyzer
 
             if (current is IArrayTypeSymbol array)
             {
-                pending.Push(array.ElementType);
+                pending.Push((array.ElementType, depth + 1, true));
                 continue;
             }
 
@@ -179,8 +206,17 @@ public sealed class ContextSourceMetadataAnalyzer : DiagnosticAnalyzer
 
             if (named.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T)
             {
-                pending.Push(named.TypeArguments[0]);
+                pending.Push((named.TypeArguments[0], depth + 1, true));
                 continue;
+            }
+
+            foreach (var attribute in named.GetAttributes())
+            {
+                if (SymbolEqualityComparer.Default.Equals(attribute.AttributeClass, derivedType)
+                    && attribute.ConstructorArguments.FirstOrDefault().Value is ITypeSymbol derived)
+                {
+                    pending.Push((derived, depth + 1, true));
+                }
             }
 
             var enumerable = new[] { named }.Concat(named.AllInterfaces).FirstOrDefault(contract =>
@@ -189,22 +225,35 @@ public sealed class ContextSourceMetadataAnalyzer : DiagnosticAnalyzer
                     analysis.Compilation.GetTypeByMetadataName("System.Collections.Generic.IAsyncEnumerable`1")));
             if (enumerable is not null)
             {
-                pending.Push(enumerable.TypeArguments[0]);
+                pending.Push((enumerable.TypeArguments[0], depth + 1, true));
                 continue;
             }
 
             if (SymbolEqualityComparer.Default.Equals(named.OriginalDefinition, analysis.Compilation.GetTypeByMetadataName("System.Memory`1"))
                 || SymbolEqualityComparer.Default.Equals(named.OriginalDefinition, analysis.Compilation.GetTypeByMetadataName("System.ReadOnlyMemory`1")))
             {
-                pending.Push(named.TypeArguments[0]);
+                pending.Push((named.TypeArguments[0], depth + 1, true));
                 continue;
             }
 
-            foreach (var member in GetSerializableMembers(named, jsonIgnore, jsonInclude))
+            foreach (var member in GetSerializableMembers(named, jsonIgnore, jsonInclude, converter))
             {
-                if (analysis.Compilation.IsSymbolAccessibleWithin(member, contextType))
+                if (analysis.Compilation.IsSymbolAccessibleWithin(member.Type, contextType))
                 {
-                    pending.Push(member);
+                    pending.Push((member.Type, depth + 1, !member.ConverterOwned));
+                }
+            }
+
+            var constructors = named.InstanceConstructors;
+            var selected = constructors.FirstOrDefault(candidate => HasAttribute(candidate, constructor));
+            var publicConstructors = constructors.Where(candidate => candidate.DeclaredAccessibility == Accessibility.Public).ToArray();
+            selected ??= publicConstructors.FirstOrDefault(candidate => candidate.Parameters.IsEmpty)
+                ?? (publicConstructors.Length == 1 ? publicConstructors[0] : null);
+            if (selected is not null)
+            {
+                foreach (var parameter in selected.Parameters)
+                {
+                    pending.Push((parameter.Type, depth + 1, true));
                 }
             }
         }
@@ -242,7 +291,7 @@ public sealed class ContextSourceMetadataAnalyzer : DiagnosticAnalyzer
         return false;
     }
 
-    private static IEnumerable<ITypeSymbol> GetSerializableMembers(INamedTypeSymbol type, INamedTypeSymbol jsonIgnore, INamedTypeSymbol? jsonInclude)
+    private static IEnumerable<(ITypeSymbol Type, bool ConverterOwned)> GetSerializableMembers(INamedTypeSymbol type, INamedTypeSymbol jsonIgnore, INamedTypeSymbol? jsonInclude, INamedTypeSymbol? jsonConverter)
     {
         var hierarchy = new List<INamedTypeSymbol>();
         for (INamedTypeSymbol? current = type; current is not null; current = current.BaseType)
@@ -283,16 +332,33 @@ public sealed class ContextSourceMetadataAnalyzer : DiagnosticAnalyzer
                     && (included || property.GetMethod?.DeclaredAccessibility == Accessibility.Public
                         || property.SetMethod?.DeclaredAccessibility == Accessibility.Public))
                 {
-                    yield return property.Type;
+                    yield return (property.Type, HasConverterAttribute(property, jsonConverter));
                 }
                 else if (member is IFieldSymbol field && !field.IsImplicitlyDeclared
                     && (included || field.DeclaredAccessibility == Accessibility.Public))
                 {
-                    yield return field.Type;
+                    yield return (field.Type, HasConverterAttribute(field, jsonConverter));
                 }
             }
         }
     }
+
+    private static bool HasAttribute(ISymbol symbol, INamedTypeSymbol? attribute) => attribute is not null
+        && symbol.GetAttributes().Any(candidate => SymbolEqualityComparer.Default.Equals(candidate.AttributeClass, attribute));
+
+    private static bool HasConverterAttribute(ISymbol symbol, INamedTypeSymbol? converter) => converter is not null
+        && symbol.GetAttributes().Any(attribute =>
+        {
+            for (var current = attribute.AttributeClass; current is not null; current = current.BaseType)
+            {
+                if (SymbolEqualityComparer.Default.Equals(current, converter))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        });
 
     private static bool IsAlwaysIgnored(ISymbol member, INamedTypeSymbol jsonIgnore)
     {

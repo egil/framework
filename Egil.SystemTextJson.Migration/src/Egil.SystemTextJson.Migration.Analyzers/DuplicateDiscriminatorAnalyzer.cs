@@ -102,7 +102,11 @@ public sealed class DuplicateDiscriminatorAnalyzer : DiagnosticAnalyzer
                     var existingSource = configuredProperty is null ? claimedSources.DefaultPropertySource : claimedSources.ExplicitPropertySource;
                     if (existingSource is not null)
                     {
-                        var location = attribute?.ApplicationSyntaxReference?.GetSyntax(context.CancellationToken).GetLocation() ?? source.Locations[0];
+                        var location = attribute?.ApplicationSyntaxReference?.GetSyntax(context.CancellationToken).GetLocation()
+                            ?? source.Locations.FirstOrDefault(candidate => candidate.IsInSource)
+                            ?? type.Locations.FirstOrDefault(candidate => candidate.IsInSource)
+                            ?? target.Locations.FirstOrDefault(candidate => candidate.IsInSource)
+                            ?? Location.None;
                         context.ReportDiagnostic(Diagnostic.Create(DuplicateSourceDiscriminator, location, source.Name, discriminator, configuredProperty ?? "configured default", contract.TypeArguments[1].Name));
                     }
                     else if (configuredProperty is null)

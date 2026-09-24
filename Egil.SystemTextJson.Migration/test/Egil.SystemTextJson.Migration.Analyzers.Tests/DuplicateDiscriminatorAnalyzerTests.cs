@@ -1,3 +1,5 @@
+using Microsoft.CodeAnalysis;
+
 namespace Egil.SystemTextJson.Migration.Analyzers.Tests;
 
 public sealed class DuplicateDiscriminatorAnalyzerTests
@@ -31,6 +33,29 @@ public sealed class DuplicateDiscriminatorAnalyzerTests
 
         Assert.Equal("STJM0001", diagnostic.Id);
         Assert.Contains("Models.Old", diagnostic.GetMessage(System.Globalization.CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
+    public async Task Referenced_sources_report_a_duplicate_without_a_source_location()
+    {
+        var library = AnalyzerTestHelper.CreateCompilation(RegressionContracts + """
+            [Egil.SystemTextJson.Migration.JsonMigratable(TypeDiscriminator = "same")] public class First { }
+            [Egil.SystemTextJson.Migration.JsonMigratable(TypeDiscriminator = "same")] public class Second { }
+            """).WithAssemblyName("HistoricalModels");
+        using var image = new MemoryStream();
+        var emitted = library.Emit(image, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.True(emitted.Success, string.Join(Environment.NewLine, emitted.Diagnostics));
+
+        var compilation = AnalyzerTestHelper.CreateCompilation("""
+            [Egil.SystemTextJson.Migration.JsonMigratable]
+            public class Current : Egil.SystemTextJson.Migration.IMigrateFrom<First, Current>,
+                Egil.SystemTextJson.Migration.IMigrateFrom<Second, Current> { }
+            """).AddReferences(MetadataReference.CreateFromImage(image.ToArray()));
+        Assert.Empty(compilation.GetDiagnostics(TestContext.Current.CancellationToken).Where(d => d.Severity == DiagnosticSeverity.Error));
+
+        var diagnostic = Assert.Single(await AnalyzerTestHelper.GetAnalyzerDiagnosticsAsync(compilation, new DuplicateDiscriminatorAnalyzer()));
+        Assert.Equal("STJM0001", diagnostic.Id);
+        Assert.True(diagnostic.Location.IsInSource);
     }
 
     [Fact]

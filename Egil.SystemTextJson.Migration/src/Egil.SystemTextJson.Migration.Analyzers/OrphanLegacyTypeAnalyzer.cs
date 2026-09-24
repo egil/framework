@@ -32,22 +32,33 @@ public sealed class OrphanLegacyTypeAnalyzer : DiagnosticAnalyzer
                 return;
             }
 
-            var types = GetTypes(startContext.Compilation.Assembly.GlobalNamespace).ToImmutableArray();
-            startContext.RegisterSymbolAction(symbolContext => Analyze(symbolContext, marker, migrate, migrateFrom, types), SymbolKind.NamedType);
+            var visibleSources = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
+            foreach (var type in GetTypes(startContext.Compilation.Assembly.GlobalNamespace))
+            {
+                foreach (var contract in type.AllInterfaces)
+                {
+                    if ((SymbolEqualityComparer.Default.Equals(contract.OriginalDefinition, migrate)
+                        || SymbolEqualityComparer.Default.Equals(contract.OriginalDefinition, migrateFrom))
+                        && contract.TypeArguments[0] is INamedTypeSymbol source)
+                    {
+                        visibleSources.Add(source.OriginalDefinition);
+                    }
+                }
+            }
+
+            startContext.RegisterSymbolAction(symbolContext => Analyze(symbolContext, marker, visibleSources), SymbolKind.NamedType);
         });
     }
 
     private static void Analyze(
         SymbolAnalysisContext context,
         INamedTypeSymbol marker,
-        INamedTypeSymbol migrate,
-        INamedTypeSymbol migrateFrom,
-        ImmutableArray<INamedTypeSymbol> types)
+        HashSet<INamedTypeSymbol> visibleSources)
     {
         var legacyType = (INamedTypeSymbol)context.Symbol;
         var markerAttribute = legacyType.GetAttributes().FirstOrDefault(attribute =>
             SymbolEqualityComparer.Default.Equals(attribute.AttributeClass, marker));
-        if (markerAttribute is null || IsMigratedExternally(markerAttribute) || HasVisibleSourceContract(legacyType, migrate, migrateFrom, types))
+        if (markerAttribute is null || IsMigratedExternally(markerAttribute) || visibleSources.Contains(legacyType.OriginalDefinition))
         {
             return;
         }
@@ -58,28 +69,6 @@ public sealed class OrphanLegacyTypeAnalyzer : DiagnosticAnalyzer
 
     private static bool IsMigratedExternally(AttributeData markerAttribute) =>
         markerAttribute.NamedArguments.Any(argument => argument.Key == "MigratedExternally" && argument.Value.Value is true);
-
-    private static bool HasVisibleSourceContract(
-        INamedTypeSymbol legacyType,
-        INamedTypeSymbol migrate,
-        INamedTypeSymbol migrateFrom,
-        ImmutableArray<INamedTypeSymbol> types)
-    {
-        foreach (var type in types)
-        {
-            foreach (var contract in type.AllInterfaces)
-            {
-                if ((SymbolEqualityComparer.Default.Equals(contract.OriginalDefinition, migrate)
-                    || SymbolEqualityComparer.Default.Equals(contract.OriginalDefinition, migrateFrom))
-                    && SymbolEqualityComparer.Default.Equals(contract.TypeArguments[0].OriginalDefinition, legacyType.OriginalDefinition))
-                {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
 
     private static IEnumerable<INamedTypeSymbol> GetTypes(INamespaceSymbol @namespace)
     {

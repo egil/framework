@@ -31,6 +31,40 @@ public sealed class MissingStringMetadataAnalyzerTests
         Assert.Equal("AppContext", text.ToString(diagnostic.Location.SourceSpan));
     }
 
+    [Fact]
+    public async Task Converter_owned_target_does_not_claim_missing_string_metadata()
+    {
+        var compilation = AnalyzerTestHelper.CreateCompilation(Contracts + """
+            [Egil.SystemTextJson.Migration.JsonMigratable]
+            [JsonConverter(typeof(TargetConverter))]
+            public class Target { public int Value { get; set; } }
+            public sealed class TargetConverter : JsonConverter<Target>
+            {
+                public override Target Read(ref System.Text.Json.Utf8JsonReader reader, System.Type type, System.Text.Json.JsonSerializerOptions options) => new();
+                public override void Write(System.Text.Json.Utf8JsonWriter writer, Target value, System.Text.Json.JsonSerializerOptions options) => writer.WriteNumberValue(value.Value);
+            }
+            [JsonSerializable(typeof(Target))]
+            public abstract partial class AppContext : JsonSerializerContext { protected AppContext() : base(null) { } }
+            """);
+        Assert.Empty(compilation.GetDiagnostics(TestContext.Current.CancellationToken).Where(d => d.Severity == DiagnosticSeverity.Error));
+
+        Assert.Empty(await AnalyzerTestHelper.GetAnalyzerDiagnosticsAsync(compilation, new MissingStringMetadataAnalyzer()));
+    }
+
+    [Fact]
+    public async Task Unbound_generic_registration_does_not_claim_missing_string_metadata()
+    {
+        var compilation = AnalyzerTestHelper.CreateCompilation(Contracts + """
+            [Egil.SystemTextJson.Migration.JsonMigratable] public class Target { public int Value { get; set; } }
+            public class Container<T> { public T Value { get; set; } }
+            [JsonSerializable(typeof(Target)), JsonSerializable(typeof(Container<>))]
+            public abstract partial class AppContext : JsonSerializerContext { protected AppContext() : base(null) { } }
+            """);
+        Assert.Empty(compilation.GetDiagnostics(TestContext.Current.CancellationToken).Where(d => d.Severity == DiagnosticSeverity.Error));
+
+        Assert.Empty(await AnalyzerTestHelper.GetAnalyzerDiagnosticsAsync(compilation, new MissingStringMetadataAnalyzer()));
+    }
+
     [Theory]
     [InlineData("public string Value { get; set; }", 0)]
     [InlineData("public string Value;", 0)]

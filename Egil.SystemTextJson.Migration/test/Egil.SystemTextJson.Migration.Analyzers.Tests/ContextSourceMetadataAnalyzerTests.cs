@@ -112,7 +112,185 @@ public sealed class ContextSourceMetadataAnalyzerTests
         Assert.Empty(await AnalyzerTestHelper.GetAnalyzerDiagnosticsAsync(compilation, new ContextSourceMetadataAnalyzer()));
     }
 
+    [Fact]
+    public async Task Polymorphic_derived_target_is_reached_from_registered_base()
+    {
+        var compilation = AnalyzerTestHelper.CreateCompilation(Contracts + """
+            [System.Text.Json.Serialization.JsonDerivedType(typeof(Current))]
+            public class Root { }
+            [Egil.SystemTextJson.Migration.JsonMigratable]
+            public class Current : Root, Egil.SystemTextJson.Migration.IMigrateFrom<Previous, Current> { }
+            public class Previous { }
+            [System.Text.Json.Serialization.JsonSerializable(typeof(Root))]
+            public sealed class AppContext : System.Text.Json.Serialization.JsonSerializerContext { }
+            """);
+        Assert.Empty(compilation.GetDiagnostics(TestContext.Current.CancellationToken).Where(d => d.Severity == DiagnosticSeverity.Error));
+
+        Assert.Equal("STJM0006", Assert.Single(await AnalyzerTestHelper.GetAnalyzerDiagnosticsAsync(compilation, new ContextSourceMetadataAnalyzer())).Id);
+    }
+
+    [Fact]
+    public async Task Selected_constructor_parameter_supplies_source_metadata()
+    {
+        var compilation = AnalyzerTestHelper.CreateCompilation(Contracts + """
+            [Egil.SystemTextJson.Migration.JsonMigratable]
+            public class Current : Egil.SystemTextJson.Migration.IMigrateFrom<Previous, Current>
+            {
+                [System.Text.Json.Serialization.JsonConstructor]
+                public Current(Previous source) { }
+            }
+            public class Previous { }
+            [System.Text.Json.Serialization.JsonSerializable(typeof(Current))]
+            public sealed class AppContext : System.Text.Json.Serialization.JsonSerializerContext { }
+            """);
+        Assert.Empty(compilation.GetDiagnostics(TestContext.Current.CancellationToken).Where(d => d.Severity == DiagnosticSeverity.Error));
+
+        Assert.Empty(await AnalyzerTestHelper.GetAnalyzerDiagnosticsAsync(compilation, new ContextSourceMetadataAnalyzer()));
+    }
+
+    [Fact]
+    public async Task Member_converter_does_not_expose_its_clr_type_as_generated_metadata()
+    {
+        var compilation = AnalyzerTestHelper.CreateCompilation(Contracts + """
+            [Egil.SystemTextJson.Migration.JsonMigratable]
+            public class Hidden : Egil.SystemTextJson.Migration.IMigrateFrom<Previous, Hidden> { }
+            [Egil.SystemTextJson.Migration.JsonMigratable]
+            public class Ordinary : Egil.SystemTextJson.Migration.IMigrateFrom<Previous, Ordinary> { }
+            public class Previous { }
+            public class Wrapper
+            {
+                [System.Text.Json.Serialization.JsonConverter(typeof(HiddenConverter))]
+                public Hidden Value { get; set; }
+            }
+            public class HiddenConverter : System.Text.Json.Serialization.JsonConverter<Hidden>
+            {
+                public override Hidden Read(ref System.Text.Json.Utf8JsonReader reader, System.Type type, System.Text.Json.JsonSerializerOptions options) => new();
+                public override void Write(System.Text.Json.Utf8JsonWriter writer, Hidden value, System.Text.Json.JsonSerializerOptions options) => writer.WriteNullValue();
+            }
+            [System.Text.Json.Serialization.JsonSerializable(typeof(Wrapper))]
+            [System.Text.Json.Serialization.JsonSerializable(typeof(Ordinary))]
+            public sealed class AppContext : System.Text.Json.Serialization.JsonSerializerContext { }
+            """);
+        Assert.Empty(compilation.GetDiagnostics(TestContext.Current.CancellationToken).Where(d => d.Severity == DiagnosticSeverity.Error));
+
+        var diagnostic = Assert.Single(await AnalyzerTestHelper.GetAnalyzerDiagnosticsAsync(compilation, new ContextSourceMetadataAnalyzer()));
+        Assert.Contains("Ordinary", diagnostic.GetMessage(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Expanding_generic_graph_stops_without_a_speculative_missing_source_warning()
+    {
+        var compilation = AnalyzerTestHelper.CreateCompilation(Contracts + """
+            public class Node<T> { public Node<System.Collections.Generic.List<T>> Child { get; set; } }
+            [Egil.SystemTextJson.Migration.JsonMigratable]
+            public class Current : Egil.SystemTextJson.Migration.IMigrateFrom<Previous, Current> { }
+            public class Previous { }
+            [System.Text.Json.Serialization.JsonSerializable(typeof(Node<int>))]
+            [System.Text.Json.Serialization.JsonSerializable(typeof(Current))]
+            public sealed class AppContext : System.Text.Json.Serialization.JsonSerializerContext { }
+            """);
+        Assert.Empty(compilation.GetDiagnostics(TestContext.Current.CancellationToken).Where(d => d.Severity == DiagnosticSeverity.Error));
+
+        Assert.Empty(await AnalyzerTestHelper.GetAnalyzerDiagnosticsAsync(compilation, new ContextSourceMetadataAnalyzer()));
+    }
+
 #if NET11_0_OR_GREATER
+    [Fact]
+    public async Task Sdk_member_converter_keeps_source_metadata_without_requiring_migration_through_that_member()
+    {
+        var result = await SdkAnalyzerFixture.BuildAsync(SdkContracts + """
+            [Egil.SystemTextJson.Migration.JsonMigratable]
+            public class Hidden : Egil.SystemTextJson.Migration.IMigrateFrom<Previous, Hidden> { }
+            [Egil.SystemTextJson.Migration.JsonMigratable]
+            public class Ordinary : Egil.SystemTextJson.Migration.IMigrateFrom<Previous, Ordinary> { }
+            [Egil.SystemTextJson.Migration.JsonMigratable]
+            public class Consumer : Egil.SystemTextJson.Migration.IMigrateFrom<Hidden, Consumer> { }
+            public class Previous { }
+            public class Wrapper
+            {
+                [System.Text.Json.Serialization.JsonConverter(typeof(HiddenConverter))]
+                public Hidden Value { get; set; }
+            }
+            public sealed class HiddenConverter : System.Text.Json.Serialization.JsonConverter<Hidden>
+            {
+                public override Hidden Read(ref System.Text.Json.Utf8JsonReader reader, System.Type type, System.Text.Json.JsonSerializerOptions options) => new();
+                public override void Write(System.Text.Json.Utf8JsonWriter writer, Hidden value, System.Text.Json.JsonSerializerOptions options) => writer.WriteNullValue();
+            }
+            [System.Text.Json.Serialization.JsonSerializable(typeof(Wrapper))]
+            [System.Text.Json.Serialization.JsonSerializable(typeof(Ordinary))]
+            [System.Text.Json.Serialization.JsonSerializable(typeof(Consumer))]
+            public partial class AppContext : System.Text.Json.Serialization.JsonSerializerContext { }
+            public static class Program
+            {
+                public static void Main()
+                {
+                    if (AppContext.Default.GetTypeInfo(typeof(Hidden)) is null)
+                        throw new System.InvalidOperationException("Converted member type metadata was not generated.");
+                    if (AppContext.Default.GetTypeInfo(typeof(Ordinary)) is null)
+                        throw new System.InvalidOperationException("Ordinary metadata was not generated.");
+                    if (AppContext.Default.GetTypeInfo(typeof(Consumer)) is null)
+                        throw new System.InvalidOperationException("Consumer metadata was not generated.");
+                }
+            }
+            """, typeof(ContextSourceMetadataAnalyzer).Assembly.Location, TestContext.Current.CancellationToken, execute: true);
+
+        Assert.True(result.ExitCode == 0, result.Output);
+        var diagnostic = Assert.Single(GetDiagnostics(result.Diagnostics));
+        Assert.Contains("Ordinary", diagnostic.GetProperty("message").GetProperty("text").GetString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Sdk_polymorphic_root_reaches_derived_migratable_target()
+    {
+        var result = await SdkAnalyzerFixture.BuildAsync(SdkContracts + """
+            [System.Text.Json.Serialization.JsonDerivedType(typeof(Current))]
+            public class Root { }
+            [Egil.SystemTextJson.Migration.JsonMigratable]
+            public class Current : Root, Egil.SystemTextJson.Migration.IMigrateFrom<Previous, Current> { }
+            public class Previous { }
+            [System.Text.Json.Serialization.JsonSerializable(typeof(Root))]
+            public partial class AppContext : System.Text.Json.Serialization.JsonSerializerContext { }
+            public static class Program
+            {
+                public static void Main()
+                {
+                    if (AppContext.Default.GetTypeInfo(typeof(Current)) is null || AppContext.Default.GetTypeInfo(typeof(Previous)) is not null)
+                        throw new System.InvalidOperationException("Derived target metadata reachability differs from generation.");
+                }
+            }
+            """, typeof(ContextSourceMetadataAnalyzer).Assembly.Location, TestContext.Current.CancellationToken, execute: true);
+
+        Assert.True(result.ExitCode == 0, result.Output);
+        Assert.Single(GetDiagnostics(result.Diagnostics));
+    }
+
+    [Fact]
+    public async Task Sdk_selected_constructor_parameter_supplies_source_metadata()
+    {
+        var result = await SdkAnalyzerFixture.BuildAsync(SdkContracts + """
+            [Egil.SystemTextJson.Migration.JsonMigratable]
+            public class Current : Egil.SystemTextJson.Migration.IMigrateFrom<Previous, Current>
+            {
+                [System.Text.Json.Serialization.JsonConstructor]
+                public Current(Previous source) { }
+            }
+            public class Previous { }
+            [System.Text.Json.Serialization.JsonSerializable(typeof(Current))]
+            public partial class AppContext : System.Text.Json.Serialization.JsonSerializerContext { }
+            public static class Program
+            {
+                public static void Main()
+                {
+                    if (AppContext.Default.GetTypeInfo(typeof(Previous)) is null)
+                        throw new System.InvalidOperationException("Constructor parameter metadata was not generated.");
+                }
+            }
+            """, typeof(ContextSourceMetadataAnalyzer).Assembly.Location, TestContext.Current.CancellationToken, execute: true);
+
+        Assert.True(result.ExitCode == 0, result.Output);
+        Assert.Empty(GetDiagnostics(result.Diagnostics));
+    }
+
     [Theory]
     [InlineData("Current", "", false, 0)]
     [InlineData("Wrapper", "[System.Text.Json.Serialization.JsonSerializable(typeof(Ordinary))]", true, 1)]
