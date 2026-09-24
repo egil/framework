@@ -6,10 +6,10 @@ namespace Egil.SystemTextJson.Migration.Analyzers.Tests;
 
 internal static class SdkAnalyzerFixture
 {
-    public static async Task<(int ExitCode, string Output, string Diagnostics)> BuildAsync(string source, string analyzerPath, CancellationToken cancellationToken, string? referencedSource = null)
+    public static async Task<(int ExitCode, string Output, string Diagnostics)> BuildAsync(string source, string analyzerPath, CancellationToken cancellationToken, string? referencedSource = null, bool execute = false)
     {
-        // The analyzer targets Roslyn 4.8 for compiler compatibility. Only the SDK compiler
-        // can bind actual C# unions, so this boundary test must compile through dotnet build.
+        // The analyzer targets Roslyn 4.8 for compiler compatibility. SDK compilation is
+        // needed to exercise actual C# unions and source-generated JSON metadata.
         var temporaryRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.GetTempPath()));
         var directory = Directory.CreateTempSubdirectory("stjm-sdk-analyzer-");
         var fixtureName = directory.Name;
@@ -27,6 +27,7 @@ internal static class SdkAnalyzerFixture
                 <Project Sdk="Microsoft.NET.Sdk">
                   <PropertyGroup>
                     <TargetFramework>net11.0</TargetFramework>
+                    <OutputType>{(execute ? "Exe" : "Library")}</OutputType>
                     <LangVersion>preview</LangVersion>
                     <ImplicitUsings>enable</ImplicitUsings>
                     <EnableNETAnalyzers>false</EnableNETAnalyzers>
@@ -57,7 +58,19 @@ internal static class SdkAnalyzerFixture
             var errors = process.StandardError.ReadToEndAsync(cancellationToken);
             await process.WaitForExitAsync(cancellationToken);
             var diagnostics = File.Exists(errorLog) ? await File.ReadAllTextAsync(errorLog, cancellationToken) : "";
-            return (process.ExitCode, await output + await errors, diagnostics);
+            var buildOutput = await output + await errors;
+            if (!execute || process.ExitCode != 0)
+            {
+                return (process.ExitCode, buildOutput, diagnostics);
+            }
+
+            start.ArgumentList.Clear();
+            start.ArgumentList.Add(Path.Combine(directory.FullName, "bin", "Release", "net11.0", "Fixture.dll"));
+            using var execution = Process.Start(start)!;
+            var executionOutput = execution.StandardOutput.ReadToEndAsync(cancellationToken);
+            var executionErrors = execution.StandardError.ReadToEndAsync(cancellationToken);
+            await execution.WaitForExitAsync(cancellationToken);
+            return (execution.ExitCode, buildOutput + await executionOutput + await executionErrors, diagnostics);
         }
         finally
         {
