@@ -70,7 +70,9 @@ try {
 "@ | Set-Content -LiteralPath $projectPath
 
     'Console.WriteLine("consumer");' | Set-Content -LiteralPath (Join-Path $consumerDirectory 'Program.cs')
-    $buildOutput = & dotnet build $projectPath -c Release -v:diag -warnaserror 2>&1 | Out-String
+    & dotnet restore $projectPath --no-http-cache | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "The package-only consumer restore failed." }
+    $buildOutput = & dotnet build $projectPath -c Release -v:diag -warnaserror --no-restore 2>&1 | Out-String
 
     if ($buildOutput -match 'CS803\d|AD0001') {
         throw "The package-only consumer reported an analyzer load failure.`n$buildOutput"
@@ -117,7 +119,9 @@ public sealed class Source
 {
 }
 "@ | Set-Content -LiteralPath (Join-Path $invalidConsumerDirectory 'Program.cs')
-    $invalidBuildOutput = & dotnet build $invalidProjectPath -c Release -v:diag 2>&1 | Out-String
+    & dotnet restore $invalidProjectPath --no-http-cache | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "The invalid package-only consumer restore failed." }
+    $invalidBuildOutput = & dotnet build $invalidProjectPath -c Release -v:diag --no-restore 2>&1 | Out-String
 
     if ($LASTEXITCODE -ne 0) {
         throw "The invalid package-only consumer did not build successfully.`n$invalidBuildOutput"
@@ -165,7 +169,9 @@ root = true
 dotnet_diagnostic.STJM0011.severity = error
 dotnet_diagnostic.STJM0010.severity = none
 "@ | Set-Content -LiteralPath (Join-Path $severityConsumerDirectory '.editorconfig')
-    $stjm0011BuildOutput = & dotnet build $severityProjectPath -c Release 2>&1 | Out-String
+    & dotnet restore $severityProjectPath --no-http-cache | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "The severity consumer restore failed." }
+    $stjm0011BuildOutput = & dotnet build $severityProjectPath -c Release --no-restore 2>&1 | Out-String
 
     if ($LASTEXITCODE -eq 0 -or $stjm0011BuildOutput -notmatch 'error STJM0011' -or $stjm0011BuildOutput -match 'STJM0010') {
         throw "The package-only consumer did not honor STJM0011=error and STJM0010=none from .editorconfig.`n$stjm0011BuildOutput"
@@ -178,7 +184,7 @@ root = true
 dotnet_diagnostic.STJM0011.severity = none
 dotnet_diagnostic.STJM0010.severity = error
 "@ | Set-Content -LiteralPath (Join-Path $severityConsumerDirectory '.editorconfig')
-    $stjm0010BuildOutput = & dotnet build $severityProjectPath -c Release 2>&1 | Out-String
+    $stjm0010BuildOutput = & dotnet build $severityProjectPath -c Release --no-restore 2>&1 | Out-String
 
     if ($LASTEXITCODE -eq 0 -or $stjm0010BuildOutput -notmatch 'error STJM0010' -or $stjm0010BuildOutput -match 'STJM0011') {
         throw "The package-only consumer did not honor STJM0011=none and STJM0010=error from .editorconfig.`n$stjm0010BuildOutput"
