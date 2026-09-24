@@ -6,13 +6,18 @@ namespace Egil.Orleans.Messaging.State;
 // mistake them for an ambiguous persistence outcome.
 internal sealed class StateManagerHookDispatcher<T> where T : class, IEquatable<T>
 {
-    public bool IsInvoking { get; private set; }
+    private readonly AsyncLocal<int> invocationDepth = new();
+
+    public bool IsInvoking => invocationDepth.Value != 0;
 
     public async Task InvokeAsync(StateManagerHooks<T> hooks, T state, StateManagerOperation operation,
         bool recordExists, CancellationToken cancellationToken, Exception? storageError = null)
     {
         List<Exception>? errors = storageError is null ? null : [storageError];
-        IsInvoking = true;
+        // Reject calls originating in this handler, including after awaits, without
+        // rejecting independent reentrant turns. Each dispatch retains its own flow's
+        // depth, so another dispatch completing cannot release this handler's guard.
+        invocationDepth.Value++;
         try
         {
             try
@@ -52,7 +57,7 @@ internal sealed class StateManagerHookDispatcher<T> where T : class, IEquatable<
         }
         finally
         {
-            IsInvoking = false;
+            invocationDepth.Value--;
         }
 
         if (errors is { Count: 1 })

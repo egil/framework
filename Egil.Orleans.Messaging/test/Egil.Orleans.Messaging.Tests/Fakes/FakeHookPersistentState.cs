@@ -14,14 +14,15 @@ internal sealed class FakeHookPersistentState(HookSnapshot? persisted) : IPersis
     public CancellationTokenSource? CancelAfterCommit { get; init; }
     public TaskCompletionSource? Started { get; init; }
     public Task? Release { get; init; }
+    public Func<Task>? BeforeRead { get; init; }
     public int Reads { get; private set; }
     public int Mutations { get; private set; }
-    public Task ReadStateAsync()
+    public async Task ReadStateAsync()
     {
         Reads++;
+        if (BeforeRead is not null) await BeforeRead();
         if (ReadError is not null) throw ReadError;
         State = Persisted!;
-        return Task.CompletedTask;
     }
     public Task WriteStateAsync() => Mutate(false);
     public Task ClearStateAsync() => Mutate(true);
