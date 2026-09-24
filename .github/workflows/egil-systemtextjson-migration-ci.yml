@@ -60,6 +60,28 @@ jobs:
           dotnet pack ./src/Egil.SystemTextJson.Migration/Egil.SystemTextJson.Migration.csproj -c Release --no-build --output ${{ env.NuGetDirectory }}
           pwsh -NoProfile -File ./scripts/verify-analyzer-package.ps1 -PackagePath "$(find ${{ env.NuGetDirectory }} -maxdepth 1 -name '*.nupkg' -print -quit)"
 
+      - name: Install NativeAOT prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang zlib1g-dev
+
+      - name: Verify packaged trimming and NativeAOT diagnostics
+        working-directory: Egil.SystemTextJson.Migration
+        run: pwsh -NoProfile -File ./scripts/verify-trimming-package.ps1 -PackagePath "$(find ${{ env.NuGetDirectory }} -maxdepth 1 -name '*.nupkg' -print -quit)" -Publish -RuntimeIdentifier linux-x64
+
+      - name: Retain diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trimming-diagnostics
+          if-no-files-found: ignore
+          retention-days: 7
+          path: |
+            Egil.SystemTextJson.Migration/artifacts/trimming/**/*.log
+            Egil.SystemTextJson.Migration/artifacts/trimming/**/Program.cs
+            Egil.SystemTextJson.Migration/artifacts/trimming/**/Consumer.csproj
+            Egil.SystemTextJson.Migration/artifacts/trimming/**/results.json
+
       - uses: actions/upload-artifact@v4
         with:
           name: nuget
