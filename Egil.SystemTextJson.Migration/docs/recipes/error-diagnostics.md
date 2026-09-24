@@ -164,3 +164,11 @@ Deserialize application payloads as the current type and keep legacy access with
 STJM0011 warns when a `[JsonMigrationLegacyType]` declaration has no visible `IMigrateFrom<TSource, TTarget>` or `IMigrate<TSource, TTarget>` contract that uses it as `TSource` in the same compilation. Any target type satisfies the rule because the marker records that the legacy type still has a migration source edge.
 
 If the migrator lives in another assembly, set `MigratedExternally = true` on the marker. This suppresses STJM0011 only; STJM0010 still restricts ordinary use of the marked type. If there is no migration remaining, remove the marker and consider deleting the historical type.
+
+## STJM0004: migratable targets must be JSON objects
+
+`[JsonMigratable]` adds a discriminator property to the target's JSON contract. Collections, dictionaries, and .NET 11 unions cannot carry that property, so the runtime rejects them. STJM0004 warns at the target declaration before serialization or deserialization is attempted. It also recognizes inherited migration markers and asynchronous enumerable targets.
+
+Use an ordinary class or struct as the target, with collection or dictionary values in its properties. For a .NET 11 union, mark its object case types with `[JsonMigratable]` and leave the union itself unmarked. A `GetEnumerator` method alone does not make an ordinary object target a collection; the analyzer checks the collection interfaces.
+
+This warning covers statically identifiable collection and union shapes. The runtime still validates the resolved JSON contract, including contracts supplied by converters or custom resolvers.
