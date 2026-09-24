@@ -7,6 +7,17 @@ internal sealed class ActivationStateManager<T> : IStateManager<T>
     where T : class, IEquatable<T>
 {
     private IStateManager<T>? manager;
+    private StateManagerHooks<T> hooks = new();
+
+    public void ConfigureHooks(StateManagerHooks<T> hooks)
+    {
+        ArgumentNullException.ThrowIfNull(hooks);
+        hooks.Validate();
+        this.hooks = hooks;
+        manager?.ConfigureHooks(hooks);
+    }
+
+    public Task InitializeAsync(CancellationToken cancellationToken = default) => Manager.InitializeAsync(cancellationToken);
 
     public ActivationStateManager(IGrainLifecycle lifecycle, Func<IStateManager<T>> create)
     {
@@ -16,7 +27,8 @@ internal sealed class ActivationStateManager<T> : IStateManager<T>
         {
             cancellationToken.ThrowIfCancellationRequested();
             manager = create();
-            return Task.CompletedTask;
+            manager.ConfigureHooks(hooks);
+            return manager.InitializeAsync(cancellationToken);
         });
     }
 

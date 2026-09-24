@@ -1,0 +1,67 @@
+using System.Runtime.ExceptionServices;
+
+namespace Egil.Orleans.Messaging.State;
+
+// This boundary reports user failures without letting the storage recovery code
+// mistake them for an ambiguous persistence outcome.
+internal sealed class StateManagerHookDispatcher<T> where T : class, IEquatable<T>
+{
+    public bool IsInvoking { get; private set; }
+
+    public async Task InvokeAsync(StateManagerHooks<T> hooks, T state, StateManagerOperation operation,
+        bool recordExists, CancellationToken cancellationToken, Exception? storageError = null)
+    {
+        List<Exception>? errors = storageError is null ? null : [storageError];
+        IsInvoking = true;
+        try
+        {
+            try
+            {
+                hooks.OnChange?.Invoke(state, operation, recordExists);
+                if (hooks.OnChangeAsync is { } common)
+                {
+                    await common(state, operation, recordExists, cancellationToken);
+                }
+            }
+            catch (Exception error)
+            {
+                (errors ??= []).Add(error);
+            }
+
+            // A failed common handler must not suppress the operation-specific work,
+            // even when its failure is cancellation after a durable commit.
+            try
+            {
+                var (sync, async) = operation switch
+                {
+                    StateManagerOperation.Read => (hooks.OnRead, hooks.OnReadAsync),
+                    StateManagerOperation.Write => (hooks.OnWrite, hooks.OnWriteAsync),
+                    StateManagerOperation.Clear => (hooks.OnClear, hooks.OnClearAsync),
+                    _ => throw new ArgumentOutOfRangeException(nameof(operation))
+                };
+                sync?.Invoke(state);
+                if (async is not null)
+                {
+                    await async(state, cancellationToken);
+                }
+            }
+            catch (Exception error)
+            {
+                (errors ??= []).Add(error);
+            }
+        }
+        finally
+        {
+            IsInvoking = false;
+        }
+
+        if (errors is { Count: 1 })
+        {
+            ExceptionDispatchInfo.Capture(errors[0]).Throw();
+        }
+        if (errors is { Count: > 1 })
+        {
+            throw new AggregateException(errors);
+        }
+    }
+}

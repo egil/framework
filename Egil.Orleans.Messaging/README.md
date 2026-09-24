@@ -196,6 +196,86 @@ collection equality.
 a fresh version on a copy of the record; the input record keeps its original
 version. Use `manager.State` after the write to observe the persisted version.
 
+### State manager lifecycle hooks
+
+Use `StateManagerHooks<T>` to rebuild in-memory data or copy confirmed state
+elsewhere. Configure an injected or constructor-registered manager in the grain
+constructor to observe its initial load:
+
+```csharp
+public OrderGrain(
+    [PersistentState("state", "Default")] IStateManager<OrderState> state)
+{
+    state.ConfigureHooks(new StateManagerHooks<OrderState>
+    {
+        OnRead = loaded => RebuildIndex(loaded),
+        OnChangeAsync = (adopted, operation, recordExists, token) =>
+            CopyStateAsync(adopted, operation, recordExists, token)
+    });
+}
+```
+
+For registration inside `OnActivateAsync`, await the registration itself:
+
+```csharp
+state = await this.RegisterStateManagerAsync(
+    "Default", storage,
+    new StateManagerHooks<OrderState> { OnRead = loaded => RebuildIndex(loaded) },
+    cancellationToken: cancellationToken);
+```
+
+The async overloads support default or keyed factories and an optional explicit
+default-state factory, like synchronous registration. Initial notification uses
+the hydrated state without another storage read. Direct injection and constructor
+registration await initial handlers before `OnActivateAsync`; async registration
+awaits them before returning. An initial handler failure fails activation.
+
+There are four slots: `OnRead`, `OnWrite`, `OnClear`, and the common `OnChange`.
+Each has an `Async` alternative returning `Task` and receiving a cancellation
+token. Setting both forms of the same slot is rejected. `ConfigureHooks` replaces
+all slots atomically; omitted slots are cleared, and an empty options object
+removes all hooks. It never replays state. An operation keeps the configuration it
+captured at its start, including if a handler reconfigures the manager.
+
+| Outcome | Notification |
+| --- | --- |
+| Initial load or successful explicit read, including absent or unchanged state | `Read` |
+| Successful write or recovery confirming a lost write response | `Write` |
+| Successful clear or recovery confirming a lost clear response | `Clear`, with a fresh default |
+| Failed mutation followed by a successful recovery adopting storage state | `Read`, then the original storage error |
+| Direct `State` assignment, no-op save, classified non-persistence, or failed recovery | None |
+
+An optimistic concurrency conflict is still reported even when recovery happens
+to match the attempted change; its recovery notification is `Read`. Recovery
+confirming a mutation emits only its `Write` or `Clear` notification.
+
+State is published first, then transient configuration (`IConfigurableState` and
+`configureState`) runs, then the common handler, then the specific handler.
+`OnChange` receives the adopted state, `StateManagerOperation`, and `recordExists`;
+specific handlers receive only the adopted state (plus a token for async forms).
+Transient configuration failure suppresses lifecycle handlers. A common-handler
+failure does not suppress the specific handler. Multiple failures produce an
+`AggregateException`, ordered storage error first when applicable, then common,
+then specific. A single failure is propagated unchanged.
+
+Handlers are awaited and must treat their supplied state as **read-only**. They
+may read `manager.State`, but nested reads, writes, clears, and saves on that
+manager are rejected. Hooks do not add serialization for overlapping storage
+operations on a reentrant grain.
+
+**A hook can fail after storage has durably changed.** Its failure never rolls
+back state, retries storage, or starts recovery. Handlers still run if the token
+became canceled after confirmed persistence; async handlers receive that same
+token and may cancel. Do not interpret a thrown operation as proof that storage
+was unchanged. Hooks provide no deduplication across attempts or activations:
+external effects must be idempotent, for example keyed by a persisted state
+version.
+
+Custom lifecycle integrations constructing managers directly should configure
+hooks and await `InitializeAsync` after hydration. This emits the initial read
+notification once without storage I/O; subsequent calls do not replay it, even
+after failure. Normal grain registration handles this automatically.
+
 ### Injecting the manager
 
 A grain can inject `IStateManager<T>` directly on its `[PersistentState]` parameter,
@@ -1046,6 +1126,15 @@ This package is messaging infrastructure, not an event-sourcing or CQRS framewor
   ETag-mismatch failures should return `Conflict` instead; other failures
   (auth, missing container/table, payload too large) still return
   `DidNotPersist`.
+
+- `IStateManager<T>` gains `ConfigureHooks(StateManagerHooks<T>)` and
+  `InitializeAsync(CancellationToken)`. Custom implementations must implement
+  atomic hook replacement and one-time awaited initial notification; implementations
+  deriving from `StateManagerBase<T>` inherit both. Existing `IStateManagerFactory`
+  signatures are unchanged. Configure hooks in the constructor for injected or
+  constructor-registered managers; use and await `RegisterStateManagerAsync` when
+  registering with hooks in `OnActivateAsync`. Keep transient dependency wiring
+  in `configureState`; move confirmed-storage effects to lifecycle hooks.
 
 - `VersionedState.Version` now uses public `init` so state records can be included
   in a consumer's System.Text.Json source-generated context
