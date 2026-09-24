@@ -500,6 +500,23 @@ public class ResolverChainTests
     }
 
     [Fact]
+    public void Repeated_resolver_entries_keep_the_existing_migration_registration()
+    {
+        var original = new JsonSerializerOptions()
+            .AddJsonMigrationSupport(builder => builder.RegisterMigrator<ChainExternalMigrator>());
+        var entry = original.TypeInfoResolverChain[0];
+        var options = new JsonSerializerOptions
+        {
+            TypeInfoResolver = JsonTypeInfoResolver.Combine(entry, entry),
+        };
+
+        options.AddJsonMigrationSupport(_ => Assert.Fail("Existing registration must be retained."));
+        var result = JsonSerializer.Deserialize<ChainV3>(LegacyPayload, options);
+
+        Assert.Equal(new ChainV3("Jane Doe"), result);
+    }
+
+    [Fact]
     public void Imported_resolver_keeps_its_registration_when_serving_previously_registered_options()
     {
         var imported = new JsonSerializerOptions { TypeInfoResolver = new DefaultJsonTypeInfoResolver() }

@@ -434,6 +434,17 @@ public partial class UnionMigrationTests
     }
 
     [Fact]
+    public void Union_with_json_dom_cases_refuses_to_guess_an_object_case()
+    {
+        var options = CreateOptions();
+
+        var exception = Assert.Throws<JsonException>(() =>
+            JsonSerializer.Deserialize<ShapeOrJsonDom>("""{"radius":3}""", options));
+
+        Assert.Contains("cannot classify a JSON object", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Union_with_nested_union_case_refuses_shape_fallback_for_discriminator_less_object()
     {
         // The nested union could accept the object itself, so routing it elsewhere would
@@ -685,6 +696,24 @@ public partial class UnionMigrationTests
 
         Assert.Equal(42, Assert.IsType<Counter>(quoted.Value).Value);
         Assert.Equal(42, Assert.IsType<Counter>(plain.Value).Value);
+    }
+
+    [Fact]
+    public void Union_numeric_case_respects_strict_contract_over_permissive_root_options()
+    {
+        var resolver = new DefaultJsonTypeInfoResolver();
+        resolver.Modifiers.Add(static contract =>
+        {
+            if (contract.Type == typeof(double))
+            {
+                contract.NumberHandling = JsonNumberHandling.Strict;
+            }
+        });
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web) { TypeInfoResolver = resolver }.AddJsonMigrationSupport();
+
+        var exception = Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<ShapeOrDouble>("\"3.5\"", options));
+
+        Assert.Contains("accepts a JSON string", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1066,6 +1095,8 @@ public partial class UnionMigrationTests
     public union ShapeOrStringOrChar(CircleV2, string, char);
 
     public union ShapeOrNestedUnion(CircleV2, ShapeOrNote);
+
+    public union ShapeOrJsonDom(CircleV2, JsonElement, JsonDocument);
 
     public union NoteOrShape(Note, Shape);
 
