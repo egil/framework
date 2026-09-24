@@ -7,7 +7,7 @@ namespace Egil.SystemTextJson.Migration.Analyzers.Tests;
 
 internal static class AnalyzerTestHelper
 {
-    public static CSharpCompilation CreateCompilation(string source)
+    public static CSharpCompilation CreateCompilation(params string[] sources)
     {
         var references = ((string?)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES"))!
             .Split(Path.PathSeparator)
@@ -15,7 +15,7 @@ internal static class AnalyzerTestHelper
 
         return CSharpCompilation.Create(
             assemblyName: "MigrationAnalyzerTests",
-            syntaxTrees: [CSharpSyntaxTree.ParseText(source, CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.Preview))],
+            syntaxTrees: sources.Select(source => CSharpSyntaxTree.ParseText(source, CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.Preview))),
             references: references,
             options: new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
     }
