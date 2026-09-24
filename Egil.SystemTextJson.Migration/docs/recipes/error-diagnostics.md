@@ -34,6 +34,7 @@ public sealed class ProductV2
 ```
 
 Add a matching target-owned migration or an external migrator contract before configuring the undiscriminated source.
+
 ## STJM0005: `JsonMigratable` conflicts with System.Text.Json polymorphism
 
 `[JsonMigratable]` cannot be used in a type hierarchy that also uses
@@ -44,6 +45,20 @@ currently support. The analyzer reports the conflict before it fails at runtime.
 Use a .NET 11 C# union with migratable case types, migrate outside the polymorphic
 hierarchy, or introduce a stable polymorphic wrapper. See the
 [polymorphism recipe](polymorphism.md) for the limitation and supported designs.
+
+## Analyzer warning: missing string metadata (STJM0007)
+
+A source-generated `JsonSerializerContext` containing a `[JsonMigratable]` type needs string metadata for the injected discriminator property, even when the payload model has only numeric members. STJM0007 reports once on a context when its registered type graph lacks that metadata. Register `string` explicitly to fix it:
+
+```cs
+[JsonSerializable(typeof(ProductV2))]
+[JsonSerializable(typeof(string))]
+public partial class ProductJsonContext : JsonSerializerContext;
+```
+
+An explicit string registration is unnecessary when a registered type already supplies reachable string metadata, including inherited or nested members and collection elements or dictionary keys. Public fields also supply metadata, even with the default `IncludeFields` setting. Static members, indexers, private members without `[JsonInclude]`, and `[JsonIgnore]` members do not supply it. Registrations in a different context do not satisfy this context.
+
+The analysis uses declared contracts. It avoids warning for unresolved generic graphs and type-level custom converters whose metadata requirements cannot be determined from members. Runtime resolver composition remains outside its scope.
 ## Handling unknown discriminators
 
 When a `$type` discriminator value doesn't match any registered source type or the target type itself, the library throws a `JsonException` with a clear message identifying the unrecognized discriminator:
