@@ -55,8 +55,10 @@ jobs:
       # policy, Microsoft.Testing.Platform runner) is discovered by the SDK resolver.
       - working-directory: Egil.SystemTextJson.Migration
         run: |
+          dotnet build ./src/Egil.SystemTextJson.Migration.Analyzers/Egil.SystemTextJson.Migration.Analyzers.csproj -c Release
           dotnet build ./src/Egil.SystemTextJson.Migration/Egil.SystemTextJson.Migration.csproj -c Release
           dotnet pack ./src/Egil.SystemTextJson.Migration/Egil.SystemTextJson.Migration.csproj -c Release --no-build --output ${{ env.NuGetDirectory }}
+          pwsh -NoProfile -File ./scripts/verify-analyzer-package.ps1 -PackagePath "$(find ${{ env.NuGetDirectory }} -maxdepth 1 -name '*.nupkg' -print -quit)"
 
       - uses: actions/upload-artifact@v4
         with:

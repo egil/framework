@@ -1,9 +1,11 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Egil.SystemTextJson.Migration/Egil.SystemTextJson.Migration.csproj" />
+    <Project Path="src/Egil.SystemTextJson.Migration.Analyzers/Egil.SystemTextJson.Migration.Analyzers.csproj" />
   </Folder>
   <Folder Name="/test/">
     <Project Path="test/Egil.SystemTextJson.Migration.Tests/Egil.SystemTextJson.Migration.Tests.csproj" />
+    <Project Path="test/Egil.SystemTextJson.Migration.Analyzers.Tests/Egil.SystemTextJson.Migration.Analyzers.Tests.csproj" />
   </Folder>
   <Folder Name="/perf/">
     <Project Path="perf/Egil.SystemTextJson.Migration.PerfTests/Egil.SystemTextJson.Migration.PerfTests.csproj" />
