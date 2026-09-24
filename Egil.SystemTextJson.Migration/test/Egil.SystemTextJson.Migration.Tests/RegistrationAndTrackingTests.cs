@@ -43,6 +43,31 @@ public class RegistrationAndTrackingTests
     }
 
     [Fact]
+    public void Tracking_is_set_on_a_struct_target()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web).AddJsonMigrationSupport();
+
+        var migrated = JsonSerializer.Deserialize<TrackedStructTarget>("""{"$type":"tracked-struct-source","value":41}""", options);
+        var legacy = JsonSerializer.Deserialize<TrackedStructTarget>("""{"value":42}""", options);
+        var current = JsonSerializer.Deserialize<TrackedStructTarget>("""{"$type":"tracked-struct-target","value":42}""", options);
+
+        Assert.Equal(42, migrated.Value);
+        Assert.True(migrated.MigratedDuringDeserialization);
+        Assert.True(legacy.MigratedDuringDeserialization);
+        Assert.False(current.MigratedDuringDeserialization);
+    }
+
+    [Fact]
+    public void Tracking_is_set_when_only_the_migrated_subclass_implements_tracking()
+    {
+        var options = new JsonSerializerOptions().AddJsonMigrationSupport();
+
+        var result = JsonSerializer.Deserialize<UntrackedBaseTarget>("""{"$type":"tracked-struct-source","Value":41}""", options);
+
+        Assert.True(Assert.IsType<TrackedSubclassTarget>(result).MigratedDuringDeserialization);
+    }
+
+    [Fact]
     public void Static_migrator_takes_precedence_over_external_migrator()
     {
         var options = CreateOptions(static builder => builder.RegisterMigrator<PrecedenceExternalMigrator>());
@@ -827,6 +852,39 @@ public sealed class CallbackLifecycleTarget :
 
     public void OnDeserialized()
         => OnDeserializedCalled = true;
+}
+
+[JsonMigratable(TypeDiscriminator = "tracked-struct-source")]
+public readonly record struct TrackedStructSource(int Value);
+
+[JsonMigratable(TypeDiscriminator = "tracked-struct-target")]
+public struct TrackedStructTarget : IMigrateFrom<TrackedStructSource, TrackedStructTarget>, IJsonMigrationTracked
+{
+    public int Value { get; set; }
+
+    [JsonIgnore]
+    public bool MigratedDuringDeserialization { get; set; }
+
+    public static bool TryMigrateFrom(TrackedStructSource source, out TrackedStructTarget result)
+    {
+        result = new TrackedStructTarget { Value = source.Value + 1 };
+        return true;
+    }
+}
+
+[JsonMigratable]
+public class UntrackedBaseTarget : IMigrateFrom<TrackedStructSource, UntrackedBaseTarget>
+{
+    public static bool TryMigrateFrom(TrackedStructSource source, out UntrackedBaseTarget result)
+    {
+        result = new TrackedSubclassTarget();
+        return true;
+    }
+}
+
+public sealed class TrackedSubclassTarget : UntrackedBaseTarget, IJsonMigrationTracked
+{
+    public bool MigratedDuringDeserialization { get; set; }
 }
 
 [JsonMigratable(TypeDiscriminator = "inherited-contract-source")]

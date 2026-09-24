@@ -36,15 +36,13 @@ internal sealed partial class JsonMigratableConverter<T>(MigratorContext context
         if (inspection is InspectionResult.LegacyPayload)
         {
             T? legacy = DeserializeTarget(ref reader, typeToConvert);
-            SetMigrationTracking(legacy, migratedDuringDeserialization: true);
-            return legacy;
+            return SetMigrationTracking(legacy, migratedDuringDeserialization: true);
         }
 
         if (inspection is InspectionResult.TargetType)
         {
             T? current = DeserializeTarget(ref reader, typeToConvert);
-            SetMigrationTracking(current, migratedDuringDeserialization: false);
-            return current;
+            return SetMigrationTracking(current, migratedDuringDeserialization: false);
         }
 
         Debug.Assert(migrator is not null);
@@ -57,8 +55,7 @@ internal sealed partial class JsonMigratableConverter<T>(MigratorContext context
             if (context.MigrationFailureHandling is JsonMigrationFailureHandling.FallBackToTargetType)
             {
                 T? fallback = DeserializeTarget(ref sourceReader, typeToConvert);
-                SetMigrationTracking(fallback, migratedDuringDeserialization: false);
-                return fallback;
+                return SetMigrationTracking(fallback, migratedDuringDeserialization: false);
             }
 
             if (context.MigrationFailureHandling is JsonMigrationFailureHandling.ReturnNull)
@@ -76,8 +73,7 @@ internal sealed partial class JsonMigratableConverter<T>(MigratorContext context
         }
 
         JsonMigrationMeter.RecordMigration(migrator.SourceTypeName, targetTypeName, success: true);
-        SetMigrationTracking(typedMigrated, migratedDuringDeserialization: true);
-        return typedMigrated;
+        return SetMigrationTracking(typedMigrated, migratedDuringDeserialization: true);
     }
 
     public override void Write(Utf8JsonWriter writer, T value, JsonSerializerOptions options)
@@ -248,13 +244,22 @@ internal sealed partial class JsonMigratableConverter<T>(MigratorContext context
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void SetMigrationTracking(T? value, bool migratedDuringDeserialization)
+    private static T? SetMigrationTracking(T? value, bool migratedDuringDeserialization)
     {
         // The interface keeps tracking opt-in so regular domain models stay free of migration concerns.
         if (value is IJsonMigrationTracked tracked)
         {
             tracked.MigratedDuringDeserialization = migratedDuringDeserialization;
+
+            // A struct matches the pattern as a boxed copy, so the flag was set on that copy;
+            // return it instead of the unchanged original.
+            if (typeof(T).IsValueType)
+            {
+                return (T)tracked;
+            }
         }
+
+        return value;
     }
 
     private enum InspectionResult
