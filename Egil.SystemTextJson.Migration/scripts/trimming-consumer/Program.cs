@@ -3,6 +3,8 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Egil.SystemTextJson.Migration;
 
+// verify-trimming-package.ps1 reads diagnostic markers to assert real source locations.
+// Keep each marker immediately above its call or declaration, with no intervening lines.
 Calls.Setup();
 Calls.Provider();
 Calls.Generated();

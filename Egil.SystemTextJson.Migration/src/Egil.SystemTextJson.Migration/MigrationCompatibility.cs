@@ -2,6 +2,8 @@ namespace Egil.SystemTextJson.Migration;
 
 internal static class MigrationCompatibility
 {
+    internal const string DeferredResolution = "Deferred migration resolution is enabled only through constructors that declare trimming and dynamic-code requirements.";
+
     internal const string Trimming = "Migration discovery requires members that trimming may remove. "
         + "Publish this application with PublishTrimmed=false and PublishAot=false. "
         + "A source-generated JsonSerializerContext does not remove this requirement.";

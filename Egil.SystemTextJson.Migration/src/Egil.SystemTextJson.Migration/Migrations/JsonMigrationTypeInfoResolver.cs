@@ -30,6 +30,8 @@ internal sealed class JsonMigrationTypeInfoResolver : IJsonTypeInfoResolver
     /// a converter registered earlier won over migration and one registered later lost. The resolver
     /// keeps that order by stepping aside for the earlier ones while they remain registered.
     /// </param>
+    [RequiresUnreferencedCode(MigrationCompatibility.Trimming, Url = MigrationCompatibility.Url)]
+    [RequiresDynamicCode(MigrationCompatibility.DynamicCode, Url = MigrationCompatibility.Url)]
     public JsonMigrationTypeInfoResolver(JsonMigrationRegistry registry, IEnumerable<JsonConverter> precedingConverters)
     {
         this.registry = registry;
@@ -41,8 +43,8 @@ internal sealed class JsonMigrationTypeInfoResolver : IJsonTypeInfoResolver
     /// <inheritdoc/>
     // IJsonTypeInfoResolver has no Requires* contract. This deferred callback is reachable only
     // through AddJsonMigrationSupport, whose package-consumer diagnostics cover both requirements.
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Deferred migration resolution is enabled only by the annotated AddJsonMigrationSupport overloads.")]
-    [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Deferred migration resolution is enabled only by the annotated AddJsonMigrationSupport overloads.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = MigrationCompatibility.DeferredResolution)]
+    [UnconditionalSuppressMessage("AOT", "IL3050", Justification = MigrationCompatibility.DeferredResolution)]
     public JsonTypeInfo? GetTypeInfo(Type type, JsonSerializerOptions options)
     {
         ArgumentNullException.ThrowIfNull(type);
