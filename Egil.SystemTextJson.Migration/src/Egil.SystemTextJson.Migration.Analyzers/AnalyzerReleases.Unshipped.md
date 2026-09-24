@@ -13,3 +13,4 @@ STJM0011 | Egil.SystemTextJson.Migration | Warning | Legacy payload type has no 
 STJM0003 | Egil.SystemTextJson.Migration | Warning | Undiscriminated source type has no matching migrator contract.
 STJM0005 | Egil.SystemTextJson.Migration | Warning | JsonMigratable conflicts with System.Text.Json polymorphism in the same hierarchy.
 STJM0001 | Egil.SystemTextJson.Migration | Warning | Duplicate migration source discriminator for the same target.
+STJM0008 | Egil.SystemTextJson.Migration | Warning | Source-generated migratable union needs the migration classifier.
