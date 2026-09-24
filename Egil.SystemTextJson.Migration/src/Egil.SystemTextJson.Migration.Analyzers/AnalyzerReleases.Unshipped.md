@@ -10,3 +10,4 @@ STJM0004 | Egil.SystemTextJson.Migration | Warning | Migratable targets must ser
 STJM0010 | Egil.SystemTextJson.Migration | Warning | Legacy payload type used outside migration
 STJM0011 | Egil.SystemTextJson.Migration | Warning | Legacy payload type has no visible migration source contract.
 STJM0003 | Egil.SystemTextJson.Migration | Warning | Undiscriminated source type has no matching migrator contract.
+STJM0005 | Egil.SystemTextJson.Migration | Warning | JsonMigratable conflicts with System.Text.Json polymorphism in the same hierarchy.

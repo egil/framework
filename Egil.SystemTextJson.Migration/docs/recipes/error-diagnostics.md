@@ -34,6 +34,16 @@ public sealed class ProductV2
 ```
 
 Add a matching target-owned migration or an external migrator contract before configuring the undiscriminated source.
+## STJM0005: `JsonMigratable` conflicts with System.Text.Json polymorphism
+
+`[JsonMigratable]` cannot be used in a type hierarchy that also uses
+`[JsonPolymorphic]` or `[JsonDerivedType]`. System.Text.Json requires polymorphic
+converters to participate in its metadata protocol, which migration converters cannot
+currently support. The analyzer reports the conflict before it fails at runtime.
+
+Use a .NET 11 C# union with migratable case types, migrate outside the polymorphic
+hierarchy, or introduce a stable polymorphic wrapper. See the
+[polymorphism recipe](polymorphism.md) for the limitation and supported designs.
 ## Handling unknown discriminators
 
 When a `$type` discriminator value doesn't match any registered source type or the target type itself, the library throws a `JsonException` with a clear message identifying the unrecognized discriminator:
