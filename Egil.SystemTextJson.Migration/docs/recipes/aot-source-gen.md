@@ -1,5 +1,25 @@
 # AOT & Source Generation
 
+Migration currently requires **untrimmed, non-NativeAOT deployment**, including when using a source-generated `JsonSerializerContext` or generic migrator registration. Configure the application with:
+
+```xml
+<PropertyGroup>
+  <PublishTrimmed>false</PublishTrimmed>
+  <PublishAot>false</PublishAot>
+</PropertyGroup>
+```
+
+## Build and publish diagnostics
+
+Both `AddJsonMigrationSupport` overloads and all migrator registration methods declare `RequiresUnreferencedCode` and `RequiresDynamicCode`. On .NET 11, the `JsonMigratableUnionTypeClassifier` constructor also declares these requirements. Its overrides keep the System.Text.Json base contract unchanged.
+
+- Trim analysis reports **IL2026** at the consumer call: migration discovery requires members trimming may remove; publish with `PublishTrimmed=false` and `PublishAot=false`. A source-generated `JsonSerializerContext` does not remove this requirement.
+- AOT analysis reports **IL3050** at the consumer call: migration creates generic converters and invokers at runtime; publish with `PublishAot=false`. Applicable trimming diagnostics are also reported.
+
+`PublishTrimmed=true` enables trim analysis; it does **not** by itself enable AOT analysis or guarantee IL3050. `PublishAot=true` enables AOT analysis. Analysis can also be requested explicitly through `EnableTrimAnalyzer` and `EnableAotAnalyzer`. Ordinary builds without the relevant analyzers are not guaranteed to report either warning. If analyzers remain explicitly enabled for an untrimmed application, their warnings still describe these API requirements.
+
+The diagnostics include the corrective action and an optional link to this recipe. Do not treat suppressing a warning as establishing compatibility. See [issue #256](https://github.com/egil/framework/issues/256) for the diagnostic contract and the separately scoped AOT-safe registration follow-up.
+
 ## Using with source-generated `JsonSerializerContext`
 
 The library is compatible with System.Text.Json source generation. Register both old (source) and current (target) types in your `JsonSerializerContext`:
@@ -49,4 +69,6 @@ Discovery does. When a converter is created for a `[JsonMigratable]` type — on
 
 ## NativeAOT and trimming
 
-**Publishing with `PublishAot` or `PublishTrimmed` is not supported yet.** Source generation removes STJ's own reflection, but the trimmer also removes the `IMigrateFrom<,>` interface implementations and parameterless constructors that discovery depends on, so static migrators are silently absent and external migrators cannot be activated. A trimmed application deserializes current payloads correctly but fails old payloads with "No migrator was found for discriminator '...'". Trim-safe explicit registration is tracked as a follow-up; until it ships, run migration-enabled applications untrimmed.
+**Publishing with `PublishAot` or `PublishTrimmed` is not supported yet.** JSON source generation supplies serialization metadata; it does not replace migration's interface discovery, assembly scanning, external migrator activation, or runtime generic construction. Even `RegisterMigrator<TSource, TTarget, TMigrator>()` currently enters the reflection-based invoker factory. Trimming can remove required contracts or constructors, and NativeAOT may lack code for runtime generic instantiations. Failures can include missing migrators when reading old payloads even when current payloads appear to work.
+
+The library enables trim and AOT analyzers on both supported target frameworks without declaring `IsTrimmable` or `IsAotCompatible`. Member-preservation annotations and warning-free library analysis do not establish compatibility. A supported NativeAOT path requires separate implementation and published runtime evidence; until then, use the deployment settings above.
