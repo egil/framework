@@ -991,9 +991,39 @@ documented idiom for unconditional clear.
 ### `RegisterTimeProvider` — void by design
 
 Mutable field, non-persisted, excluded from equality. After
-deserialization, grain must re-register. Falls back to
-`TimeProvider.System` if skipped — correct for production, breaks
-fake-clock tests.
+deserialization, grain may re-register. Without an instance clock the
+tracker falls back to the silo-wide clock, then `TimeProvider.System`.
+
+### Silo-wide tracker clock
+
+```csharp
+siloBuilder.ConfigureMessageTracker((options, sp) =>
+    options.TimeProvider = sp.GetRequiredKeyedService<TimeProvider>("pricing"));
+```
+
+Resolution order: instance clock (`RegisterTimeProvider`) → silo-wide clock
+(`MessageTrackerOptions.TimeProvider`, else the silo's registered
+`TimeProvider`) → `TimeProvider.System`. The registered-clock default matches`StreamSubscriptionOptions` and `OutboxProcessorOptions`, but the tracker only it when `ConfigureMessageTracker` registered the installer.
+
+The tracker is a persisted value created by grain code (`new MessageTracker()`),
+the Orleans serializer, and JSON converters. None of those paths has the silo's
+services, and Orleans exposes no public ambient silo or grain context
+(`RuntimeContext.Current` is internal; `IGrainContextAccessor` is DI-only).
+`[SerializationCallbacks]` hooks were considered: they are DI-aware and
+per-silo, but only cover Orleans-serializer paths, not fresh instances or
+System.Text.Json storage, so a fresh activation would still stamp with the
+system clock.
+
+The fallback is therefore an internal static field, and the silo option is the
+only way to set it, so it has one source per silo. A silo lifecycle participant
+at `ServiceLifecycleStage.RuntimeInitialize` installs it before grains activate
+and restores the previous value on stop. `ConfigureMessageTracker` follows the
+same `Action<TOptions>` / `Action<TOptions, IServiceProvider>` shape as
+`ConfigureStreamManager` and `ConfigureOutboxProcessor`: it configures
+`MessageTrackerOptions` through the options pattern, so repeated calls compose
+and the silo still has one installer and one resolved value. The field is process-wide: silos in one process share the clock of
+the last silo to start. The tracker stays usable without the rest of the
+toolbox; without the silo option it behaves as before.
 
 ---
 
@@ -2288,7 +2318,8 @@ generic types. The factory's `CreateConverter` method creates the closed
 
 All four layers prevent accidental serialization of the non-restorable
 reference. `MessageTracker.RegisterTimeProvider()` re-injects it after
-deserialization. `Outbox<T>` deliberately does not use this pattern: its
+deserialization, or the silo-wide clock from `ConfigureMessageTracker`
+covers every tracker. `Outbox<T>` deliberately does not use this pattern: its
 clock input is sampled by the caller for each append.
 
 ### Telemetry
