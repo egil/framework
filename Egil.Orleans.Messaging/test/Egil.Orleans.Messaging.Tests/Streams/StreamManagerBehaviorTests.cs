@@ -77,7 +77,7 @@ public sealed class StreamManagerBehaviorTests(MessagingTestClusterFixture fixtu
         using var spans = new ConsumerSpanCollector(streamNamespace);
         var grain = fixture.GrainFactory.GetGrain<IStreamManagerBehaviorGrain>(Guid.NewGuid());
 
-        await grain.DeliverTracedAsync(streamNamespace, mode, TimeSpan.FromSeconds(30), ProducerTraceParent, lagSeconds);
+        await grain.DeliverTracedAsync(streamNamespace, mode, TimeSpan.FromSeconds(30), ProducerTraceParent, lagSeconds, TraceClock.Subscription);
 
         var span = Assert.Single(spans.Stopped);
         if (expectParent)
@@ -95,6 +95,21 @@ public sealed class StreamManagerBehaviorTests(MessagingTestClusterFixture fixtu
         }
     }
 
+    [Theory]
+    [InlineData(TraceClock.Subscription)]
+    [InlineData(TraceClock.Services)]
+    public async Task Lag_is_measured_with_the_subscription_clock_or_else_the_registered_clock(TraceClock clock)
+    {
+        var streamNamespace = Guid.NewGuid().ToString("N");
+        using var spans = new ConsumerSpanCollector(streamNamespace);
+        var grain = fixture.GrainFactory.GetGrain<IStreamManagerBehaviorGrain>(Guid.NewGuid());
+
+        await grain.DeliverTracedAsync(streamNamespace, StreamTraceMode.ParentWithinLag, TimeSpan.FromSeconds(30), ProducerTraceParent, 29, clock);
+
+        var span = Assert.Single(spans.Stopped);
+        Assert.Equal(ProducerTraceId, span.TraceId.ToString());
+    }
+
     [Fact]
     public async Task Parent_mode_ignores_invalid_producer_traceparent()
     {
@@ -102,7 +117,7 @@ public sealed class StreamManagerBehaviorTests(MessagingTestClusterFixture fixtu
         using var spans = new ConsumerSpanCollector(streamNamespace);
         var grain = fixture.GrainFactory.GetGrain<IStreamManagerBehaviorGrain>(Guid.NewGuid());
 
-        await grain.DeliverTracedAsync(streamNamespace, StreamTraceMode.Parent, TimeSpan.Zero, "invalid-traceparent", 0);
+        await grain.DeliverTracedAsync(streamNamespace, StreamTraceMode.Parent, TimeSpan.Zero, "invalid-traceparent", 0, TraceClock.Subscription);
 
         var span = Assert.Single(spans.Stopped);
         Assert.Empty(span.Links);
@@ -170,7 +185,7 @@ public interface IStreamManagerBehaviorGrain : IGrainWithGuidKey
 {
     Task<(bool Rejected, string[] Delivered)> DuplicateAsync(SubscriptionKind subscriptionKind);
     Task<(string[] Delivered, int Errors, bool OriginalError, string? ErrorNamespace)> DeliverAsync(string streamNamespace, bool callbackThrows, string? traceParent);
-    Task DeliverTracedAsync(string streamNamespace, StreamTraceMode mode, TimeSpan maxParentLag, string traceParent, int? lagSeconds);
+    Task DeliverTracedAsync(string streamNamespace, StreamTraceMode mode, TimeSpan maxParentLag, string traceParent, int? lagSeconds, TraceClock clock);
 }
 
 public sealed class StreamManagerBehaviorGrain : Grain, IStreamManagerBehaviorGrain
@@ -263,9 +278,10 @@ public sealed class StreamManagerBehaviorGrain : Grain, IStreamManagerBehaviorGr
     }
 
     public async Task DeliverTracedAsync(
-        string streamNamespace, StreamTraceMode mode, TimeSpan maxParentLag, string traceParent, int? lagSeconds)
+        string streamNamespace, StreamTraceMode mode, TimeSpan maxParentLag, string traceParent, int? lagSeconds, TraceClock clock)
     {
         var now = new DateTimeOffset(2026, 9, 25, 12, 0, 0, TimeSpan.Zero);
+        var wrongClock = new ManualTimeProvider(now.AddDays(1));
         var traceOptions = mode switch
         {
             StreamTraceMode.Parent => StreamTraceOptions.Parent,
@@ -273,7 +289,11 @@ public sealed class StreamManagerBehaviorGrain : Grain, IStreamManagerBehaviorGr
             _ => StreamTraceOptions.Link,
         };
         var stream = new StreamManagerResumeTests.FakeStream<string>("provider-a", StreamId.Create(streamNamespace, "one"));
-        var manager = StreamManagerResumeTests.CreateManager(null, stream, this);
+        var manager = StreamManagerResumeTests.CreateManager(
+            null,
+            stream,
+            this,
+            defaultTimeProvider: clock == TraceClock.Services ? new ManualTimeProvider(now) : wrongClock);
         manager.ConfigureExplicitSubscription<string>(
             "provider-a",
             streamNamespace,
@@ -281,7 +301,7 @@ public sealed class StreamManagerBehaviorGrain : Grain, IStreamManagerBehaviorGr
             options =>
             {
                 options.Trace = traceOptions;
-                options.TimeProvider = new ManualTimeProvider(now);
+                options.TimeProvider = clock == TraceClock.Subscription ? new ManualTimeProvider(now) : null;
             });
         await manager.EnsureExplicitSubscriptionsAsync();
 
@@ -309,6 +329,12 @@ internal sealed class DiagnosticToken(string? traceParent, DateTimeOffset? enque
         value = "provider-a";
         return true;
     }
+}
+
+public enum TraceClock
+{
+    Subscription,
+    Services
 }
 
 public enum SubscriptionKind

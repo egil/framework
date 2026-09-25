@@ -20,6 +20,7 @@ public sealed class StreamManager : IStreamManagerComponent
     private readonly Func<string, IStreamProvider> getStreamProvider;
     private readonly Func<string, StreamId> getStreamId;
     private readonly Func<StreamSubscriptionOptions> createDefaultOptions;
+    private readonly TimeProvider defaultTimeProvider;
     private readonly ILogger logger;
     private readonly Dictionary<string, IImplicitSubscription> implicitSubscriptions = new(StringComparer.Ordinal);
     private readonly List<IExplicitSubscription> explicitSubscriptions = [];
@@ -32,6 +33,7 @@ public sealed class StreamManager : IStreamManagerComponent
         Func<string, IStreamProvider> getStreamProvider,
         Func<string, StreamId> getStreamId,
         Func<StreamSubscriptionOptions> createDefaultOptions,
+        TimeProvider defaultTimeProvider,
         ILogger logger)
     {
         this.owner = owner;
@@ -39,6 +41,7 @@ public sealed class StreamManager : IStreamManagerComponent
         this.getStreamProvider = getStreamProvider;
         this.getStreamId = getStreamId;
         this.createDefaultOptions = createDefaultOptions;
+        this.defaultTimeProvider = defaultTimeProvider;
         this.logger = logger;
     }
 
@@ -63,7 +66,8 @@ public sealed class StreamManager : IStreamManagerComponent
             services.GetRequiredKeyedService<IStreamProvider>,
             streamNamespace => CreateStreamId(streamNamespace, owner.GrainContext.GrainId),
             logger,
-            optionsFactory is null ? null : () => optionsFactory.Create(Options.DefaultName));
+            optionsFactory is null ? null : () => optionsFactory.Create(Options.DefaultName),
+            services.GetService<TimeProvider>());
 
         manager.AttachToGrain();
         return manager;
@@ -75,7 +79,8 @@ public sealed class StreamManager : IStreamManagerComponent
         Func<string, IStreamProvider> getStreamProvider,
         Func<string, StreamId> getStreamId,
         ILogger logger,
-        Func<StreamSubscriptionOptions>? createDefaultOptions = null)
+        Func<StreamSubscriptionOptions>? createDefaultOptions = null,
+        TimeProvider? defaultTimeProvider = null)
     {
         ArgumentNullException.ThrowIfNull(owner);
         ArgumentNullException.ThrowIfNull(getStreamProvider);
@@ -88,6 +93,7 @@ public sealed class StreamManager : IStreamManagerComponent
             getStreamProvider,
             getStreamId,
             createDefaultOptions ?? (() => new StreamSubscriptionOptions()),
+            defaultTimeProvider ?? TimeProvider.System,
             logger);
     }
 
@@ -360,12 +366,11 @@ public sealed class StreamManager : IStreamManagerComponent
             throw new InvalidOperationException($"{nameof(StreamSubscriptionOptions)}.{nameof(StreamSubscriptionOptions.Trace)} must not be null.");
         }
 
-        if (options.TimeProvider is null)
-        {
-            throw new InvalidOperationException($"{nameof(StreamSubscriptionOptions)}.{nameof(StreamSubscriptionOptions.TimeProvider)} must not be null.");
-        }
-
-        return new SubscriptionSettings(options.OnError, options.UseTrackedResumeToken, options.Trace, options.TimeProvider);
+        return new SubscriptionSettings(
+            options.OnError,
+            options.UseTrackedResumeToken,
+            options.Trace,
+            options.TimeProvider ?? defaultTimeProvider);
     }
 
     private async Task<StreamSubscriptionHandle<TEvent>> ResumeImplicitAsync<TEvent>(

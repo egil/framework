@@ -50,12 +50,14 @@ public sealed class StreamSubscriptionOptions
     /// <summary>
     /// Clock used to measure enqueue lag for
     /// <see cref="StreamTraceOptions.ParentWithinLag(TimeSpan)"/>. Default:
-    /// <see cref="TimeProvider.System"/>.
+    /// <see langword="null"/>, which uses the <see cref="System.TimeProvider"/>
+    /// registered in the silo's services, or <see cref="TimeProvider.System"/>
+    /// when none is registered.
     /// </summary>
     /// <remarks>
-    /// Set a shared domain clock once for the silo with the
-    /// <c>ConfigureStreamManager</c> overload that receives the
+    /// Set a different clock once for the silo, such as a keyed domain clock, with
+    /// the <c>ConfigureStreamManager</c> overload that receives the
     /// <see cref="IServiceProvider"/>.
     /// </remarks>
-    public TimeProvider TimeProvider { get; set; } = TimeProvider.System;
+    public TimeProvider? TimeProvider { get; set; }
 }
