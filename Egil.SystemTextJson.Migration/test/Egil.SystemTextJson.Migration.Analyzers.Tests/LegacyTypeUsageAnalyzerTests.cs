@@ -110,6 +110,34 @@ public sealed class LegacyTypeUsageAnalyzerTests
             """);
     }
 
+    [Theory]
+    [InlineData("IMigrateFrom", "public static")]
+    [InlineData("IMigrate", "public")]
+    public async Task Migration_edge_can_chain_through_a_reachable_legacy_type(string contract, string modifiers)
+    {
+        await VerifyAsync($$"""
+            [Egil.SystemTextJson.Migration.JsonMigrationLegacyType]
+            public class Middle : Egil.SystemTextJson.Migration.IMigrateFrom<Old, Middle>
+            {
+                public static bool TryMigrateFrom(Old source, out Middle target) { target = new(); return true; }
+            }
+            [Egil.SystemTextJson.Migration.JsonMigratable(UndiscriminatedSourceType = typeof(Old))]
+            public class Current : Egil.SystemTextJson.Migration.{{contract}}<Old, Current>, Egil.SystemTextJson.Migration.{{contract}}<Middle, Current>
+            {
+                {{modifiers}} bool TryMigrateFrom(Old source, out Current target)
+                {
+                    if (Middle.TryMigrateFrom(source, out var middle))
+                    {
+                        Middle copy = middle;
+                        return TryMigrateFrom(copy, out target);
+                    }
+                    target = null; return false;
+                }
+                {{modifiers}} bool TryMigrateFrom(Middle source, out Current target) { target = new(); return true; }
+            }
+            """);
+    }
+
     [Fact]
     public async Task Json_metadata_and_required_registration_references_are_allowed()
     {
@@ -129,6 +157,222 @@ public sealed class LegacyTypeUsageAnalyzerTests
                     builder.RegisterMigrator<Current, Current, [|Old|]>();
                     builder.RegisterMigrator<Old, [|Old|], [|Old|]>();
                     _ = typeof([|Old|]);
+                }
+            }
+            """);
+    }
+
+    [Theory]
+    [InlineData("IMigrateFrom", "public static")]
+    [InlineData("IMigrate", "public")]
+    public async Task Migration_edge_can_chain_through_multiple_legacy_hops(string contract, string modifiers)
+    {
+        await VerifyAsync($$"""
+            [Egil.SystemTextJson.Migration.JsonMigrationLegacyType]
+            public class Middle : Egil.SystemTextJson.Migration.IMigrateFrom<Old, Middle>
+            {
+                public static bool TryMigrateFrom(Old source, out Middle target) { target = new(); return true; }
+            }
+            [Egil.SystemTextJson.Migration.JsonMigrationLegacyType]
+            public class Last : Egil.SystemTextJson.Migration.IMigrateFrom<Middle, Last>
+            {
+                public static bool TryMigrateFrom(Middle source, out Last target) { target = new(); return true; }
+            }
+            public class Current : Egil.SystemTextJson.Migration.{{contract}}<Old, Current>, Egil.SystemTextJson.Migration.{{contract}}<Last, Current>
+            {
+                {{modifiers}} bool TryMigrateFrom(Old source, out Current target)
+                {
+                    if (Middle.TryMigrateFrom(source, out var middle) && Last.TryMigrateFrom(middle, out var last))
+                    {
+                        return TryMigrateFrom(last, out target);
+                    }
+                    target = null; return false;
+                }
+                {{modifiers}} bool TryMigrateFrom(Last source, out Current target) { target = new(); return true; }
+            }
+            """);
+    }
+
+    [Fact]
+    public async Task Reachable_intermediate_types_still_warn_in_unrelated_members_and_nested_helpers()
+    {
+        await VerifyAsync("""
+            [Egil.SystemTextJson.Migration.JsonMigrationLegacyType]
+            public class Middle : Egil.SystemTextJson.Migration.IMigrateFrom<Old, Middle>
+            {
+                public static bool TryMigrateFrom(Old source, out Middle target) { target = new(); return true; }
+            }
+            public class Current : Egil.SystemTextJson.Migration.IMigrateFrom<Old, Current>
+            {
+                public [|Middle|] Field;
+                public [|Middle|] Value { get; set; }
+                public Current([|Middle|] value) { }
+                public static void Helper([|Middle|] value) { }
+                public static bool TryMigrateFrom(int source, out Current target) { _ = new [|Middle|](); target = null; return false; }
+                public static bool TryMigrateFrom(Old source, out Current target)
+                {
+                    _ = new Middle();
+                    static void Local() { _ = new [|Middle|](); }
+                    System.Action action = () => { _ = new [|Middle|](); };
+                    target = null; return false;
+                }
+            }
+            """);
+    }
+
+    [Theory]
+    [InlineData("Old", "Last")]
+    [InlineData("Other", "[|Last|]")]
+    public async Task Cyclic_paths_only_allow_intermediates_when_the_edge_source_is_reachable(string source, string use)
+    {
+        await VerifyAsync($$"""
+            public class Other { }
+            [Egil.SystemTextJson.Migration.JsonMigrationLegacyType]
+            public class Middle : Egil.SystemTextJson.Migration.IMigrateFrom<Last, Middle>, Egil.SystemTextJson.Migration.IMigrateFrom<{{source}}, Middle>
+            {
+                public static bool TryMigrateFrom(Last source, out Middle target) { target = new(); return true; }
+                public static bool TryMigrateFrom({{source}} source, out Middle target) { target = new(); return true; }
+            }
+            [Egil.SystemTextJson.Migration.JsonMigrationLegacyType]
+            public class Last : Egil.SystemTextJson.Migration.IMigrateFrom<Middle, Last>
+            {
+                public static bool TryMigrateFrom(Middle source, out Last target) { target = new(); return true; }
+            }
+            public class Current : Egil.SystemTextJson.Migration.IMigrate<Old, Current>
+            {
+                bool Egil.SystemTextJson.Migration.IMigrate<Old, Current>.TryMigrateFrom(Old source, out Current target)
+                {
+                    _ = new {{use}}(); target = new(); return true;
+                }
+            }
+            """);
+    }
+
+    [Fact]
+    public async Task Reachability_preserves_constructed_generic_source_and_target_identity()
+    {
+        await VerifyAsync("""
+            [Egil.SystemTextJson.Migration.JsonMigrationLegacyType]
+            public class Version<T> { }
+            [Egil.SystemTextJson.Migration.JsonMigrationLegacyType]
+            public class Middle<T> : Egil.SystemTextJson.Migration.IMigrateFrom<Version<T>, Middle<T>>
+            {
+                public static bool TryMigrateFrom(Version<T> source, out Middle<T> target) { target = new(); return true; }
+            }
+            [Egil.SystemTextJson.Migration.JsonMigrationLegacyType]
+            public class WrongTarget<T> : Egil.SystemTextJson.Migration.IMigrateFrom<Version<T>, Middle<T>>
+            {
+                public static bool TryMigrateFrom(Version<T> source, out Middle<T> target) { target = new(); return true; }
+            }
+            public class Current : Egil.SystemTextJson.Migration.IMigrateFrom<Version<int>, Current>
+            {
+                public static bool TryMigrateFrom(Version<int> source, out Current target)
+                {
+                    _ = new Middle<int>();
+                    _ = new [|Middle<string>|]();
+                    _ = new [|WrongTarget<int>|]();
+                    target = new(); return true;
+                }
+            }
+            """);
+    }
+
+    [Fact]
+    public async Task An_array_source_reaches_array_migrators_but_not_element_migrators()
+    {
+        await VerifyAsync("""
+            [Egil.SystemTextJson.Migration.JsonMigrationLegacyType]
+            public class Batch : Egil.SystemTextJson.Migration.IMigrateFrom<Old[], Batch>
+            {
+                public static bool TryMigrateFrom(Old[] source, out Batch target) { target = new(); return true; }
+            }
+            [Egil.SystemTextJson.Migration.JsonMigrationLegacyType]
+            public class Single : Egil.SystemTextJson.Migration.IMigrateFrom<Old, Single>
+            {
+                public static bool TryMigrateFrom(Old source, out Single target) { target = new(); return true; }
+            }
+            public class Current : Egil.SystemTextJson.Migration.IMigrateFrom<Old[], Current>
+            {
+                public static bool TryMigrateFrom(Old[] source, out Current target)
+                {
+                    Batch.TryMigrateFrom(source, out var batch);
+                    _ = new [|Single|](); target = new(); return true;
+                }
+            }
+            """);
+    }
+
+    [Fact]
+    public async Task Unmarked_hops_and_foreign_migration_contracts_do_not_grant_reachability()
+    {
+        await VerifyAsync("""
+            public class Unmarked : Egil.SystemTextJson.Migration.IMigrateFrom<Old, Unmarked>
+            {
+                public static bool TryMigrateFrom(Old source, out Unmarked target) { target = new(); return true; }
+            }
+            [Egil.SystemTextJson.Migration.JsonMigrationLegacyType]
+            public class Last : Egil.SystemTextJson.Migration.IMigrateFrom<Unmarked, Last>
+            {
+                public static bool TryMigrateFrom(Unmarked source, out Last target) { target = new(); return true; }
+            }
+            public interface IMigrateFrom<TSource, TTarget> { }
+            [Egil.SystemTextJson.Migration.JsonMigrationLegacyType]
+            public class Foreign : IMigrateFrom<[|Old|], [|Foreign|]> { }
+            public class Current : Egil.SystemTextJson.Migration.IMigrateFrom<Old, Current>
+            {
+                public static bool TryMigrateFrom(Old source, out Current target)
+                {
+                    _ = new [|Last|](); _ = new [|Foreign|](); target = new(); return true;
+                }
+            }
+            """);
+    }
+
+    [Fact(Timeout = 10000)]
+    public async Task Expanding_generic_paths_warn_when_the_source_cannot_be_reached()
+    {
+        await VerifyAsync("""
+            [Egil.SystemTextJson.Migration.JsonMigrationLegacyType]
+            public class Loop<T> : Egil.SystemTextJson.Migration.IMigrateFrom<Loop<System.Collections.Generic.List<T>>, Loop<T>>
+            {
+                public static bool TryMigrateFrom(Loop<System.Collections.Generic.List<T>> source, out Loop<T> target) { target = new(); return true; }
+            }
+            public class Current : Egil.SystemTextJson.Migration.IMigrateFrom<Old, Current>
+            {
+                public static bool TryMigrateFrom(Old source, out Current target)
+                {
+                    _ = new [|Loop<int>|](); target = new(); return true;
+                }
+            }
+            """);
+    }
+
+    [Fact]
+    public async Task Finite_paths_can_repeat_generic_definitions_with_different_arguments()
+    {
+        await VerifyAsync("""
+            [Egil.SystemTextJson.Migration.JsonMigrationLegacyType]
+            public class Box<T> : Egil.SystemTextJson.Migration.IMigrateFrom<T, Box<T>>
+            {
+                public static bool TryMigrateFrom(T source, out Box<T> target) { target = new(); return true; }
+            }
+            [Egil.SystemTextJson.Migration.JsonMigrationLegacyType]
+            public class Loop<T> : Egil.SystemTextJson.Migration.IMigrateFrom<Loop<System.Collections.Generic.List<T>>, Loop<T>>,
+                Egil.SystemTextJson.Migration.IMigrateFrom<T, Loop<T>>
+            {
+                public static bool TryMigrateFrom(Loop<System.Collections.Generic.List<T>> source, out Loop<T> target) { target = new(); return true; }
+                public static bool TryMigrateFrom(T source, out Loop<T> target) { target = new(); return true; }
+            }
+            public class Current : Egil.SystemTextJson.Migration.IMigrateFrom<Old, Current>,
+                Egil.SystemTextJson.Migration.IMigrateFrom<System.Collections.Generic.List<System.Collections.Generic.List<int>>, Current>
+            {
+                public static bool TryMigrateFrom(Old source, out Current target)
+                {
+                    _ = new Box<Box<Box<Old>>>(); target = new(); return true;
+                }
+                public static bool TryMigrateFrom(System.Collections.Generic.List<System.Collections.Generic.List<int>> source, out Current target)
+                {
+                    _ = new Loop<int>(); target = new(); return true;
                 }
             }
             """);

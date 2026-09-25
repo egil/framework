@@ -12,7 +12,7 @@ public sealed class LegacyTypeUsageAnalyzer : DiagnosticAnalyzer
 {
     private static readonly DiagnosticDescriptor Rule = DiagnosticDescriptorFactory.Create(
         "STJM0010", "Legacy payload type used outside migration",
-        "Legacy payload type '{0}' should only be used in its declaration, direct migration implementation, or JSON migration setup",
+        "Legacy payload type '{0}' should only be used in its declaration, an applicable migration implementation, or JSON migration setup",
         DiagnosticSeverity.Warning);
 
     /// <inheritdoc />
@@ -50,7 +50,7 @@ public sealed class LegacyTypeUsageAnalyzer : DiagnosticAnalyzer
         var legacy = symbol is ITypeSymbol && node is not IdentifierNameSyntax { IsVar: true }
             ? (type is INamedTypeSymbol named && IsMarked(named, marker) ? named : null)
             : FindLegacy(type, marker);
-        if (legacy is null || IsDuplicateReference(context, node, legacy, marker) || IsAllowed(context, node, legacy, symbols))
+        if (legacy is null || IsDuplicateReference(context, node, legacy, marker) || IsAllowed(context, node, legacy, marker, symbols))
         {
             return;
         }
@@ -113,7 +113,7 @@ public sealed class LegacyTypeUsageAnalyzer : DiagnosticAnalyzer
         return named.TypeArguments.Select(argument => FindLegacy(argument, marker)).FirstOrDefault(result => result is not null);
     }
 
-    private static bool IsAllowed(SyntaxNodeAnalysisContext context, SyntaxNode node, INamedTypeSymbol legacy, MigrationSymbols symbols)
+    private static bool IsAllowed(SyntaxNodeAnalysisContext context, SyntaxNode node, INamedTypeSymbol legacy, INamedTypeSymbol marker, MigrationSymbols symbols)
     {
         var enclosing = context.SemanticModel.GetEnclosingSymbol(node.SpanStart, context.CancellationToken);
         for (var owner = enclosing; owner is not null; owner = owner.ContainingSymbol)
@@ -134,13 +134,10 @@ public sealed class LegacyTypeUsageAnalyzer : DiagnosticAnalyzer
         {
             foreach (var contract in method.ContainingType.AllInterfaces.Where(contract => IsMigrationContract(contract, symbols)))
             {
-                if (!contract.TypeArguments.Any(argument => ContainsType(argument, legacy)))
-                {
-                    continue;
-                }
-
                 if (contract.GetMembers().Any(member => SymbolEqualityComparer.Default.Equals(
-                    method.ContainingType.FindImplementationForInterfaceMember(member), method)))
+                    method.ContainingType.FindImplementationForInterfaceMember(member), method))
+                    && (contract.TypeArguments.Any(argument => ContainsType(argument, legacy))
+                        || IsReachableFrom(legacy, contract.TypeArguments[0], marker, symbols, context.CancellationToken)))
                 {
                     return true;
                 }
@@ -181,6 +178,56 @@ public sealed class LegacyTypeUsageAnalyzer : DiagnosticAnalyzer
                 context.Compilation.GetTypeByMetadataName("Egil.SystemTextJson.Migration.JsonMigrationBuilder")))
         {
             return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsReachableFrom(INamedTypeSymbol legacy, ITypeSymbol source, INamedTypeSymbol marker,
+        MigrationSymbols symbols, CancellationToken cancellationToken)
+    {
+        // Walk incoming self-targeted edges: a type implementing a migration to some
+        // other target does not make that type reachable. Keep constructed generic identity.
+        var pending = new Queue<INamedTypeSymbol>();
+        var visited = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
+        // Loop<T> <- Loop<List<T>> produces distinct symbols forever. Bound generic
+        // expansion so malformed or pathological chains cannot stall the compiler;
+        // breadth-first search still explores other paths before spending this budget.
+        var remainingGenericExpansions = 128;
+        pending.Enqueue(legacy);
+        while (pending.Count > 0)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var target = pending.Dequeue();
+            if (!visited.Add(target))
+            {
+                continue;
+            }
+
+            if (target.IsGenericType && remainingGenericExpansions-- <= 0)
+            {
+                continue;
+            }
+
+            foreach (var contract in target.AllInterfaces)
+            {
+                if (!SymbolEqualityComparer.Default.Equals(contract.OriginalDefinition, symbols.MigrateFrom)
+                    || !SymbolEqualityComparer.Default.Equals(contract.TypeArguments[1], target))
+                {
+                    continue;
+                }
+
+                var predecessor = contract.TypeArguments[0];
+                if (SymbolEqualityComparer.Default.Equals(predecessor, source))
+                {
+                    return true;
+                }
+
+                if (predecessor is INamedTypeSymbol named && IsMarked(named, marker))
+                {
+                    pending.Enqueue(named);
+                }
+            }
         }
 
         return false;
