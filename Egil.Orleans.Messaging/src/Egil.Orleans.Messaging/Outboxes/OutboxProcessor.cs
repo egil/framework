@@ -68,7 +68,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         this.logger = logger;
         grainType = owner.GetType().Name;
         reminderName = ReminderPrefix + typeof(TOutbox).FullName;
-        dispatcher = new OutboxDispatcher<OutboxMessageEnvelope<TOutbox>>(postmen, logger, grainType, options.TimeProvider,
+        dispatcher = new OutboxDispatcher<OutboxMessageEnvelope<TOutbox>>(postmen, logger, grainType, options.TimeProvider ?? TimeProvider.System,
             static item => item.Message is { } message ? message.GetType() : typeof(TOutbox),
             static item => item.Id.TraceParent);
         acknowledger = new OutboxAcknowledger<OutboxMessageEnvelope<TOutbox>>(

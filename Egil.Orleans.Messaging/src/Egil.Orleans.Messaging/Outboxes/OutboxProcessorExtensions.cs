@@ -74,8 +74,8 @@ public static class OutboxProcessorExtensions
         /// calls.
         /// </returns>
         /// <exception cref="ArgumentException">
-        /// The configured options set no acknowledgement callback, a non-positive
-        /// timeout or retry delay, or a null clock.
+        /// The configured options set no acknowledgement callback, or a non-positive
+        /// timeout or retry delay.
         /// </exception>
         /// <exception cref="InvalidOperationException">
         /// An outbox processor is already registered for the current grain

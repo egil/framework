@@ -1974,8 +1974,9 @@ public class OutboxProcessorOptions
     public TimeSpan ProcessingTimeout { get; set; } = TimeSpan.FromSeconds(20);
 
     /// Clock used only to enforce ProcessingTimeout. Orleans owns the grain
-    /// timers and reminders used for RetryDelay.
-    public TimeProvider TimeProvider { get; set; } = TimeProvider.System;
+    /// timers and reminders used for RetryDelay. Null uses the TimeProvider
+    /// registered in the silo's services, else TimeProvider.System.
+    public TimeProvider? TimeProvider { get; set; }
 
     /// Timer + reminder period. Orleans reminders fire at most once/minute.
     public TimeSpan RetryDelay { get; set; } = TimeSpan.FromMinutes(2);

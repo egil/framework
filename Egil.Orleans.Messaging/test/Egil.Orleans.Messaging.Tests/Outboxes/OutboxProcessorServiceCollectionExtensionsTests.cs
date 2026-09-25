@@ -81,6 +81,34 @@ public sealed class OutboxProcessorServiceCollectionExtensionsTests
     }
 
     [Fact]
+    public void Clock_defaults_to_the_registered_time_provider()
+    {
+        var registered = new ManualTimeProvider();
+        var builder = new FakeSiloBuilder();
+        builder.Services.AddSingleton<TimeProvider>(registered);
+
+        var options = Resolve(builder, static options => options.AcknowledgePosted = static _ => { });
+
+        Assert.Same(registered, options.TimeProvider);
+    }
+
+    [Fact]
+    public void Configured_clock_takes_precedence_over_the_registered_time_provider()
+    {
+        var configured = new ManualTimeProvider();
+        var builder = new FakeSiloBuilder();
+        builder.Services.AddSingleton<TimeProvider>(new ManualTimeProvider());
+
+        var options = Resolve(builder, options =>
+        {
+            options.AcknowledgePosted = static _ => { };
+            options.TimeProvider = configured;
+        });
+
+        Assert.Same(configured, options.TimeProvider);
+    }
+
+    [Fact]
     public void Library_defaults_apply_without_options_services()
     {
         var options = OutboxProcessorOptions<string>.Resolve(

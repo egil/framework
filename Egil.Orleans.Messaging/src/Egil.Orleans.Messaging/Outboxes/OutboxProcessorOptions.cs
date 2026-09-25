@@ -32,7 +32,9 @@ public class OutboxProcessorOptions
 
     /// <summary>
     /// Clock used to enforce <see cref="ProcessingTimeout"/>. Default:
-    /// <see cref="TimeProvider.System"/>.
+    /// <see langword="null"/>, which uses the <see cref="System.TimeProvider"/>
+    /// registered in the silo's services, or <see cref="TimeProvider.System"/>
+    /// when none is registered.
     /// </summary>
     /// <remarks>
     /// This provider controls only the processing timeout. Orleans owns the
@@ -41,7 +43,7 @@ public class OutboxProcessorOptions
     /// <c>ConfigureOutboxProcessor</c> overload that receives the
     /// <see cref="IServiceProvider"/>.
     /// </remarks>
-    public TimeProvider TimeProvider { get; set; } = TimeProvider.System;
+    public TimeProvider? TimeProvider { get; set; }
 
     /// <summary>
     /// Delay before retrying remaining pending items. Cross-activation retry
@@ -183,6 +185,7 @@ public sealed class OutboxProcessorOptions<TOutbox> : OutboxProcessorOptions
         configure(options);
 
         var snapshot = options.Snapshot();
+        snapshot.TimeProvider ??= services.GetService<TimeProvider>() ?? TimeProvider.System;
         snapshot.Validate(paramName);
         return snapshot;
     }
@@ -201,10 +204,6 @@ public sealed class OutboxProcessorOptions<TOutbox> : OutboxProcessorOptions
 
     internal void Validate(string paramName)
     {
-        if (TimeProvider is null)
-        {
-            throw new ArgumentException("TimeProvider must not be null.", paramName);
-        }
 
         if (AcknowledgePosted is null && AcknowledgePostedAsync is null)
         {
