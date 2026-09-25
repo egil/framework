@@ -192,7 +192,11 @@ Apply `[JsonMigrationLegacyType]` to a class, struct, or enum kept only to read 
 
 The marker has no runtime effect. It neither enables migration nor registers a migrator, and it is not inherited by derived types. Keep `[JsonMigratable]` and existing registration where they are needed.
 
-STJM0010 warns when a marked type is named or inferred outside its own declaration or the method implementing its direct `IMigrateFrom<TSource, TTarget>` / `IMigrate<TSource, TTarget>` edge. This includes object creation, `var`, ordinary fields, properties, constructors and APIs on the replacement type, and unrelated helper methods. Tests follow the same rule. A migration from V2 to V3 does not allow unrelated V1 usage merely because V1 can migrate to V2.
+STJM0010 allows a marked type in its own declaration and in methods implementing an `IMigrateFrom<TSource, TTarget>` / `IMigrate<TSource, TTarget>` edge that mentions it. Inside those migration methods, it also allows intermediate legacy types reachable from `TSource`: the intermediate type must implement `IMigrateFrom<TSource, TIntermediate>`, directly or through further marked legacy hops. The method may call the intermediate migration, hold its result, and pass it into another migration edge. Reachability follows the migration direction and matches the constructed types, including generic arguments. A migration from V2 to V3 does not allow unrelated V1 usage merely because V1 can migrate to V2.
+
+Other named or inferred uses still warn, including object creation, `var`, ordinary fields, properties, constructors and APIs on the replacement type, and unrelated helper methods. Local functions and lambdas inside migration methods are not exempt. Tests follow the same rule.
+
+To keep recursive generic contracts from stalling compilation, reachability searches inspect at most 128 distinct generic type constructions. If that budget is exhausted before a path is found, STJM0010 remains. Non-generic migration chains have no such limit.
 
 Required setup remains allowed: the direct migration interface declaration, the first (`TSource`) type argument of `RegisterMigrator<TSource, TTarget, TMigrator>` on `JsonMigrationBuilder`, `[JsonSerializable(typeof(LegacyType))]`, and `[JsonMigratable(UndiscriminatedSourceType = typeof(LegacyType))]`. Exemptions use the actual STJM and System.Text.Json symbols; unrelated APIs with matching names do not qualify.
 
@@ -201,6 +205,7 @@ Required setup remains allowed: the direct migration interface declaration, the 
 [JsonMigratable(TypeDiscriminator = "user-v1")]
 public record UserV1(string Name);
 
+[JsonMigrationLegacyType]
 [JsonMigratable(TypeDiscriminator = "user-v2")]
 public record UserV2(string Name) : IMigrateFrom<UserV1, UserV2>
 {
@@ -210,9 +215,30 @@ public record UserV2(string Name) : IMigrateFrom<UserV1, UserV2>
         return true;
     }
 }
+
+[JsonMigratable(UndiscriminatedSourceType = typeof(UserV1))]
+public record User(string Name) : IMigrateFrom<UserV1, User>, IMigrateFrom<UserV2, User>
+{
+    public static bool TryMigrateFrom(UserV1 source, out User result)
+    {
+        if (UserV2.TryMigrateFrom(source, out var v2))
+        {
+            return TryMigrateFrom(v2, out result);
+        }
+
+        result = null!;
+        return false;
+    }
+
+    public static bool TryMigrateFrom(UserV2 source, out User result)
+    {
+        result = new User(source.Name);
+        return true;
+    }
+}
 ```
 
-Deserialize application payloads as the current type and keep legacy access within the direct migration implementation. When an intentional exception is necessary, use the standard C# diagnostic suppression mechanisms at the narrowest useful scope.
+Here the required direct `UserV1 -> User` edge reuses `UserV1 -> UserV2 -> User` without suppression or duplicate migration logic. The same rule supports longer chains of legacy types. Deserialize application payloads as the current type and keep legacy access within migration implementations. When an intentional exception is necessary, use the standard C# diagnostic suppression mechanisms at the narrowest useful scope.
 
 `JsonMigrationLegacyTypeAttribute.MigratedExternally` defaults to `false`. It indicates a migration supplied outside the current compilation and does not suppress STJM0010.
 
