@@ -1,4 +1,5 @@
 using Azure;
+using Orleans.Storage;
 using Azure.Data.Tables.Models;
 using Azure.Storage.Blobs.Models;
 
@@ -439,10 +440,38 @@ public sealed class AzureStorageStateManagerTests
         Assert.Equal(new TestState("default"), manager.State);
     }
 
+    [Fact]
+    public async Task Write_after_conflict_succeeds_with_the_refreshed_etag()
+    {
+        var persisted = new TestState("persisted");
+        var storage = new FakePersistentState(new TestState("initial"))
+        {
+            ExpectedWriteEtag = "etag-2",
+            OnRead = state =>
+            {
+                state.State = persisted;
+                state.Etag = "etag-2";
+            }
+        };
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
+
+        await Assert.ThrowsAsync<InconsistentStateException>(
+            () => manager.WriteAsync(new TestState("rejected"), TestContext.Current.CancellationToken));
+        Assert.Same(persisted, manager.State);
+
+        var next = new TestState("next");
+        await manager.WriteAsync(next, TestContext.Current.CancellationToken);
+
+        Assert.Same(next, manager.State);
+        Assert.Same(next, storage.State);
+        Assert.Equal(1, storage.ReadCount);
+    }
     private sealed record TestState(string Value);
 
     private sealed class FakePersistentState(TestState state) : IPersistentState<TestState>
     {
+        public string? ExpectedWriteEtag { get; init; }
+
         public Exception? WriteException { get; set; }
 
         public Exception? ClearException { get; set; }
@@ -466,6 +495,11 @@ public sealed class AzureStorageStateManagerTests
 
         public Task WriteStateAsync()
         {
+            if (ExpectedWriteEtag is not null && Etag != ExpectedWriteEtag)
+            {
+                throw new InconsistentStateException("The write ETag is stale.");
+            }
+
             if (WriteException is not null)
             {
                 throw WriteException;
