@@ -906,6 +906,121 @@ public sealed class StateManagerTests
         protected override StorageFailureKind ClassifyClearFailure(Exception exception) => StorageFailureKind.Conflict;
     }
 
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Wrapped_write_conflict_refreshes_state_and_rethrows_even_when_values_match(bool aggregate)
+    {
+        var attempted = new TestState("next");
+        var exception = CreateWrappedConflict(aggregate);
+        var storage = new FakePersistentState(new TestState("initial"))
+        {
+            WriteException = exception,
+            OnRead = state =>
+            {
+                state.State = attempted;
+                state.Etag = "etag-2";
+            }
+        };
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+
+        var actual = await Record.ExceptionAsync(
+            () => manager.WriteAsync(attempted, TestContext.Current.CancellationToken));
+
+        Assert.Equal("etag-2", storage.Etag);
+        Assert.Same(attempted, manager.State);
+        Assert.Same(exception, actual);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Wrapped_clear_conflict_refreshes_state_and_rethrows_even_when_record_is_absent(bool aggregate)
+    {
+        var exception = CreateWrappedConflict(aggregate);
+        var storage = new FakePersistentState(new TestState("initial"))
+        {
+            ClearException = exception,
+            OnRead = state =>
+            {
+                state.State = null!;
+                state.RecordExists = false;
+                state.Etag = "etag-2";
+            }
+        };
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+
+        var actual = await Record.ExceptionAsync(() => manager.ClearAsync(TestContext.Current.CancellationToken));
+
+        Assert.Equal("etag-2", storage.Etag);
+        Assert.Equal(new TestState("default"), manager.State);
+        Assert.Same(exception, actual);
+    }
+
+    [Theory]
+    [InlineData("conflict-first")]
+    [InlineData("timeout-first")]
+    [InlineData("empty")]
+    public async Task Uncertain_write_failures_still_recover_when_read_back_proves_persistence(string failureShape)
+    {
+        var attempted = new TestState("next");
+        var storage = new FakePersistentState(new TestState("initial"))
+        {
+            WriteException = CreateUncertainFailure(failureShape),
+            OnRead = state => state.State = attempted
+        };
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+
+        await manager.WriteAsync(attempted, TestContext.Current.CancellationToken);
+
+        Assert.Same(attempted, manager.State);
+    }
+
+    [Theory]
+    [InlineData("conflict-first")]
+    [InlineData("timeout-first")]
+    [InlineData("empty")]
+    public async Task Uncertain_clear_failures_still_recover_when_read_back_finds_no_record(string failureShape)
+    {
+        var storage = new FakePersistentState(new TestState("initial"))
+        {
+            ClearException = CreateUncertainFailure(failureShape),
+            OnRead = state =>
+            {
+                state.State = null!;
+                state.RecordExists = false;
+            }
+        };
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+
+        await manager.ClearAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(new TestState("default"), manager.State);
+        Assert.False(storage.RecordExists);
+    }
+
+    private static Exception CreateWrappedConflict(bool aggregate)
+    {
+        var conflict = new InvalidOperationException("provider wrapper", new InconsistentStateException("stale ETag"));
+        return aggregate
+            ? new InvalidOperationException("retry wrapper", new AggregateException(conflict, new AggregateException(conflict)))
+            : new InvalidOperationException("outer wrapper", conflict);
+    }
+
+    private static Exception CreateUncertainFailure(string failureShape)
+    {
+        var conflict = CreateWrappedConflict(aggregate: false);
+        var timeout = new TimeoutException("An earlier attempt may have persisted.");
+        return failureShape switch
+        {
+            "conflict-first" => new AggregateException(conflict, timeout),
+            "timeout-first" => new AggregateException(timeout, conflict),
+            "empty" => new AggregateException(),
+            _ => throw new ArgumentException("Unknown failure shape.", nameof(failureShape))
+        };
+    }
+
     private sealed class FakePersistentState : IPersistentState<TestState>
     {
         public FakePersistentState(TestState? state)
