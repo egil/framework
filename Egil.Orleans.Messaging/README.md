@@ -71,13 +71,15 @@ siloBuilder.AddAzureStorageStateManager("state");
 ```
 
 The Azure-aware manager uses Azure SDK `RequestFailedException.Status` and
-`ErrorCode` values to decide recovery. Optimistic-concurrency and rejected
-request failures such as HTTP 412, 409, 404, authentication/authorization
-failures, and payload/validation failures are treated as definite
-non-persistence, so writes and clears fail fast without an unnecessary
-recovery read. Ambiguous or transient outcomes, including HTTP 503
-`ServerBusy`, HTTP 500 `OperationTimedOut`, HTTP 429 throttling, no-response
-failures, and timeout exceptions, still use read-back recovery.
+`ErrorCode` values to decide recovery. ETag and record-existence conflicts
+(including HTTP 412, 409 and 404 unless a specific rejection code applies)
+re-read storage to refresh the local state and ETag, then always rethrow.
+Authentication/authorization failures, payload/validation failures, missing
+containers/tables and non-ETag precondition failures skip recovery reads and
+rethrow. Ambiguous or transient outcomes, including HTTP 503 `ServerBusy`,
+HTTP 500 `OperationTimedOut`, HTTP 429 throttling, no-response failures and
+timeout exceptions, still use read-back recovery to determine whether the
+operation persisted.
 
 Register the manager in the grain constructor and keep it in a readonly field. The
 facet already carries its names, so the manager does not ask for them again:

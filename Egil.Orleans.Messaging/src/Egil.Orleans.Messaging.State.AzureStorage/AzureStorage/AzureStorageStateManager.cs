@@ -109,6 +109,13 @@ internal static class AzureStorageFailureClassifier
             return StorageFailureKind.UnknownOutcome;
         }
 
+        // Specific rejection codes distinguish missing infrastructure and non-ETag
+        // preconditions from concurrency conflicts sharing the same HTTP status.
+        if (IsRejectedErrorCode(exception.ErrorCode))
+        {
+            return StorageFailureKind.DidNotPersist;
+        }
+
         if (IsConflict(exception))
         {
             return StorageFailureKind.Conflict;

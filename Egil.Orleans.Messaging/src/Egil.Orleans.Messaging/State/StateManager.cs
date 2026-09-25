@@ -43,16 +43,26 @@ namespace Egil.Orleans.Messaging.State;
 ///   <description><c>State == newState</c>, returns normally.</description>
 /// </item>
 /// <item>
-///   <term>Write throws, re-read succeeds, state matches</term>
-///   <description>Lost-response — write landed. Exception swallowed.</description>
+///   <term>UnknownOutcome, re-read succeeds, state matches</term>
+///   <description>Lost-response — write landed. Exception swallowed unless it is an InconsistentStateException.</description>
 /// </item>
 /// <item>
-///   <term>Write throws, re-read succeeds, state does not match</term>
+///   <term>UnknownOutcome, re-read succeeds, state does not match</term>
 ///   <description>Write genuinely failed. Persisted state adopted and original
 ///   exception rethrown.</description>
 /// </item>
 /// <item>
-///   <term>Write throws, re-read also throws</term>
+///   <term>Conflict, re-read succeeds</term>
+///   <description>Persisted state and refreshed ETag adopted. Original exception
+///   always rethrown, even when the state matches the attempted write.</description>
+/// </item>
+/// <item>
+///   <term>DidNotPersist</term>
+///   <description>No recovery read. State reverts to the last stored snapshot and
+///   the original exception is rethrown.</description>
+/// </item>
+/// <item>
+///   <term>UnknownOutcome or Conflict, re-read also throws</term>
 ///   <description>Double failure. <c>State</c> reverts to the last stored snapshot.
 ///   Original exception rethrown. Caller must call <see cref="ReadAsync"/>
 ///   before the next write to re-sync.</description>
