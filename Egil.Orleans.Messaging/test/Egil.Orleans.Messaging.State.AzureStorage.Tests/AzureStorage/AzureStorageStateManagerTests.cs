@@ -364,6 +364,81 @@ public sealed class AzureStorageStateManagerTests
         Assert.Same(attempted, manager.State);
     }
 
+    [Theory]
+    [InlineData(404, "ContainerNotFound")]
+    [InlineData(404, "TableNotFound")]
+    [InlineData(412, "AppendPositionConditionNotMet")]
+    [InlineData(412, "MaxBlobSizeConditionNotMet")]
+    [InlineData(412, "SequenceNumberConditionNotMet")]
+    [InlineData(412, "SourceConditionNotMet")]
+    [InlineData(412, "TargetConditionNotMet")]
+    public async Task Write_rejected_without_an_etag_conflict_restores_state_without_reading(int status, string errorCode)
+    {
+        var initial = new TestState("initial");
+        var exception = new RequestFailedException(status, "Rejected.", errorCode, innerException: null);
+        var storage = new FakePersistentState(initial) { WriteException = exception };
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
+
+        var actual = await Assert.ThrowsAsync<RequestFailedException>(
+            () => manager.WriteAsync(new TestState("next"), TestContext.Current.CancellationToken));
+
+        Assert.Same(exception, actual);
+        Assert.Equal(0, storage.ReadCount);
+        Assert.Same(initial, manager.State);
+        Assert.Same(initial, storage.State);
+        Assert.Equal("etag-1", storage.Etag);
+    }
+
+    [Theory]
+    [InlineData(404, "ContainerNotFound")]
+    [InlineData(404, "TableNotFound")]
+    [InlineData(412, "AppendPositionConditionNotMet")]
+    [InlineData(412, "MaxBlobSizeConditionNotMet")]
+    [InlineData(412, "SequenceNumberConditionNotMet")]
+    [InlineData(412, "SourceConditionNotMet")]
+    [InlineData(412, "TargetConditionNotMet")]
+    public async Task Clear_rejected_without_an_etag_conflict_restores_state_without_reading(int status, string errorCode)
+    {
+        var initial = new TestState("initial");
+        var exception = new RequestFailedException(status, "Rejected.", errorCode, innerException: null);
+        var storage = new FakePersistentState(initial) { ClearException = exception };
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
+
+        var actual = await Assert.ThrowsAsync<RequestFailedException>(
+            () => manager.ClearAsync(TestContext.Current.CancellationToken));
+
+        Assert.Same(exception, actual);
+        Assert.Equal(0, storage.ReadCount);
+        Assert.Same(initial, manager.State);
+        Assert.Same(initial, storage.State);
+        Assert.Equal("etag-1", storage.Etag);
+    }
+
+    [Fact]
+    public async Task Clear_conflict_rethrows_even_when_read_back_finds_no_record()
+    {
+        var exception = new RequestFailedException(404, "Blob missing.", "BlobNotFound", innerException: null);
+        var storage = new FakePersistentState(new TestState("initial"))
+        {
+            ClearException = exception,
+            OnRead = state =>
+            {
+                state.State = null!;
+                state.RecordExists = false;
+                state.Etag = "";
+            }
+        };
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
+
+        var actual = await Assert.ThrowsAsync<RequestFailedException>(
+            () => manager.ClearAsync(TestContext.Current.CancellationToken));
+
+        Assert.Same(exception, actual);
+        Assert.Equal(1, storage.ReadCount);
+        Assert.False(storage.RecordExists);
+        Assert.Equal(new TestState("default"), manager.State);
+    }
+
     private sealed record TestState(string Value);
 
     private sealed class FakePersistentState(TestState state) : IPersistentState<TestState>
