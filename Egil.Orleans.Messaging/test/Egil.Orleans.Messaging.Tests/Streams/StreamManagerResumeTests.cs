@@ -228,7 +228,8 @@ public sealed class StreamManagerResumeTests
         Func<MessageTracker?>? tracker,
         FakeStream<TEvent> stream,
         IGrainBase? owner = null,
-        Func<StreamSubscriptionOptions>? createDefaultOptions = null)
+        Func<StreamSubscriptionOptions>? createDefaultOptions = null,
+        TimeProvider? defaultTimeProvider = null)
     {
         owner ??= new FakeGrainBase();
         return StreamManager.Create(
@@ -237,7 +238,8 @@ public sealed class StreamManagerResumeTests
             _ => new FakeStreamProvider<TEvent>(stream),
             streamNamespace => StreamId.Create(streamNamespace, "one"),
             NullLogger<StreamManager>.Instance,
-            createDefaultOptions);
+            createDefaultOptions,
+            defaultTimeProvider);
     }
 
     private static MessageTracker CreateTracker(

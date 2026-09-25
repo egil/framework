@@ -1120,7 +1120,7 @@ public sealed class StreamSubscriptionOptions
     public Action<string, Exception>? OnError { get; set; }
     public bool UseTrackedResumeToken { get; set; } = true;
     public StreamTraceOptions Trace { get; set; } = StreamTraceOptions.Link;
-    public TimeProvider TimeProvider { get; set; } = TimeProvider.System;
+    public TimeProvider? TimeProvider { get; set; } // null: registered TimeProvider, else TimeProvider.System
 }
 
 public static class StreamManagerExtensions

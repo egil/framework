@@ -1013,7 +1013,7 @@ Each subscription takes an optional `configure` callback that receives a
 | `UseTrackedResumeToken` | `true`                      | Pass the tracker's last cursor token when attaching or resuming.    |
 | `OnError`               | `null` (log the error)      | Called with the namespace and exception when the handler throws.    |
 | `Trace`                 | `StreamTraceOptions.Link`   | How the consumer span relates to the producer's trace.              |
-| `TimeProvider`          | `TimeProvider.System`       | Clock for `StreamTraceOptions.ParentWithinLag`.                     |
+| `TimeProvider`          | registered, else `System`   | Clock for `StreamTraceOptions.ParentWithinLag`.                     |
 
 ```csharp
 streamManager = this.RegisterStreamManager(() => state.State.Tracker)
@@ -1152,7 +1152,9 @@ the old producer traces and stretch them across the whole outage. With
 `ParentWithinLag`, deliveries older than the limit fall back to a link.
 `ParentWithinLag` needs a token that exposes an enqueue time, such as
 `EnrichedEventHubSequenceToken`. Without one it always links. The lag is
-measured with `StreamSubscriptionOptions.TimeProvider`.
+measured with `StreamSubscriptionOptions.TimeProvider`. When that is `null`,
+the default, the `TimeProvider` registered in the silo's services is used, or
+`TimeProvider.System` when none is registered.
 
 A missing or unparseable traceparent starts the span in a new trace with no
 link, whatever the mode.
