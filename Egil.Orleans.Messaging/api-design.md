@@ -1617,8 +1617,14 @@ public sealed record StreamTraceOptions
   `StreamSubscriptionOptions.TimeProvider.GetUtcNow() - enqueuedTime` is at
   most `MaxParentLag`, and links otherwise. A token with no enqueue
   time links.
-- A missing or unparseable traceparent produces a span with neither parent
-  nor link, whatever the mode.
+- A linked span is a true root. `parentContext: default` alone falls back to
+  `Activity.Current`, so the manager clears the ambient activity before
+  starting a linked span and restores it once the span stops. Otherwise a
+  delivery running under an ambient activity (for example an in-memory stream
+  delivered inside the producer's call) would join that trace despite `Link`.
+- A missing or unparseable traceparent produces a span with no link, whatever
+  the mode. It joins the ambient activity when there is one, as outbox delivery
+  spans do, and starts a new trace otherwise.
 
 The force is internal grain-to-grain streams with bounded fan-out. Backends
 that build the transaction tree from the trace id (Application Insights'

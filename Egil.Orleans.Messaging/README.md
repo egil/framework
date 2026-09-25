@@ -1156,8 +1156,10 @@ measured with `StreamSubscriptionOptions.TimeProvider`. When that is `null`,
 the default, the `TimeProvider` registered in the silo's services is used, or
 `TimeProvider.System` when none is registered.
 
-A missing or unparseable traceparent starts the span in a new trace with no
-link, whatever the mode.
+A linked span always starts its own trace, even when the delivery runs under an
+ambient activity. A missing or unparseable traceparent gives a span with no
+link, whatever the mode. It joins the ambient activity when there is one, and
+starts a new trace otherwise.
 
 ### Registering the converters outside a silo
 
