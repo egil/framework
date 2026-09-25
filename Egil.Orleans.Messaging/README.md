@@ -600,14 +600,14 @@ The `configure` callback receives an `OutboxProcessorOptions<T>`. It must set
 `AcknowledgePosted` or `AcknowledgePostedAsync`, and can override the shared
 scheduling settings:
 
-| Option                               | Default                | Effect                                                            |
-|--------------------------------------|------------------------|-------------------------------------------------------------------|
-| `ProcessingTimeout`                  | 20 seconds             | Maximum time per post run.                                        |
-| `RetryDelay`                         | 2 minutes              | Delay before retrying pending items. Reminders use >= 1 minute.   |
-| `Interleave`                         | `true`                 | Let other grain calls run while postmen await.                    |
-| `InterleaveAcknowledgementCallbacks` | `false`                | Let the acknowledgement callbacks interleave.                     |
-| `KeepAlive`                          | `false`                | Keep the activation alive while items are pending.                |
-| `TimeProvider`                       | `TimeProvider.System`  | Clock that enforces `ProcessingTimeout`.                          |
+| Option                               | Default                   | Effect                                                          |
+|--------------------------------------|---------------------------|-----------------------------------------------------------------|
+| `ProcessingTimeout`                  | 20 seconds                | Maximum time per post run.                                      |
+| `RetryDelay`                         | 2 minutes                 | Delay before retrying pending items. Reminders use >= 1 minute. |
+| `Interleave`                         | `true`                    | Let other grain calls run while postmen await.                  |
+| `InterleaveAcknowledgementCallbacks` | `false`                   | Let the acknowledgement callbacks interleave.                   |
+| `KeepAlive`                          | `false`                   | Keep the activation alive while items are pending.              |
+| `TimeProvider`                       | registered, else `System` | Clock that enforces `ProcessingTimeout`.                        |
 
 Set the shared settings once per silo instead of repeating them in every grain.
 Each processor starts from these defaults, and its own callback overrides them:
