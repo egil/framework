@@ -923,6 +923,44 @@ a stream is deduplicated by its stream token like any other stream message. That
 split is deliberate: delivery identity stays off the payload, so no event contract
 has to grow a field to carry it.
 
+### Tracker clock
+
+`MessageTracker` stamps each accepted source with a `Received` time, which
+eviction compares against. The clock is not persisted. A tracker uses the first
+clock it finds:
+
+1. A clock set on the instance with `RegisterTimeProvider`. Snapshots returned
+   by `TryAcceptMessage` and `Evict` keep it.
+2. The silo-wide clock from `ConfigureMessageTracker`: `MessageTrackerOptions.TimeProvider`
+   when set, otherwise the `TimeProvider` registered in the silo's services.
+3. `TimeProvider.System`.
+
+Set the silo-wide clock once instead of registering one on every tracker after
+each read. It covers every tracker in the silo, including ones created with
+`new MessageTracker()` and ones deserialized from grain state. To use the
+`TimeProvider` the silo already registers, call it without setting a clock:
+
+```csharp
+siloBuilder.ConfigureMessageTracker(_ => { });
+```
+
+Or pick a specific one, such as a keyed domain clock:
+
+```csharp
+siloBuilder.ConfigureMessageTracker((options, services) =>
+    options.TimeProvider = services.GetRequiredKeyedService<TimeProvider>("pricing"));
+```
+
+A tracker cannot reach the silo's services by itself, so without a
+`ConfigureMessageTracker` call it skips step 2 and uses `TimeProvider.System`.
+
+The silo installs the clock before any grain activates and removes it when it
+stops. Calls add up in registration order, as `services.Configure<MessageTrackerOptions>(...)`
+does, and `IServiceCollection` has the same overloads. The clock is
+process-wide, so silos sharing a process, as in an in-process test cluster,
+share the clock of the last silo to start. Give a tracker its own clock with
+`RegisterTimeProvider` when it needs a different one.
+
 Use `LatestStreamSequenceToken("prices")` when all you need is the previous
 resume token. Keep using `LatestStream("prices")` when you need the full
 cursor or must distinguish "no stream tracked" from "tracked stream with a

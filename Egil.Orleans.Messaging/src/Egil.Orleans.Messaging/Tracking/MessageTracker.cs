@@ -53,9 +53,13 @@ namespace Egil.Orleans.Messaging.Tracking;
 /// </para>
 /// <para>
 /// <b>TimeProvider:</b> Non-persisted (<c>[NonSerialized]</c>,
-/// <c>[JsonIgnore]</c>, no <c>[Id]</c>). After deserialization, the grain
-/// must call <see cref="RegisterTimeProvider"/> to inject a test-friendly
-/// clock. Falls back to <see cref="TimeProvider.System"/> if skipped.
+/// <c>[JsonIgnore]</c>, no <c>[Id]</c>). <c>Received</c> timestamps use the
+/// first clock found in this order: the instance clock set with
+/// <see cref="RegisterTimeProvider"/>, the silo-wide clock installed with
+/// <c>ConfigureMessageTracker</c> on the silo builder, then
+/// <see cref="TimeProvider.System"/>.
+/// Snapshots returned by <c>TryAcceptMessage</c> and <c>Evict</c> keep the
+/// instance clock.
 /// </para>
 /// <para>
 /// <b>Serialization:</b> Decorated with <c>[GenerateSerializer]</c> for Orleans
@@ -81,11 +85,13 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
 
     /// <summary>
     /// Non-persisted service reference. No <c>[Id]</c>, no serialization.
-    /// Falls back to <see cref="TimeProvider.System"/> when not explicitly set.
+    /// <see langword="null"/> falls back to the silo-wide clock.
     /// </summary>
     [NonSerialized]
     [JsonIgnore]
-    private TimeProvider time = TimeProvider.System;
+    private TimeProvider? time;
+
+    private TimeProvider Clock => MessageTrackerClock.Resolve(time);
 
     /// <summary>
     /// Creates an empty <see cref="MessageTracker"/> with no tracked sources.
@@ -105,8 +111,9 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
     }
 
     /// <summary>
-    /// Registers a <see cref="TimeProvider"/> for <c>Received</c> timestamps.
-    /// Must be called after deserialization to inject a test-friendly clock.
+    /// Registers a <see cref="TimeProvider"/> for <c>Received</c> timestamps on
+    /// this instance and the snapshots it returns. It takes precedence over the
+    /// silo-wide clock installed with <c>ConfigureMessageTracker</c>.
     /// </summary>
     public void RegisterTimeProvider(TimeProvider time) => this.time = time;
 
@@ -124,7 +131,7 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
     /// <returns><c>true</c> if accepted, including tokenless messages; <c>false</c> if duplicate or stale.</returns>
     public bool TryAcceptMessage(StreamCursor cursor, out MessageTracker next)
     {
-        var now = time.GetUtcNow();
+        var now = Clock.GetUtcNow();
         if (cursor.Token is null)
         {
             MessagingTelemetry.RecordStreamReceiveLag(cursor, now);
@@ -213,7 +220,7 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
     /// <returns><c>true</c> if accepted; <c>false</c> if duplicate or stale.</returns>
     public bool TryAcceptMessage(OutboxSequenceToken token, out MessageTracker next)
     {
-        var now = time.GetUtcNow();
+        var now = Clock.GetUtcNow();
 
         if (!outbox.TryGetValue(token.Sender, out var entry))
         {
