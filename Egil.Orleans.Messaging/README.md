@@ -60,6 +60,13 @@ siloBuilder.AddAzureStorageStateManager("blobs");
 state = this.RegisterStateManager("blobs", storage, () => new OrderState());
 ```
 
+The default manager re-reads after every failed write or clear. It recognizes
+`InconsistentStateException` through exception wrappers and rethrows the original
+exception after refreshing state and the ETag, even if the recovered value
+matches. Aggregates containing only concurrency conflicts behave the same way;
+an aggregate containing an uncertain failure still uses read-back to determine
+whether the operation persisted.
+
 For Orleans Azure Table or Blob grain storage, install and configure the
 Orleans storage provider separately. The Messaging companion works through
 `IPersistentState<T>` and Azure SDK exceptions; it does not select or install
