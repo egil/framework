@@ -11,7 +11,18 @@ public enum StorageFailureKind
     UnknownOutcome,
 
     /// <summary>
-    /// The operation definitely did not persist. Skip read-back and rethrow.
+    /// The operation was rejected by an optimistic-concurrency check
+    /// (for example an ETag mismatch), which proves the operation did not persist
+    /// but also proves the local ETag is stale. Recovery must re-read to refresh
+    /// the local baseline and always rethrow, since a coincidental value match
+    /// must not hide a concurrent write.
+    /// </summary>
+    Conflict,
+
+    /// <summary>
+    /// The operation definitely did not persist and the stored version was not
+    /// contradicted (for example authentication failure, missing container/table,
+    /// or payload too large). Skip read-back and rethrow.
     /// </summary>
     DidNotPersist
 }

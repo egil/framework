@@ -428,32 +428,44 @@ Each storage provider we care to optimise for may ship its own
 `IStateManager<T>` that:
 
 - Inspects provider-specific exception types to classify failures as
-  `StorageFailureKind.DidNotPersist` (skip re-read, revert + rethrow) vs
-  `StorageFailureKind.UnknownOutcome` (re-read).
+  `StorageFailureKind.DidNotPersist` (skip re-read, revert + rethrow),
+  `StorageFailureKind.Conflict` (re-read to refresh the local ETag baseline,
+  then always rethrow — a coincidental value match never suppresses the
+  original exception), or `StorageFailureKind.UnknownOutcome` (re-read).
 - Optionally exploits provider features (conditional writes, blob
   versions) to avoid the re-read.
 
 `StorageFailureKind` is intentionally named for storage operations rather
 than only writes. The same classification is useful for clear operations:
-an Azure Storage HTTP 412/ETag conflict definitely did not clear the record,
-while transient 5xx errors remain ambiguous and require read-back recovery.
+an Azure Storage HTTP 412/ETag conflict definitely did not clear the record
+this attempt, but proves the local ETag is stale and so goes through
+`Conflict`; transient 5xx errors remain ambiguous and require read-back
+recovery through `UnknownOutcome`.
 Read failures do not use the classification because no local committed state
 has been tentatively changed.
 
 The Azure Storage companion package follows Orleans' Azure provider semantics:
 the Orleans provider wraps Azure Table/Blob optimistic-update failures
 (precondition failed, conflict, and not found during conditional write/clear)
-as `InconsistentStateException`, so those are classified as
-`DidNotPersist`.
+as `InconsistentStateException`, so those are classified as `Conflict`. The
+recovery read then refreshes the ETag, and the exception is always rethrown so
+the grain sees the concurrency failure even when the value happens to match.
 
 It also understands Azure SDK `RequestFailedException` directly:
 
+- `Conflict`: optimistic-concurrency rejections where the write did not
+  persist but the stored version was contradicted. Includes HTTP 412,
+  HTTP 409, HTTP 404, and Azure Table/Blob error codes such as
+  `ConditionNotMet`, `UpdateConditionNotSatisfied`, `BlobAlreadyExists`,
+  `BlobNotFound`, `EntityAlreadyExists`, `EntityNotFound`,
+  `ResourceAlreadyExists`, and `ResourceNotFound`. These trigger a
+  recovery read followed by an unconditional rethrow.
 - `DidNotPersist`: rejected/client-side service responses where Azure has
-  definitively not applied the mutation, including HTTP 400/401/403/404/409,
-  HTTP 412, payload-too-large responses, and Azure Table/Blob error codes such
-  as `UpdateConditionNotSatisfied`, `ConditionNotMet`, `BlobAlreadyExists`,
-  `BlobNotFound`, `ContainerNotFound`, and table entity not-found/already-exists
-  errors.
+  definitively not applied the mutation and the stored version was not
+  contradicted, including HTTP 400/401/403, payload-too-large responses, and
+  Azure Table/Blob error codes such as `ContainerNotFound`, `TableNotFound`,
+  and other append/sequence/source/target precondition mismatches that do not
+  reflect the state facet's own ETag.
 - `UnknownOutcome`: ambiguous or transient outcomes where a write/clear may
   have landed before the caller observed failure, including no HTTP response,
   HTTP 408, HTTP 429, all 5xx responses, `ServerBusy`, `OperationTimedOut`,
@@ -461,10 +473,11 @@ It also understands Azure SDK `RequestFailedException` directly:
   cancellation-like failures.
 
 For aggregate Azure SDK failures, any ambiguous inner failure makes the whole
-operation `UnknownOutcome`; otherwise, all deterministic storage failures can
-be treated as `DidNotPersist`. This preserves correctness over optimization:
-read-back is skipped only when the provider response proves the mutation did
-not persist.
+operation `UnknownOutcome`. Otherwise, a `Conflict` inner outranks a
+`DidNotPersist` inner, because the ETag mismatch it reports must still refresh
+the local baseline. This preserves correctness over optimization: read-back is
+skipped only when the provider response proves the mutation did not persist
+*and* did not contradict the stored version.
 
 ### Why a wrapper, not extension methods
 

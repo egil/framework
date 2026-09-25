@@ -201,6 +201,60 @@ public sealed class StateManagerTests
     }
 
     [Fact]
+    public async Task WriteAsync_on_conflict_kind_reads_back_and_adopts_persisted_state()
+    {
+        // A Conflict-classified failure proves the local ETag is stale, so recovery
+        // must re-read to refresh the baseline before rethrowing. Without this the
+        // grain would keep sending the same stale ETag on every later write.
+        var writeException = new TimeoutException("write conflict");
+        var persisted = new TestState("persisted");
+        var storage = new FakePersistentState(new TestState("initial"))
+        {
+            WriteException = writeException,
+            OnRead = state =>
+            {
+                state.State = persisted;
+                state.Etag = "etag-2";
+            }
+        };
+        var manager = new ConflictingStateManager(storage, static () => new("default"));
+
+        var ex = await Assert.ThrowsAsync<TimeoutException>(
+            () => manager.WriteAsync(new TestState("next"), TestContext.Current.CancellationToken));
+
+        Assert.Same(writeException, ex);
+        Assert.Equal(persisted, manager.State);
+        Assert.Equal(persisted, storage.State);
+        Assert.Equal("etag-2", storage.Etag);
+    }
+
+    [Fact]
+    public async Task WriteAsync_on_conflict_kind_always_rethrows_even_when_persisted_matches_attempt()
+    {
+        // A coincidental value match must never hide a concurrency rejection: the
+        // whole point of Conflict is that the local ETag is stale regardless of value.
+        var attempted = new TestState("next");
+        var writeException = new TimeoutException("write conflict");
+        var storage = new FakePersistentState(new TestState("initial"))
+        {
+            WriteException = writeException,
+            OnRead = state =>
+            {
+                state.State = attempted;
+                state.Etag = "etag-2";
+            }
+        };
+        var manager = new ConflictingStateManager(storage, static () => new("default"));
+
+        var ex = await Assert.ThrowsAsync<TimeoutException>(
+            () => manager.WriteAsync(attempted, TestContext.Current.CancellationToken));
+
+        Assert.Same(writeException, ex);
+        Assert.Equal(attempted, manager.State);
+        Assert.Equal("etag-2", storage.Etag);
+    }
+
+    [Fact]
     public async Task WriteAsync_on_versioned_state_stamps_new_version()
     {
         var original = new VersionedTestState("initial");
@@ -839,6 +893,17 @@ public sealed class StateManagerTests
         protected override StorageFailureKind ClassifyWriteFailure(Exception exception) => StorageFailureKind.DidNotPersist;
 
         protected override StorageFailureKind ClassifyClearFailure(Exception exception) => StorageFailureKind.DidNotPersist;
+    }
+
+    // Conflict is the "rejected by an optimistic-concurrency check" branch: proves this
+    // attempt did not persist and that the local ETag is stale, so recovery must re-read
+    // and always rethrow — even if the persisted value happens to match the attempt.
+    private sealed class ConflictingStateManager(IPersistentState<TestState> storage, Func<TestState> createInitialState)
+        : StateManagerBase<TestState>(storage, createInitialState)
+    {
+        protected override StorageFailureKind ClassifyWriteFailure(Exception exception) => StorageFailureKind.Conflict;
+
+        protected override StorageFailureKind ClassifyClearFailure(Exception exception) => StorageFailureKind.Conflict;
     }
 
     private sealed class FakePersistentState : IPersistentState<TestState>
