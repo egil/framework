@@ -36,9 +36,10 @@ namespace Egil.Orleans.Messaging.Streams.EventHubs;
 /// carries the W3C <c>traceparent</c> header captured at publish time by
 /// <see cref="EnrichedEventHubAdapter"/>. On the consumer side,
 /// <see cref="StreamManager"/> reads it via
-/// <see cref="StreamCursor.TryGetTraceParent"/> and creates an
-/// <see cref="System.Diagnostics.ActivityLink"/> — correlating consumer
-/// spans to producer spans without multi-hour parent-child traces.
+/// <see cref="StreamCursor.TryGetTraceParent"/> and links or parents the
+/// consumer span to the producer span according to the subscription's
+/// <see cref="StreamTraceOptions"/>. <see cref="EnqueuedTime"/> drives
+/// <see cref="StreamTraceOptions.ParentWithinLag(TimeSpan)"/>.
 /// </para>
 /// <para>
 /// <b>Serialization:</b> Inherits Orleans serialization from
@@ -83,9 +84,9 @@ public class EnrichedEventHubSequenceToken : EventHubSequenceTokenV2, IStreamSeq
     /// Stamped by <see cref="EnrichedEventHubAdapter"/> in its
     /// <c>ToQueueMessage</c> override (producer side) and extracted during
     /// batch-container conversion (consumer side).
-    /// <see cref="StreamManager"/> uses this to create
-    /// <see cref="System.Diagnostics.ActivityLink"/>s — correlating consumer
-    /// spans to producer spans without creating multi-hour parent-child traces.
+    /// <see cref="StreamManager"/> uses this to link or parent the consumer
+    /// span to the producer span, according to the subscription's
+    /// <see cref="StreamTraceOptions"/>.
     /// </remarks>
     [Id(2)]
     public string? TraceParent { get; }
