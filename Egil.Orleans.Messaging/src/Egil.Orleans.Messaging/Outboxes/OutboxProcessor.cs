@@ -14,7 +14,7 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// <remarks>
 /// Matching remains first-match-wins across registered postmen. During a post
 /// run, each postman receives its matching items sequentially in the order
-/// returned by <see cref="OutboxProcessorOptions{TOutbox}.OutboxAccessor"/>. A
+/// returned by the outbox accessor passed to <c>RegisterOutboxProcessor</c>. A
 /// failure stops that postman's sequence so later matching items remain pending
 /// until the failed item posts on a later run or the owning grain removes it.
 /// Different postmen are dispatched concurrently.
@@ -30,6 +30,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
 
     private readonly IGrainBase owner;
     private readonly IGrainFactory grainFactory;
+    private readonly Func<Outbox<TOutbox>> outboxAccessor;
     private readonly OutboxProcessorOptions<TOutbox> options;
     private readonly object drainGate = new();
     private readonly OutboxPostmanRegistry<OutboxMessageEnvelope<TOutbox>> postmen = new();
@@ -50,32 +51,19 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     internal OutboxProcessor(
         IGrainBase owner,
         IGrainFactory grainFactory,
+        Func<Outbox<TOutbox>> outboxAccessor,
         OutboxProcessorOptions<TOutbox> options,
         ILogger logger)
     {
         ArgumentNullException.ThrowIfNull(owner);
         ArgumentNullException.ThrowIfNull(grainFactory);
+        ArgumentNullException.ThrowIfNull(outboxAccessor);
         ArgumentNullException.ThrowIfNull(options);
-        ArgumentNullException.ThrowIfNull(options.TimeProvider);
         ArgumentNullException.ThrowIfNull(logger);
-
-        if (options.AcknowledgePosted is null && options.AcknowledgePostedAsync is null)
-        {
-            throw new ArgumentException("At least one of AcknowledgePosted or AcknowledgePostedAsync must be configured.", nameof(options));
-        }
-
-        if (options.ProcessingTimeout <= TimeSpan.Zero)
-        {
-            throw new ArgumentOutOfRangeException(nameof(options), "ProcessingTimeout must be greater than zero.");
-        }
-
-        if (options.RetryDelay <= TimeSpan.Zero)
-        {
-            throw new ArgumentOutOfRangeException(nameof(options), "RetryDelay must be greater than zero.");
-        }
 
         this.owner = owner;
         this.grainFactory = grainFactory;
+        this.outboxAccessor = outboxAccessor;
         this.options = options;
         this.logger = logger;
         grainType = owner.GetType().Name;
@@ -97,7 +85,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     /// postman. Arms timer/reminder if items remain; unregisters retry work if
     /// empty. If the run itself fails — for example with a
     /// <see cref="TimeoutException"/> when
-    /// <see cref="OutboxProcessorOptions{TOutbox}.ProcessingTimeout"/> elapses,
+    /// <see cref="OutboxProcessorOptions.ProcessingTimeout"/> elapses,
     /// or when an acknowledgement callback throws — retry work is armed before
     /// the exception is rethrown so pending items are not stranded.
     /// </summary>
@@ -340,8 +328,8 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
 
     private ImmutableArray<OutboxMessageEnvelope<TOutbox>> GetPendingItems()
     {
-        var pending = (options.OutboxAccessor()
-            ?? throw new InvalidOperationException("OutboxAccessor must return a non-null outbox snapshot.")).Envelopes;
+        var pending = (outboxAccessor()
+            ?? throw new InvalidOperationException("The outbox accessor must return a non-null outbox snapshot.")).Envelopes;
         pendingOutbox.SetPending(!pending.IsDefaultOrEmpty);
         return pending;
     }

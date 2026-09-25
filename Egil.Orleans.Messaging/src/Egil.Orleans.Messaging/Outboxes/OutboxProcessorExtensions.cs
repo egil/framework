@@ -36,20 +36,19 @@ public static class OutboxProcessorExtensions
         /// <code>
         /// public MyGrain()
         /// {
-        ///     outboxProcessor = this.RegisterOutboxProcessor(new OutboxProcessorOptions&lt;IMyEvent&gt;
+        ///     outboxProcessor = this.RegisterOutboxProcessor&lt;IMyEvent&gt;(() => stateManager.State.Outbox, options =>
         ///     {
-        ///         OutboxAccessor = () => stateManager.State.Outbox,
-        ///         AcknowledgePosted = items =>
+        ///         options.AcknowledgePosted = items =>
         ///         {
         ///             // Remove exactly the delivered items — match items or their stored
         ///             // IDs, never positions. Assign State and let the next business
         ///             // write carry it; see OutboxProcessorOptions&lt;TOutbox&gt;.
         ///             // AcknowledgePostedAsync for what deferring persistence costs.
-        ///         },
-        ///         AcknowledgeFailuresAsync = async (failures, ct) =>
+        ///         };
+        ///         options.AcknowledgeFailuresAsync = async (failures, ct) =>
         ///         {
         ///             // log, dead-letter, or leave for retry
-        ///         },
+        ///         };
         ///     })
         ///     .AddPostman&lt;PriceCalculated&gt;(PublishPriceCalculatedAsync)
         ///     .AddPostman&lt;InvoiceReady&gt;(SendInvoiceReadyAsync);
@@ -58,21 +57,38 @@ public static class OutboxProcessorExtensions
         /// </para>
         /// </remarks>
         /// <typeparam name="TOutbox">The base payload type of outbox messages.</typeparam>
-        /// <param name="options">Processor configuration.</param>
+        /// <param name="outboxAccessor">
+        /// Returns the current non-null immutable outbox snapshot. Evaluated before
+        /// dispatch, and again during retry-state reconciliation once the
+        /// acknowledgement callbacks have returned.
+        /// </param>
+        /// <param name="configure">
+        /// Sets the acknowledgement callbacks and overrides the silo-wide
+        /// <see cref="OutboxProcessorOptions"/> defaults for this processor. At least
+        /// one of <see cref="OutboxProcessorOptions{TOutbox}.AcknowledgePosted"/> or
+        /// <see cref="OutboxProcessorOptions{TOutbox}.AcknowledgePostedAsync"/> must be set.
+        /// </param>
         /// <returns>
         /// The processor instance. Chain <c>AddPostman</c> calls on it, then store
         /// in a grain field for later <see cref="OutboxProcessor{TOutbox}.PostAsync"/>
         /// calls.
         /// </returns>
+        /// <exception cref="ArgumentException">
+        /// The configured options set no acknowledgement callback, a non-positive
+        /// timeout or retry delay, or a null clock.
+        /// </exception>
         /// <exception cref="InvalidOperationException">
         /// An outbox processor is already registered for the current grain
         /// activation.
         /// </exception>
-        public OutboxProcessor<TOutbox> RegisterOutboxProcessor<TOutbox>(OutboxProcessorOptions<TOutbox> options)
+        public OutboxProcessor<TOutbox> RegisterOutboxProcessor<TOutbox>(
+            Func<Outbox<TOutbox>> outboxAccessor,
+            Action<OutboxProcessorOptions<TOutbox>> configure)
             where TOutbox : notnull
         {
             ArgumentNullException.ThrowIfNull(grain);
-            ArgumentNullException.ThrowIfNull(options);
+            ArgumentNullException.ThrowIfNull(outboxAccessor);
+            ArgumentNullException.ThrowIfNull(configure);
 
             if (grain.GrainContext.GetComponent<IOutboxComponent>() is not null)
             {
@@ -81,9 +97,11 @@ public static class OutboxProcessorExtensions
             }
 
             var services = grain.GrainContext.ActivationServices;
+            var options = OutboxProcessorOptions<TOutbox>.Resolve(services, configure, nameof(configure));
             var processor = new OutboxProcessor<TOutbox>(
                 grain,
                 services.GetRequiredService<IGrainFactory>(),
+                outboxAccessor,
                 options,
                 services.GetRequiredService<ILoggerFactory>().CreateLogger<OutboxProcessor<TOutbox>>());
 

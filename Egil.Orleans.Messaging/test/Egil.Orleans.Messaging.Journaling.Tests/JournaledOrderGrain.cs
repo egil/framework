@@ -33,11 +33,10 @@ public sealed class JournaledOrderGrain : DurableGrain, IJournaledOrderGrain, IO
         this.business = business;
         this.tracker = tracker;
         this.outbox = outbox;
-        processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OrderEvent>
+        processor = this.RegisterOutboxProcessor(() => outbox.AsImmutable(), options =>
         {
-            OutboxAccessor = () => outbox.AsImmutable(),
-            AcknowledgePostedAsync = async (items, ct) =>
-                await AcknowledgeAsync(items.Select(item => item.Id).ToImmutableArray(), ct)
+            options.AcknowledgePostedAsync = async (items, ct) =>
+                await AcknowledgeAsync(items.Select(item => item.Id).ToImmutableArray(), ct);
         }).AddPostman<OrderEvent>(message => delivered.DeliverAsync(this.GetGrainId(), message));
     }
 

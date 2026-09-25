@@ -34,15 +34,14 @@ public sealed class ImmediateOutboxGrain : DurableGrain, IImmediateOutboxGrain, 
         DeliveredMessages delivered)
     {
         this.outbox = outbox;
-        processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OrderEvent>
+        processor = this.RegisterOutboxProcessor(() => outbox.AsImmutable(), options =>
         {
-            OutboxAccessor = () => outbox.AsImmutable(),
-            AcknowledgePostedAsync = (items, _) =>
+            options.AcknowledgePostedAsync = (items, _) =>
             {
                 // This grain deliberately chooses immediate delivery and defers all persistence.
                 outbox.RemoveRange(items);
                 return ValueTask.CompletedTask;
-            }
+            };
         }).AddPostman<OrderEvent>(message => delivered.DeliverAsync(this.GetGrainId(), message));
     }
 

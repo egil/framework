@@ -203,7 +203,7 @@ public sealed class OutboxProcessorStreamPostmanGrain(
             OutboxProcessorTestNamespaces.Events,
             sink.GetGrainId());
 
-        processor = this.RegisterOutboxProcessor(CreateOptions())
+        processor = this.RegisterOutboxProcessor(() => state.State.Outbox ?? [], ConfigureOptions)
             .AddStreamPostman<OutboxProcessorTestEvent, DeliveredOutboxEvent>(
                 OutboxProcessorTestProviderNames.Events,
                 _ => streamId,
@@ -222,13 +222,12 @@ public sealed class OutboxProcessorStreamPostmanGrain(
 
     public Task<OutboxProcessorSourceState> GetStateAsync() => Task.FromResult(state.State);
 
-    private OutboxProcessorOptions<OutboxProcessorTestEvent> CreateOptions() => new()
+    private void ConfigureOptions(OutboxProcessorOptions<OutboxProcessorTestEvent> options)
     {
-        OutboxAccessor = () => state.State.Outbox ?? [],
-        AcknowledgePostedAsync = AcknowledgePostedAsync,
-        AcknowledgeFailuresAsync = AcknowledgeFailuresAsync,
-        RetryDelay = TimeSpan.FromMilliseconds(100)
-    };
+        options.AcknowledgePostedAsync = AcknowledgePostedAsync;
+        options.AcknowledgeFailuresAsync = AcknowledgeFailuresAsync;
+        options.RetryDelay = TimeSpan.FromMilliseconds(100);
+    }
 
     private async ValueTask AcknowledgePostedAsync(
         ImmutableArray<OutboxMessageEnvelope<OutboxProcessorTestEvent>> items,
@@ -280,7 +279,7 @@ public sealed class OutboxProcessorProjectedStreamPostmanGrain(
             OutboxProcessorTestNamespaces.Events,
             sink.GetGrainId());
 
-        processor = this.RegisterOutboxProcessor(CreateOptions());
+        processor = this.RegisterOutboxProcessor(() => state.State.Outbox ?? [], ConfigureOptions);
         StreamId SelectStream(OutboxProcessorTestEvent _, OutboxSequenceToken token) =>
             token.Sender == this.GetGrainId() ? streamId : throw new InvalidOperationException("Wrong delivery sender.");
         static OutboxProcessorTestEvent Project(OutboxProcessorTestEvent message) => new($"projected:{message.Value}");
@@ -345,13 +344,12 @@ public sealed class OutboxProcessorProjectedStreamPostmanGrain(
 
     public Task<OutboxProcessorSourceState> GetStateAsync() => Task.FromResult(state.State);
 
-    private OutboxProcessorOptions<OutboxProcessorTestEvent> CreateOptions() => new()
+    private void ConfigureOptions(OutboxProcessorOptions<OutboxProcessorTestEvent> options)
     {
-        OutboxAccessor = () => state.State.Outbox ?? [],
-        AcknowledgePostedAsync = AcknowledgePostedAsync,
-        AcknowledgeFailuresAsync = AcknowledgeFailuresAsync,
-        RetryDelay = TimeSpan.FromMilliseconds(100)
-    };
+        options.AcknowledgePostedAsync = AcknowledgePostedAsync;
+        options.AcknowledgeFailuresAsync = AcknowledgeFailuresAsync;
+        options.RetryDelay = TimeSpan.FromMilliseconds(100);
+    }
 
     private async ValueTask AcknowledgePostedAsync(
         ImmutableArray<OutboxMessageEnvelope<OutboxProcessorTestEvent>> items,
@@ -435,7 +433,7 @@ public sealed class OutboxProcessorGrainPostmanSourceGrain(
     {
         EnsureOutbox();
 
-        processor = this.RegisterOutboxProcessor(CreateOptions())
+        processor = this.RegisterOutboxProcessor(() => state.State.Outbox ?? [], ConfigureOptions)
             .AddGrainPostman<OutboxProcessorTestEvent, IOutboxProcessorGrainPostmanTargetGrain>(
                 (_, grainFactory) => grainFactory.GetGrain<IOutboxProcessorGrainPostmanTargetGrain>(this.GetPrimaryKey()),
                 (target, message) => target.ReceiveAsync(message.Value));
@@ -453,13 +451,12 @@ public sealed class OutboxProcessorGrainPostmanSourceGrain(
 
     public Task<OutboxProcessorSourceState> GetStateAsync() => Task.FromResult(state.State);
 
-    private OutboxProcessorOptions<OutboxProcessorTestEvent> CreateOptions() => new()
+    private void ConfigureOptions(OutboxProcessorOptions<OutboxProcessorTestEvent> options)
     {
-        OutboxAccessor = () => state.State.Outbox ?? [],
-        AcknowledgePostedAsync = AcknowledgePostedAsync,
-        AcknowledgeFailuresAsync = AcknowledgeFailuresAsync,
-        RetryDelay = TimeSpan.FromMilliseconds(100)
-    };
+        options.AcknowledgePostedAsync = AcknowledgePostedAsync;
+        options.AcknowledgeFailuresAsync = AcknowledgeFailuresAsync;
+        options.RetryDelay = TimeSpan.FromMilliseconds(100);
+    }
 
     private async ValueTask AcknowledgePostedAsync(
         ImmutableArray<OutboxMessageEnvelope<OutboxProcessorTestEvent>> items,

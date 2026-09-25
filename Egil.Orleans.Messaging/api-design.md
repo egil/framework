@@ -349,7 +349,7 @@ is why it ships as an `<example>` on the API itself rather than in a caveats
 section.
 
 `OutboxProcessor<T>` reconciles its retry timer and durable reminder against
-`OutboxAccessor`, which reads through the manager. A deferred acknowledgement that
+`outboxAccessor`, which reads through the manager. A deferred acknowledgement that
 empties the outbox therefore disables retry, which is correct from the processor's
 point of view — it was told there is nothing pending, though on the strength of a
 removal that is not durable yet. Anything that later discards the change brings
@@ -1860,14 +1860,14 @@ sequenceDiagram
     participant Ack as "Non-interleaving acknowledgement turn"
 
     Grain->>Dispatch: "PostInBackgroundAsync schedules dispatch"
-    Dispatch->>Grain: "OutboxAccessor() snapshot"
+    Dispatch->>Grain: "outboxAccessor() snapshot"
     Dispatch->>Postmen: "Dispatch all pending items concurrently"
     Note over Dispatch,Grain: "Other grain calls may run while postmen await"
     Postmen-->>Dispatch: "Success/failure results"
     Dispatch->>Ack: "Enqueue acknowledgement"
     Ack->>Grain: "AcknowledgePosted / AcknowledgePostedAsync / AcknowledgeFailuresAsync"
     Note over Ack,Grain: "Must not interleave with normal writes"
-    Ack->>Grain: "OutboxAccessor() and retry/reminder update"
+    Ack->>Grain: "outboxAccessor() and retry/reminder update"
 ```
 
 Orleans has two relevant scheduling layers:
@@ -1895,7 +1895,7 @@ The two technically valid ways to get the diagram above are:
    time-based.
 2. Move the pending/acknowledge callbacks onto an outbox grain interface
    and have the processor call the owning grain through its self-reference.
-   Those methods are then ordinary Orleans grain calls. `OutboxAccessor` should
+   Those methods are then ordinary Orleans grain calls. `outboxAccessor` should
    not be `[ReadOnly]` if it must wait behind writes; `[ReadOnly]` only
    interleaves with other read-only calls, not arbitrary writes.
 
@@ -1945,12 +1945,16 @@ public interface IOutboxGrain : IRemindable
 extension<TGrain>(TGrain grain) where TGrain : IOutboxGrain, IGrainBase
 {
     public OutboxProcessor<TOutbox> RegisterOutboxProcessor<TOutbox>(
-        OutboxProcessorOptions<TOutbox> options) where TOutbox : notnull
+        Func<Outbox<TOutbox>> outboxAccessor,
+        Action<OutboxProcessorOptions<TOutbox>> configure) where TOutbox : notnull
     {
         var services = grain.GrainContext.ActivationServices;
+        // Silo defaults (IOptionsFactory<OutboxProcessorOptions>) -> configure -> snapshot -> validate.
+        var options = OutboxProcessorOptions<TOutbox>.Resolve(services, configure, nameof(configure));
         var processor = new OutboxProcessor<TOutbox>(
             grain,
             services.GetRequiredService<IGrainFactory>(),
+            outboxAccessor,
             options,
             services.GetRequiredService<ILoggerFactory>()
                     .CreateLogger<OutboxProcessor<TOutbox>>());
@@ -1960,65 +1964,99 @@ extension<TGrain>(TGrain grain) where TGrain : IOutboxGrain, IGrainBase
 }
 ```
 
-### `OutboxProcessorOptions<TOutbox>`
+### `OutboxProcessorOptions` and `OutboxProcessorOptions<TOutbox>`
 
 ```csharp
-public sealed class OutboxProcessorOptions<TOutbox> where TOutbox : notnull
+/// Payload-independent scheduling settings. Silo defaults bind to this type.
+public class OutboxProcessorOptions
 {
-    /// Returns the current immutable outbox snapshot. Evaluated before dispatch,
-    /// and again during retry-state reconciliation once the acknowledgement
-    /// callbacks have returned.
-    public required Func<Outbox<TOutbox>> OutboxAccessor { get; init; }
+    /// Max time per post run. Set below grain's response timeout.
+    public TimeSpan ProcessingTimeout { get; set; } = TimeSpan.FromSeconds(20);
 
+    /// Clock used only to enforce ProcessingTimeout. Orleans owns the grain
+    /// timers and reminders used for RetryDelay.
+    public TimeProvider TimeProvider { get; set; } = TimeProvider.System;
+
+    /// Timer + reminder period. Orleans reminders fire at most once/minute.
+    public TimeSpan RetryDelay { get; set; } = TimeSpan.FromMinutes(2);
+
+    /// Whether background posting may allow other grain calls to run while
+    /// postmen are awaiting asynchronous work.
+    public bool Interleave { get; set; } = true;
+
+    /// Whether the acknowledgement callbacks may interleave when posting runs
+    /// in the background.
+    public bool InterleaveAcknowledgementCallbacks { get; set; } = false;
+
+    /// Whether background retry work should keep the grain activation alive
+    /// while pending outbox items remain.
+    public bool KeepAlive { get; set; } = false;
+}
+
+/// Per-processor options: the shared settings plus payload-typed callbacks.
+/// Only the library constructs it; grain code receives it in the configure callback.
+public sealed class OutboxProcessorOptions<TOutbox> : OutboxProcessorOptions
+    where TOutbox : notnull
+{
     /// At least one posted acknowledgement callback must be configured.
     ///
     /// Acknowledges successfully posted items synchronously.
     /// Expected to remove those items from the outbox. Persisting the removal
     /// immediately is optional — see §1 on deferred writes.
-    public Action<ImmutableArray<OutboxMessageEnvelope<TOutbox>>>? AcknowledgePosted { get; init; }
+    public Action<ImmutableArray<OutboxMessageEnvelope<TOutbox>>>? AcknowledgePosted { get; set; }
 
     /// Acknowledges successfully posted items asynchronously. When both posted
     /// acknowledgement callbacks are configured, this runs after AcknowledgePosted.
     public Func<ImmutableArray<OutboxMessageEnvelope<TOutbox>>, CancellationToken, ValueTask>?
-        AcknowledgePostedAsync { get; init; }
+        AcknowledgePostedAsync { get; set; }
 
     /// Failed items with exception and attempt count (in-memory, resets on
     /// reactivation). Grain decides: leave to retry, or remove to
     /// dead-letter after N attempts. If null, failed items retry silently.
     public Func<ImmutableArray<(OutboxMessageEnvelope<TOutbox> Item, Exception Error, int Attempt)>,
-        CancellationToken, ValueTask>? AcknowledgeFailuresAsync { get; init; }
+        CancellationToken, ValueTask>? AcknowledgeFailuresAsync { get; set; }
+}
 
-    /// Max time per post run. Set below grain's response timeout.
-    public TimeSpan ProcessingTimeout { get; init; } = TimeSpan.FromSeconds(20);
+// Silo-wide defaults. Same pair on IServiceCollection.
+public static class OutboxProcessorSiloBuilderExtensions
+{
+    public static ISiloBuilder ConfigureOutboxProcessor(
+        this ISiloBuilder builder, Action<OutboxProcessorOptions> configure);
 
-    /// Clock used only to enforce ProcessingTimeout. Orleans owns the grain
-    /// timers and reminders used for RetryDelay.
-    public TimeProvider TimeProvider { get; init; } = TimeProvider.System;
-
-    /// Timer + reminder period. Orleans reminders fire at most once/minute.
-    public TimeSpan RetryDelay { get; init; } = TimeSpan.FromMinutes(2);
-
-    /// Whether background posting may allow other grain calls to run while
-    /// postmen are awaiting asynchronous work.
-    public bool Interleave { get; init; } = true;
-
-    /// Whether the acknowledgement callbacks may interleave when posting runs
-    /// in the background.
-    public bool InterleaveAcknowledgementCallbacks { get; init; } = false;
-
-    /// Whether background retry work should keep the grain activation alive
-    /// while pending outbox items remain.
-    public bool KeepAlive { get; init; } = false;
+    public static ISiloBuilder ConfigureOutboxProcessor(
+        this ISiloBuilder builder, Action<OutboxProcessorOptions, IServiceProvider> configure);
 }
 ```
+
+Grain wiring passes the outbox accessor positionally, because it is required,
+and everything else through the callback:
+
+```csharp
+outboxProcessor = this.RegisterOutboxProcessor(() => state.State.Outbox, options =>
+{
+    options.AcknowledgePostedAsync = PersistRemovalAsync;
+    options.RetryDelay = TimeSpan.FromMinutes(10);
+});
+```
+
+Settings are layered the same way as `StreamSubscriptionOptions` (§5):
+property defaults, then silo defaults from `ConfigureOutboxProcessor(...)` or
+`services.Configure<OutboxProcessorOptions>(...)`, then the grain's callback.
+The processor copies the result when the callback returns, then validates it, so
+an invalid silo default fails the first registration with the `configure`
+parameter named. The split into a non-generic base and a generic subclass keeps
+the payload-typed acknowledgement callbacks out of the silo defaults, where no
+payload type is known.
 
 An activation-scoped clock is supplied independently at both call sites:
 assign it to `OutboxProcessorOptions.TimeProvider` for deterministic
 processing-timeout behavior, and pass `timeProvider.GetUtcNow()` to
-`Outbox.Add(message, utcNow)` when appending. The processor does not own the
-persisted outbox or re-inject transient services into it.
+`Outbox.Add(message, utcNow)` when appending. A clock shared by the whole silo
+belongs in `ConfigureOutboxProcessor((options, services) => ...)`. The
+processor does not own the persisted outbox or re-inject transient services
+into it.
 
-Naming note: `OutboxAccessor` describes a callback that reads the current immutable
+Naming note: the outbox accessor is a callback that reads the current immutable
 outbox snapshot. The processor evaluates it again during retry-state reconciliation,
 after the configured acknowledgement callbacks have returned, because state writes
 can replace the outbox instance.
@@ -2028,20 +2066,20 @@ obligations, not passive notifications:
 
 - `AcknowledgePosted` or `AcknowledgePostedAsync` is expected to remove
   successfully posted items
-  from the outbox. If acknowledged items still appear in `OutboxAccessor`
+  from the outbox. If acknowledged items still appear in `outboxAccessor`
   after the callback returns, the processor treats them as pending and they
   may be posted again. Persisting the removal within the callback is the
   straightforward choice but not required: because an item only leaves the
   *durable* outbox once the removal is written, the callback may assign it to
   `State` (§1) and let the next business write carry it. The processor reconciles
-  retry against `OutboxAccessor`, so it sees the unsaved view and disables
+  retry against `outboxAccessor`, so it sees the unsaved view and disables
   retry; a later failed write leaves those items pending again without
   re-arming it, and the grain should post again after handling that failure.
 - `AcknowledgeFailuresAsync` is the grain's policy hook for failed items. The
   grain may leave them in the outbox for retry, remove them, move them to
   dead-letter state, or make any other durable state change. If null, failed
   items are left pending and retried silently.
-- After either callback returns, the processor reads `OutboxAccessor` again
+- After either callback returns, the processor reads `outboxAccessor` again
   before scheduling retry/reminder work. The latest pending snapshot is the
   source of truth.
 
@@ -2234,7 +2272,7 @@ public async Task ReceiveReminder(string name, TickStatus status)
 - **Callback-based, not DI service.** Grain controls dispatch logic,
   can pass its own state to the postman. DI service adds indirection
   without clear benefit.
-- **`OutboxAccessor`.** The callback reads the current immutable outbox,
+- **`outboxAccessor`.** The callback reads the current immutable outbox,
   including after state replacement. It is not a captured, fixed collection
   of pending items.
 - **First-registered-wins postman matching.** Simple dispatch model.

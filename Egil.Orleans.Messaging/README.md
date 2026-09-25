@@ -519,16 +519,15 @@ private readonly OutboxProcessor<IOrderEvent> outboxProcessor;
 public OrderGrain([PersistentState("state", "Default")] IPersistentState<OrderState> storage)
 {
     state = this.RegisterStateManager("state", storage);
-    outboxProcessor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<IOrderEvent>
+    outboxProcessor = this.RegisterOutboxProcessor(() => state.State.Outbox, options =>
     {
-        OutboxAccessor = () => state.State.Outbox,
-        AcknowledgePostedAsync = async (items, ct) =>
+        options.AcknowledgePostedAsync = async (items, ct) =>
         {
             await state.WriteAsync(state.State with
             {
                 Outbox = state.State.Outbox.RemoveRange(items)
             }, ct);
-        }
+        };
     })
     .AddPostman<OrderSubmitted>(async message => await PublishSubmittedAsync(message))
     .AddPostman<OrderCancelled>(async message => await PublishCancelledAsync(message));
@@ -546,7 +545,7 @@ and cancellation is always third. Capture a grain factory when needed, or use
 `OutboxMessageId` and its owning grain ID, preserving sequence, epoch and append
 timestamp across retries and reactivation. No sender identity is stored in the outbox.
 
-`OutboxAccessor` returns the current `Outbox<T>` snapshot.
+The first argument, the outbox accessor, returns the current `Outbox<T>` snapshot.
 `AcknowledgePosted`, `AcknowledgePostedAsync`, and `AcknowledgeFailuresAsync`
 receive its original stored `OutboxMessageEnvelope<T>` values. The configured
 posted acknowledgement callbacks receive exactly the successfully delivered items,
@@ -558,16 +557,16 @@ To avoid paying a storage write per acknowledgement, stage the removal instead a
 let the next business write carry it:
 
 ```csharp
-AcknowledgePosted = items =>
+options.AcknowledgePosted = items =>
 {
     state.State = state.State with
     {
         Outbox = state.State.Outbox.RemoveRange(items)
     };
-}
+};
 ```
 
-`OutboxAccessor` reads through the state manager, so it observes the deferred
+The outbox accessor reads through the state manager, so it observes the deferred
 removal with no change at the call site. This is safe because items only leave the
 *durable* outbox once an acknowledgement is persisted: losing a deferred
 acknowledgement causes redelivery, never message loss. Pair it with the
@@ -582,7 +581,7 @@ activation. The items sit in storage until a fresh activation reads them back an
 something posts again.
 
 Two consequences of the processor seeing the deferred view are worth planning for.
-The processor reconciles its retry timer and reminder against `OutboxAccessor`, so
+The processor reconciles its retry timer and reminder against the outbox accessor, so
 a deferred acknowledgement that empties the outbox **disables retry** — correctly,
 as far as the processor can tell, though on the strength of a removal that is not
 durable yet. Anything that later discards the change brings those items back as
@@ -594,6 +593,38 @@ in flight when the assignment happened and finishes by adopting its own value. C
 leave the batch waiting until something posts again. Second, a redelivery is a real delivery: receivers must
 already be idempotent for at-least-once, and deferring makes the duplicate path
 slightly more likely, not differently shaped.
+
+### Processor options and silo defaults
+
+The `configure` callback receives an `OutboxProcessorOptions<T>`. It must set
+`AcknowledgePosted` or `AcknowledgePostedAsync`, and can override the shared
+scheduling settings:
+
+| Option                               | Default                | Effect                                                            |
+|--------------------------------------|------------------------|-------------------------------------------------------------------|
+| `ProcessingTimeout`                  | 20 seconds             | Maximum time per post run.                                        |
+| `RetryDelay`                         | 2 minutes              | Delay before retrying pending items. Reminders use >= 1 minute.   |
+| `Interleave`                         | `true`                 | Let other grain calls run while postmen await.                    |
+| `InterleaveAcknowledgementCallbacks` | `false`                | Let the acknowledgement callbacks interleave.                     |
+| `KeepAlive`                          | `false`                | Keep the activation alive while items are pending.                |
+| `TimeProvider`                       | `TimeProvider.System`  | Clock that enforces `ProcessingTimeout`.                          |
+
+Set the shared settings once per silo instead of repeating them in every grain.
+Each processor starts from these defaults, and its own callback overrides them:
+
+```csharp
+siloBuilder.ConfigureOutboxProcessor((options, services) =>
+{
+    options.RetryDelay = TimeSpan.FromMinutes(1);
+    options.KeepAlive = true;
+    options.TimeProvider = services.GetRequiredKeyedService<TimeProvider>("pricing");
+});
+```
+
+The silo defaults take the non-generic `OutboxProcessorOptions`, so they cannot set
+the acknowledgement callbacks, which are typed to each grain's payload. Both
+overloads exist on `IServiceCollection` too, and calls add up in registration
+order.
 
 `IOutboxGrain` forwards reminder ticks to the single attached processor.
 Register exactly one processor per grain activation; a second registration
@@ -1221,6 +1252,30 @@ guaranteed; use a System.Text.Json serializer or the Orleans binary serializer.
 This package is messaging infrastructure, not an event-sourcing or CQRS framework. It wraps Orleans state, outbox dispatch, receiver deduplication, and stream subscription management while leaving domain modeling, read models, transport targets, and operational policy to the application.
 
 ## Beta API changes
+
+- `RegisterOutboxProcessor` takes the outbox accessor and a `configure`
+  callback instead of an `OutboxProcessorOptions<T>` instance.
+  `OutboxProcessorOptions<T>.OutboxAccessor` is gone; pass the accessor as the
+  first argument. The scheduling settings moved to a non-generic
+  `OutboxProcessorOptions` base class, which `siloBuilder.ConfigureOutboxProcessor(...)`
+  sets for every processor in the silo.
+
+  ```diff
+  - this.RegisterOutboxProcessor(new OutboxProcessorOptions<IOrderEvent>
+  - {
+  -     OutboxAccessor = () => state.State.Outbox,
+  -     AcknowledgePosted = RemovePosted,
+  -     RetryDelay = TimeSpan.FromMinutes(1),
+  - })
+  + this.RegisterOutboxProcessor(() => state.State.Outbox, options =>
+  + {
+  +     options.AcknowledgePosted = RemovePosted;
+  +     options.RetryDelay = TimeSpan.FromMinutes(1);
+  + })
+  ```
+
+  When the accessor returns a collection expression, give the lambda an explicit
+  return type so the payload type can be inferred: `static Outbox<string> () => []`.
 
 - `StreamManager` subscription settings moved into a `configure` callback.
   `ConfigureImplicitSubscription` and `ConfigureExplicitSubscription` no

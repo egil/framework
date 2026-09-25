@@ -181,10 +181,9 @@ public sealed class OutboxTelemetryGrain : Grain, IOutboxTelemetryGrain, IOutbox
 
     public override Task OnActivateAsync(CancellationToken cancellationToken)
     {
-        processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<string>
+        processor = this.RegisterOutboxProcessor(() => outbox, options =>
         {
-            OutboxAccessor = () => outbox,
-            AcknowledgePosted = _ =>
+            options.AcknowledgePosted = _ =>
             {
                 if (throwAfterClearing)
                 {
@@ -192,8 +191,8 @@ public sealed class OutboxTelemetryGrain : Grain, IOutboxTelemetryGrain, IOutbox
                     throwAfterClearing = false;
                     throw new InvalidOperationException("acknowledgement failed");
                 }
-            },
-            RetryDelay = TimeSpan.FromHours(1)
+            };
+            options.RetryDelay = TimeSpan.FromHours(1);
         }).AddPostman<string>(static _ => ValueTask.CompletedTask);
         return base.OnActivateAsync(cancellationToken);
     }
@@ -235,11 +234,10 @@ public sealed class ConstructorOutboxTelemetryGrain : Grain, IConstructorOutboxT
 
     public ConstructorOutboxTelemetryGrain()
     {
-        processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<string>
+        processor = this.RegisterOutboxProcessor(() => outbox, options =>
         {
-            OutboxAccessor = () => outbox,
-            AcknowledgePosted = _ => { },
-            RetryDelay = TimeSpan.FromHours(1)
+            options.AcknowledgePosted = _ => { };
+            options.RetryDelay = TimeSpan.FromHours(1);
         }).AddPostman<string>(static _ => ValueTask.CompletedTask);
     }
 
@@ -259,11 +257,10 @@ public sealed class FailingOutboxTelemetryGrain : Grain, IFailingOutboxTelemetry
 {
     public override async Task OnActivateAsync(CancellationToken cancellationToken)
     {
-        var processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<string>
+        var processor = this.RegisterOutboxProcessor(static Outbox<string> () => ["pending"], options =>
         {
-            OutboxAccessor = static () => ["pending"],
-            AcknowledgePosted = _ => { },
-            RetryDelay = TimeSpan.FromHours(1)
+            options.AcknowledgePosted = _ => { };
+            options.RetryDelay = TimeSpan.FromHours(1);
         }).AddPostman<string>(static _ => ValueTask.CompletedTask);
         await processor.PostInBackgroundAsync(cancellationToken);
         throw new InvalidOperationException("activation failed");
