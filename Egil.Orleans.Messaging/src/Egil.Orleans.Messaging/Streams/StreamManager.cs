@@ -505,7 +505,8 @@ public sealed class StreamManager : IStreamManagerComponent
         var cursor = new StreamCursor(streamNamespace, token, providerName);
         var started = Stopwatch.GetTimestamp();
 
-        using var activity = StartConsumerActivity(streamNamespace, cursor, settings);
+        var ambient = Activity.Current;
+        var activity = StartConsumerActivity(streamNamespace, cursor, settings);
         try
         {
             await onNextAsync(item, cursor);
@@ -522,6 +523,14 @@ public sealed class StreamManager : IStreamManagerComponent
             MessagingTelemetry.RecordStreamHandlerError(streamNamespace);
             MessagingTelemetry.RecordStreamHandlerDuration(streamNamespace, "rejected", Stopwatch.GetElapsedTime(started).TotalMilliseconds);
             HandleError(streamNamespace, ex, settings.OnError);
+        }
+        finally
+        {
+            activity?.Dispose();
+
+            // A linked span starts as a root, so stopping it leaves no current
+            // activity. Put back whatever was ambient before delivery.
+            Activity.Current = ambient;
         }
     }
 
@@ -576,12 +585,21 @@ public sealed class StreamManager : IStreamManagerComponent
                     tags: tags);
             }
 
-            return MessagingTelemetry.ActivitySource.StartActivity(
+            // parentContext: default does not force a root span: ActivitySource falls
+            // back to Activity.Current. A linked delivery must start its own trace, so
+            // clear the ambient activity first; OnNextAsync restores it afterwards.
+            var ambient = Activity.Current;
+            Activity.Current = null;
+            var linked = MessagingTelemetry.ActivitySource.StartActivity(
                 "orleans.stream.process",
                 ActivityKind.Consumer,
                 parentContext: default,
                 tags: tags,
                 links: [new ActivityLink(producerContext)]);
+
+            // Nothing sampled the span, so the handler runs under the ambient activity.
+            Activity.Current ??= ambient;
+            return linked;
         }
 
         return MessagingTelemetry.ActivitySource.StartActivity(
