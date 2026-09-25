@@ -490,12 +490,11 @@ public sealed class OutboxProcessorSourceGrain(
     {
         EnsureOutbox();
 
-        processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorTestEvent>
+        processor = this.RegisterOutboxProcessor(() => state.State.Outbox ?? [], options =>
         {
-            OutboxAccessor = () => state.State.Outbox ?? [],
-            AcknowledgePostedAsync = AcknowledgePostedAsync,
-            AcknowledgeFailuresAsync = AcknowledgeFailuresAsync,
-            RetryDelay = TimeSpan.FromMilliseconds(100)
+            options.AcknowledgePostedAsync = AcknowledgePostedAsync;
+            options.AcknowledgeFailuresAsync = AcknowledgeFailuresAsync;
+            options.RetryDelay = TimeSpan.FromMilliseconds(100);
         })
         .AddPostman<OutboxProcessorTestEvent>(PublishEnvelopeAsync);
 
@@ -576,12 +575,11 @@ public sealed class OutboxProcessorNoPostmanGrain(
     {
         EnsureOutbox();
 
-        processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorTestEvent>
+        processor = this.RegisterOutboxProcessor(() => state.State.Outbox ?? [], options =>
         {
-            OutboxAccessor = () => state.State.Outbox ?? [],
-            AcknowledgePostedAsync = AcknowledgePostedAsync,
-            AcknowledgeFailuresAsync = AcknowledgeFailuresAsync,
-            RetryDelay = TimeSpan.FromMilliseconds(100)
+            options.AcknowledgePostedAsync = AcknowledgePostedAsync;
+            options.AcknowledgeFailuresAsync = AcknowledgeFailuresAsync;
+            options.RetryDelay = TimeSpan.FromMilliseconds(100);
         });
 
         await base.OnActivateAsync(cancellationToken);
@@ -634,12 +632,11 @@ public sealed class OutboxProcessorFailingPostmanGrain(
     {
         EnsureOutbox();
 
-        processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorTestEvent>
+        processor = this.RegisterOutboxProcessor(() => state.State.Outbox ?? [], options =>
         {
-            OutboxAccessor = () => state.State.Outbox ?? [],
-            AcknowledgePostedAsync = AcknowledgePostedAsync,
-            AcknowledgeFailuresAsync = AcknowledgeFailuresAsync,
-            RetryDelay = TimeSpan.FromMilliseconds(100)
+            options.AcknowledgePostedAsync = AcknowledgePostedAsync;
+            options.AcknowledgeFailuresAsync = AcknowledgeFailuresAsync;
+            options.RetryDelay = TimeSpan.FromMilliseconds(100);
         })
         .AddPostman<OutboxProcessorTestEvent>(FailAsync);
 
@@ -698,12 +695,11 @@ public sealed class OutboxProcessorKeyedPostmanGrain(
     {
         EnsureOutbox();
 
-        processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorTestEvent>
+        processor = this.RegisterOutboxProcessor(() => state.State.Outbox ?? [], options =>
         {
-            OutboxAccessor = () => state.State.Outbox ?? [],
-            AcknowledgePostedAsync = AcknowledgePostedAsync,
-            AcknowledgeFailuresAsync = AcknowledgeFailuresAsync,
-            RetryDelay = TimeSpan.FromMilliseconds(100)
+            options.AcknowledgePostedAsync = AcknowledgePostedAsync;
+            options.AcknowledgeFailuresAsync = AcknowledgeFailuresAsync;
+            options.RetryDelay = TimeSpan.FromMilliseconds(100);
         })
         .AddPostman<OutboxProcessorTestEvent>(OutboxProcessorTestPostmanNames.Success);
 
@@ -767,12 +763,11 @@ public sealed class OutboxProcessorKeyedFailingPostmanGrain(
     {
         EnsureOutbox();
 
-        processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorTestEvent>
+        processor = this.RegisterOutboxProcessor(() => state.State.Outbox ?? [], options =>
         {
-            OutboxAccessor = () => state.State.Outbox ?? [],
-            AcknowledgePostedAsync = AcknowledgePostedAsync,
-            AcknowledgeFailuresAsync = AcknowledgeFailuresAsync,
-            RetryDelay = TimeSpan.FromMilliseconds(100)
+            options.AcknowledgePostedAsync = AcknowledgePostedAsync;
+            options.AcknowledgeFailuresAsync = AcknowledgeFailuresAsync;
+            options.RetryDelay = TimeSpan.FromMilliseconds(100);
         })
         .AddPostman<OutboxProcessorTestEvent>(OutboxProcessorTestPostmanNames.Failure);
 
@@ -827,14 +822,13 @@ public sealed class OutboxProcessorKeyedCancellationPostmanGrain(
     {
         EnsureOutbox();
 
-        processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorTestEvent>
+        processor = this.RegisterOutboxProcessor(() => state.State.Outbox ?? [], options =>
         {
-            OutboxAccessor = () => state.State.Outbox ?? [],
-            AcknowledgePostedAsync = AcknowledgePostedAsync,
-            AcknowledgeFailuresAsync = AcknowledgeFailuresAsync,
-            ProcessingTimeout = TimeSpan.FromHours(2),
-            TimeProvider = timeProvider,
-            RetryDelay = TimeSpan.FromMilliseconds(100)
+            options.AcknowledgePostedAsync = AcknowledgePostedAsync;
+            options.AcknowledgeFailuresAsync = AcknowledgeFailuresAsync;
+            options.ProcessingTimeout = TimeSpan.FromHours(2);
+            options.TimeProvider = timeProvider;
+            options.RetryDelay = TimeSpan.FromMilliseconds(100);
         })
         .AddPostman<OutboxProcessorTestEvent>(OutboxProcessorTestPostmanNames.Delay);
 
@@ -895,14 +889,13 @@ public sealed class OutboxProcessorKeyedTimeoutPostmanGrain(
     {
         EnsureOutbox();
 
-        processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorTestEvent>
+        processor = this.RegisterOutboxProcessor(() => state.State.Outbox ?? [], options =>
         {
-            OutboxAccessor = () => state.State.Outbox ?? [],
-            AcknowledgePostedAsync = AcknowledgePostedAsync,
-            AcknowledgeFailuresAsync = AcknowledgeFailuresAsync,
-            ProcessingTimeout = TimeSpan.FromHours(1),
-            TimeProvider = timeProvider,
-            RetryDelay = TimeSpan.FromMilliseconds(100)
+            options.AcknowledgePostedAsync = AcknowledgePostedAsync;
+            options.AcknowledgeFailuresAsync = AcknowledgeFailuresAsync;
+            options.ProcessingTimeout = TimeSpan.FromHours(1);
+            options.TimeProvider = timeProvider;
+            options.RetryDelay = TimeSpan.FromMilliseconds(100);
         })
         .AddPostman<OutboxProcessorTestEvent>(OutboxProcessorTestPostmanNames.Delay);
 
@@ -963,14 +956,13 @@ public sealed class OutboxProcessorTimeoutRetryGrain(
     {
         EnsureOutbox();
 
-        processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorTestEvent>
+        processor = this.RegisterOutboxProcessor(() => state.State.Outbox ?? [], options =>
         {
-            OutboxAccessor = () => state.State.Outbox ?? [],
-            AcknowledgePostedAsync = AcknowledgePostedAsync,
-            AcknowledgeFailuresAsync = (_, _) => ValueTask.CompletedTask,
-            ProcessingTimeout = TimeSpan.FromHours(1),
-            TimeProvider = timeProvider,
-            RetryDelay = TimeSpan.FromMilliseconds(100)
+            options.AcknowledgePostedAsync = AcknowledgePostedAsync;
+            options.AcknowledgeFailuresAsync = (_, _) => ValueTask.CompletedTask;
+            options.ProcessingTimeout = TimeSpan.FromHours(1);
+            options.TimeProvider = timeProvider;
+            options.RetryDelay = TimeSpan.FromMilliseconds(100);
         })
         .AddPostman<OutboxProcessorTestEvent>(async (message, _, cancellationToken) => await FirstAttemptBlocksAsync(message, cancellationToken));
 
@@ -1040,12 +1032,11 @@ public sealed class OutboxProcessorConcurrentPostmanGrain(
     {
         EnsureOutbox();
 
-        processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorTestEvent>
+        processor = this.RegisterOutboxProcessor(() => state.State.Outbox ?? [], options =>
         {
-            OutboxAccessor = () => state.State.Outbox ?? [],
-            AcknowledgePostedAsync = AcknowledgePostedAsync,
-            AcknowledgeFailuresAsync = AcknowledgeFailuresAsync,
-            RetryDelay = TimeSpan.FromMilliseconds(100)
+            options.AcknowledgePostedAsync = AcknowledgePostedAsync;
+            options.AcknowledgeFailuresAsync = AcknowledgeFailuresAsync;
+            options.RetryDelay = TimeSpan.FromMilliseconds(100);
         })
         .AddPostman<OutboxProcessorTestEvent>(async (message, _, cancellationToken) => await PostWithGateAndTrackConcurrencyAsync(message, cancellationToken));
 
@@ -1142,12 +1133,11 @@ public sealed class OutboxProcessorOrderedPostmanGrain
 
     public override async Task OnActivateAsync(CancellationToken cancellationToken)
     {
-        processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OutboxProcessorOrderedMessage>
+        processor = this.RegisterOutboxProcessor(() => pending, options =>
         {
-            OutboxAccessor = () => pending,
-            AcknowledgePostedAsync = AcknowledgePostedAsync,
-            AcknowledgeFailuresAsync = AcknowledgeFailuresAsync,
-            RetryDelay = TimeSpan.FromMinutes(10)
+            options.AcknowledgePostedAsync = AcknowledgePostedAsync;
+            options.AcknowledgeFailuresAsync = AcknowledgeFailuresAsync;
+            options.RetryDelay = TimeSpan.FromMinutes(10);
         })
         .AddPostman<OutboxProcessorPrimaryMessage>(async (message, _, cancellationToken) => await PostPrimaryAsync(message, cancellationToken))
         .AddPostman<OutboxProcessorSecondaryMessage>(async (message, _, cancellationToken) => await PostSecondaryAsync(message, cancellationToken));

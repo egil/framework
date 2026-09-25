@@ -122,15 +122,12 @@ There are no public `Current` or `Committed` properties.
 The processor still receives immutable `Outbox<T>` values:
 
 ```csharp
-var processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<OrderEvent>
-{
-    OutboxAccessor = () => outbox.AsImmutable(),
-    AcknowledgePostedAsync = async (items, cancellationToken) =>
+var processor = this.RegisterOutboxProcessor(() => outbox.AsImmutable(), options =>
+    options.AcknowledgePostedAsync = async (items, cancellationToken) =>
     {
         outbox.RemoveRange(items);
         await WriteStateAsync(cancellationToken);
-    }
-});
+    });
 ```
 
 The grain must implement `IOutboxGrain` and register the appropriate postmen as

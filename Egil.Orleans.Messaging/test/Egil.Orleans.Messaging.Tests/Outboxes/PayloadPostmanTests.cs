@@ -145,11 +145,10 @@ public sealed class PayloadSourceGrain : Grain, IPayloadSourceGrain, IOutboxGrai
     {
         this.time = time;
         manager = this.RegisterStateManager("Payload", storage);
-        processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<IPayloadEvent>
+        processor = this.RegisterOutboxProcessor(() => manager.State.Outbox, options =>
         {
-            OutboxAccessor = () => manager.State.Outbox,
-            AcknowledgePostedAsync = AcknowledgeAsync,
-            RetryDelay = TimeSpan.FromMinutes(10)
+            options.AcknowledgePostedAsync = AcknowledgeAsync;
+            options.RetryDelay = TimeSpan.FromMinutes(10);
         })
         .AddPostman<LocalPayload>(DeliverLocalAsync)
         .AddGrainPostman<GrainPayload, IPayloadSinkGrain>(
@@ -262,14 +261,13 @@ public sealed class PartialProviderConfigurationGrain : Grain, IPartialProviderC
         Outbox<IPayloadEvent> outbox = [new StreamPayload(target, "registered-before-failure")];
         var fallbackCalls = 0;
         string? error = null;
-        var processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<IPayloadEvent>
+        var processor = this.RegisterOutboxProcessor(() => outbox, options =>
         {
-            OutboxAccessor = () => outbox,
-            AcknowledgePostedAsync = (items, _) =>
+            options.AcknowledgePostedAsync = (items, _) =>
             {
                 outbox = outbox.RemoveRange(items);
                 return ValueTask.CompletedTask;
-            }
+            };
         });
         try
         {

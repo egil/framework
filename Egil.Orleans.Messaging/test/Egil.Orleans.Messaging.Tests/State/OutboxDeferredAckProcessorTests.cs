@@ -84,10 +84,9 @@ public sealed class DeferredAckOutboxGrain : Grain, IDeferredAckOutboxGrain, IOu
 
     public override Task OnActivateAsync(CancellationToken cancellationToken)
     {
-        processor = this.RegisterOutboxProcessor(new OutboxProcessorOptions<DeferredAckOutboxEvent>
+        processor = this.RegisterOutboxProcessor(() => state.State.Outbox, options =>
         {
-            OutboxAccessor = () => state.State.Outbox,
-            AcknowledgePostedAsync = AcknowledgeAsync
+            options.AcknowledgePostedAsync = AcknowledgeAsync;
         })
         .AddPostman<DeferredAckOutboxEvent>(static _ => Task.CompletedTask);
 

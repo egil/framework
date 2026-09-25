@@ -1,27 +1,114 @@
 using System.Collections.Immutable;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace Egil.Orleans.Messaging.Outboxes;
 
 /// <summary>
-/// Configuration for <see cref="OutboxProcessor{TOutbox}"/>. Defines how the
-/// processor reads pending items, acknowledges successes and failures, and
-/// schedules retry work. At least one of <see cref="AcknowledgePosted"/> or
-/// <see cref="AcknowledgePostedAsync"/> must be configured; when both are set,
-/// both run in that order.
+/// Scheduling settings for <see cref="OutboxProcessor{TOutbox}"/> that do not
+/// depend on the outbox payload type, so a silo can set them once for every
+/// processor.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Every processor starts from the silo-wide defaults registered with
+/// <c>ConfigureOutboxProcessor</c> on the silo builder, or with
+/// <c>services.Configure&lt;OutboxProcessorOptions&gt;(...)</c>. The
+/// <c>configure</c> callback passed to <c>RegisterOutboxProcessor</c> then
+/// receives an <see cref="OutboxProcessorOptions{TOutbox}"/> holding those
+/// defaults and adds the acknowledgement callbacks and any overrides.
+/// </para>
+/// <para>
+/// The processor reads the settings once, when the callback returns. Changing
+/// the instance afterwards has no effect.
+/// </para>
+/// </remarks>
+public class OutboxProcessorOptions
+{
+    /// <summary>
+    /// Maximum time per post run. Default: 20 seconds.
+    /// </summary>
+    public TimeSpan ProcessingTimeout { get; set; } = TimeSpan.FromSeconds(20);
+
+    /// <summary>
+    /// Clock used to enforce <see cref="ProcessingTimeout"/>. Default:
+    /// <see cref="TimeProvider.System"/>.
+    /// </summary>
+    /// <remarks>
+    /// This provider controls only the processing timeout. Orleans owns the
+    /// grain timers and reminders used for <see cref="RetryDelay"/>. Set a
+    /// shared domain clock once for the silo with the
+    /// <c>ConfigureOutboxProcessor</c> overload that receives the
+    /// <see cref="IServiceProvider"/>.
+    /// </remarks>
+    public TimeProvider TimeProvider { get; set; } = TimeProvider.System;
+
+    /// <summary>
+    /// Delay before retrying remaining pending items. Cross-activation retry
+    /// is clamped to at least one minute because Orleans reminders do not
+    /// support sub-minute precision. Default: 2 minutes.
+    /// </summary>
+    public TimeSpan RetryDelay { get; set; } = TimeSpan.FromMinutes(2);
+
+    /// <summary>
+    /// Whether background posting may allow other grain calls to run while
+    /// postmen are awaiting asynchronous work.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to <see langword="true"/> so slow delivery does not block
+    /// unrelated calls to the grain. This controls the delivery phase only;
+    /// the acknowledgement callbacks use
+    /// <see cref="InterleaveAcknowledgementCallbacks"/>. Snapshot reads from
+    /// the outbox accessor can also happen after a background delivery pass to
+    /// decide whether retry work remains.
+    /// </remarks>
+    public bool Interleave { get; set; } = true;
+
+    /// <summary>
+    /// Whether the acknowledgement callbacks may interleave with other grain
+    /// calls when posting runs in the background.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to <see langword="false"/> because these callbacks usually
+    /// update durable outbox state. Orleans reentrancy rules still apply:
+    /// reentrant grains may interleave these callbacks regardless.
+    /// </remarks>
+    public bool InterleaveAcknowledgementCallbacks { get; set; }
+
+    /// <summary>
+    /// Whether background retry work should keep the grain activation alive
+    /// while pending outbox items remain.
+    /// </summary>
+    public bool KeepAlive { get; set; }
+
+    internal void CopyTo(OutboxProcessorOptions target)
+    {
+        target.ProcessingTimeout = ProcessingTimeout;
+        target.TimeProvider = TimeProvider;
+        target.RetryDelay = RetryDelay;
+        target.Interleave = Interleave;
+        target.InterleaveAcknowledgementCallbacks = InterleaveAcknowledgementCallbacks;
+        target.KeepAlive = KeepAlive;
+    }
+}
+
+/// <summary>
+/// Configuration for one <see cref="OutboxProcessor{TOutbox}"/>: the shared
+/// scheduling settings from <see cref="OutboxProcessorOptions"/> plus the
+/// acknowledgement callbacks for this grain's outbox. At least one of
+/// <see cref="AcknowledgePosted"/> or <see cref="AcknowledgePostedAsync"/> must
+/// be configured; when both are set, both run in that order.
 /// </summary>
 /// <typeparam name="TOutbox">
 /// The base payload type of outbox messages. Must match the type parameter of the
 /// <see cref="OutboxProcessor{TOutbox}"/> this options instance configures.
 /// </typeparam>
-public sealed class OutboxProcessorOptions<TOutbox>
+public sealed class OutboxProcessorOptions<TOutbox> : OutboxProcessorOptions
     where TOutbox : notnull
 {
-    /// <summary>
-    /// Returns the current non-null immutable outbox snapshot. Evaluated before dispatch,
-    /// and again during retry-state reconciliation once the acknowledgement callbacks
-    /// have returned.
-    /// </summary>
-    public required Func<Outbox<TOutbox>> OutboxAccessor { get; init; }
+    internal OutboxProcessorOptions()
+    {
+    }
 
     /// <summary>
     /// Called synchronously with items that were successfully dispatched by their postmen.
@@ -31,7 +118,7 @@ public sealed class OutboxProcessorOptions<TOutbox>
     /// When both acknowledgement callbacks are configured, this callback runs before
     /// <see cref="AcknowledgePostedAsync"/>.
     /// </remarks>
-    public Action<ImmutableArray<OutboxMessageEnvelope<TOutbox>>>? AcknowledgePosted { get; init; }
+    public Action<ImmutableArray<OutboxMessageEnvelope<TOutbox>>>? AcknowledgePosted { get; set; }
 
     /// <summary>
     /// Called asynchronously with items that were successfully dispatched by their postmen.
@@ -48,7 +135,7 @@ public sealed class OutboxProcessorOptions<TOutbox>
     /// message. A grain using <c>IStateManager&lt;T&gt;</c> can therefore
     /// assign <c>State</c> and let the next business write carry it. If it does,
     /// note that this processor reconciles its retry timer and reminder against the
-    /// <see cref="OutboxAccessor"/> snapshot, which reflects the deferred removal. Retry
+    /// outbox accessor's snapshot, which reflects the deferred removal. Retry
     /// is therefore disabled on the strength of a removal that is not durable yet, and
     /// anything that later discards the change brings those items back as pending without
     /// re-arming it: a write that fails, a successful <c>ReadAsync</c> or
@@ -58,15 +145,15 @@ public sealed class OutboxProcessorOptions<TOutbox>
     /// those cases.
     /// </para>
     /// The batch contains exactly the items that posted successfully and is
-    /// <em>not necessarily a contiguous prefix</em> of the
-    /// <see cref="OutboxAccessor"/> snapshot: different postmen dispatch their
+    /// <em>not necessarily a contiguous prefix</em> of the outbox accessor's
+    /// snapshot: different postmen dispatch their
     /// groups concurrently, and an item without a matching postman fails in
     /// place while later items can still succeed. Remove the received items
     /// by their <see cref="OutboxMessageEnvelope{T}.Id"/>,
     /// never by position or count — positional removal can drop a failed,
     /// undelivered item and lose it.
     /// </remarks>
-    public Func<ImmutableArray<OutboxMessageEnvelope<TOutbox>>, CancellationToken, ValueTask>? AcknowledgePostedAsync { get; init; }
+    public Func<ImmutableArray<OutboxMessageEnvelope<TOutbox>>, CancellationToken, ValueTask>? AcknowledgePostedAsync { get; set; }
 
     /// <summary>
     /// Called with items that failed dispatch, along with the exception and
@@ -82,60 +169,56 @@ public sealed class OutboxProcessorOptions<TOutbox>
     /// survive activation restarts (max attempts before dead-letter, etc.)
     /// should persist their own counters on the items or grain state.
     /// </remarks>
-    public Func<ImmutableArray<(OutboxMessageEnvelope<TOutbox> Item, Exception Error, int Attempt)>, CancellationToken, ValueTask>? AcknowledgeFailuresAsync { get; init; }
+    public Func<ImmutableArray<(OutboxMessageEnvelope<TOutbox> Item, Exception Error, int Attempt)>, CancellationToken, ValueTask>? AcknowledgeFailuresAsync { get; set; }
 
-    /// <summary>
-    /// Maximum time per post run. Default: 20 seconds.
-    /// </summary>
-    public TimeSpan ProcessingTimeout { get; init; } = TimeSpan.FromSeconds(20);
+    internal static OutboxProcessorOptions<TOutbox> Resolve(
+        IServiceProvider services,
+        Action<OutboxProcessorOptions<TOutbox>> configure,
+        string paramName)
+    {
+        var options = new OutboxProcessorOptions<TOutbox>();
+        services.GetService<IOptionsFactory<OutboxProcessorOptions>>()?
+            .Create(Options.DefaultName)
+            .CopyTo(options);
+        configure(options);
 
-    /// <summary>
-    /// Clock used to enforce <see cref="ProcessingTimeout"/>. Default:
-    /// <see cref="TimeProvider.System"/>.
-    /// </summary>
-    /// <remarks>
-    /// This provider controls only the processing timeout. Orleans owns the
-    /// grain timers and reminders used for <see cref="RetryDelay"/>.
-    /// </remarks>
-    public TimeProvider TimeProvider { get; init; } = global::System.TimeProvider.System;
+        var snapshot = options.Snapshot();
+        snapshot.Validate(paramName);
+        return snapshot;
+    }
 
-    /// <summary>
-    /// Delay before retrying remaining pending items. Cross-activation retry
-    /// is clamped to at least one minute because Orleans reminders do not
-    /// support sub-minute precision.
-    /// </summary>
-    public TimeSpan RetryDelay { get; init; } = TimeSpan.FromMinutes(2);
+    private OutboxProcessorOptions<TOutbox> Snapshot()
+    {
+        var snapshot = new OutboxProcessorOptions<TOutbox>
+        {
+            AcknowledgePosted = AcknowledgePosted,
+            AcknowledgePostedAsync = AcknowledgePostedAsync,
+            AcknowledgeFailuresAsync = AcknowledgeFailuresAsync,
+        };
+        CopyTo(snapshot);
+        return snapshot;
+    }
 
-    /// <summary>
-    /// Whether background posting may allow other grain calls to run while
-    /// postmen are awaiting asynchronous work.
-    /// </summary>
-    /// <remarks>
-    /// Defaults to <see langword="true"/> so slow delivery does not block
-    /// unrelated calls to the grain. This controls the delivery phase only;
-    /// <see cref="AcknowledgePosted"/>,
-    /// <see cref="AcknowledgePostedAsync"/>, and
-    /// <see cref="AcknowledgeFailuresAsync"/> use
-    /// <see cref="InterleaveAcknowledgementCallbacks"/>. Snapshot reads from
-    /// <see cref="OutboxAccessor"/> can also happen after a background delivery
-    /// pass to decide whether retry work remains.
-    /// </remarks>
-    public bool Interleave { get; init; } = true;
+    internal void Validate(string paramName)
+    {
+        if (TimeProvider is null)
+        {
+            throw new ArgumentException("TimeProvider must not be null.", paramName);
+        }
 
-    /// <summary>
-    /// Whether the acknowledgement callbacks may interleave with other grain
-    /// calls when posting runs in the background.
-    /// </summary>
-    /// <remarks>
-    /// Defaults to <see langword="false"/> because these callbacks usually
-    /// update durable outbox state. Orleans reentrancy rules still apply:
-    /// reentrant grains may interleave these callbacks regardless.
-    /// </remarks>
-    public bool InterleaveAcknowledgementCallbacks { get; init; }
+        if (AcknowledgePosted is null && AcknowledgePostedAsync is null)
+        {
+            throw new ArgumentException("At least one of AcknowledgePosted or AcknowledgePostedAsync must be configured.", paramName);
+        }
 
-    /// <summary>
-    /// Whether background retry work should keep the grain activation alive
-    /// while pending outbox items remain.
-    /// </summary>
-    public bool KeepAlive { get; init; }
+        if (ProcessingTimeout <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(paramName, "ProcessingTimeout must be greater than zero.");
+        }
+
+        if (RetryDelay <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(paramName, "RetryDelay must be greater than zero.");
+        }
+    }
 }
