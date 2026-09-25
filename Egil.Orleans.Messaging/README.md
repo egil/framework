@@ -813,6 +813,11 @@ The traceparent is stored whether or not the producing activity was sampled, so
 the trace id remains available for log correlation. `tracestate` is not
 captured.
 
+On the receiving side of a stream, `StreamManager` links each
+`orleans.stream.process` span to the producer by default, and a subscription
+can opt in to joining the producer's trace instead. See
+[Stream trace correlation](#stream-trace-correlation).
+
 #### Rebuilding an outbox from stored data
 
 Ambient capture is the right default for the producing path and wrong for every
@@ -998,9 +1003,17 @@ The previous key-only convention is not compatible with these full-identity
 stream ids. Recreate existing durable subscriptions and update publishers
 together, or preserve the previous id through the explicit `StreamId` overload.
 
-Tracked resume tokens are a per-subscription choice. The default is to pass
-the previous token when the tracker accessor returns a tracked cursor. Opt out when a
-subscription should attach without a resume token:
+### Subscription options
+
+Each subscription takes an optional `configure` callback that receives a
+`StreamSubscriptionOptions`:
+
+| Option                  | Default                     | Effect                                                              |
+|-------------------------|-----------------------------|---------------------------------------------------------------------|
+| `UseTrackedResumeToken` | `true`                      | Pass the tracker's last cursor token when attaching or resuming.    |
+| `OnError`               | `null` (log the error)      | Called with the namespace and exception when the handler throws.    |
+| `Trace`                 | `StreamTraceOptions.Link`   | How the consumer span relates to the producer's trace.              |
+| `TimeProvider`          | `TimeProvider.System`       | Clock for `StreamTraceOptions.ParentWithinLag`.                     |
 
 ```csharp
 streamManager = this.RegisterStreamManager(() => state.State.Tracker)
@@ -1008,13 +1021,40 @@ streamManager = this.RegisterStreamManager(() => state.State.Tracker)
         "StreamProvider",
         "prices",
         HandlePriceChangedAsync,
-        useTrackedResumeToken: false);
+        options =>
+        {
+            options.UseTrackedResumeToken = false;
+            options.OnError = LogStreamError;
+        });
 ```
+
+Set silo-wide defaults once instead of repeating them in every grain. Every
+subscription starts from these defaults, and its own callback overrides them:
+
+```csharp
+siloBuilder.ConfigureStreamManager(options =>
+{
+    options.Trace = StreamTraceOptions.ParentWithinLag(TimeSpan.FromMinutes(5));
+    options.OnError = (streamNamespace, error) => Log.StreamHandlerFailed(streamNamespace, error);
+});
+```
+
+The overload that also receives the silo's `IServiceProvider` shares a
+registered service, such as a keyed domain clock, with every subscription:
+
+```csharp
+siloBuilder.ConfigureStreamManager((options, services) =>
+    options.TimeProvider = services.GetRequiredKeyedService<TimeProvider>("pricing"));
+```
+
+Both overloads exist on `IServiceCollection` too. Calls add up in
+registration order, as `services.Configure<StreamSubscriptionOptions>(...)`
+does.
 
 Orleans 10.3 lets `[StatelessWorker]` grains consume streams, but such
 consumers use provider-managed live delivery and reject any non-null resume
 token. When a stateless worker registers a stream manager with a tracker
-snapshot, set `useTrackedResumeToken: false` on its subscriptions, or omit the
+snapshot, set `UseTrackedResumeToken = false` on its subscriptions, or omit the
 snapshot, or Orleans throws `InvalidOperationException` during attach.
 
 ```csharp
@@ -1069,6 +1109,54 @@ Custom stream providers that expose custom `StreamSequenceToken` types should
 register a `JsonConverter<TToken>` with `StreamSequenceTokenJsonConverters`
 during startup.
 
+### Stream trace correlation
+
+`StreamManager` wraps every delivery in an `orleans.stream.process` consumer
+span. When the token carries a valid W3C traceparent, such as the one
+`EnrichedEventHubAdapter` stamps on publish, each subscription chooses how that
+span relates to the producer through `StreamSubscriptionOptions.Trace`:
+
+| `Trace`                                 | Consumer span                                                               |
+|-----------------------------------------|-----------------------------------------------------------------------------|
+| `StreamTraceOptions.Link`               | New trace, with an `ActivityLink` to the producer span. The default.        |
+| `StreamTraceOptions.Parent`             | Child of the producer span, in the producer's trace. No link.               |
+| `StreamTraceOptions.ParentWithinLag(t)` | Child when `now - enqueued <= t`, otherwise linked as with `Link`.          |
+
+```csharp
+streamManager = this.RegisterStreamManager(() => state.State.Tracker)
+    // External feed: one trace per delivery.
+    .ConfigureImplicitSubscription<PriceChanged>("prices", HandlePriceChangedAsync)
+    // Internal grain-to-grain fan-out: keep the causal flow in one trace.
+    .ConfigureImplicitSubscription<SessionUpdated>(
+        "session-updates",
+        HandleSessionUpdatedAsync,
+        options => options.Trace = StreamTraceOptions.ParentWithinLag(TimeSpan.FromMinutes(5)));
+```
+
+When most streams in the silo are internal, make parenting the silo default with
+`ConfigureStreamManager` and set `Link` on the external subscriptions instead.
+
+Keep `Link` for external or high-volume streams, and for any stream whose
+consumers can publish back into a loop. Every delivery then gets its own trace,
+and a producer's trace never stretches across a backlog.
+
+Choose `Parent` or `ParentWithinLag` for internal streams with bounded fan-out,
+where one request should read as one trace. Backends that build the transaction
+tree from the trace id, such as the Application Insights end-to-end view,
+ignore links. Tail samplers decide per trace id, so linked consumer traces are
+sampled independently of the producer and are usually dropped.
+
+`ParentWithinLag` guards against the backlog case. After an outage, consumers
+catch up on messages enqueued hours earlier. With `Parent`, those spans join
+the old producer traces and stretch them across the whole outage. With
+`ParentWithinLag`, deliveries older than the limit fall back to a link.
+`ParentWithinLag` needs a token that exposes an enqueue time, such as
+`EnrichedEventHubSequenceToken`. Without one it always links. The lag is
+measured with `StreamSubscriptionOptions.TimeProvider`.
+
+A missing or unparseable traceparent starts the span in a new trace with no
+link, whatever the mode.
+
 ### Registering the converters outside a silo
 
 Any process that deserializes grain state containing Event Hub tokens needs
@@ -1116,6 +1204,22 @@ guaranteed; use a System.Text.Json serializer or the Orleans binary serializer.
 This package is messaging infrastructure, not an event-sourcing or CQRS framework. It wraps Orleans state, outbox dispatch, receiver deduplication, and stream subscription management while leaving domain modeling, read models, transport targets, and operational policy to the application.
 
 ## Beta API changes
+
+- `StreamManager` subscription settings moved into a `configure` callback.
+  `ConfigureImplicitSubscription` and `ConfigureExplicitSubscription` no
+  longer take `onError` or `useTrackedResumeToken`; set
+  `StreamSubscriptionOptions.OnError` and
+  `StreamSubscriptionOptions.UseTrackedResumeToken` instead. Settings shared
+  by every grain can move to `siloBuilder.ConfigureStreamManager(...)`.
+
+  ```diff
+  - .ConfigureImplicitSubscription("prices", HandleAsync, LogStreamError, useTrackedResumeToken: false)
+  + .ConfigureImplicitSubscription("prices", HandleAsync, options =>
+  + {
+  +     options.OnError = LogStreamError;
+  +     options.UseTrackedResumeToken = false;
+  + })
+  ```
 
 - `StorageFailureKind` gained a `Conflict` value and provider classifiers now
   route optimistic-concurrency rejections through it. Previously

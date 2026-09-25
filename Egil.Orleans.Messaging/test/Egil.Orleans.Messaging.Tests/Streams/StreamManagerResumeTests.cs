@@ -101,7 +101,7 @@ public sealed class StreamManagerResumeTests
                 "provider-a",
                 "orders",
                 static (_, _) => ValueTask.CompletedTask,
-                useTrackedResumeToken: false)
+                options => options.UseTrackedResumeToken = false)
             .EnsureExplicitSubscriptionsAsync(TestContext.Current.CancellationToken);
 
         Assert.Null(stream.SubscribeToken);
@@ -158,7 +158,7 @@ public sealed class StreamManagerResumeTests
                 "provider-a",
                 "orders",
                 static (_, _) => ValueTask.CompletedTask,
-                useTrackedResumeToken: false)
+                options => options.UseTrackedResumeToken = false)
             .ResumeExplicitSubscriptionsAsync(TestContext.Current.CancellationToken);
 
         Assert.Null(handle.ResumeToken);
@@ -200,7 +200,7 @@ public sealed class StreamManagerResumeTests
             .ConfigureImplicitSubscription<string>(
                 "orders",
                 static (_, _) => ValueTask.CompletedTask,
-                useTrackedResumeToken: false))
+                options => options.UseTrackedResumeToken = false))
             .OnSubscribedAsync(handleFactory);
 
         Assert.Null(handleFactory.StringHandle.ResumeToken);
@@ -227,7 +227,8 @@ public sealed class StreamManagerResumeTests
     internal static StreamManager CreateManager<TEvent>(
         Func<MessageTracker?>? tracker,
         FakeStream<TEvent> stream,
-        IGrainBase? owner = null)
+        IGrainBase? owner = null,
+        Func<StreamSubscriptionOptions>? createDefaultOptions = null)
     {
         owner ??= new FakeGrainBase();
         return StreamManager.Create(
@@ -235,7 +236,8 @@ public sealed class StreamManagerResumeTests
             tracker,
             _ => new FakeStreamProvider<TEvent>(stream),
             streamNamespace => StreamId.Create(streamNamespace, "one"),
-            NullLogger<StreamManager>.Instance);
+            NullLogger<StreamManager>.Instance,
+            createDefaultOptions);
     }
 
     private static MessageTracker CreateTracker(

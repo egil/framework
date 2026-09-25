@@ -39,8 +39,8 @@ namespace Egil.Orleans.Messaging.Streams.EventHubs;
 /// <item><see cref="ToQueueMessage{T}"/> — to stamp
 /// <c>Activity.Current?.Id</c> into the outgoing
 /// <c>EventData.Properties["traceparent"]</c> before the event hits
-/// Event Hub, enabling cross-queue trace correlation via
-/// <see cref="ActivityLink"/>s on the consumer side.</item>
+/// Event Hub, enabling cross-queue trace correlation on the consumer
+/// side.</item>
 /// </list>
 /// All other adapter behavior, including partition-key selection, is inherited
 /// unchanged from <see cref="EventHubDataAdapter"/>.
@@ -57,9 +57,10 @@ namespace Egil.Orleans.Messaging.Streams.EventHubs;
 /// extracts the <c>traceparent</c> property and stores it in each delivered
 /// <see cref="EnrichedEventHubSequenceToken.TraceParent"/>.</item>
 /// <item><b>StreamManager</b>: reads
-/// <see cref="StreamCursor.TryGetTraceParent"/> and creates an
-/// <see cref="ActivityLink"/> — correlating consumer spans to producer
-/// spans without creating multi-hour parent-child traces.</item>
+/// <see cref="StreamCursor.TryGetTraceParent"/> and, by default, creates an
+/// <see cref="ActivityLink"/> from the consumer span to the producer span.
+/// A subscription configured with <see cref="StreamTraceOptions"/> can parent
+/// the consumer span to the producer span instead.</item>
 /// </list>
 /// </para>
 /// <para>

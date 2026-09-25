@@ -121,9 +121,9 @@ public sealed record StreamCursor(
     /// <remarks>
     /// Returns <c>true</c> when the token implements
     /// <see cref="IStreamSequenceTokenMetadata"/> and exposes a traceparent.
-    /// <see cref="StreamManager"/> uses this to create
-    /// <see cref="System.Diagnostics.ActivityLink"/>s — correlating consumer
-    /// spans to producer spans without creating multi-hour parent-child traces.
+    /// <see cref="StreamManager"/> uses this to link or parent the consumer
+    /// span to the producer span, according to the subscription's
+    /// <see cref="StreamTraceOptions"/>.
     /// </remarks>
     /// <param name="traceParent">
     /// The W3C <c>traceparent</c> value from the producer-side

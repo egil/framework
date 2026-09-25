@@ -1020,7 +1020,7 @@ Four responsibilities:
 2. **Attach** handlers to implicit subscription handles provided by Orleans.
 3. **Resume or ensure** durable explicit subscription handles.
 4. **Dispatch** with projected `StreamCursor` and per-subscription error
-   handling via the optional `onError` callback.
+   handling via `StreamSubscriptionOptions.OnError`.
 
 ### Why a facade, not a base class
 
@@ -1077,42 +1077,36 @@ public sealed class StreamManager
     public StreamManager ConfigureImplicitSubscription<TEvent>(
         string streamNamespace,
         Func<TEvent, StreamCursor, ValueTask> onNextAsync,
-        Action<string, Exception>? onError = default,
-        bool useTrackedResumeToken = true);
+        Action<StreamSubscriptionOptions>? configure = null);
 
     public StreamManager ConfigureImplicitSubscription<TEvent>(
         string streamNamespace,
         Func<TEvent, StreamCursor, Task> onNextAsync,
-        Action<string, Exception>? onError = default,
-        bool useTrackedResumeToken = true);
+        Action<StreamSubscriptionOptions>? configure = null);
 
     public StreamManager ConfigureExplicitSubscription<TEvent>(
         string streamProviderName,
         string streamNamespace,
         Func<TEvent, StreamCursor, ValueTask> onNextAsync,
-        Action<string, Exception>? onError = default,
-        bool useTrackedResumeToken = true);
+        Action<StreamSubscriptionOptions>? configure = null);
 
     public StreamManager ConfigureExplicitSubscription<TEvent>(
         string streamProviderName,
         string streamNamespace,
         Func<TEvent, StreamCursor, Task> onNextAsync,
-        Action<string, Exception>? onError = default,
-        bool useTrackedResumeToken = true);
+        Action<StreamSubscriptionOptions>? configure = null);
 
     public StreamManager ConfigureExplicitSubscription<TEvent>(
         string streamProviderName,
         StreamId streamId,
         Func<TEvent, StreamCursor, ValueTask> onNextAsync,
-        Action<string, Exception>? onError = default,
-        bool useTrackedResumeToken = true);
+        Action<StreamSubscriptionOptions>? configure = null);
 
     public StreamManager ConfigureExplicitSubscription<TEvent>(
         string streamProviderName,
         StreamId streamId,
         Func<TEvent, StreamCursor, Task> onNextAsync,
-        Action<string, Exception>? onError = default,
-        bool useTrackedResumeToken = true);
+        Action<StreamSubscriptionOptions>? configure = null);
 
     public Task ResumeExplicitSubscriptionsAsync(
         CancellationToken cancellationToken = default);
@@ -1121,12 +1115,32 @@ public sealed class StreamManager
         CancellationToken cancellationToken = default);
 }
 
+public sealed class StreamSubscriptionOptions
+{
+    public Action<string, Exception>? OnError { get; set; }
+    public bool UseTrackedResumeToken { get; set; } = true;
+    public StreamTraceOptions Trace { get; set; } = StreamTraceOptions.Link;
+    public TimeProvider TimeProvider { get; set; } = TimeProvider.System;
+}
+
 public static class StreamManagerExtensions
 {
     public static StreamManager RegisterStreamManager<TGrain>(
         this TGrain grain,
         Func<MessageTracker?>? getTracker = null)
         where TGrain : IGrainBase;
+}
+
+// Silo-wide defaults. Same pair on IServiceCollection.
+public static class StreamManagerSiloBuilderExtensions
+{
+    public static ISiloBuilder ConfigureStreamManager(
+        this ISiloBuilder builder,
+        Action<StreamSubscriptionOptions> configure);
+
+    public static ISiloBuilder ConfigureStreamManager(
+        this ISiloBuilder builder,
+        Action<StreamSubscriptionOptions, IServiceProvider> configure);
 }
 
 ```
@@ -1152,11 +1166,39 @@ persisted cursors.
 
 Each configured subscription independently decides whether `StreamManager`
 passes the tracked cursor token into Orleans resume/subscribe APIs. The
-default is `useTrackedResumeToken: true` for compatibility: if a tracker
+default is `UseTrackedResumeToken = true` for compatibility: if a tracker
 snapshot has a cursor for the stream, the previous token is supplied. Set
-`useTrackedResumeToken: false` when the grain wants Orleans to attach the
+`UseTrackedResumeToken = false` when the grain wants Orleans to attach the
 handler without a resume token for that subscription, even if a tracker
 snapshot is available.
+
+### Subscription options and silo defaults
+
+Per-subscription settings live on `StreamSubscriptionOptions` and reach the
+manager through an optional `configure` callback, the same callback shape the
+state manager uses for hooks. Settings are layered:
+
+```
+StreamSubscriptionOptions property defaults
+  -> silo defaults: ConfigureStreamManager(...) / services.Configure<StreamSubscriptionOptions>(...)
+    -> the subscription's configure callback
+```
+
+The manager resolves `IOptionsFactory<StreamSubscriptionOptions>` from
+activation services and creates a fresh instance per subscription, so one
+subscription's changes never leak into another or into the silo defaults. It
+copies the settings when the callback returns; later changes to the instance
+have no effect.
+
+The defaults are one global set per silo, not keyed by provider or namespace.
+A grain that consumes both external and internal streams overrides the odd
+subscription out in its callback. The `IServiceProvider` overload exists so a
+silo can share a registered service, typically a keyed domain
+`TimeProvider`, with every subscription without grain code resolving it.
+
+Optional parameters (`onError`, `useTrackedResumeToken`) were folded into
+the options type. A parameter list grows one argument per setting and cannot
+be set silo-wide; an options type does both.
 
 ### Typical implicit wiring
 
@@ -1167,8 +1209,8 @@ public override async Task OnActivateAsync(CancellationToken ct)
     state.Tracker.RegisterTimeProvider(timeProvider);
 
     this.RegisterStreamManager(() => state.Tracker)
-        .ConfigureImplicitSubscription("electricity-prices", HandlePriceTickAsync, LogStreamError)
-        .ConfigureImplicitSubscription("tariff-events", HandleTariffChangedAsync, useTrackedResumeToken: false);
+        .ConfigureImplicitSubscription("electricity-prices", HandlePriceTickAsync, options => options.OnError = LogStreamError)
+        .ConfigureImplicitSubscription("tariff-events", HandleTariffChangedAsync, options => options.UseTrackedResumeToken = false);
 }
 ```
 
@@ -1266,7 +1308,7 @@ to `CreateStreamId`, or retained by configuring their previous ids explicitly.
   `ResumeAsync(observer, token)` to attach the handler. The token comes from
   the activation-time `MessageTracker` snapshot when a cursor exists for the
   same provider and namespace and that subscription has
-  `useTrackedResumeToken: true`.
+  `UseTrackedResumeToken = true`.
 - If no handler is configured for the implicit stream namespace, the manager
   throws during `OnSubscribed(...)`. A mismatched attribute/configuration is a
   delivery-path misconfiguration and should not be a log-only condition.
@@ -1279,13 +1321,13 @@ to `CreateStreamId`, or retained by configuring their previous ids explicitly.
 ### Explicit subscription semantics
 
 - `ConfigureExplicitSubscription(...)` records the provider, stream identity,
-  event type, handler, and error callback. The namespace overload derives the
+  event type, handler, and resolved subscription options. The namespace overload derives the
   stream id from the complete receiving `GrainId`; the `StreamId` overload uses
   the caller-provided stream identity directly.
 - `ResumeExplicitSubscriptionsAsync(...)` resumes all existing durable
   handles for each configured explicit stream from the activation-time
   `MessageTracker` cursor when one exists and that subscription has
-  `useTrackedResumeToken: true`. It never creates a new subscription.
+  `UseTrackedResumeToken = true`. It never creates a new subscription.
 - `EnsureExplicitSubscriptionsAsync(...)` resumes existing handles when
   present. If none exist for a configured explicit stream, it creates exactly
   one explicit subscription with `SubscribeAsync(observer, token)`, using the
@@ -1461,7 +1503,8 @@ surfaces through `StreamCursor.TryGetEnqueuedTime(...)`,
 ### OpenTelemetry trace correlation
 
 Two separate gaps break trace correlation, and both are closed with
-`ActivityLink`s rather than parent chaining.
+`ActivityLink`s rather than parent chaining by default. Stream subscriptions
+can opt in to parenting (Gap 2).
 
 #### Gap 1: the outbox store-and-forward delay
 
@@ -1551,10 +1594,50 @@ This produces separate traces per delivery, each with a link back to
 the producer span. OTel backends render the cross-trace arrow without
 collapsing weeks of traffic into one trace.
 
+Links are the default, not the only option. `StreamSubscriptionOptions.Trace`
+takes a `StreamTraceOptions`, per subscription or as a silo default:
+
+```csharp
+public enum StreamTraceMode { Link, Parent, ParentWithinLag }
+
+public sealed record StreamTraceOptions
+{
+    public static StreamTraceOptions Link { get; }
+    public static StreamTraceOptions Parent { get; }
+    public static StreamTraceOptions ParentWithinLag(TimeSpan maxParentLag);
+
+    public StreamTraceMode Mode { get; }
+    public TimeSpan MaxParentLag { get; }
+}
+```
+
+- `Parent` starts the consumer span with the producer context as
+  `parentContext` and no link, since the link would repeat the parent.
+- `ParentWithinLag` parents when
+  `StreamSubscriptionOptions.TimeProvider.GetUtcNow() - enqueuedTime` is at
+  most `MaxParentLag`, and links otherwise. A token with no enqueue
+  time links.
+- A missing or unparseable traceparent produces a span with neither parent
+  nor link, whatever the mode.
+
+The force is internal grain-to-grain streams with bounded fan-out. Backends
+that build the transaction tree from the trace id (Application Insights'
+end-to-end view) ignore links, and tail samplers decide per trace id, so
+linked consumer traces are sampled apart from the producer and usually
+dropped. Parenting keeps one causal flow in one trace. The remaining risk is a
+backlog after an outage, where parenting would stretch a producer's trace
+across hours; `ParentWithinLag` bounds that.
+
+The choice is per subscription, not per grain, because one grain may consume
+an external stream (link) and an internal stream (parent) side by side. It is
+an options record built from factories, not an enum plus a separate
+`TimeSpan` property, so a lag limit cannot be supplied for a mode that ignores it and
+`ParentWithinLag` cannot be configured without one.
+
 The built-in adapter owns producer-side propagation for users who call
 `UseEnrichedDataAdapter()`. Custom adapters should preserve the same
 `traceparent` property behavior if they want `StreamManager` to create
-links.
+links or parents.
 
 ### Telemetry
 
