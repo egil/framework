@@ -223,8 +223,9 @@ public abstract class StateManagerBase<T> : IStateManager<T>
             var failureKind = ClassifyWriteFailure(ex);
             if (failureKind is StorageFailureKind.DidNotPersist)
             {
-                // Provider-specific classification says the write never reached durable storage.
-                // Revert our local fence immediately and rethrow the original write error.
+                // Provider-specific classification says the write never reached durable storage
+                // and the stored version was not contradicted. Revert our local fence
+                // immediately and rethrow the original write error.
                 RestoreState();
                 throw;
             }
@@ -238,7 +239,10 @@ public abstract class StateManagerBase<T> : IStateManager<T>
             // failures: let them propagate instead of hiding them behind the write error.
             T? persisted = storage.State;
             AdoptLoadedState();
-            if (ex is not InconsistentStateException && storage.RecordExists && IsEquivalent(persisted, newState))
+            if (failureKind is not StorageFailureKind.Conflict
+                && ex is not InconsistentStateException
+                && storage.RecordExists
+                && IsEquivalent(persisted, newState))
             {
                 return;
             }
@@ -281,7 +285,8 @@ public abstract class StateManagerBase<T> : IStateManager<T>
         }
         catch (Exception ex)
         {
-            if (ClassifyClearFailure(ex) is StorageFailureKind.DidNotPersist)
+            var failureKind = ClassifyClearFailure(ex);
+            if (failureKind is StorageFailureKind.DidNotPersist)
             {
                 RestoreState();
                 throw;
@@ -295,7 +300,9 @@ public abstract class StateManagerBase<T> : IStateManager<T>
             // Once storage has returned a record (or confirmed its absence), state
             // validation and configuration failures belong to the caller, not recovery.
             AdoptLoadedState();
-            if (ex is not InconsistentStateException && !storage.RecordExists)
+            if (failureKind is not StorageFailureKind.Conflict
+                && ex is not InconsistentStateException
+                && !storage.RecordExists)
             {
                 return;
             }

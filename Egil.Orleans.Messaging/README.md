@@ -1022,6 +1022,22 @@ This package is messaging infrastructure, not an event-sourcing or CQRS framewor
 
 ## Beta API changes
 
+- `StorageFailureKind` gained a `Conflict` value and provider classifiers now
+  route optimistic-concurrency rejections through it. Previously
+  `AzureStorageStateManager<T>` classified `InconsistentStateException`,
+  HTTP 412, and ETag/existence error codes (`ConditionNotMet`,
+  `UpdateConditionNotSatisfied`, `BlobAlreadyExists`/`BlobNotFound`,
+  `EntityAlreadyExists`/`EntityNotFound`, `ResourceAlreadyExists`/`ResourceNotFound`)
+  as `DidNotPersist`, which skipped read-back and left the facet holding the
+  stale ETag until the grain deactivated or called `ReadAsync()`. They are now
+  classified as `Conflict`, which forces a recovery read to refresh the local
+  baseline before rethrowing the original exception, so the next `WriteAsync`
+  uses a fresh ETag ([issue #261](https://github.com/egil/framework/issues/261)).
+  Custom `StateManagerBase<T>` overrides that returned `DidNotPersist` for
+  ETag-mismatch failures should return `Conflict` instead; other failures
+  (auth, missing container/table, payload too large) still return
+  `DidNotPersist`.
+
 - `VersionedState.Version` now uses public `init` so state records can be included
   in a consumer's System.Text.Json source-generated context
   ([issue #224](https://github.com/egil/framework/issues/224)). Remove any

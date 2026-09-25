@@ -62,7 +62,11 @@ internal static class AzureStorageFailureClassifier
     {
         if (exception is InconsistentStateException)
         {
-            return StorageFailureKind.DidNotPersist;
+            // Orleans' Azure providers wrap ETag mismatches, HTTP 412, and existence
+            // errors on conditional write/clear as InconsistentStateException. The
+            // rejection proves this attempt did not persist, but it also proves the
+            // local ETag is stale, so recovery must re-read before rethrowing.
+            return StorageFailureKind.Conflict;
         }
 
         if (exception is RequestFailedException requestFailed)
@@ -72,7 +76,7 @@ internal static class AzureStorageFailureClassifier
 
         if (exception is AggregateException aggregateException)
         {
-            var hasDidNotPersist = false;
+            var kind = default(StorageFailureKind?);
             foreach (var inner in aggregateException.Flatten().InnerExceptions)
             {
                 var innerKind = TryClassify(inner);
@@ -83,10 +87,16 @@ internal static class AzureStorageFailureClassifier
                     return StorageFailureKind.UnknownOutcome;
                 }
 
-                hasDidNotPersist |= innerKind is StorageFailureKind.DidNotPersist;
+                // Precedence within an aggregate: Conflict wins over DidNotPersist, because
+                // a Conflict inner means an ETag mismatch was observed and the local
+                // baseline must be refreshed.
+                if (kind is null || innerKind is StorageFailureKind.Conflict)
+                {
+                    kind = innerKind;
+                }
             }
 
-            return hasDidNotPersist ? StorageFailureKind.DidNotPersist : null;
+            return kind;
         }
 
         return exception.InnerException is null ? null : TryClassify(exception.InnerException);
@@ -97,6 +107,11 @@ internal static class AzureStorageFailureClassifier
         if (IsAmbiguousOrTransient(exception))
         {
             return StorageFailureKind.UnknownOutcome;
+        }
+
+        if (IsConflict(exception))
+        {
+            return StorageFailureKind.Conflict;
         }
 
         return IsRejectedBeforePersistence(exception)
@@ -111,6 +126,14 @@ internal static class AzureStorageFailureClassifier
             or 429
             or >= 500
             || IsAmbiguousErrorCode(exception.ErrorCode);
+    }
+
+    private static bool IsConflict(RequestFailedException exception)
+    {
+        return exception.Status is (int)HttpStatusCode.PreconditionFailed
+            or (int)HttpStatusCode.Conflict
+            or (int)HttpStatusCode.NotFound
+            || IsConflictErrorCode(exception.ErrorCode);
     }
 
     private static bool IsRejectedBeforePersistence(RequestFailedException exception)
@@ -131,24 +154,32 @@ internal static class AzureStorageFailureClassifier
         };
     }
 
-    private static bool IsRejectedErrorCode(string? errorCode)
+    private static bool IsConflictErrorCode(string? errorCode)
     {
         return errorCode switch
         {
             "ConditionNotMet" => true,
+            "UpdateConditionNotSatisfied" => true,
+            "BlobAlreadyExists" => true,
+            "EntityAlreadyExists" => true,
+            "ResourceAlreadyExists" => true,
+            "BlobNotFound" => true,
+            "EntityNotFound" => true,
+            "ResourceNotFound" => true,
+            _ => false
+        };
+    }
+
+    private static bool IsRejectedErrorCode(string? errorCode)
+    {
+        return errorCode switch
+        {
             "AppendPositionConditionNotMet" => true,
             "MaxBlobSizeConditionNotMet" => true,
             "SequenceNumberConditionNotMet" => true,
             "SourceConditionNotMet" => true,
             "TargetConditionNotMet" => true,
-            "BlobAlreadyExists" => true,
-            "BlobNotFound" => true,
             "ContainerNotFound" => true,
-            "ResourceAlreadyExists" => true,
-            "ResourceNotFound" => true,
-            "UpdateConditionNotSatisfied" => true,
-            "EntityAlreadyExists" => true,
-            "EntityNotFound" => true,
             "TableNotFound" => true,
             _ => false
         };

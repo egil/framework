@@ -7,12 +7,18 @@ namespace Egil.Orleans.Messaging.State.AzureStorage.Tests.AzureStorage;
 public sealed class AzureStorageStateManagerTests
 {
     [Fact]
-    public async Task WriteAsync_with_precondition_failed_skips_read_back_and_rethrows()
+    public async Task WriteAsync_with_precondition_failed_reads_back_and_rethrows()
     {
         var exception = new RequestFailedException(412, "Precondition failed.");
+        var persisted = new TestState("persisted");
         var storage = new FakePersistentState(new TestState("initial"))
         {
-            WriteException = exception
+            WriteException = exception,
+            OnRead = state =>
+            {
+                state.State = persisted;
+                state.Etag = "etag-2";
+            }
         };
         var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
 
@@ -20,20 +26,27 @@ public sealed class AzureStorageStateManagerTests
             () => manager.WriteAsync(new TestState("next"), TestContext.Current.CancellationToken));
 
         Assert.Same(exception, actual);
-        Assert.Equal(0, storage.ReadCount);
-        Assert.Equal(new TestState("initial"), manager.State);
-        Assert.Equal(new TestState("initial"), storage.State);
+        Assert.Equal(1, storage.ReadCount);
+        Assert.Equal(persisted, manager.State);
+        Assert.Equal(persisted, storage.State);
+        Assert.Equal("etag-2", storage.Etag);
     }
 
     [Fact]
-    public async Task WriteAsync_with_nested_precondition_failed_skips_read_back_and_rethrows_outer_exception()
+    public async Task WriteAsync_with_nested_precondition_failed_reads_back_and_rethrows_outer_exception()
     {
         var exception = new InvalidOperationException(
             "wrapped",
             new RequestFailedException(412, "Precondition failed."));
+        var persisted = new TestState("persisted");
         var storage = new FakePersistentState(new TestState("initial"))
         {
-            WriteException = exception
+            WriteException = exception,
+            OnRead = state =>
+            {
+                state.State = persisted;
+                state.Etag = "etag-2";
+            }
         };
         var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
 
@@ -41,21 +54,27 @@ public sealed class AzureStorageStateManagerTests
             () => manager.WriteAsync(new TestState("next"), TestContext.Current.CancellationToken));
 
         Assert.Same(exception, actual);
-        Assert.Equal(0, storage.ReadCount);
-        Assert.Equal(new TestState("initial"), manager.State);
+        Assert.Equal(1, storage.ReadCount);
+        Assert.Equal(persisted, manager.State);
     }
 
     [Fact]
-    public async Task WriteAsync_with_conflict_skips_read_back_and_rethrows()
+    public async Task WriteAsync_with_conflict_reads_back_and_rethrows()
     {
         var exception = new RequestFailedException(
             409,
             "The specified blob already exists.",
             BlobErrorCode.BlobAlreadyExists.ToString(),
             innerException: null);
+        var persisted = new TestState("persisted");
         var storage = new FakePersistentState(new TestState("initial"))
         {
-            WriteException = exception
+            WriteException = exception,
+            OnRead = state =>
+            {
+                state.State = persisted;
+                state.Etag = "etag-2";
+            }
         };
         var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
 
@@ -63,8 +82,36 @@ public sealed class AzureStorageStateManagerTests
             () => manager.WriteAsync(new TestState("next"), TestContext.Current.CancellationToken));
 
         Assert.Same(exception, actual);
-        Assert.Equal(0, storage.ReadCount);
-        Assert.Equal(new TestState("initial"), manager.State);
+        Assert.Equal(1, storage.ReadCount);
+        Assert.Equal(persisted, manager.State);
+    }
+
+    [Fact]
+    public async Task WriteAsync_with_conflict_always_rethrows_even_when_persisted_matches()
+    {
+        // A coincidental equality match must not swallow a concurrency conflict:
+        // the point of the read-back is to refresh the local ETag baseline, not to
+        // decide whether the write was really lost.
+        var attempted = new TestState("next");
+        var exception = new RequestFailedException(412, "Precondition failed.");
+        var storage = new FakePersistentState(new TestState("initial"))
+        {
+            WriteException = exception,
+            OnRead = state =>
+            {
+                state.State = attempted;
+                state.Etag = "etag-2";
+            }
+        };
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
+
+        var actual = await Assert.ThrowsAsync<RequestFailedException>(
+            () => manager.WriteAsync(attempted, TestContext.Current.CancellationToken));
+
+        Assert.Same(exception, actual);
+        Assert.Equal(1, storage.ReadCount);
+        Assert.Equal(attempted, manager.State);
+        Assert.Equal("etag-2", storage.Etag);
     }
 
     [Fact]
@@ -162,7 +209,7 @@ public sealed class AzureStorageStateManagerTests
     }
 
     [Fact]
-    public async Task WriteAsync_with_aggregate_precondition_failed_skips_read_back_and_rethrows()
+    public async Task WriteAsync_with_aggregate_precondition_failed_reads_back_and_rethrows()
     {
         var exception = new AggregateException(
             new RequestFailedException(
@@ -170,9 +217,15 @@ public sealed class AzureStorageStateManagerTests
                 "The update condition specified in the request was not satisfied.",
                 TableErrorCode.UpdateConditionNotSatisfied.ToString(),
                 innerException: null));
+        var persisted = new TestState("persisted");
         var storage = new FakePersistentState(new TestState("initial"))
         {
-            WriteException = exception
+            WriteException = exception,
+            OnRead = state =>
+            {
+                state.State = persisted;
+                state.Etag = "etag-2";
+            }
         };
         var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
 
@@ -180,8 +233,8 @@ public sealed class AzureStorageStateManagerTests
             () => manager.WriteAsync(new TestState("next"), TestContext.Current.CancellationToken));
 
         Assert.Same(exception, actual);
-        Assert.Equal(0, storage.ReadCount);
-        Assert.Equal(new TestState("initial"), manager.State);
+        Assert.Equal(1, storage.ReadCount);
+        Assert.Equal(persisted, manager.State);
     }
 
     [Fact]
@@ -211,12 +264,18 @@ public sealed class AzureStorageStateManagerTests
     }
 
     [Fact]
-    public async Task ClearAsync_with_precondition_failed_skips_read_back_and_rethrows()
+    public async Task ClearAsync_with_precondition_failed_reads_back_and_rethrows()
     {
         var exception = new RequestFailedException(412, "Precondition failed.");
+        var persisted = new TestState("persisted");
         var storage = new FakePersistentState(new TestState("initial"))
         {
-            ClearException = exception
+            ClearException = exception,
+            OnRead = state =>
+            {
+                state.State = persisted;
+                state.Etag = "etag-2";
+            }
         };
         var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
 
@@ -224,9 +283,9 @@ public sealed class AzureStorageStateManagerTests
             () => manager.ClearAsync(TestContext.Current.CancellationToken));
 
         Assert.Same(exception, actual);
-        Assert.Equal(0, storage.ReadCount);
-        Assert.Equal(new TestState("initial"), manager.State);
-        Assert.Equal(new TestState("initial"), storage.State);
+        Assert.Equal(1, storage.ReadCount);
+        Assert.Equal(persisted, manager.State);
+        Assert.Equal("etag-2", storage.Etag);
     }
 
     [Fact]
