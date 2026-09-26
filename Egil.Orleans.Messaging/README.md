@@ -958,7 +958,8 @@ The silo installs the clock before any grain activates and removes it when it
 stops. Calls add up in registration order, as `services.Configure<MessageTrackerOptions>(...)`
 does, and `IServiceCollection` has the same overloads. The clock is
 process-wide, so silos sharing a process, as in an in-process test cluster,
-share the clock of the last silo to start. Give a tracker its own clock with
+share the clock of the most recently started silo that is still running. A
+silo that stops withdraws only its own clock. Give a tracker its own clock with
 `RegisterTimeProvider` when it needs a different one.
 
 Use `LatestStreamSequenceToken("prices")` when all you need is the previous

@@ -5,15 +5,13 @@ namespace Egil.Orleans.Messaging.Tracking;
 
 /// <summary>
 /// Applies <see cref="MessageTrackerOptions"/> to the <see cref="MessageTrackerClock"/>
-/// fallback before grains activate and puts the previous value back when the silo stops.
+/// fallback before grains activate and withdraws this silo's clock when it stops.
 /// </summary>
 internal sealed class MessageTrackerTimeProviderInstaller(
     IOptions<MessageTrackerOptions> options,
     IServiceProvider services)
     : ILifecycleParticipant<ISiloLifecycle>, ILifecycleObserver
 {
-    private TimeProvider? previous;
-
     public void Participate(ISiloLifecycle lifecycle) =>
         lifecycle.Subscribe(nameof(MessageTrackerTimeProviderInstaller), ServiceLifecycleStage.RuntimeInitialize, this);
 
@@ -22,15 +20,13 @@ internal sealed class MessageTrackerTimeProviderInstaller(
         var timeProvider = options.Value.TimeProvider
             ?? services.GetService<TimeProvider>()
             ?? TimeProvider.System;
-        previous = MessageTrackerClock.SiloDefault;
-        MessageTrackerClock.Install(timeProvider);
+        MessageTrackerClock.Install(this, timeProvider);
         return Task.CompletedTask;
     }
 
     public Task OnStop(CancellationToken cancellationToken)
     {
-        MessageTrackerClock.Install(previous);
-        previous = null;
+        MessageTrackerClock.Uninstall(this);
         return Task.CompletedTask;
     }
 }
