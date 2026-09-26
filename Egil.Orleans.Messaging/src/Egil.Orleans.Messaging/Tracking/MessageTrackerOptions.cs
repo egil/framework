@@ -6,8 +6,9 @@ namespace Egil.Orleans.Messaging.Tracking;
 /// </summary>
 /// <remarks>
 /// The silo applies the settings when it starts, before any grain activates, and
-/// removes them when it stops. They are process-wide: silos sharing a process, as
-/// in an in-process test cluster, share the settings of the last silo to start.
+/// withdraws them when it stops. They are process-wide: silos sharing a process, as
+/// in an in-process test cluster, share the settings of the most recently started
+/// silo that is still running.
 /// </remarks>
 public sealed class MessageTrackerOptions
 {

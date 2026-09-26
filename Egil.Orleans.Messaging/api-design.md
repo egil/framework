@@ -1003,7 +1003,9 @@ siloBuilder.ConfigureMessageTracker((options, sp) =>
 
 Resolution order: instance clock (`RegisterTimeProvider`) → silo-wide clock
 (`MessageTrackerOptions.TimeProvider`, else the silo's registered
-`TimeProvider`) → `TimeProvider.System`. The registered-clock default matches`StreamSubscriptionOptions` and `OutboxProcessorOptions`, but the tracker only it when `ConfigureMessageTracker` registered the installer.
+`TimeProvider`) → `TimeProvider.System`. The registered-clock default matches
+`StreamSubscriptionOptions` and `OutboxProcessorOptions`, but the tracker only
+uses it when `ConfigureMessageTracker` registered the installer.
 
 The tracker is a persisted value created by grain code (`new MessageTracker()`),
 the Orleans serializer, and JSON converters. None of those paths has the silo's
@@ -1017,13 +1019,19 @@ system clock.
 The fallback is therefore an internal static field, and the silo option is the
 only way to set it, so it has one source per silo. A silo lifecycle participant
 at `ServiceLifecycleStage.RuntimeInitialize` installs it before grains activate
-and restores the previous value on stop. `ConfigureMessageTracker` follows the
-same `Action<TOptions>` / `Action<TOptions, IServiceProvider>` shape as
+and withdraws it on stop. `ConfigureMessageTracker` follows the same
+`Action<TOptions>` / `Action<TOptions, IServiceProvider>` shape as
 `ConfigureStreamManager` and `ConfigureOutboxProcessor`: it configures
 `MessageTrackerOptions` through the options pattern, so repeated calls compose
-and the silo still has one installer and one resolved value. The field is process-wide: silos in one process share the clock of
-the last silo to start. The tracker stays usable without the rest of the
-toolbox; without the silo option it behaves as before.
+and the silo still has one installer and one resolved value.
+
+The field is process-wide, so silos in one process need an ownership rule. Each
+running silo's installer owns one entry in a process-wide list, and the most
+recently started entry wins. A stopping silo removes only its own entry, so an
+out-of-order stop (A starts, B starts, A stops) keeps B's clock, and when the
+last silo stops no stopped silo's clock stays behind. Restoring a saved
+"previous" value would get both cases wrong. The tracker stays usable without
+the rest of the toolbox; without the silo option it behaves as before.
 
 ---
 

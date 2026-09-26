@@ -56,6 +56,25 @@ public sealed class MessageTrackerTimeProviderTests
     }
 
     [Fact]
+    public async Task Silos_stopping_out_of_order_leave_the_running_silo_clock_installed()
+    {
+        var clockB = SiloNow.AddHours(2);
+        var siloA = StartSilo(UsePricingClock);
+        var siloB = StartSilo((options, _) => options.TimeProvider = new ManualTimeProvider(clockB));
+
+        await siloA.StartAsync();
+        await siloB.StartAsync();
+        await siloA.StopAsync();
+        var whileBRuns = ReceivedAt(new MessageTracker());
+        await siloB.StopAsync();
+        var afterBoth = ReceivedAt(new MessageTracker());
+
+        Assert.Equal(clockB, whileBRuns);
+        Assert.NotEqual(clockB, afterBoth);
+        Assert.NotEqual(SiloNow, afterBoth);
+    }
+
+    [Fact]
     public async Task Silo_stop_removes_its_clock()
     {
         var silo = StartSilo(UsePricingClock);
