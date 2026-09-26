@@ -565,6 +565,11 @@ public sealed class StreamManager : IStreamManagerComponent
 
     private Activity? StartConsumerActivity(string streamNamespace, StreamCursor cursor, SubscriptionSettings settings)
     {
+        if (settings.Trace.Mode == MessageTraceMode.None)
+        {
+            return null;
+        }
+
         var tags = new KeyValuePair<string, object?>[]
         {
             new("messaging.system", "orleans"),
@@ -611,8 +616,8 @@ public sealed class StreamManager : IStreamManagerComponent
 
     private static bool ShouldParent(StreamCursor cursor, SubscriptionSettings settings) => settings.Trace.Mode switch
     {
-        StreamTraceMode.Parent => true,
-        StreamTraceMode.ParentWithinLag => cursor.TryGetEnqueuedTime(out var enqueuedTime)
+        MessageTraceMode.Parent => true,
+        MessageTraceMode.ParentWithinLag => cursor.TryGetEnqueuedTime(out var enqueuedTime)
             && settings.TimeProvider.GetUtcNow() - enqueuedTime <= settings.Trace.MaxParentLag,
         _ => false,
     };
@@ -628,7 +633,7 @@ public sealed class StreamManager : IStreamManagerComponent
     private sealed record SubscriptionSettings(
         Action<string, Exception>? OnError,
         bool UseTrackedResumeToken,
-        StreamTraceOptions Trace,
+        MessageTraceOptions Trace,
         TimeProvider TimeProvider);
 
     private interface IImplicitSubscription

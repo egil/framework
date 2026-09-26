@@ -1119,7 +1119,7 @@ public sealed class StreamSubscriptionOptions
 {
     public Action<string, Exception>? OnError { get; set; }
     public bool UseTrackedResumeToken { get; set; } = true;
-    public StreamTraceOptions Trace { get; set; } = StreamTraceOptions.Link;
+    public MessageTraceOptions Trace { get; set; } = MessageTraceOptions.Link;
     public TimeProvider? TimeProvider { get; set; } // null: registered TimeProvider, else TimeProvider.System
 }
 
@@ -1595,18 +1595,24 @@ the producer span. OTel backends render the cross-trace arrow without
 collapsing weeks of traffic into one trace.
 
 Links are the default, not the only option. `StreamSubscriptionOptions.Trace`
-takes a `StreamTraceOptions`, per subscription or as a silo default:
+takes a `MessageTraceOptions`, per subscription or as a silo default. The type
+lives in the root namespace because the outbox processor uses it for its
+`orleans.outbox.post` span too:
 
 ```csharp
-public enum StreamTraceMode { Link, Parent, ParentWithinLag }
+namespace Egil.Orleans.Messaging;
 
-public sealed record StreamTraceOptions
+// Link is 0, so default(MessageTraceMode) is the default mode.
+public enum MessageTraceMode { Link, Parent, ParentWithinLag, None }
+
+public sealed record MessageTraceOptions
 {
-    public static StreamTraceOptions Link { get; }
-    public static StreamTraceOptions Parent { get; }
-    public static StreamTraceOptions ParentWithinLag(TimeSpan maxParentLag);
+    public static MessageTraceOptions Link { get; }
+    public static MessageTraceOptions Parent { get; }
+    public static MessageTraceOptions None { get; }
+    public static MessageTraceOptions ParentWithinLag(TimeSpan maxParentLag);
 
-    public StreamTraceMode Mode { get; }
+    public MessageTraceMode Mode { get; }
     public TimeSpan MaxParentLag { get; }
 }
 ```
@@ -1622,6 +1628,8 @@ public sealed record StreamTraceOptions
   starting a linked span and restores it once the span stops. Otherwise a
   delivery running under an ambient activity (for example an in-memory stream
   delivered inside the producer's call) would join that trace despite `Link`.
+- `None` starts no span. The handler runs under the ambient activity, and the
+  `stream.*` metrics are still recorded.
 - A missing or unparseable traceparent produces a span with no link, whatever
   the mode. It joins the ambient activity when there is one, as outbox delivery
   spans do, and starts a new trace otherwise.

@@ -26,11 +26,11 @@ public sealed class StreamManagerServiceCollectionExtensionsTests
         var builder = new FakeSiloBuilder();
 
         builder
-            .ConfigureStreamManager(options => options.Trace = StreamTraceOptions.Parent)
+            .ConfigureStreamManager(options => options.Trace = MessageTraceOptions.Parent)
             .ConfigureStreamManager(options => options.UseTrackedResumeToken = false);
 
         var defaults = CreateDefaults(builder);
-        Assert.Equal(StreamTraceOptions.Parent, defaults.Trace);
+        Assert.Equal(MessageTraceOptions.Parent, defaults.Trace);
         Assert.False(defaults.UseTrackedResumeToken);
     }
 
@@ -63,7 +63,7 @@ public sealed class StreamManagerServiceCollectionExtensionsTests
     public void Subscription_changes_do_not_leak_into_silo_defaults()
     {
         var builder = new FakeSiloBuilder();
-        builder.ConfigureStreamManager(options => options.Trace = StreamTraceOptions.Parent);
+        builder.ConfigureStreamManager(options => options.Trace = MessageTraceOptions.Parent);
         var factory = builder.Services.BuildServiceProvider().GetRequiredService<IOptionsFactory<StreamSubscriptionOptions>>();
         var stream = new StreamManagerResumeTests.FakeStream<string>("provider-a", StreamId.Create("orders", "one"));
         var manager = StreamManagerResumeTests.CreateManager(
@@ -75,12 +75,12 @@ public sealed class StreamManagerServiceCollectionExtensionsTests
             .ConfigureExplicitSubscription<string>("provider-a", "orders", static (_, _) => ValueTask.CompletedTask, options =>
             {
                 first = options;
-                options.Trace = StreamTraceOptions.Link;
+                options.Trace = MessageTraceOptions.Link;
             })
             .ConfigureExplicitSubscription<string>("provider-a", "other", static (_, _) => ValueTask.CompletedTask, options => second = options);
 
         Assert.NotSame(first, second);
-        Assert.Equal(StreamTraceOptions.Parent, second!.Trace);
+        Assert.Equal(MessageTraceOptions.Parent, second!.Trace);
     }
 
     [Fact]

@@ -59,7 +59,7 @@ namespace Egil.Orleans.Messaging.Streams.EventHubs;
 /// <item><b>StreamManager</b>: reads
 /// <see cref="StreamCursor.TryGetTraceParent"/> and, by default, creates an
 /// <see cref="ActivityLink"/> from the consumer span to the producer span.
-/// A subscription configured with <see cref="StreamTraceOptions"/> can parent
+/// A subscription configured with <see cref="MessageTraceOptions"/> can parent
 /// the consumer span to the producer span instead.</item>
 /// </list>
 /// </para>

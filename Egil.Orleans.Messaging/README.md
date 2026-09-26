@@ -1012,8 +1012,8 @@ Each subscription takes an optional `configure` callback that receives a
 |-------------------------|-----------------------------|---------------------------------------------------------------------|
 | `UseTrackedResumeToken` | `true`                      | Pass the tracker's last cursor token when attaching or resuming.    |
 | `OnError`               | `null` (log the error)      | Called with the namespace and exception when the handler throws.    |
-| `Trace`                 | `StreamTraceOptions.Link`   | How the consumer span relates to the producer's trace.              |
-| `TimeProvider`          | registered, else `System`   | Clock for `StreamTraceOptions.ParentWithinLag`.                     |
+| `Trace`                 | `MessageTraceOptions.Link`   | How the consumer span relates to the producer's trace.              |
+| `TimeProvider`          | registered, else `System`   | Clock for `MessageTraceOptions.ParentWithinLag`.                     |
 
 ```csharp
 streamManager = this.RegisterStreamManager(() => state.State.Tracker)
@@ -1034,7 +1034,7 @@ subscription starts from these defaults, and its own callback overrides them:
 ```csharp
 siloBuilder.ConfigureStreamManager(options =>
 {
-    options.Trace = StreamTraceOptions.ParentWithinLag(TimeSpan.FromMinutes(5));
+    options.Trace = MessageTraceOptions.ParentWithinLag(TimeSpan.FromMinutes(5));
     options.OnError = (streamNamespace, error) => Log.StreamHandlerFailed(streamNamespace, error);
 });
 ```
@@ -1116,11 +1116,14 @@ span. When the token carries a valid W3C traceparent, such as the one
 `EnrichedEventHubAdapter` stamps on publish, each subscription chooses how that
 span relates to the producer through `StreamSubscriptionOptions.Trace`:
 
-| `Trace`                                 | Consumer span                                                               |
-|-----------------------------------------|-----------------------------------------------------------------------------|
-| `StreamTraceOptions.Link`               | New trace, with an `ActivityLink` to the producer span. The default.        |
-| `StreamTraceOptions.Parent`             | Child of the producer span, in the producer's trace. No link.               |
-| `StreamTraceOptions.ParentWithinLag(t)` | Child when `now - enqueued <= t`, otherwise linked as with `Link`.          |
+| `Trace`                                  | Consumer span                                                        |
+|------------------------------------------|----------------------------------------------------------------------|
+| `MessageTraceOptions.Link`               | New trace, with an `ActivityLink` to the producer span. The default. |
+| `MessageTraceOptions.Parent`             | Child of the producer span, in the producer's trace. No link.        |
+| `MessageTraceOptions.ParentWithinLag(t)` | Child when `now - enqueued <= t`, otherwise linked as with `Link`.   |
+| `MessageTraceOptions.None`               | No span. The handler runs under the ambient activity.                |
+
+`None` turns off the span only. The `stream.*` metrics are still recorded.
 
 ```csharp
 streamManager = this.RegisterStreamManager(() => state.State.Tracker)
@@ -1130,7 +1133,7 @@ streamManager = this.RegisterStreamManager(() => state.State.Tracker)
     .ConfigureImplicitSubscription<SessionUpdated>(
         "session-updates",
         HandleSessionUpdatedAsync,
-        options => options.Trace = StreamTraceOptions.ParentWithinLag(TimeSpan.FromMinutes(5)));
+        options => options.Trace = MessageTraceOptions.ParentWithinLag(TimeSpan.FromMinutes(5)));
 ```
 
 When most streams in the silo are internal, make parenting the silo default with

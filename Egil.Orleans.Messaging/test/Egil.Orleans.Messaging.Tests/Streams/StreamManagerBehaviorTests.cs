@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using Orleans.Providers.Streams.Common;
 using TimeProviderExtensions;
 
@@ -63,15 +64,15 @@ public sealed class StreamManagerBehaviorTests(MessagingTestClusterFixture fixtu
     }
 
     [Theory]
-    [InlineData(StreamTraceMode.Link, 0, false)]
-    [InlineData(StreamTraceMode.Parent, null, true)]
-    [InlineData(StreamTraceMode.Parent, 3600, true)]
-    [InlineData(StreamTraceMode.ParentWithinLag, 29, true)]
-    [InlineData(StreamTraceMode.ParentWithinLag, 30, true)]
-    [InlineData(StreamTraceMode.ParentWithinLag, 31, false)]
-    [InlineData(StreamTraceMode.ParentWithinLag, null, false)]
+    [InlineData(MessageTraceMode.Link, 0, false)]
+    [InlineData(MessageTraceMode.Parent, null, true)]
+    [InlineData(MessageTraceMode.Parent, 3600, true)]
+    [InlineData(MessageTraceMode.ParentWithinLag, 29, true)]
+    [InlineData(MessageTraceMode.ParentWithinLag, 30, true)]
+    [InlineData(MessageTraceMode.ParentWithinLag, 31, false)]
+    [InlineData(MessageTraceMode.ParentWithinLag, null, false)]
     public async Task Consumer_span_joins_or_links_producer_trace_by_trace_mode(
-        StreamTraceMode mode, int? lagSeconds, bool expectParent)
+        MessageTraceMode mode, int? lagSeconds, bool expectParent)
     {
         var streamNamespace = Guid.NewGuid().ToString("N");
         using var spans = new ConsumerSpanCollector(streamNamespace);
@@ -104,23 +105,23 @@ public sealed class StreamManagerBehaviorTests(MessagingTestClusterFixture fixtu
         using var spans = new ConsumerSpanCollector(streamNamespace);
         var grain = fixture.GrainFactory.GetGrain<IStreamManagerBehaviorGrain>(Guid.NewGuid());
 
-        await grain.DeliverTracedAsync(streamNamespace, StreamTraceMode.ParentWithinLag, TimeSpan.FromSeconds(30), ProducerTraceParent, 29, clock);
+        await grain.DeliverTracedAsync(streamNamespace, MessageTraceMode.ParentWithinLag, TimeSpan.FromSeconds(30), ProducerTraceParent, 29, clock);
 
         var span = Assert.Single(spans.Stopped);
         Assert.Equal(ProducerTraceId, span.TraceId.ToString());
     }
 
     [Theory]
-    [InlineData(StreamTraceMode.Link, 0)]
-    [InlineData(StreamTraceMode.ParentWithinLag, 31)]
-    public async Task Linked_span_starts_its_own_trace_under_an_ambient_activity(StreamTraceMode mode, int lagSeconds)
+    [InlineData(MessageTraceMode.Link, 0)]
+    [InlineData(MessageTraceMode.ParentWithinLag, 31)]
+    public async Task Linked_span_starts_its_own_trace_under_an_ambient_activity(MessageTraceMode mode, int lagSeconds)
     {
         const string ambientTraceId = "33333333333333333333333333333333";
         var streamNamespace = Guid.NewGuid().ToString("N");
         using var spans = new ConsumerSpanCollector(streamNamespace);
         var grain = fixture.GrainFactory.GetGrain<IStreamManagerBehaviorGrain>(Guid.NewGuid());
 
-        var ambientRestored = await grain.DeliverTracedAsync(
+        var (ambientRestored, _) = await grain.DeliverTracedAsync(
             streamNamespace, mode, TimeSpan.FromSeconds(30), ProducerTraceParent, lagSeconds, TraceClock.Subscription,
             ambientTraceParent: $"00-{ambientTraceId}-4444444444444444-01");
 
@@ -133,13 +134,51 @@ public sealed class StreamManagerBehaviorTests(MessagingTestClusterFixture fixtu
     }
 
     [Fact]
+    public async Task None_mode_starts_no_span_and_still_records_metrics()
+    {
+        var streamNamespace = Guid.NewGuid().ToString("N");
+        using var spans = new ConsumerSpanCollector(streamNamespace);
+        long accepted = 0;
+        using var meters = new MeterListener
+        {
+            InstrumentPublished = (instrument, listener) =>
+            {
+                if (instrument.Meter.Name == "egil.orleans.messaging" && instrument.Name == "stream.messages")
+                {
+                    listener.EnableMeasurementEvents(instrument);
+                }
+            }
+        };
+        meters.SetMeasurementEventCallback<long>((_, value, tags, _) =>
+        {
+            foreach (var tag in tags)
+            {
+                if (tag.Key == "stream.namespace" && Equals(tag.Value, streamNamespace))
+                {
+                    Interlocked.Add(ref accepted, value);
+                }
+            }
+        });
+        meters.Start();
+        var grain = fixture.GrainFactory.GetGrain<IStreamManagerBehaviorGrain>(Guid.NewGuid());
+
+        var (_, handlerSawAmbient) = await grain.DeliverTracedAsync(
+            streamNamespace, MessageTraceMode.None, TimeSpan.Zero, ProducerTraceParent, 0, TraceClock.Subscription,
+            ambientTraceParent: "00-33333333333333333333333333333333-4444444444444444-01");
+
+        Assert.Empty(spans.Stopped);
+        Assert.True(handlerSawAmbient);
+        Assert.Equal(1, Interlocked.Read(ref accepted));
+    }
+
+    [Fact]
     public async Task Parent_mode_ignores_invalid_producer_traceparent()
     {
         var streamNamespace = Guid.NewGuid().ToString("N");
         using var spans = new ConsumerSpanCollector(streamNamespace);
         var grain = fixture.GrainFactory.GetGrain<IStreamManagerBehaviorGrain>(Guid.NewGuid());
 
-        await grain.DeliverTracedAsync(streamNamespace, StreamTraceMode.Parent, TimeSpan.Zero, "invalid-traceparent", 0, TraceClock.Subscription);
+        await grain.DeliverTracedAsync(streamNamespace, MessageTraceMode.Parent, TimeSpan.Zero, "invalid-traceparent", 0, TraceClock.Subscription);
 
         var span = Assert.Single(spans.Stopped);
         Assert.Empty(span.Links);
@@ -152,7 +191,7 @@ public sealed class StreamManagerBehaviorTests(MessagingTestClusterFixture fixtu
     public void ParentWithinLag_rejects_non_positive_lag(int seconds)
     {
         Assert.Throws<ArgumentOutOfRangeException>(
-            () => StreamTraceOptions.ParentWithinLag(TimeSpan.FromSeconds(seconds)));
+            () => MessageTraceOptions.ParentWithinLag(TimeSpan.FromSeconds(seconds)));
     }
 
     [Theory]
@@ -207,7 +246,7 @@ public interface IStreamManagerBehaviorGrain : IGrainWithGuidKey
 {
     Task<(bool Rejected, string[] Delivered)> DuplicateAsync(SubscriptionKind subscriptionKind);
     Task<(string[] Delivered, int Errors, bool OriginalError, string? ErrorNamespace)> DeliverAsync(string streamNamespace, bool callbackThrows, string? traceParent);
-    Task<bool> DeliverTracedAsync(string streamNamespace, StreamTraceMode mode, TimeSpan maxParentLag, string traceParent, int? lagSeconds, TraceClock clock, string? ambientTraceParent = null);
+    Task<(bool AmbientRestored, bool HandlerSawAmbient)> DeliverTracedAsync(string streamNamespace, MessageTraceMode mode, TimeSpan maxParentLag, string traceParent, int? lagSeconds, TraceClock clock, string? ambientTraceParent = null);
 }
 
 public sealed class StreamManagerBehaviorGrain : Grain, IStreamManagerBehaviorGrain
@@ -299,16 +338,18 @@ public sealed class StreamManagerBehaviorGrain : Grain, IStreamManagerBehaviorGr
         return (delivered.ToArray(), errors, originalError, errorNamespace);
     }
 
-    public async Task<bool> DeliverTracedAsync(
-        string streamNamespace, StreamTraceMode mode, TimeSpan maxParentLag, string traceParent, int? lagSeconds, TraceClock clock, string? ambientTraceParent = null)
+    public async Task<(bool AmbientRestored, bool HandlerSawAmbient)> DeliverTracedAsync(
+        string streamNamespace, MessageTraceMode mode, TimeSpan maxParentLag, string traceParent, int? lagSeconds, TraceClock clock, string? ambientTraceParent = null)
     {
         var now = new DateTimeOffset(2026, 9, 25, 12, 0, 0, TimeSpan.Zero);
         var wrongClock = new ManualTimeProvider(now.AddDays(1));
+        Activity? handlerActivity = null;
         var traceOptions = mode switch
         {
-            StreamTraceMode.Parent => StreamTraceOptions.Parent,
-            StreamTraceMode.ParentWithinLag => StreamTraceOptions.ParentWithinLag(maxParentLag),
-            _ => StreamTraceOptions.Link,
+            MessageTraceMode.Parent => MessageTraceOptions.Parent,
+            MessageTraceMode.ParentWithinLag => MessageTraceOptions.ParentWithinLag(maxParentLag),
+            MessageTraceMode.None => MessageTraceOptions.None,
+            _ => MessageTraceOptions.Link,
         };
         var stream = new StreamManagerResumeTests.FakeStream<string>("provider-a", StreamId.Create(streamNamespace, "one"));
         var manager = StreamManagerResumeTests.CreateManager(
@@ -319,7 +360,11 @@ public sealed class StreamManagerBehaviorGrain : Grain, IStreamManagerBehaviorGr
         manager.ConfigureExplicitSubscription<string>(
             "provider-a",
             streamNamespace,
-            (_, _) => ValueTask.CompletedTask,
+            (_, _) =>
+            {
+                handlerActivity = Activity.Current;
+                return ValueTask.CompletedTask;
+            },
             options =>
             {
                 options.Trace = traceOptions;
@@ -330,7 +375,7 @@ public sealed class StreamManagerBehaviorGrain : Grain, IStreamManagerBehaviorGr
         DateTimeOffset? enqueued = lagSeconds is { } lag ? now - TimeSpan.FromSeconds(lag) : null;
         using var ambient = ambientTraceParent is null ? null : new Activity("ambient").SetParentId(ambientTraceParent).Start();
         await stream.OnNextAsync("message", new DiagnosticToken(traceParent, enqueued));
-        return ReferenceEquals(Activity.Current, ambient);
+        return (ReferenceEquals(Activity.Current, ambient), ambient is not null && ReferenceEquals(handlerActivity, ambient));
     }
 }
 
