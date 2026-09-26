@@ -1111,10 +1111,11 @@ during startup.
 
 ### Stream trace correlation
 
-`StreamManager` wraps every delivery in an `orleans.stream.process` consumer
-span. When the token carries a valid W3C traceparent, such as the one
-`EnrichedEventHubAdapter` stamps on publish, each subscription chooses how that
-span relates to the producer through `StreamSubscriptionOptions.Trace`:
+`StreamManager` wraps each delivery in an `orleans.stream.process` consumer
+span, except with `None` when nothing is ambient (below). When the token carries
+a valid W3C traceparent, such as the one `EnrichedEventHubAdapter` stamps on
+publish, each subscription chooses how that span relates to the producer through
+`StreamSubscriptionOptions.Trace`:
 
 | `Trace`                                  | Consumer span                                                            |
 |------------------------------------------|--------------------------------------------------------------------------|
@@ -1126,10 +1127,12 @@ span relates to the producer through `StreamSubscriptionOptions.Trace`:
 `None` joins an existing trace and never starts one: "don't start a trace", not
 "never trace". A delivery that already runs inside a trace, such as an in-memory
 stream delivered inside the producer's call, gets a span that is a child of the
-ambient activity and links to the producer. A delivery with nothing ambient gets
-no span, and the handler runs with no activity. Choose it to silence background
-deliveries and redeliveries while keeping spans inside request-driven work. The
-`stream.*` metrics are recorded either way.
+ambient activity and links to the producer. A delivery with nothing ambient
+(`Activity.Current` is `null`), such as one from a persistent stream's pulling
+agent, gets no span and no new trace: the handler runs with `Activity.Current`
+still `null`, so any spans it starts root their own traces. Choose it to silence
+background deliveries and redeliveries while keeping spans inside request-driven
+work. The `stream.*` metrics are recorded either way.
 
 ```csharp
 streamManager = this.RegisterStreamManager(() => state.State.Tracker)
