@@ -1628,8 +1628,10 @@ public sealed record MessageTraceOptions
   starting a linked span and restores it once the span stops. Otherwise a
   delivery running under an ambient activity (for example an in-memory stream
   delivered inside the producer's call) would join that trace despite `Link`.
-- `None` starts no span. The handler runs under the ambient activity, and the
-  `stream.*` metrics are still recorded.
+- `None` never starts a trace. With an ambient activity the span starts as its
+  child, with a link to the producer when the traceparent parses. Without one,
+  no span starts and the handler runs with no activity. The `stream.*` metrics
+  are recorded either way. The outbox's `None` is unconditional: no span.
 - A missing or unparseable traceparent produces a span with no link, whatever
   the mode. It joins the ambient activity when there is one, as outbox delivery
   spans do, and starts a new trace otherwise.

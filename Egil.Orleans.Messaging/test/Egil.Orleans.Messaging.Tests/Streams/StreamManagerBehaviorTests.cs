@@ -134,7 +134,7 @@ public sealed class StreamManagerBehaviorTests(MessagingTestClusterFixture fixtu
     }
 
     [Fact]
-    public async Task None_mode_starts_no_span_and_still_records_metrics()
+    public async Task None_mode_starts_no_trace_and_still_records_metrics()
     {
         var streamNamespace = Guid.NewGuid().ToString("N");
         using var spans = new ConsumerSpanCollector(streamNamespace);
@@ -162,13 +162,32 @@ public sealed class StreamManagerBehaviorTests(MessagingTestClusterFixture fixtu
         meters.Start();
         var grain = fixture.GrainFactory.GetGrain<IStreamManagerBehaviorGrain>(Guid.NewGuid());
 
-        var (_, handlerSawAmbient) = await grain.DeliverTracedAsync(
-            streamNamespace, MessageTraceMode.None, TimeSpan.Zero, ProducerTraceParent, 0, TraceClock.Subscription,
-            ambientTraceParent: "00-33333333333333333333333333333333-4444444444444444-01");
+        var (_, handlerActivityId) = await grain.DeliverTracedAsync(
+            streamNamespace, MessageTraceMode.None, TimeSpan.Zero, ProducerTraceParent, 0, TraceClock.Subscription);
 
         Assert.Empty(spans.Stopped);
-        Assert.True(handlerSawAmbient);
+        Assert.Null(handlerActivityId);
         Assert.Equal(1, Interlocked.Read(ref accepted));
+    }
+
+    [Fact]
+    public async Task None_mode_traces_inside_an_ambient_trace()
+    {
+        const string ambientTraceId = "33333333333333333333333333333333";
+        const string ambientSpanId = "4444444444444444";
+        var streamNamespace = Guid.NewGuid().ToString("N");
+        using var spans = new ConsumerSpanCollector(streamNamespace);
+        var grain = fixture.GrainFactory.GetGrain<IStreamManagerBehaviorGrain>(Guid.NewGuid());
+
+        var (ambientRestored, handlerActivityId) = await grain.DeliverTracedAsync(
+            streamNamespace, MessageTraceMode.None, TimeSpan.Zero, ProducerTraceParent, 0, TraceClock.Subscription,
+            ambientTraceParent: $"00-{ambientTraceId}-{ambientSpanId}-01");
+
+        var span = Assert.Single(spans.Stopped);
+        Assert.Equal(ambientTraceId, span.TraceId.ToString());
+        Assert.Equal(span.Id, handlerActivityId);
+        Assert.Equal(ProducerTraceId, Assert.Single(span.Links).Context.TraceId.ToString());
+        Assert.True(ambientRestored);
     }
 
     [Fact]
@@ -246,7 +265,7 @@ public interface IStreamManagerBehaviorGrain : IGrainWithGuidKey
 {
     Task<(bool Rejected, string[] Delivered)> DuplicateAsync(SubscriptionKind subscriptionKind);
     Task<(string[] Delivered, int Errors, bool OriginalError, string? ErrorNamespace)> DeliverAsync(string streamNamespace, bool callbackThrows, string? traceParent);
-    Task<(bool AmbientRestored, bool HandlerSawAmbient)> DeliverTracedAsync(string streamNamespace, MessageTraceMode mode, TimeSpan maxParentLag, string traceParent, int? lagSeconds, TraceClock clock, string? ambientTraceParent = null);
+    Task<(bool AmbientRestored, string? HandlerActivityId)> DeliverTracedAsync(string streamNamespace, MessageTraceMode mode, TimeSpan maxParentLag, string traceParent, int? lagSeconds, TraceClock clock, string? ambientTraceParent = null);
 }
 
 public sealed class StreamManagerBehaviorGrain : Grain, IStreamManagerBehaviorGrain
@@ -338,7 +357,7 @@ public sealed class StreamManagerBehaviorGrain : Grain, IStreamManagerBehaviorGr
         return (delivered.ToArray(), errors, originalError, errorNamespace);
     }
 
-    public async Task<(bool AmbientRestored, bool HandlerSawAmbient)> DeliverTracedAsync(
+    public async Task<(bool AmbientRestored, string? HandlerActivityId)> DeliverTracedAsync(
         string streamNamespace, MessageTraceMode mode, TimeSpan maxParentLag, string traceParent, int? lagSeconds, TraceClock clock, string? ambientTraceParent = null)
     {
         var now = new DateTimeOffset(2026, 9, 25, 12, 0, 0, TimeSpan.Zero);
@@ -375,7 +394,7 @@ public sealed class StreamManagerBehaviorGrain : Grain, IStreamManagerBehaviorGr
         DateTimeOffset? enqueued = lagSeconds is { } lag ? now - TimeSpan.FromSeconds(lag) : null;
         using var ambient = ambientTraceParent is null ? null : new Activity("ambient").SetParentId(ambientTraceParent).Start();
         await stream.OnNextAsync("message", new DiagnosticToken(traceParent, enqueued));
-        return (ReferenceEquals(Activity.Current, ambient), ambient is not null && ReferenceEquals(handlerActivity, ambient));
+        return (ReferenceEquals(Activity.Current, ambient), handlerActivity?.Id);
     }
 }
 
