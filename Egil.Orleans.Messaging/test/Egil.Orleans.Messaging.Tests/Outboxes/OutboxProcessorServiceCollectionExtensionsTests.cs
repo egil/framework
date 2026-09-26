@@ -15,6 +15,7 @@ public sealed class OutboxProcessorServiceCollectionExtensionsTests
             options.TimeProvider = services.GetRequiredKeyedService<TimeProvider>("pricing");
             options.RetryDelay = TimeSpan.FromMinutes(5);
             options.KeepAlive = true;
+            options.Trace = MessageTraceOptions.None;
         });
 
         var options = Resolve(builder, static options => options.AcknowledgePosted = static _ => { });
@@ -22,6 +23,7 @@ public sealed class OutboxProcessorServiceCollectionExtensionsTests
         Assert.Same(pricingClock, options.TimeProvider);
         Assert.Equal(TimeSpan.FromMinutes(5), options.RetryDelay);
         Assert.True(options.KeepAlive);
+        Assert.Equal(MessageTraceOptions.None, options.Trace);
     }
 
     [Fact]

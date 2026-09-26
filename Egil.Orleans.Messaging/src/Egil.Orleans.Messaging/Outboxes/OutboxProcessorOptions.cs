@@ -83,6 +83,30 @@ public class OutboxProcessorOptions
     /// </summary>
     public bool KeepAlive { get; set; }
 
+    /// <summary>
+    /// How each message's <c>orleans.outbox.post</c> span relates to the
+    /// traceparent captured when the message was added to the outbox. Default:
+    /// <see cref="MessageTraceOptions.Link"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// With <see cref="MessageTraceOptions.Link"/> the span joins the ambient
+    /// activity, if any, and links to the captured traceparent. With
+    /// <see cref="MessageTraceOptions.Parent"/> it is a child of the captured
+    /// traceparent instead of the ambient activity, with no link.
+    /// <see cref="MessageTraceOptions.ParentWithinLag(TimeSpan)"/> parents when
+    /// the message was added at most the given time ago, measured with
+    /// <see cref="TimeProvider"/>, and links otherwise, which covers reminder and
+    /// timer retries that run long after the message was added.
+    /// </para>
+    /// <para>
+    /// <see cref="MessageTraceOptions.None"/> starts no span, and postmen run under
+    /// the ambient activity. The <c>outbox.post.*</c> metrics are still recorded,
+    /// and <see cref="Outbox{T}"/> still captures each message's traceparent.
+    /// </para>
+    /// </remarks>
+    public MessageTraceOptions Trace { get; set; } = MessageTraceOptions.Link;
+
     internal void CopyTo(OutboxProcessorOptions target)
     {
         target.ProcessingTimeout = ProcessingTimeout;
@@ -91,6 +115,7 @@ public class OutboxProcessorOptions
         target.Interleave = Interleave;
         target.InterleaveAcknowledgementCallbacks = InterleaveAcknowledgementCallbacks;
         target.KeepAlive = KeepAlive;
+        target.Trace = Trace;
     }
 }
 
@@ -204,6 +229,11 @@ public sealed class OutboxProcessorOptions<TOutbox> : OutboxProcessorOptions
 
     internal void Validate(string paramName)
     {
+
+        if (Trace is null)
+        {
+            throw new ArgumentException("Trace must not be null.", paramName);
+        }
 
         if (AcknowledgePosted is null && AcknowledgePostedAsync is null)
         {

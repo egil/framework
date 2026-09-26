@@ -600,14 +600,15 @@ The `configure` callback receives an `OutboxProcessorOptions<T>`. It must set
 `AcknowledgePosted` or `AcknowledgePostedAsync`, and can override the shared
 scheduling settings:
 
-| Option                               | Default                   | Effect                                                          |
-|--------------------------------------|---------------------------|-----------------------------------------------------------------|
-| `ProcessingTimeout`                  | 20 seconds                | Maximum time per post run.                                      |
-| `RetryDelay`                         | 2 minutes                 | Delay before retrying pending items. Reminders use >= 1 minute. |
-| `Interleave`                         | `true`                    | Let other grain calls run while postmen await.                  |
-| `InterleaveAcknowledgementCallbacks` | `false`                   | Let the acknowledgement callbacks interleave.                   |
-| `KeepAlive`                          | `false`                   | Keep the activation alive while items are pending.              |
-| `TimeProvider`                       | registered, else `System` | Clock that enforces `ProcessingTimeout`.                        |
+| Option                               | Default                    | Effect                                                          |
+|--------------------------------------|----------------------------|-----------------------------------------------------------------|
+| `ProcessingTimeout`                  | 20 seconds                 | Maximum time per post run.                                      |
+| `RetryDelay`                         | 2 minutes                  | Delay before retrying pending items. Reminders use >= 1 minute. |
+| `Interleave`                         | `true`                     | Let other grain calls run while postmen await.                  |
+| `InterleaveAcknowledgementCallbacks` | `false`                    | Let the acknowledgement callbacks interleave.                   |
+| `KeepAlive`                          | `false`                    | Keep the activation alive while items are pending.              |
+| `TimeProvider`                       | registered, else `System`  | Clock for `ProcessingTimeout` and `ParentWithinLag`.            |
+| `Trace`                              | `MessageTraceOptions.Link` | How the `orleans.outbox.post` span relates to the producer.     |
 
 Set the shared settings once per silo instead of repeating them in every grain.
 Each processor starts from these defaults, and its own callback overrides them:
@@ -834,11 +835,34 @@ Orleans grain calls and stream adapters that propagate `Activity.Current` — su
 as `EnrichedEventHubAdapter` — carry the right trace to the receiver with no
 extra work.
 
-Delivery spans **link** back to the producing request rather than being parented
-under it. A message can be delivered hours after the request that produced it
-ended, and parenting into a finished trace produces orphaned spans and traces
-that stretch across the whole delay. When a request does drive the drain, the
-delivery span joins that request's trace and still links to the producing one.
+By default, delivery spans **link** back to the producing request rather than
+being parented under it. A message can be delivered hours after the request that
+produced it ended, and parenting into a finished trace produces orphaned spans and
+traces that stretch across the whole delay. When a request does drive the drain,
+the delivery span joins that request's trace and still links to the producing one.
+
+`OutboxProcessorOptions.Trace` changes that, per processor or as a silo default.
+It takes the same `MessageTraceOptions` as stream subscriptions:
+
+| `Trace`                                  | `orleans.outbox.post` span                                                          |
+|------------------------------------------|-------------------------------------------------------------------------------------|
+| `MessageTraceOptions.Link`               | Joins the ambient activity, if any, and links to the captured traceparent. Default. |
+| `MessageTraceOptions.Parent`             | Child of the captured traceparent instead of the ambient activity. No link.         |
+| `MessageTraceOptions.ParentWithinLag(t)` | `Parent` when the message was added at most `t` ago, otherwise `Link`.              |
+| `MessageTraceOptions.None`               | No span. Postmen run under the ambient activity.                                    |
+
+```csharp
+siloBuilder.ConfigureOutboxProcessor(options =>
+    options.Trace = MessageTraceOptions.ParentWithinLag(TimeSpan.FromMinutes(5)));
+```
+
+`ParentWithinLag` measures the message's age with the processor's
+`TimeProvider`, so a retry from a timer or reminder long after the message was
+added falls back to a link. Because postmen run inside the span, a stream
+published through `EnrichedEventHubAdapter` carries the span's traceparent, or
+with `None` the ambient one. `None` turns off the span only: the `outbox.post.*`
+metrics are still recorded, and `Outbox<T>` still captures each message's
+traceparent.
 
 The traceparent is stored whether or not the producing activity was sampled, so
 the trace id remains available for log correlation. `tracestate` is not
