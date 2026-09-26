@@ -70,6 +70,8 @@ public sealed class StreamManagerBehaviorTests(MessagingTestClusterFixture fixtu
     [InlineData(MessageTraceMode.ParentWithinLag, 29, true)]
     [InlineData(MessageTraceMode.ParentWithinLag, 30, true)]
     [InlineData(MessageTraceMode.ParentWithinLag, 31, false)]
+    [InlineData(MessageTraceMode.ParentWithinLag, -30, true)]
+    [InlineData(MessageTraceMode.ParentWithinLag, -31, false)]
     [InlineData(MessageTraceMode.ParentWithinLag, null, false)]
     public async Task Consumer_span_joins_or_links_producer_trace_by_trace_mode(
         MessageTraceMode mode, int? lagSeconds, bool expectParent)

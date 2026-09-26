@@ -630,8 +630,11 @@ public sealed class StreamManager : IStreamManagerComponent
     private static bool ShouldParent(StreamCursor cursor, SubscriptionSettings settings) => settings.Trace.Mode switch
     {
         MessageTraceMode.Parent => true,
+        // The enqueue time comes from the broker's clock. A consumer clock running
+        // behind makes lag negative, so compare the magnitude: small skew still
+        // parents, large skew in either direction links.
         MessageTraceMode.ParentWithinLag => cursor.TryGetEnqueuedTime(out var enqueuedTime)
-            && settings.TimeProvider.GetUtcNow() - enqueuedTime <= settings.Trace.MaxParentLag,
+            && (settings.TimeProvider.GetUtcNow() - enqueuedTime).Duration() <= settings.Trace.MaxParentLag,
         _ => false,
     };
 

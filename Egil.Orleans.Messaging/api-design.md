@@ -1619,9 +1619,11 @@ public sealed record MessageTraceOptions
 
 - `Parent` starts the consumer span with the producer context as
   `parentContext` and no link, since the link would repeat the parent.
-- `ParentWithinLag` parents when
+- `ParentWithinLag` parents when the magnitude of
   `StreamSubscriptionOptions.TimeProvider.GetUtcNow() - enqueuedTime` is at
-  most `MaxParentLag`, and links otherwise. A token with no enqueue
+  most `MaxParentLag`, and links otherwise. The enqueue time is the broker's
+  clock; comparing the magnitude keeps a consumer clock running behind from
+  making a backlog message look recent. A token with no enqueue
   time links.
 - A linked span is a true root. `parentContext: default` alone falls back to
   `Activity.Current`, so the manager clears the ambient activity before
