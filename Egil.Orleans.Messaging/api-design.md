@@ -2012,9 +2012,10 @@ public class OutboxProcessorOptions
     /// Max time per post run. Set below grain's response timeout.
     public TimeSpan ProcessingTimeout { get; set; } = TimeSpan.FromSeconds(20);
 
-    /// Clock used only to enforce ProcessingTimeout. Orleans owns the grain
-    /// timers and reminders used for RetryDelay. Null uses the TimeProvider
-    /// registered in the silo's services, else TimeProvider.System.
+    /// Clock used to enforce ProcessingTimeout and to measure message age for
+    /// Trace = ParentWithinLag. Orleans owns the grain timers and reminders used
+    /// for RetryDelay. Null uses the TimeProvider registered in the silo's
+    /// services, else TimeProvider.System.
     public TimeProvider? TimeProvider { get; set; }
 
     /// Timer + reminder period. Orleans reminders fire at most once/minute.
