@@ -692,10 +692,12 @@ public sealed class OrderEventPostman : IPostman<OrderSubmitted>
 services.AddOutboxPostman<OrderEventPostman>();
 ```
 
-Then resolve the postman by name from the grain activation service provider:
+Then resolve the postman by name from the grain activation service provider.
+`ConfigureOutbox` stands for the grain's options callback, as in the example
+above:
 
 ```csharp
-outboxProcessor = this.RegisterOutboxProcessor(options)
+outboxProcessor = this.RegisterOutboxProcessor(() => state.State.Outbox, ConfigureOutbox)
     .AddPostman<OrderSubmitted>("orders");
 ```
 
@@ -703,14 +705,14 @@ For common Orleans targets, use the built-in helpers instead of writing the
 callback by hand:
 
 ```csharp
-outboxProcessor = this.RegisterOutboxProcessor(options)
+outboxProcessor = this.RegisterOutboxProcessor(() => state.State.Outbox, ConfigureOutbox)
     .AddStreamPostman<OrderSubmitted>(
         "order-streams",
         message => StreamId.Create("submitted-orders", message.OrderId));
 ```
 
 ```csharp
-outboxProcessor = this.RegisterOutboxProcessor(options)
+outboxProcessor = this.RegisterOutboxProcessor(() => state.State.Outbox, ConfigureOutbox)
     .AddGrainPostman<OrderSubmitted, IOrderProjectionGrain>(
         (message, grainFactory) => grainFactory.GetGrain<IOrderProjectionGrain>(message.OrderId),
         async (grain, message) => await grain.ApplyAsync(message));
@@ -951,9 +953,11 @@ and sequence space as well.
 
 - Indexing and enumeration now return payloads. Use `outbox.Envelopes` where code
   previously read `.Id` or `.Message` from outbox entries.
-- Rename `PendingItems` to `OutboxAccessor`, which returns a non-null `Outbox<T>` directly. Replace array
-  conversions with `() => state.Outbox`; return `[]` for a fresh empty snapshot,
-  not `default` or `null` (null is rejected with `InvalidOperationException`).
+- Replace `PendingItems` with the outbox accessor, the first argument of
+  `RegisterOutboxProcessor(() => state.Outbox, options => ...)`, which returns a
+  non-null `Outbox<T>` directly. Replace array conversions with `() => state.Outbox`;
+  return `[]` for a fresh empty snapshot, not `default` or `null` (null is
+  rejected with `InvalidOperationException`).
 - Acknowledgement and failure callbacks still receive envelopes. Existing ID-based
   removal remains supported. The persisted JSON and Orleans field layout is unchanged.
 - Rebuilding an outbox from a previously persisted shape — an `IMigrateFrom`
