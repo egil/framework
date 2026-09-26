@@ -28,8 +28,10 @@ public enum MessageTraceMode
     ParentWithinLag,
 
     /// <summary>
-    /// Start no messaging span. The handler or postman runs under the ambient
-    /// activity. Metrics are still recorded.
+    /// Join an existing trace, never start one. When an activity is ambient, the
+    /// span starts as its child, with a link to the producer. When nothing is
+    /// ambient, no span starts and the handler or postman runs with no activity.
+    /// Metrics are still recorded.
     /// </summary>
     None,
 }
@@ -58,9 +60,14 @@ public enum MessageTraceMode
 /// token. An outbox message's age is measured from when it was added to the outbox.
 /// </para>
 /// <para>
-/// <see cref="None"/> starts no span, for flows where the messaging spans are noise.
-/// Metrics are still recorded, and the outbox still captures each message's
-/// traceparent for log correlation.
+/// <see cref="None"/> joins an existing trace and never starts one: "do not start
+/// a trace", not "never trace". A delivery that already runs inside a trace gets a
+/// span that is a child of the ambient activity and links to the producer. A
+/// delivery with nothing ambient, such as a stream delivery from a pulling agent or
+/// an outbox drain from a timer or reminder, gets no span. Choose it to silence
+/// background deliveries and redeliveries while keeping spans inside
+/// request-driven work. Metrics are still recorded, and the outbox still captures
+/// each message's traceparent for log correlation.
 /// </para>
 /// </remarks>
 public sealed record MessageTraceOptions
@@ -82,7 +89,7 @@ public sealed record MessageTraceOptions
     public static MessageTraceOptions Parent { get; } = new(MessageTraceMode.Parent, TimeSpan.Zero);
 
     /// <summary>
-    /// Starts no messaging span.
+    /// Joins an existing trace, never starts one. See <see cref="MessageTraceMode.None"/>.
     /// </summary>
     public static MessageTraceOptions None { get; } = new(MessageTraceMode.None, TimeSpan.Zero);
 

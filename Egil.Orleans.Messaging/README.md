@@ -1012,8 +1012,8 @@ Each subscription takes an optional `configure` callback that receives a
 |-------------------------|-----------------------------|---------------------------------------------------------------------|
 | `UseTrackedResumeToken` | `true`                      | Pass the tracker's last cursor token when attaching or resuming.    |
 | `OnError`               | `null` (log the error)      | Called with the namespace and exception when the handler throws.    |
-| `Trace`                 | `MessageTraceOptions.Link`   | How the consumer span relates to the producer's trace.              |
-| `TimeProvider`          | registered, else `System`   | Clock for `MessageTraceOptions.ParentWithinLag`.                     |
+| `Trace`                 | `MessageTraceOptions.Link`  | How the consumer span relates to the producer's trace.              |
+| `TimeProvider`          | registered, else `System`   | Clock for `MessageTraceOptions.ParentWithinLag`.                    |
 
 ```csharp
 streamManager = this.RegisterStreamManager(() => state.State.Tracker)
@@ -1116,14 +1116,20 @@ span. When the token carries a valid W3C traceparent, such as the one
 `EnrichedEventHubAdapter` stamps on publish, each subscription chooses how that
 span relates to the producer through `StreamSubscriptionOptions.Trace`:
 
-| `Trace`                                  | Consumer span                                                        |
-|------------------------------------------|----------------------------------------------------------------------|
-| `MessageTraceOptions.Link`               | New trace, with an `ActivityLink` to the producer span. The default. |
-| `MessageTraceOptions.Parent`             | Child of the producer span, in the producer's trace. No link.        |
-| `MessageTraceOptions.ParentWithinLag(t)` | Child when `now - enqueued <= t`, otherwise linked as with `Link`.   |
-| `MessageTraceOptions.None`               | No span. The handler runs under the ambient activity.                |
+| `Trace`                                  | Consumer span                                                            |
+|------------------------------------------|--------------------------------------------------------------------------|
+| `MessageTraceOptions.Link`               | New trace, with an `ActivityLink` to the producer span. The default.     |
+| `MessageTraceOptions.Parent`             | Child of the producer span, in the producer's trace. No link.            |
+| `MessageTraceOptions.ParentWithinLag(t)` | Child when `now - enqueued <= t`, otherwise linked as with `Link`.       |
+| `MessageTraceOptions.None`               | Child of the ambient activity with a link; no span when none is ambient. |
 
-`None` turns off the span only. The `stream.*` metrics are still recorded.
+`None` joins an existing trace and never starts one: "don't start a trace", not
+"never trace". A delivery that already runs inside a trace, such as an in-memory
+stream delivered inside the producer's call, gets a span that is a child of the
+ambient activity and links to the producer. A delivery with nothing ambient gets
+no span, and the handler runs with no activity. Choose it to silence background
+deliveries and redeliveries while keeping spans inside request-driven work. The
+`stream.*` metrics are recorded either way.
 
 ```csharp
 streamManager = this.RegisterStreamManager(() => state.State.Tracker)

@@ -565,7 +565,8 @@ public sealed class StreamManager : IStreamManagerComponent
 
     private Activity? StartConsumerActivity(string streamNamespace, StreamCursor cursor, SubscriptionSettings settings)
     {
-        if (settings.Trace.Mode == MessageTraceMode.None)
+        // None never starts a trace, but still traces inside one that already exists.
+        if (settings.Trace.Mode == MessageTraceMode.None && Activity.Current is null)
         {
             return null;
         }
@@ -578,8 +579,20 @@ public sealed class StreamManager : IStreamManagerComponent
             new("orleans.grain.id", owner.GrainContext.GrainId.ToString())
         };
 
-        if (cursor.TryGetTraceParent(out var traceParent)
-            && ActivityContext.TryParse(traceParent, traceState: null, isRemote: true, out var producerContext))
+        var hasProducer = cursor.TryGetTraceParent(out var traceParent)
+            && ActivityContext.TryParse(traceParent, traceState: null, isRemote: true, out var producerContext);
+
+        if (settings.Trace.Mode == MessageTraceMode.None)
+        {
+            return MessagingTelemetry.ActivitySource.StartActivity(
+                "orleans.stream.process",
+                ActivityKind.Consumer,
+                parentContext: default,
+                tags: tags,
+                links: hasProducer ? [new ActivityLink(producerContext)] : null);
+        }
+
+        if (hasProducer)
         {
             if (ShouldParent(cursor, settings))
             {
