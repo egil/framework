@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using Microsoft.Extensions.Logging.Abstractions;
+using TimeProviderExtensions;
 
 namespace Egil.Orleans.Messaging.Tests.Outboxes;
 
@@ -12,7 +14,92 @@ public sealed class OutboxDispatcherTraceContextTests : IDisposable
     // so recorded spans are filtered by a grain type unique to this instance.
     private readonly string grainType = "TestGrain-" + Guid.NewGuid().ToString("N");
 
+    private MessageTraceOptions trace = MessageTraceOptions.Link;
+    private TimeProvider time = TimeProvider.System;
+
     public void Dispose() => source.Dispose();
+
+    [Fact]
+    public async Task Parent_mode_parents_the_span_to_the_trace_that_added_the_message()
+    {
+        using var testListener = StartTestListener();
+        using var recorder = RecordDispatchSpans(out var recorded);
+        var addTrace = source.StartActivity("request-a")!;
+        var addContext = addTrace.Context;
+        var envelope = Envelope(1, addTrace.Id);
+        addTrace.Dispose();
+        trace = MessageTraceOptions.Parent;
+
+        using var drainTrace = source.StartActivity("request-b")!;
+        await DispatchAsync(envelope);
+
+        var span = Assert.Single(recorded);
+        Assert.Equal(addContext.TraceId, span.TraceId);
+        Assert.Equal(addContext.SpanId, span.ParentSpanId);
+        Assert.Empty(span.Links);
+    }
+
+    [Theory]
+    [InlineData(30, true)]
+    [InlineData(31, false)]
+    public async Task ParentWithinLag_parents_recent_messages_and_links_older_ones(int ageSeconds, bool expectParent)
+    {
+        using var testListener = StartTestListener();
+        using var recorder = RecordDispatchSpans(out var recorded);
+        var addTrace = source.StartActivity("request-a")!;
+        var addTraceId = addTrace.TraceId;
+        var envelope = Envelope(1, addTrace.Id);
+        addTrace.Dispose();
+        trace = MessageTraceOptions.ParentWithinLag(TimeSpan.FromSeconds(30));
+        time = new ManualTimeProvider(DateTimeOffset.UnixEpoch.AddSeconds(ageSeconds));
+
+        await DispatchAsync(envelope);
+
+        var span = Assert.Single(recorded);
+        Assert.Equal(expectParent, span.TraceId == addTraceId);
+        Assert.Equal(expectParent ? 0 : 1, span.Links.Count());
+    }
+
+    [Fact]
+    public async Task None_mode_starts_no_span_and_still_records_metrics()
+    {
+        using var testListener = StartTestListener();
+        using var recorder = RecordDispatchSpans(out var recorded);
+        long posted = 0;
+        using var meters = new MeterListener
+        {
+            InstrumentPublished = (instrument, listener) =>
+            {
+                if (instrument.Meter.Name == "egil.orleans.messaging" && instrument.Name == "outbox.post.items")
+                {
+                    listener.EnableMeasurementEvents(instrument);
+                }
+            }
+        };
+        meters.SetMeasurementEventCallback<long>((_, value, tags, _) =>
+        {
+            foreach (var tag in tags)
+            {
+                if (tag.Key == "grain.type" && Equals(tag.Value, grainType))
+                {
+                    Interlocked.Add(ref posted, value);
+                }
+            }
+        });
+        meters.Start();
+        var addTrace = source.StartActivity("request-a")!;
+        var envelope = Envelope(1, addTrace.Id);
+        addTrace.Dispose();
+        trace = MessageTraceOptions.None;
+        using var drainTrace = source.StartActivity("request-b")!;
+        var observed = new List<Activity?>();
+
+        await DispatchAsync(_ => observed.Add(Activity.Current), envelope);
+
+        Assert.Empty(recorded);
+        Assert.Same(drainTrace, Assert.Single(observed));
+        Assert.Equal(1, Interlocked.Read(ref posted));
+    }
 
     [Fact]
     public async Task Dispatch_links_each_message_to_the_trace_that_added_it()
@@ -220,9 +307,11 @@ public sealed class OutboxDispatcherTraceContextTests : IDisposable
             registry,
             NullLogger.Instance,
             grainType,
-            TimeProvider.System,
+            time,
+            trace,
             static _ => typeof(string),
-            static item => item.Id.TraceParent);
+            static item => item.Id.TraceParent,
+            static item => item.Id.Timestamp);
 
         await dispatcher.DispatchAsync(
             [.. pending],

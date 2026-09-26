@@ -9,8 +9,10 @@ internal sealed class OutboxDispatcher<TOutbox>(
     ILogger logger,
     string grainType,
     TimeProvider timeProvider,
+    MessageTraceOptions trace,
     Func<TOutbox, Type> getMessageType,
-    Func<TOutbox, string?> getTraceParent)
+    Func<TOutbox, string?> getTraceParent,
+    Func<TOutbox, DateTimeOffset> getTimestamp)
     where TOutbox : notnull
 {
     public async Task<ImmutableArray<OutboxDispatchResult<TOutbox>>> DispatchAsync(
@@ -159,6 +161,11 @@ internal sealed class OutboxDispatcher<TOutbox>(
 
     private Activity? StartDispatchActivity(TOutbox item, OutboxPostmanRegistration<TOutbox> postman)
     {
+        if (trace.Mode == MessageTraceMode.None)
+        {
+            return null;
+        }
+
         var tags = new KeyValuePair<string, object?>[]
         {
             new("messaging.system", "orleans"),
@@ -181,6 +188,17 @@ internal sealed class OutboxDispatcher<TOutbox>(
         if (getTraceParent(item) is { } traceParent
             && ActivityContext.TryParse(traceParent, traceState: null, isRemote: true, out var producerContext))
         {
+            // Parent and ParentWithinLag opt in to the long trace the link above
+            // avoids, for flows where one trace per causal chain matters more.
+            if (ShouldParent(item))
+            {
+                return MessagingTelemetry.ActivitySource.StartActivity(
+                    "orleans.outbox.post",
+                    ActivityKind.Producer,
+                    parentContext: producerContext,
+                    tags: tags);
+            }
+
             return MessagingTelemetry.ActivitySource.StartActivity(
                 "orleans.outbox.post",
                 ActivityKind.Producer,
@@ -195,6 +213,13 @@ internal sealed class OutboxDispatcher<TOutbox>(
             parentContext: default,
             tags: tags);
     }
+
+    private bool ShouldParent(TOutbox item) => trace.Mode switch
+    {
+        MessageTraceMode.Parent => true,
+        MessageTraceMode.ParentWithinLag => timeProvider.GetUtcNow() - getTimestamp(item) <= trace.MaxParentLag,
+        _ => false,
+    };
 
     private sealed class DispatchGroup(OutboxPostmanRegistration<TOutbox>? postman)
     {

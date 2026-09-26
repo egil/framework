@@ -2030,6 +2030,14 @@ public class OutboxProcessorOptions
     /// Whether background retry work should keep the grain activation alive
     /// while pending outbox items remain.
     public bool KeepAlive { get; set; } = false;
+
+    /// How each orleans.outbox.post span relates to the traceparent captured at
+    /// Add time. Shared with StreamSubscriptionOptions.Trace (§5, Gap 2).
+    /// Link: ambient parent + link (default). Parent: captured context as parent,
+    /// no link. ParentWithinLag: Parent when now - envelope timestamp <= lag,
+    /// else Link. None: no span; postmen run under the ambient activity, the
+    /// outbox.post.* metrics still record, and Outbox<T> still captures.
+    public MessageTraceOptions Trace { get; set; } = MessageTraceOptions.Link;
 }
 
 /// Per-processor options: the shared settings plus payload-typed callbacks.
