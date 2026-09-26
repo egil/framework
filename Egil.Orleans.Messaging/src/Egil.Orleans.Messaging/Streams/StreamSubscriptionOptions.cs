@@ -43,13 +43,13 @@ public sealed class StreamSubscriptionOptions
 
     /// <summary>
     /// How each delivery's <c>orleans.stream.process</c> span relates to the
-    /// producer's trace. Default: <see cref="StreamTraceOptions.Link"/>.
+    /// producer's trace. Default: <see cref="MessageTraceOptions.Link"/>.
     /// </summary>
-    public StreamTraceOptions Trace { get; set; } = StreamTraceOptions.Link;
+    public MessageTraceOptions Trace { get; set; } = MessageTraceOptions.Link;
 
     /// <summary>
     /// Clock used to measure enqueue lag for
-    /// <see cref="StreamTraceOptions.ParentWithinLag(TimeSpan)"/>. Default:
+    /// <see cref="MessageTraceOptions.ParentWithinLag(TimeSpan)"/>. Default:
     /// <see langword="null"/>, which uses the <see cref="System.TimeProvider"/>
     /// registered in the silo's services, or <see cref="TimeProvider.System"/>
     /// when none is registered.

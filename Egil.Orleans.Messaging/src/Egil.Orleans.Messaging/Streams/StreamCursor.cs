@@ -123,7 +123,7 @@ public sealed record StreamCursor(
     /// <see cref="IStreamSequenceTokenMetadata"/> and exposes a traceparent.
     /// <see cref="StreamManager"/> uses this to link or parent the consumer
     /// span to the producer span, according to the subscription's
-    /// <see cref="StreamTraceOptions"/>.
+    /// <see cref="MessageTraceOptions"/>.
     /// </remarks>
     /// <param name="traceParent">
     /// The W3C <c>traceparent</c> value from the producer-side

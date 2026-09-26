@@ -38,8 +38,8 @@ namespace Egil.Orleans.Messaging.Streams.EventHubs;
 /// <see cref="StreamManager"/> reads it via
 /// <see cref="StreamCursor.TryGetTraceParent"/> and links or parents the
 /// consumer span to the producer span according to the subscription's
-/// <see cref="StreamTraceOptions"/>. <see cref="EnqueuedTime"/> drives
-/// <see cref="StreamTraceOptions.ParentWithinLag(TimeSpan)"/>.
+/// <see cref="MessageTraceOptions"/>. <see cref="EnqueuedTime"/> drives
+/// <see cref="MessageTraceOptions.ParentWithinLag(TimeSpan)"/>.
 /// </para>
 /// <para>
 /// <b>Serialization:</b> Inherits Orleans serialization from
@@ -86,7 +86,7 @@ public class EnrichedEventHubSequenceToken : EventHubSequenceTokenV2, IStreamSeq
     /// batch-container conversion (consumer side).
     /// <see cref="StreamManager"/> uses this to link or parent the consumer
     /// span to the producer span, according to the subscription's
-    /// <see cref="StreamTraceOptions"/>.
+    /// <see cref="MessageTraceOptions"/>.
     /// </remarks>
     [Id(2)]
     public string? TraceParent { get; }
