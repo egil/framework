@@ -1577,8 +1577,8 @@ Three decisions taken deliberately here:
 
 Orleans streams lose `Activity.Current` across the queue boundary. To
 correlate consumer-side spans with producer-side spans without creating
-multi-hour distributed traces, `StreamManager` should use
-`ActivityLink`s, not parent chaining:
+multi-hour distributed traces, `StreamManager` uses `ActivityLink`s, not
+parent chaining, by default:
 
 - Producer side (`EnrichedEventHubAdapter.ToQueueMessage<T>`): stash
   `Activity.Current?.Id` into `EventData.Properties["traceparent"]`
@@ -1588,7 +1588,8 @@ multi-hour distributed traces, `StreamManager` should use
   `EnrichedEventHubSequenceToken.TraceParent`.
 - Consumer side (in `StreamManager`'s OnNext wrapper): read the
   token's traceparent, parse into `ActivityContext`, start the OnNext span with
-  `ActivityKind.Consumer` and `links: [new ActivityLink(parsedContext)]`.
+  `ActivityKind.Consumer` and `links: [new ActivityLink(parsedContext)]` as a
+  root, whatever is ambient (see the modes below).
 
 This produces separate traces per delivery, each with a link back to
 the producer span. OTel backends render the cross-trace arrow without
