@@ -31,14 +31,19 @@ public class OutboxProcessorOptions
     public TimeSpan ProcessingTimeout { get; set; } = TimeSpan.FromSeconds(20);
 
     /// <summary>
-    /// Clock used to enforce <see cref="ProcessingTimeout"/>. Default:
+    /// Clock used to enforce <see cref="ProcessingTimeout"/> and to measure
+    /// message age when <see cref="Trace"/> is
+    /// <see cref="MessageTraceMode.ParentWithinLag"/>. Default:
     /// <see langword="null"/>, which uses the <see cref="System.TimeProvider"/>
     /// registered in the silo's services, or <see cref="TimeProvider.System"/>
     /// when none is registered.
     /// </summary>
     /// <remarks>
-    /// This provider controls only the processing timeout. Orleans owns the
-    /// grain timers and reminders used for <see cref="RetryDelay"/>. Set a
+    /// This provider controls the processing timeout and the
+    /// <see cref="MessageTraceMode.ParentWithinLag"/> age check, so choosing a
+    /// domain clock also decides which deliveries parent to the producing trace.
+    /// Orleans owns the grain timers and reminders used for
+    /// <see cref="RetryDelay"/>. Set a
     /// shared domain clock once for the silo with the
     /// <c>ConfigureOutboxProcessor</c> overload that receives the
     /// <see cref="IServiceProvider"/>.
