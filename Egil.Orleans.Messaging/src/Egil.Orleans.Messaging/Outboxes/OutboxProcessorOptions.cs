@@ -100,9 +100,12 @@ public class OutboxProcessorOptions
     /// timer retries that run long after the message was added.
     /// </para>
     /// <para>
-    /// <see cref="MessageTraceOptions.None"/> starts no span, and postmen run under
-    /// the ambient activity. The <c>outbox.post.*</c> metrics are still recorded,
-    /// and <see cref="Outbox{T}"/> still captures each message's traceparent.
+    /// <see cref="MessageTraceOptions.None"/> joins an existing trace and never
+    /// starts one. When a request drives the drain, the span behaves as with
+    /// <see cref="MessageTraceOptions.Link"/>. On timer, reminder, and background
+    /// drains nothing is ambient, so no span starts and postmen run with no
+    /// activity. The <c>outbox.post.*</c> metrics are still recorded, and
+    /// <see cref="Outbox{T}"/> still captures each message's traceparent.
     /// </para>
     /// </remarks>
     public MessageTraceOptions Trace { get; set; } = MessageTraceOptions.Link;

@@ -61,7 +61,7 @@ public sealed class OutboxDispatcherTraceContextTests : IDisposable
     }
 
     [Fact]
-    public async Task None_mode_starts_no_span_and_still_records_metrics()
+    public async Task None_mode_starts_no_trace_on_a_background_drain_and_still_records_metrics()
     {
         using var testListener = StartTestListener();
         using var recorder = RecordDispatchSpans(out var recorded);
@@ -91,14 +91,35 @@ public sealed class OutboxDispatcherTraceContextTests : IDisposable
         var envelope = Envelope(1, addTrace.Id);
         addTrace.Dispose();
         trace = MessageTraceOptions.None;
-        using var drainTrace = source.StartActivity("request-b")!;
         var observed = new List<Activity?>();
 
         await DispatchAsync(_ => observed.Add(Activity.Current), envelope);
 
         Assert.Empty(recorded);
-        Assert.Same(drainTrace, Assert.Single(observed));
+        Assert.Null(Assert.Single(observed));
         Assert.Equal(1, Interlocked.Read(ref posted));
+    }
+
+    [Fact]
+    public async Task None_mode_traces_inside_a_request_driven_drain()
+    {
+        using var testListener = StartTestListener();
+        using var recorder = RecordDispatchSpans(out var recorded);
+        var addTrace = source.StartActivity("request-a")!;
+        var addTraceId = addTrace.TraceId;
+        var envelope = Envelope(1, addTrace.Id);
+        addTrace.Dispose();
+        trace = MessageTraceOptions.None;
+        using var drainTrace = source.StartActivity("request-b")!;
+        var observed = new List<Activity?>();
+
+        await DispatchAsync(_ => observed.Add(Activity.Current), envelope);
+
+        var span = Assert.Single(recorded);
+        Assert.Equal(drainTrace.TraceId, span.TraceId);
+        Assert.Equal(drainTrace.SpanId, span.ParentSpanId);
+        Assert.Equal(addTraceId, Assert.Single(span.Links).Context.TraceId);
+        Assert.Same(span, Assert.Single(observed));
     }
 
     [Fact]

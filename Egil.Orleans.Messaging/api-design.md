@@ -1672,7 +1672,8 @@ public sealed record MessageTraceOptions
 - `None` never starts a trace. With an ambient activity the span starts as its
   child, with a link to the producer when the traceparent parses. Without one,
   no span starts and the handler runs with no activity. The `stream.*` metrics
-  are recorded either way. The outbox's `None` is unconditional: no span.
+  are recorded either way. The outbox's `None` is symmetric: a request-driven
+  drain gets the `Link` span, a timer or reminder drain gets none.
 - A missing or unparseable traceparent produces a span with no link, whatever
   the mode. It joins the ambient activity when there is one, as outbox delivery
   spans do, and starts a new trace otherwise.
@@ -2035,7 +2036,8 @@ public class OutboxProcessorOptions
     /// Add time. Shared with StreamSubscriptionOptions.Trace (§5, Gap 2).
     /// Link: ambient parent + link (default). Parent: captured context as parent,
     /// no link. ParentWithinLag: Parent when now - envelope timestamp <= lag,
-    /// else Link. None: no span; postmen run under the ambient activity, the
+    /// else Link. None: joins an existing trace, never starts one: as Link when
+    /// a request drives the drain, no span on timer/reminder drains. The
     /// outbox.post.* metrics still record, and Outbox<T> still captures.
     public MessageTraceOptions Trace { get; set; } = MessageTraceOptions.Link;
 }
