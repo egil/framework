@@ -36,7 +36,7 @@ public static class OutboxProcessorExtensions
         /// <code>
         /// public MyGrain()
         /// {
-        ///     outboxProcessor = this.RegisterOutboxProcessor&lt;IMyEvent&gt;(() => stateManager.State.Outbox, options =>
+        ///     outboxProcessor = this.RegisterOutboxProcessor(() => stateManager.State.Outbox, options =>
         ///     {
         ///         options.AcknowledgePosted = items =>
         ///         {
