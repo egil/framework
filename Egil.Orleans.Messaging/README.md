@@ -1121,7 +1121,7 @@ publish, each subscription chooses how that span relates to the producer through
 |------------------------------------------|--------------------------------------------------------------------------|
 | `MessageTraceOptions.Link`               | New trace, with an `ActivityLink` to the producer span. The default.     |
 | `MessageTraceOptions.Parent`             | Child of the producer span, in the producer's trace. No link.            |
-| `MessageTraceOptions.ParentWithinLag(t)` | Child when `now - enqueued <= t`, otherwise linked as with `Link`.       |
+| `MessageTraceOptions.ParentWithinLag(t)` | Child when `|now - enqueued| <= t`, otherwise linked as with `Link`.     |
 | `MessageTraceOptions.None`               | Child of the ambient activity with a link; no span when none is ambient. |
 
 `None` joins an existing trace and never starts one: "don't start a trace", not
@@ -1161,8 +1161,9 @@ sampled independently of the producer and are usually dropped.
 `ParentWithinLag` guards against the backlog case. After an outage, consumers
 catch up on messages enqueued hours earlier. With `Parent`, those spans join
 the old producer traces and stretch them across the whole outage. With
-`ParentWithinLag`, deliveries older than the limit fall back to a link.
-`ParentWithinLag` needs a token that exposes an enqueue time, such as
+`ParentWithinLag`, deliveries older than the limit fall back to a link. The lag
+is compared by magnitude, so a consumer clock running behind the broker's does
+not make an old message look recent. `ParentWithinLag` needs a token that exposes an enqueue time, such as
 `EnrichedEventHubSequenceToken`. Without one it always links. The lag is
 measured with `StreamSubscriptionOptions.TimeProvider`. When that is `null`,
 the default, the `TimeProvider` registered in the silo's services is used, or

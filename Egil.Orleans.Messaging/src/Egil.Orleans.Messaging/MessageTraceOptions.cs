@@ -109,6 +109,12 @@ public sealed record MessageTraceOptions
     /// Parents the span to the producer span when the message is at most
     /// <paramref name="maxParentLag"/> old, and links it otherwise.
     /// </summary>
+    /// <remarks>
+    /// The age is compared by magnitude. Timestamps come from another clock, the
+    /// broker's or the producing silo's, so a local clock running behind can make
+    /// the age negative. Small skew still parents; skew beyond
+    /// <paramref name="maxParentLag"/> in either direction links.
+    /// </remarks>
     /// <param name="maxParentLag">The largest age that still parents. Must be positive.</param>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="maxParentLag"/> is zero or negative.</exception>
     public static MessageTraceOptions ParentWithinLag(TimeSpan maxParentLag)
