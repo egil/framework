@@ -42,6 +42,8 @@ public sealed class OutboxDispatcherTraceContextTests : IDisposable
     [Theory]
     [InlineData(30, true)]
     [InlineData(31, false)]
+    [InlineData(-30, true)]
+    [InlineData(-31, false)]
     public async Task ParentWithinLag_parents_recent_messages_and_links_older_ones(int ageSeconds, bool expectParent)
     {
         using var testListener = StartTestListener();

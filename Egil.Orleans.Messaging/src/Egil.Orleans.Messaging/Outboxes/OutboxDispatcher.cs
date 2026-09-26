@@ -219,7 +219,9 @@ internal sealed class OutboxDispatcher<TOutbox>(
     private bool ShouldParent(TOutbox item) => trace.Mode switch
     {
         MessageTraceMode.Parent => true,
-        MessageTraceMode.ParentWithinLag => timeProvider.GetUtcNow() - getTimestamp(item) <= trace.MaxParentLag,
+        // The timestamp comes from whichever silo added the message, so compare the
+        // magnitude: small skew still parents, large skew in either direction links.
+        MessageTraceMode.ParentWithinLag => (timeProvider.GetUtcNow() - getTimestamp(item)).Duration() <= trace.MaxParentLag,
         _ => false,
     };
 
