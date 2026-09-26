@@ -161,7 +161,9 @@ internal sealed class OutboxDispatcher<TOutbox>(
 
     private Activity? StartDispatchActivity(TOutbox item, OutboxPostmanRegistration<TOutbox> postman)
     {
-        if (trace.Mode == MessageTraceMode.None)
+        // None never starts a trace. With an ambient activity it behaves as Link;
+        // on timer, reminder, and background drains nothing is ambient, so no span.
+        if (trace.Mode == MessageTraceMode.None && Activity.Current is null)
         {
             return null;
         }

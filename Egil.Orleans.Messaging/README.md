@@ -849,7 +849,7 @@ It takes the same `MessageTraceOptions` as stream subscriptions:
 | `MessageTraceOptions.Link`               | Joins the ambient activity, if any, and links to the captured traceparent. Default. |
 | `MessageTraceOptions.Parent`             | Child of the captured traceparent instead of the ambient activity. No link.         |
 | `MessageTraceOptions.ParentWithinLag(t)` | `Parent` when the message was added at most `t` ago, otherwise `Link`.              |
-| `MessageTraceOptions.None`               | No span. Postmen run under the ambient activity.                                    |
+| `MessageTraceOptions.None`               | As `Link` when a request drives the drain; no span on timer or reminder drains.     |
 
 ```csharp
 siloBuilder.ConfigureOutboxProcessor(options =>
@@ -859,10 +859,15 @@ siloBuilder.ConfigureOutboxProcessor(options =>
 `ParentWithinLag` measures the message's age with the processor's
 `TimeProvider`, so a retry from a timer or reminder long after the message was
 added falls back to a link. Because postmen run inside the span, a stream
-published through `EnrichedEventHubAdapter` carries the span's traceparent, or
-with `None` the ambient one. `None` turns off the span only: the `outbox.post.*`
-metrics are still recorded, and `Outbox<T>` still captures each message's
-traceparent.
+published through `EnrichedEventHubAdapter` carries the span's traceparent.
+
+`None` joins an existing trace and never starts one, on both sides. Choose it
+to silence background drains and redeliveries while keeping spans inside
+request-driven work: a drain driven by a request gets the same span as `Link`,
+and a timer or reminder drain, where nothing is ambient, gets none. Its postmen
+then run with no activity, so `EnrichedEventHubAdapter` stamps no traceparent.
+The `outbox.post.*` metrics are still recorded, and `Outbox<T>` still captures
+each message's traceparent for log correlation.
 
 The traceparent is stored whether or not the producing activity was sampled, so
 the trace id remains available for log correlation. `tracestate` is not
