@@ -24,14 +24,23 @@ public sealed partial class OutboxProcessor<TOutbox>
             // A failed or timed-out registration cannot prevent deactivation.
             // Include the identity so operators can find and explicitly post
             // this grain if the best-effort durable handoff did not complete.
-            logger.LogWarning(
-                new EventId(1, "OutboxDeactivationReminderFailed"),
+            LogDeactivationReminderFailed(
                 exception,
-                "Could not confirm an outbox reminder for grain {GrainId} ({GrainType}) during deactivation. " +
-                "Pending outbox work may require manual reactivation and an explicit post. Reminder: {ReminderName}.",
                 owner.GrainContext.GrainId,
                 grainType,
                 reminderName);
         }
     }
+
+    [LoggerMessage(
+        EventId = 1,
+        EventName = "OutboxDeactivationReminderFailed",
+        Level = LogLevel.Warning,
+        Message = "Could not confirm an outbox reminder for grain {GrainId} ({GrainType}) during deactivation. " +
+            "Pending outbox work may require manual reactivation and an explicit post. Reminder: {ReminderName}.")]
+    private partial void LogDeactivationReminderFailed(
+        Exception exception,
+        GrainId grainId,
+        string grainType,
+        string reminderName);
 }
