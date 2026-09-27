@@ -42,6 +42,10 @@ public interface IDurableMessageTracker
     StreamSequenceToken? LatestStreamSequenceToken(string streamProviderName, string streamNamespace);
     /// <summary>Returns the latest matching stream cursor using the immutable tracker lookup rules.</summary>
     StreamCursor? LatestStream(StreamId stream);
+    /// <summary>Returns the checkpoint for exactly this provider and complete stream identity.</summary>
+    StreamCursor? LatestStream(string streamProviderName, StreamId stream);
+    /// <summary>Returns the native checkpoint for exactly this provider and complete stream identity.</summary>
+    StreamSequenceToken? LatestStreamSequenceToken(string streamProviderName, StreamId stream);
     /// <summary>Returns the latest accepted position for the specified outbox sender.</summary>
     OutboxSequenceToken? LatestOutbox(GrainId sender);
     /// <summary>Evicts stream and outbox entries received at or before the cutoff and returns this component.</summary>
@@ -52,8 +56,10 @@ public interface IDurableMessageTracker
     IDurableMessageTracker EvictOutboxes(DateTimeOffset olderThan);
     /// <summary>Evicts entries in the specified namespace across providers received at or before the cutoff and returns this component.</summary>
     IDurableMessageTracker Evict(string streamNamespace, DateTimeOffset olderThan);
-    /// <summary>Evicts entries in the specified stream namespace received at or before the cutoff and returns this component.</summary>
+    /// <summary>Evicts checkpoints and receipts for the complete stream across providers at the cutoff and returns this component.</summary>
     IDurableMessageTracker Evict(StreamId stream, DateTimeOffset olderThan);
+    /// <summary>Evicts this full stream source within one provider, including its receipts.</summary>
+    IDurableMessageTracker Evict(string streamProviderName, StreamId stream, DateTimeOffset olderThan);
     /// <summary>Evicts entries for the specified outbox sender received at or before the cutoff and returns this component.</summary>
     IDurableMessageTracker Evict(GrainId sender, DateTimeOffset olderThan);
 }

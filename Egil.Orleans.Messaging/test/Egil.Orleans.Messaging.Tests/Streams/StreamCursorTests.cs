@@ -5,6 +5,16 @@ namespace Egil.Orleans.Messaging.Tests.Streams;
 public sealed class StreamCursorTests
 {
     [Fact]
+    public void Subscription_provider_identity_takes_precedence_over_native_token_metadata()
+    {
+        var cursor = new StreamCursor("orders", new MetadataSequenceToken(1, 0, DateTimeOffset.UnixEpoch, "stale-provider", null), "actual-provider");
+
+        Assert.True(cursor.TryGetProviderName(out var provider));
+
+        Assert.Equal("actual-provider", provider);
+    }
+
+    [Fact]
     public void TryGetEnqueuedTime_returns_true_and_value_for_metadata_token()
     {
         var enqueuedTime = new DateTimeOffset(2026, 5, 24, 12, 30, 0, TimeSpan.Zero);

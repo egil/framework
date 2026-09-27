@@ -261,15 +261,7 @@ public sealed partial class OutboxProcessor<TOutbox>
         ArgumentNullException.ThrowIfNull(streamId);
         ArgumentNullException.ThrowIfNull(project);
 
-        var streamProvider = owner.GrainContext.ActivationServices
-            .GetRequiredKeyedService<IStreamProvider>(streamProviderName);
-
-        AddPayloadPostman<TSub>((message, _) =>
-        {
-            var stream = streamProvider.GetStream<TEvent>(streamId(message));
-            return new ValueTask(stream.OnNextAsync(project(message)));
-        });
-        return this;
+        return AddStreamPostman<TSub, TEvent>(streamProviderName, (message, _) => streamId(message), (message, _) => project(message));
     }
 
     /// <summary>Registers a stream projection which can include delivery metadata in its event.</summary>
@@ -310,7 +302,7 @@ public sealed partial class OutboxProcessor<TOutbox>
         {
             cancellationToken.ThrowIfCancellationRequested();
             return new ValueTask(streamProvider.GetStream<TEvent>(streamId(message, token))
-                .OnNextAsync(project(message, token)));
+                .PublishFromOutboxAsync(project(message, token), token));
         });
     }
 

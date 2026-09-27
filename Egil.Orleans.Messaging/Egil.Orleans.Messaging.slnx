@@ -6,6 +6,7 @@
     <Project Path="src/Egil.Orleans.Messaging.Streams.EventHubs/Egil.Orleans.Messaging.Streams.EventHubs.csproj" />
   </Folder>
   <Folder Name="/test/">
+    <Project Path="test/Egil.Orleans.Messaging.Streams.Consumer.Tests/Egil.Orleans.Messaging.Streams.Consumer.Tests.csproj" />
     <Project Path="test/Egil.Orleans.Messaging.Journaling.Tests/Egil.Orleans.Messaging.Journaling.Tests.csproj" />
     <Project Path="test/Egil.Orleans.Messaging.State.Consumer.Tests/Egil.Orleans.Messaging.State.Consumer.Tests.csproj" />
     <Project Path="test/Egil.Orleans.Messaging.State.AzureStorage.Tests/Egil.Orleans.Messaging.State.AzureStorage.Tests.csproj" />

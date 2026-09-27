@@ -7,6 +7,14 @@ namespace Egil.Orleans.Messaging.Tests.Streams;
 
 public sealed class StreamCursorJsonConverterTests
 {
+    [Fact]
+    public void Full_stream_identity_json_requires_both_namespace_and_key_bytes()
+    {
+        const string json = """{"StreamNamespace":"orders","Token":null,"ProviderName":"events","StreamId":{"Namespace":"b3JkZXJz"}}""";
+
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<StreamCursor>(json));
+    }
+
     [Theory]
     [InlineData("event-sequence", "1.5")]
     [InlineData("event-sequence", "2147483648")]

@@ -73,7 +73,19 @@ internal sealed class MessageTrackerJsonConverter : JsonConverter<MessageTracker
                     item.LastTimestamp ?? item.Received));
         }
 
-        return new MessageTracker(streams.ToImmutable(), outbox.ToImmutable());
+        var receipts = ImmutableDictionary.CreateBuilder<MessageTracker.StreamMessageIdentity, DateTimeOffset>();
+        foreach (var item in model.Receipts ?? [])
+        {
+            var id = item.StreamId.ToStreamId();
+            var cursor = new StreamCursor(id.GetNamespace()!, null, item.ProviderName)
+            {
+                StreamId = id,
+                OutboxToken = new(item.SequenceNumber, ParseGrainId(item.Sender), default, item.Epoch)
+            };
+            cursor.ValidateSource();
+            receipts.Add(MessageTracker.StreamMessageIdentity.From(cursor), item.Received);
+        }
+        return new MessageTracker(streams.ToImmutable(), outbox.ToImmutable(), receipts.ToImmutable());
     }
 
     /// <inheritdoc/>
@@ -105,7 +117,10 @@ internal sealed class MessageTrackerJsonConverter : JsonConverter<MessageTracker
 
         JsonSerializer.Serialize(
             writer,
-            new MessageTrackerJsonModel(streamModels, outboxModels),
+            new MessageTrackerJsonModel(streamModels, outboxModels,
+                value.StreamReceipts.Count == 0 ? null : value.StreamReceipts.Select(item => new ReceiptJsonModel(item.Key.Source.ProviderName!,
+                    StreamIdJsonModel.From(item.Key.Source.StreamId!.Value), ToJsonModel(item.Key.Sender),
+                    item.Key.Epoch, item.Key.SequenceNumber, item.Value)).ToArray()),
             options);
     }
 
@@ -127,7 +142,18 @@ internal sealed class MessageTrackerJsonConverter : JsonConverter<MessageTracker
         StreamEntryJsonModel[]? Streams,
         [property: JsonPropertyName("Outboxes")]
         [property: JsonRequired]
-        OutboxEntryJsonModel[]? Outboxes);
+        OutboxEntryJsonModel[]? Outboxes,
+        [property: JsonPropertyName("Receipts")]
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        ReceiptJsonModel[]? Receipts = null);
+
+    private sealed record ReceiptJsonModel(
+        [property: JsonPropertyName("ProviderName")] string ProviderName,
+        [property: JsonPropertyName("StreamId")] StreamIdJsonModel StreamId,
+        [property: JsonPropertyName("Sender")] GrainIdJsonModel Sender,
+        [property: JsonPropertyName("Epoch")] DateTimeOffset Epoch,
+        [property: JsonPropertyName("SequenceNumber")] long SequenceNumber,
+        [property: JsonPropertyName("Received")] DateTimeOffset Received);
 
     private sealed record StreamEntryJsonModel(
         [property: JsonPropertyName("LastPosition")]

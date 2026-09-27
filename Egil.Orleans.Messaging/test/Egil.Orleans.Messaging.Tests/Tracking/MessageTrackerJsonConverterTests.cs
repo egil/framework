@@ -28,14 +28,14 @@ public sealed class MessageTrackerJsonConverterTests
         var streamId = StreamId.Create("orders", token.GetType().Name);
         var tracker = new MessageTracker();
         tracker.RegisterTimeProvider(new ManualTimeProvider(now));
-        tracker.TryAcceptMessage(new StreamCursor("orders", token), out tracker);
+        tracker.TryAcceptMessage(new StreamCursor("orders", token) { StreamId = streamId }, out tracker);
 
         var json = JsonSerializer.Serialize(tracker);
         var roundTripped = JsonSerializer.Deserialize<MessageTracker>(json);
 
         Assert.NotNull(roundTripped);
         Assert.Equal(tracker, roundTripped);
-        Assert.Equal(new StreamCursor("orders", token), roundTripped.LatestStream(streamId));
+        Assert.Equal(new StreamCursor("orders", token) { StreamId = streamId }, roundTripped.LatestStream(streamId));
     }
 
     [Theory]
@@ -147,7 +147,7 @@ public sealed class MessageTrackerJsonConverterTests
         var roundTripped = JsonSerializer.Deserialize<MessageTracker>(json);
 
         Assert.NotNull(roundTripped);
-        Assert.Equal(new StreamCursor("orders", null), roundTripped.LatestStream(streamId));
+        Assert.Equal(new StreamCursor("orders", null), roundTripped.LatestStream("orders"));
     }
 
     [Fact]
