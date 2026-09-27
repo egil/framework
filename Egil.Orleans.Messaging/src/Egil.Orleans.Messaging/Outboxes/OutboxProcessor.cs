@@ -147,6 +147,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         if (options.ReminderPolicy == OutboxReminderPolicy.KeepRegistered)
         {
             await EnsureReminderAsync();
+            cancellationToken.ThrowIfCancellationRequested();
         }
 
         if (GetPendingItems().IsDefaultOrEmpty)
