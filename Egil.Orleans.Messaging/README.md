@@ -647,14 +647,34 @@ public OrderGrain([PersistentState("state", "Default")] IPersistentState<OrderSt
 }
 ```
 
-`AddPostman` callbacks take `(message)`, `(message, token)`, or
-`(message, token, cancellationToken)`. Both `Task` and `ValueTask` handlers work
-without adapters. On C# 13 or newer, overload priority selects `ValueTask` for
-ordinary async lambdas; Task-returning method groups and expressions select the
-Task overload. Older compilers need an explicitly typed delegate or lambda return
-type when a lambda could fit both. See [overload priority](https://learn.microsoft.com/dotnet/csharp/language-reference/proposals/csharp-13.0/overload-resolution-priority). The second argument is always the delivery `OutboxSequenceToken`,
-and cancellation is always third. Capture a grain factory when needed, or use
-`AddGrainPostman` to resolve the destination. The processor builds that token from the stored
+`AddPostman<TSub>` takes one handler. Only the payload is required; the delivery
+`OutboxSequenceToken`, `IGrainFactory`, and `CancellationToken` are independently
+optional, in that relative order. Every shape supports both `Task` and `ValueTask`:
+
+| Handler parameters | ValueTask priority | Task priority |
+| --- | ---: | ---: |
+| `(message)` | 1 | 0 |
+| `(message, token)` | 5 | 4 |
+| `(message, grains)` | 3 | 2 |
+| `(message, cancellationToken)` | 1 | 0 |
+| `(message, token, grains)` | 3 | 2 |
+| `(message, token, cancellationToken)` | 5 | 4 |
+| `(message, grains, cancellationToken)` | 1 | 0 |
+| `(message, token, grains, cancellationToken)` | 1 | 0 |
+
+On C# 13 or newer, [overload priority](https://github.com/dotnet/csharplang/blob/main/proposals/csharp-13.0/overload-resolution-priority.md)
+chooses the highest-priority applicable overload. This preserves the token-based
+defaults when parameters are unused: `(message, _)` receives the delivery token,
+and `(message, _, _)` receives the delivery token and cancellation token. Within
+each shape, ordinary async lambdas prefer `ValueTask`; Task-returning method
+groups and expressions use the Task overload. The parameter types and lambda
+body determine applicability, not parameter names. An explicitly typed handler
+can select a particular shape; older compilers may need explicit parameter and
+return types when a lambda fits multiple overloads.
+
+Capture a grain factory if it is already in scope, or request it as a handler
+argument. Resolve the destination and call it inside that same handler.
+The processor builds a requested delivery token from the stored
 `OutboxMessageId` and its owning grain ID, preserving sequence, epoch and append
 timestamp across retries and reactivation. No sender identity is stored in the outbox.
 
@@ -826,9 +846,8 @@ outboxProcessor = this.RegisterOutboxProcessor(() => state.State.Outbox, Configu
 
 ```csharp
 outboxProcessor = this.RegisterOutboxProcessor(() => state.State.Outbox, ConfigureOutbox)
-    .AddGrainPostman<OrderSubmitted, IOrderProjectionGrain>(
-        (message, grainFactory) => grainFactory.GetGrain<IOrderProjectionGrain>(message.OrderId),
-        async (grain, message) => await grain.ApplyAsync(message));
+    .AddPostman<OrderSubmitted>((message, grains) =>
+        grains.GetGrain<IOrderProjectionGrain>(message.OrderId).ApplyAsync(message));
 ```
 
 Token-aware stream projections and grain calls also operate on payloads:
@@ -839,16 +858,27 @@ outboxProcessor
         "order-streams",
         message => StreamId.Create("submitted-orders", message.OrderId),
         (message, token) => new SubmittedDelivery(message, token))
-    .AddGrainPostman<OrderCancelled, IOrderProjectionGrain>(
-        (message, grains) => grains.GetGrain<IOrderProjectionGrain>(message.OrderId),
-        async (grain, message, token) => await grain.ApplyAsync(message, token));
+    .AddPostman<OrderCancelled>((message, token, grains) =>
+        grains.GetGrain<IOrderProjectionGrain>(message.OrderId).ApplyAsync(message, token));
 ```
 
 The projection creates an application-owned transport contract, not a stored outbox
 envelope. Stream selection also has a token-aware overload. Cancellable grain
-invocations can receive `(grain, message, token, cancellationToken)`. Grain
-invocation callbacks support both `Task` and `ValueTask`, with the same priority; stream selectors and projections remain
-synchronous, with optional token arguments.
+invocations can receive all four handler arguments:
+
+```csharp
+outboxProcessor.AddPostman<OrderSubmitted>((message, token, grains, ct) =>
+    grains.GetGrain<IOrderProjectionGrain>(message.OrderId).ApplyAsync(message, token, ct));
+```
+
+When `GrainFactory` is already in scope, the handler can capture it:
+
+```csharp
+outboxProcessor.AddPostman<OrderSubmitted>(message =>
+    GrainFactory.GetGrain<IOrderProjectionGrain>(message.OrderId).ApplyAsync(message));
+```
+
+Stream selectors and projections remain synchronous, with optional token arguments.
 
 Group registrations that use the same configured provider:
 
@@ -1092,8 +1122,8 @@ await state.WriteAsync(state.State with { Tracker = tracker });
 ```
 
 When a stream delivery includes a provider sequence token, `StreamManager` supplies it from the runtime together with the provider name, so nothing has to ride on the payload. Tokenless stream deliveries are accepted without advancing `MessageTracker` state.
-The outbox token reaches a receiver as an argument instead, from `AddPostman` and
-`AddGrainPostman`, and a receiver that passes it to `TryAcceptMessage` rejects a
+The outbox token reaches a receiver as an argument instead, from `AddPostman`,
+and a receiver that passes it to `TryAcceptMessage` rejects a
 message the producer sent again after an acknowledgement was lost.
 `AddStreamPostman` publishes the payload alone, so an outbox message delivered over
 a stream is deduplicated by its stream token like any other stream message. That
@@ -1452,6 +1482,25 @@ This package is messaging infrastructure, not an event-sourcing or CQRS framewor
   new callback argument). Synchronous registration and factory helpers append the
   optional callback. `IStateManager<T>` gains no members.
 
+- Replace `AddGrainPostman<TSub, TGrain>(resolveGrain, call)` with
+  `AddPostman<TSub>(handler)`. Resolve and invoke the grain in one handler;
+  remove the `TGrain` type argument. The payload is required, while delivery
+  token, grain factory, and cancellation are independently optional, in that
+  order. All eight shapes support both `Task` and `ValueTask`.
+
+  ```diff
+  - .AddGrainPostman<OrderSubmitted, IOrderProjectionGrain>(
+  -     (message, grains) => grains.GetGrain<IOrderProjectionGrain>(message.OrderId),
+  -     (grain, message, token) => grain.ApplyAsync(message, token))
+  + .AddPostman<OrderSubmitted>((message, token, grains) =>
+  +     grains.GetGrain<IOrderProjectionGrain>(message.OrderId).ApplyAsync(message, token))
+  ```
+
+  On C# 13+, the priorities in the handler table above preserve existing
+  token-based defaults when a lambda fits more than one shape. Explicitly type
+  the handler when a different interpretation is intended. Older compilers may
+  require explicit parameter and return types for newly ambiguous calls.
+
 - `RegisterOutboxProcessor` takes the outbox accessor and a `configure`
   callback instead of an `OutboxProcessorOptions<T>` instance.
   `OutboxProcessorOptions<T>.OutboxAccessor` is gone; pass the accessor as the
@@ -1609,7 +1658,7 @@ The constructor-registration and payload-postman changes tracked in
 - Outboxes persist a UUIDv7 `Revision`. JSON requires a non-empty revision; previous beta snapshots need migration or reset. Independently constructed snapshots no longer compare equal based on matching contents.
 - Stored envelopes expose `Id` (`OutboxMessageId`); delivery tokens are supplied to handlers by the processor.
 - Use `OutboxProcessor<TPayload>` and `OutboxProcessorOptions<TPayload>`, not envelope generic arguments.
-- Register payload subtypes with `AddPostman`, `AddStreamPostman`, and `AddGrainPostman`. Direct `AddPostman` callbacks take one, two, or three arguments. Direct and grain callbacks accept both `Task` and `ValueTask`, preferring `ValueTask` for async lambdas on C# 13+. Replace `AddPostmanWithToken` with `AddPostman`; move cancellation to the third argument and capture a grain factory rather than receiving it as a callback argument.
+- Register payload subtypes with `AddPostman` and `AddStreamPostman`. Replace `AddPostmanWithToken` with `AddPostman`; choose the payload and optional delivery token, grain factory, and cancellation arguments your handler needs. Both `Task` and `ValueTask` are supported, with the overload priorities described above.
 - Supply state factories for types without a public parameterless constructor. Custom `IStateManagerFactory` implementations receive storage, the initial-state factory, resolved `StateManagerOptions`, optional runtime configuration, and optional `IGrainContext`. Forward the recovery policy and grain context to each manager.
 - Pass a tracker accessor to `RegisterStreamManager`, for example `() => state.State.Tracker`. It is evaluated when attaching/resuming subscriptions, after hydration, and observes later state replacement.
 
