@@ -40,9 +40,8 @@ public sealed class ContextBoundarySource : Grain, IContextBoundarySource, IOutb
         var processor = this.RegisterOutboxProcessor(() => outbox, options =>
             options.AcknowledgePosted = items => outbox = outbox.RemoveRange(items))
             .AddPostman<LocalPayload>(message => GrainFactory.GetGrain<IContextBoundaryReceiver>(message.Target).RecordAsync("generic", null))
-            .AddGrainPostman<GrainPayload, IContextBoundaryReceiver>(
-                (message, grains) => grains.GetGrain<IContextBoundaryReceiver>(message.Target),
-                (receiver, _, token) => receiver.RecordAsync("rpc", token))
+            .AddPostman<GrainPayload>((message, token, grains) =>
+                grains.GetGrain<IContextBoundaryReceiver>(message.Target).RecordAsync("rpc", token))
             .AddPostman<SecondStreamPayload>("context-free")
             .AddPostman<StreamPayload>(async ValueTask (message, _) =>
             {
