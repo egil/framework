@@ -21,7 +21,7 @@ public sealed class AzureStorageStateManagerTests
                 state.Etag = "etag-2";
             }
         };
-        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         var actual = await Assert.ThrowsAsync<RequestFailedException>(
             () => manager.WriteAsync(new TestState("next"), TestContext.Current.CancellationToken));
@@ -49,7 +49,7 @@ public sealed class AzureStorageStateManagerTests
                 state.Etag = "etag-2";
             }
         };
-        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         var actual = await Assert.ThrowsAsync<InvalidOperationException>(
             () => manager.WriteAsync(new TestState("next"), TestContext.Current.CancellationToken));
@@ -77,7 +77,7 @@ public sealed class AzureStorageStateManagerTests
                 state.Etag = "etag-2";
             }
         };
-        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         var actual = await Assert.ThrowsAsync<RequestFailedException>(
             () => manager.WriteAsync(new TestState("next"), TestContext.Current.CancellationToken));
@@ -104,7 +104,7 @@ public sealed class AzureStorageStateManagerTests
                 state.Etag = "etag-2";
             }
         };
-        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         var actual = await Assert.ThrowsAsync<RequestFailedException>(
             () => manager.WriteAsync(attempted, TestContext.Current.CancellationToken));
@@ -127,7 +127,7 @@ public sealed class AzureStorageStateManagerTests
         {
             WriteException = exception
         };
-        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         var actual = await Assert.ThrowsAsync<RequestFailedException>(
             () => manager.WriteAsync(new TestState("next"), TestContext.Current.CancellationToken));
@@ -145,7 +145,7 @@ public sealed class AzureStorageStateManagerTests
             WriteException = new RequestFailedException(503, "Server busy."),
             OnRead = state => state.State = new TestState("next")
         };
-        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         await manager.WriteAsync(new TestState("next"), TestContext.Current.CancellationToken);
 
@@ -165,7 +165,7 @@ public sealed class AzureStorageStateManagerTests
                 innerException: null),
             OnRead = state => state.State = new TestState("next")
         };
-        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         await manager.WriteAsync(new TestState("next"), TestContext.Current.CancellationToken);
 
@@ -185,7 +185,7 @@ public sealed class AzureStorageStateManagerTests
                 innerException: null),
             OnRead = state => state.State = new TestState("next")
         };
-        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         await manager.WriteAsync(new TestState("next"), TestContext.Current.CancellationToken);
 
@@ -201,7 +201,7 @@ public sealed class AzureStorageStateManagerTests
             WriteException = new TimeoutException("storage timeout"),
             OnRead = state => state.State = new TestState("next")
         };
-        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         await manager.WriteAsync(new TestState("next"), TestContext.Current.CancellationToken);
 
@@ -228,7 +228,7 @@ public sealed class AzureStorageStateManagerTests
                 state.Etag = "etag-2";
             }
         };
-        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         var actual = await Assert.ThrowsAsync<AggregateException>(
             () => manager.WriteAsync(new TestState("next"), TestContext.Current.CancellationToken));
@@ -256,7 +256,7 @@ public sealed class AzureStorageStateManagerTests
                     innerException: null)),
             OnRead = state => state.State = new TestState("next")
         };
-        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         await manager.WriteAsync(new TestState("next"), TestContext.Current.CancellationToken);
 
@@ -278,7 +278,7 @@ public sealed class AzureStorageStateManagerTests
                 state.Etag = "etag-2";
             }
         };
-        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         var actual = await Assert.ThrowsAsync<RequestFailedException>(
             () => manager.ClearAsync(TestContext.Current.CancellationToken));
@@ -301,7 +301,7 @@ public sealed class AzureStorageStateManagerTests
                 state.RecordExists = false;
             }
         };
-        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         await manager.ClearAsync(TestContext.Current.CancellationToken);
 
@@ -321,7 +321,7 @@ public sealed class AzureStorageStateManagerTests
             WriteException = new RequestFailedException(status, "The write outcome is not established."),
             OnRead = state => state.State = attempted
         };
-        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         await manager.WriteAsync(attempted, TestContext.Current.CancellationToken);
 
@@ -338,7 +338,7 @@ public sealed class AzureStorageStateManagerTests
             WriteException = new AggregateException(new InvalidOperationException("provider failure"), new TimeoutException()),
             OnRead = state => state.State = attempted
         };
-        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         await manager.WriteAsync(attempted, TestContext.Current.CancellationToken);
 
@@ -357,7 +357,7 @@ public sealed class AzureStorageStateManagerTests
                 new TimeoutException("An earlier attempt may have persisted.")),
             OnRead = state => state.State = attempted
         };
-        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         await manager.WriteAsync(attempted, TestContext.Current.CancellationToken);
 
@@ -378,7 +378,7 @@ public sealed class AzureStorageStateManagerTests
         var initial = new TestState("initial");
         var exception = new RequestFailedException(status, "Rejected.", errorCode, innerException: null);
         var storage = new FakePersistentState(initial) { WriteException = exception };
-        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         var actual = await Assert.ThrowsAsync<RequestFailedException>(
             () => manager.WriteAsync(new TestState("next"), TestContext.Current.CancellationToken));
@@ -403,7 +403,7 @@ public sealed class AzureStorageStateManagerTests
         var initial = new TestState("initial");
         var exception = new RequestFailedException(status, "Rejected.", errorCode, innerException: null);
         var storage = new FakePersistentState(initial) { ClearException = exception };
-        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         var actual = await Assert.ThrowsAsync<RequestFailedException>(
             () => manager.ClearAsync(TestContext.Current.CancellationToken));
@@ -429,7 +429,7 @@ public sealed class AzureStorageStateManagerTests
                 state.Etag = "";
             }
         };
-        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         var actual = await Assert.ThrowsAsync<RequestFailedException>(
             () => manager.ClearAsync(TestContext.Current.CancellationToken));
@@ -453,7 +453,7 @@ public sealed class AzureStorageStateManagerTests
                 state.Etag = "etag-2";
             }
         };
-        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"));
+        var manager = new AzureStorageStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         await Assert.ThrowsAsync<InconsistentStateException>(
             () => manager.WriteAsync(new TestState("rejected"), TestContext.Current.CancellationToken));
@@ -466,6 +466,45 @@ public sealed class AzureStorageStateManagerTests
         Assert.Same(next, storage.State);
         Assert.Equal(1, storage.ReadCount);
     }
+    [Theory]
+    [InlineData(400, false)]
+    [InlineData(412, false)]
+    [InlineData(503, false)]
+    [InlineData(400, true)]
+    [InlineData(412, true)]
+    [InlineData(503, true)]
+    public async Task Default_policy_fences_all_Azure_mutation_failures_without_classification(int status, bool clear)
+    {
+        var failure = new RequestFailedException(status, "failed");
+        var storage = new FakePersistentState(new("stored")) { WriteException = failure, ClearException = failure };
+        var manager = new AzureStorageStateManager<TestState>(storage, () => new("default"));
+
+        Assert.Same(failure, await Assert.ThrowsAsync<RequestFailedException>(() => clear
+            ? manager.ClearAsync(TestContext.Current.CancellationToken)
+            : manager.WriteAsync(new("candidate"), TestContext.Current.CancellationToken)));
+
+        Assert.Equal(0, storage.ReadCount);
+        Assert.Same(failure, Assert.Throws<InvalidOperationException>(() => manager.State).InnerException);
+    }
+
+    [Fact]
+    public async Task Azure_factory_honors_its_named_override_when_global_configuration_is_registered_later()
+    {
+        var services = new ServiceCollection();
+        services.AddAzureStorageStateManager("Archive", options => options.RecoveryPolicy = StateRecoveryPolicy.ReadBack);
+        services.ConfigureStateManager(options => options.RecoveryPolicy = StateRecoveryPolicy.FenceAndDeactivate);
+        using var provider = services.BuildServiceProvider();
+        var options = provider.GetRequiredService<Microsoft.Extensions.Options.IOptionsFactory<StateManagerOptions>>().Create("Archive");
+        var storage = new FakePersistentState(new("stored")) { WriteException = new RequestFailedException(503, "lost response") };
+        var manager = provider.GetRequiredKeyedService<IStateManagerFactory>("Archive")
+            .Create(storage, () => new("default"), options);
+
+        await manager.WriteAsync(new("candidate"), TestContext.Current.CancellationToken);
+
+        Assert.Equal("candidate", manager.State.Value);
+        Assert.Equal(1, storage.ReadCount);
+    }
+
     private sealed record TestState(string Value);
 
     private sealed class FakePersistentState(TestState state) : IPersistentState<TestState>

@@ -14,17 +14,12 @@ public static class AzureStorageStateManagerRegistrationExtensions
         /// Registers the Azure Storage-aware keyed
         /// <see cref="IStateManagerFactory"/> for the given storage name.
         /// </summary>
-        public IServiceCollection AddAzureStorageStateManager(string storageName)
+        public IServiceCollection AddAzureStorageStateManager(string storageName, Action<StateManagerOptions>? configure = null)
         {
             ArgumentNullException.ThrowIfNull(services);
             ArgumentException.ThrowIfNullOrWhiteSpace(storageName);
 
-            return services
-                .AddStateManagerFacet()
-                .AddKeyedSingleton(
-                    typeof(IStateManagerFactory),
-                    storageName,
-                    typeof(AzureStorageStateManagerFactory));
+            return services.AddStateManagerFactory<AzureStorageStateManagerFactory>(storageName, configure);
         }
     }
 }

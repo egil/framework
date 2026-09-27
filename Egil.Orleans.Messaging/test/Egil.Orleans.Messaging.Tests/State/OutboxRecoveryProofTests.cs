@@ -12,7 +12,7 @@ public sealed class OutboxRecoveryProofTests
         var attempted = initial.Add("attempted message", timestamp.AddSeconds(1));
         var competing = initial.Add("competing message", timestamp.AddSeconds(1).AddTicks(competingTimestampOffsetTicks));
         var storage = new AmbiguousOutboxStorage(initial, competing);
-        var manager = new DefaultStateManager<Outbox<string>>(storage, Outbox<string>.Create);
+        var manager = new DefaultStateManager<Outbox<string>>(storage, Outbox<string>.Create, recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         var error = await Record.ExceptionAsync(() => manager.WriteAsync(attempted, TestContext.Current.CancellationToken));
 
@@ -28,7 +28,7 @@ public sealed class OutboxRecoveryProofTests
         var durable = System.Text.Json.JsonSerializer.Deserialize<Outbox<string>>(
             System.Text.Json.JsonSerializer.Serialize(attempted))!;
         var storage = new AmbiguousOutboxStorage(initial, durable);
-        var manager = new DefaultStateManager<Outbox<string>>(storage, Outbox<string>.Create);
+        var manager = new DefaultStateManager<Outbox<string>>(storage, Outbox<string>.Create, recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         await manager.WriteAsync(attempted, TestContext.Current.CancellationToken);
 

@@ -17,8 +17,10 @@ public sealed class AzureStorageStateManager<T> : StateManagerBase<T>
     public AzureStorageStateManager(
         IPersistentState<T> storage,
         Func<T> createInitialState,
-        Action<T>? configureState = null)
-        : base(storage, createInitialState, configureState)
+        Action<T>? configureState = null,
+        StateRecoveryPolicy recoveryPolicy = StateRecoveryPolicy.FenceAndDeactivate,
+        IGrainContext? grainContext = null)
+        : base(storage, createInitialState, configureState, recoveryPolicy, grainContext)
     {
     }
 
@@ -43,11 +45,12 @@ public sealed class AzureStorageStateManager<T> : StateManagerBase<T>
 public sealed class AzureStorageStateManagerFactory : IStateManagerFactory
 {
     /// <inheritdoc/>
-    public IStateManager<T> Create<T>(IPersistentState<T> storage, Func<T> createInitialState, Action<T>? configureState = null)
+    public IStateManager<T> Create<T>(IPersistentState<T> storage, Func<T> createInitialState, StateManagerOptions options, Action<T>? configureState = null, IGrainContext? grainContext = null)
         where T : class, IEquatable<T>
     {
         ArgumentNullException.ThrowIfNull(storage);
-        return new AzureStorageStateManager<T>(storage, createInitialState, configureState);
+        ArgumentNullException.ThrowIfNull(options);
+        return new AzureStorageStateManager<T>(storage, createInitialState, configureState, options.RecoveryPolicy, grainContext);
     }
 }
 

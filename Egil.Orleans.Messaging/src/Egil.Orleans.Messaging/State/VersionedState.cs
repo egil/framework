@@ -3,7 +3,7 @@ namespace Egil.Orleans.Messaging.State;
 /// <summary>
 /// Abstract base for version-stamped grain state. Provides the
 /// <see cref="Version"/> property that <see cref="IStateManager{T}"/>
-/// uses for its write-recovery comparison.
+/// uses for its opt-in <see cref="StateRecoveryPolicy.ReadBack"/> write-recovery comparison.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -11,12 +11,19 @@ namespace Egil.Orleans.Messaging.State;
 /// pattern matching (<c>if (newState is VersionedState v)</c>). If the state
 /// derives from <see cref="VersionedState"/>, the manager stamps a fresh
 /// <see cref="Guid.CreateVersion7()"/> on <see cref="Version"/> before every
-/// write and compares <see cref="Version"/> directly on the recovery path.
+/// write under either policy and compares <see cref="Version"/> during read-back recovery.
 /// This means the recovery comparison does <em>not</em> use
 /// <c>T.Equals()</c> for <see cref="VersionedState"/>-derived types, avoiding
 /// problems with types like <see cref="System.Collections.Immutable.ImmutableArray{T}"/>
 /// whose <c>Equals</c> uses reference equality. For non-<see cref="VersionedState"/>
 /// types the manager falls back to <c>T.Equals()</c>.
+/// </para>
+/// <para>
+/// Its primary recovery purpose is recognizing a persisted write without relying on
+/// structural equality. Fencing performs no recovery comparison, so ordinary immutable
+/// records suffice and this base adds less recovery value under that policy. Existing
+/// versioned records still receive version stamps. <see cref="Version"/> is not a storage
+/// optimistic-concurrency token; the provider enforces concurrency, typically using ETags.
 /// </para>
 /// <para>
 /// <see cref="Version"/> has a public <c>init</c> accessor so System.Text.Json

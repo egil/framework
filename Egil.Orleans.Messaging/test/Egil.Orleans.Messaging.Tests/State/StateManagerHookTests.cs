@@ -14,7 +14,7 @@ public sealed class StateManagerHookTests
     {
         var storage = new FakeHookPersistentState(operation == StateManagerOperation.Read && !exists ? null : new("stored"));
         var configured = false;
-        var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"), _ => configured = true);
+        var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"), _ => configured = true, recoveryPolicy: StateRecoveryPolicy.ReadBack);
         var events = new List<string>();
         manager.ConfigureHooks(hooks =>
         {
@@ -46,7 +46,7 @@ public sealed class StateManagerHookTests
         StateManagerOperation attempted, bool persisted, StateManagerOperation expected)
     {
         var storage = new FakeHookPersistentState(new("stored")) { MutationError = new IOException("lost"), PersistBeforeError = persisted };
-        var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"));
+        var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
         var events = new List<StateManagerOperation>();
         manager.ConfigureHooks(hooks => { hooks.OnChange = (_, kind, _) => events.Add(kind); });
 
@@ -63,7 +63,7 @@ public sealed class StateManagerHookTests
     public async Task Handler_failures_preserve_durable_outcome_and_both_handlers_are_attempted(StateManagerOperation operation)
     {
         var storage = new FakeHookPersistentState(new("stored"));
-        var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"));
+        var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
         var common = new InvalidOperationException("common");
         var specific = new IOException("specific");
         manager.ConfigureHooks(hooks =>
@@ -89,7 +89,7 @@ public sealed class StateManagerHookTests
     public async Task Mismatched_recovery_preserves_storage_error_before_handler_errors(StateManagerOperation operation)
     {
         var storage = new FakeHookPersistentState(new("stored")) { MutationError = new IOException("storage") };
-        var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"));
+        var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
         var common = new InvalidOperationException("common");
         var specific = new IOException("specific");
         manager.ConfigureHooks(hooks => { hooks.OnChange = (_, _, _) => throw common; hooks.OnRead = _ => throw specific; });
@@ -106,7 +106,7 @@ public sealed class StateManagerHookTests
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var storage = new FakeHookPersistentState(new("stored")) { Started = started, Release = release.Task };
-        var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"));
+        var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
         var events = new List<string>();
         manager.ConfigureHooks(hooks =>
         {
@@ -131,7 +131,7 @@ public sealed class StateManagerHookTests
     {
         using var cancellation = new CancellationTokenSource();
         var storage = new FakeHookPersistentState(new("stored")) { CancelAfterCommit = cancellation };
-        var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"));
+        var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         manager.ConfigureHooks(hooks =>
@@ -160,7 +160,7 @@ public sealed class StateManagerHookTests
     public async Task Handlers_can_read_state_but_cannot_reenter_any_storage_operation()
     {
         var storage = new FakeHookPersistentState(new("stored"));
-        var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"));
+        var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
         var invoked = false;
         manager.ConfigureHooks(hooks =>
         {
@@ -186,7 +186,7 @@ public sealed class StateManagerHookTests
     public async Task Ad_hoc_configuration_does_not_replay_state_or_read_storage()
     {
         var storage = new FakeHookPersistentState(null);
-        var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"));
+        var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
         var events = new List<string>();
         manager.ConfigureHooks(hooks => { hooks.OnRead = state => events.Add(state.Value); });
 
@@ -203,7 +203,7 @@ public sealed class StateManagerHookTests
     public async Task Assignment_noop_save_and_failed_storage_without_adoption_do_not_notify()
     {
         var storage = new FakeHookPersistentState(new("stored")) { MutationError = new IOException("write"), ReadError = new IOException("read") };
-        var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"));
+        var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
         manager.ConfigureHooks(hooks => { hooks.OnChange = (_, _, _) => Assert.Fail("Unexpected hook"); });
 
         await manager.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -215,7 +215,7 @@ public sealed class StateManagerHookTests
     [Fact]
     public async Task Invalid_reconfiguration_keeps_previous_handlers()
     {
-        var manager = new DefaultStateManager<HookSnapshot>(new FakeHookPersistentState(new("stored")), () => new("default"));
+        var manager = new DefaultStateManager<HookSnapshot>(new FakeHookPersistentState(new("stored")), () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
         var calls = 0;
         manager.ConfigureHooks(hooks => { hooks.OnRead = _ => calls++; });
 
@@ -251,7 +251,7 @@ public sealed class StateManagerHookTests
         var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"), _ =>
         {
             if (fail) throw new InvalidOperationException("configuration");
-        });
+        }, recoveryPolicy: StateRecoveryPolicy.ReadBack);
         manager.ConfigureHooks(hooks => { hooks.OnChange = (_, _, _) => Assert.Fail("Unexpected hook"); });
         fail = true;
 
@@ -271,7 +271,7 @@ public sealed class StateManagerHookTests
             MutationError = new global::Orleans.Storage.InconsistentStateException("conflict"),
             PersistBeforeError = true
         };
-        var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"));
+        var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
         var events = new List<StateManagerOperation>();
         manager.ConfigureHooks(hooks => { hooks.OnChange = (_, kind, _) => events.Add(kind); });
 
@@ -283,7 +283,7 @@ public sealed class StateManagerHookTests
     [Fact]
     public async Task Save_changes_emits_write_once_and_unchanged_explicit_reads_always_emit_read()
     {
-        var manager = new DefaultStateManager<HookSnapshot>(new FakeHookPersistentState(new("stored")), () => new("default"));
+        var manager = new DefaultStateManager<HookSnapshot>(new FakeHookPersistentState(new("stored")), () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
         var events = new List<StateManagerOperation>();
         manager.ConfigureHooks(hooks => { hooks.OnChange = (_, kind, _) => events.Add(kind); });
 
@@ -308,7 +308,7 @@ public sealed class StateManagerHookTests
         {
             BeforeRead = () => ++reads == 1 ? firstRead.Task : secondRead.Task
         };
-        var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"));
+        var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
         var handlers = 0;
         manager.ConfigureHooks(hooks =>
         {
@@ -348,7 +348,7 @@ public sealed class StateManagerHookTests
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var storage = new FakeHookPersistentState(new("stored"));
-        var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"));
+        var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
         var failure = new IOException("async specific handler failed");
         async Task Handle(HookSnapshot state, CancellationToken token)
         {
@@ -378,7 +378,7 @@ public sealed class StateManagerHookTests
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var storage = new FakeHookPersistentState(new("stored"));
-        var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"));
+        var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
         var handlers = 0;
         manager.ConfigureHooks(hooks =>
         {
@@ -408,7 +408,7 @@ public sealed class StateManagerHookTests
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var storage = new FakeHookPersistentState(new("stored")) { Started = started, Release = release.Task };
-        var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"));
+        var manager = new DefaultStateManager<HookSnapshot>(storage, () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
         StateManagerHooks<HookSnapshot>? retained = null;
         var events = new List<string>();
         var configurations = 0;
@@ -434,7 +434,7 @@ public sealed class StateManagerHookTests
     [Fact]
     public async Task A_throwing_configuration_callback_leaves_all_previous_hooks_installed()
     {
-        var manager = new DefaultStateManager<HookSnapshot>(new FakeHookPersistentState(new("stored")), () => new("default"));
+        var manager = new DefaultStateManager<HookSnapshot>(new FakeHookPersistentState(new("stored")), () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
         var events = new List<string>();
         var failure = new InvalidOperationException("configuration failed");
         manager.ConfigureHooks(hooks =>

@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Egil.Orleans.Messaging.State;
 
 namespace Orleans.Hosting;
 
@@ -12,12 +13,12 @@ public static class AzureStorageStateManagerSiloBuilderExtensions
         /// <summary>
         /// Registers the Azure Storage-aware state manager factory on the silo builder.
         /// </summary>
-        public ISiloBuilder AddAzureStorageStateManager(string storageName)
+        public ISiloBuilder AddAzureStorageStateManager(string storageName, Action<StateManagerOptions>? configure = null)
         {
             ArgumentNullException.ThrowIfNull(builder);
             ArgumentException.ThrowIfNullOrWhiteSpace(storageName);
 
-            builder.ConfigureServices(services => services.AddAzureStorageStateManager(storageName));
+            builder.ConfigureServices(services => services.AddAzureStorageStateManager(storageName, configure));
             return builder;
         }
     }

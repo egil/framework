@@ -1,5 +1,6 @@
 using Egil.Orleans.Messaging.State;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 
 namespace Microsoft.Extensions.DependencyInjection;
 
@@ -7,10 +8,41 @@ namespace Microsoft.Extensions.DependencyInjection;
 /// Registration helpers for keyed <see cref="IStateManagerFactory"/>
 /// services on <see cref="IServiceCollection"/>.
 /// </summary>
+/// <remarks>
+/// Optional factory callbacks override silo-wide configuration regardless of registration
+/// order; callbacks within each layer run in registration order. Named factories use the
+/// storage name as the options name, and unkeyed factories use Options.DefaultName.
+/// Grain-local callbacks apply last. Each hydrated manager receives a fixed snapshot.
+/// </remarks>
 public static class StateManagerRegistrationExtensions
 {
     extension(IServiceCollection services)
     {
+        /// <summary>Configures every named and unkeyed manager before factory and grain overrides.</summary>
+        public IServiceCollection ConfigureStateManager(Action<StateManagerOptions> configure)
+        {
+            ArgumentNullException.ThrowIfNull(services);
+            ArgumentNullException.ThrowIfNull(configure);
+            services.ConfigureAll(configure);
+            return services;
+        }
+
+        /// <summary>Configures every manager using services from this silo's provider.</summary>
+        public IServiceCollection ConfigureStateManager(Action<StateManagerOptions, IServiceProvider> configure)
+        {
+            ArgumentNullException.ThrowIfNull(services);
+            ArgumentNullException.ThrowIfNull(configure);
+            services.AddOptions();
+            services.AddSingleton<IConfigureOptions<StateManagerOptions>>(provider =>
+                new ConfigureNamedOptions<StateManagerOptions>(null, options => configure(options, provider)));
+            return services;
+        }
+
+        /// <summary>Registers an unkeyed custom factory with optional recovery overrides.</summary>
+        public IServiceCollection AddStateManagerFactory<TFactory>(Action<StateManagerOptions>? configure = null)
+            where TFactory : class, IStateManagerFactory
+            => services.AddStateManagerFactory(typeof(TFactory), configure);
+
         /// <summary>
         /// Allows a grain to inject <see cref="IStateManager{T}"/> directly on a
         /// <c>[PersistentState]</c> constructor parameter, in place of
@@ -38,6 +70,7 @@ public static class StateManagerRegistrationExtensions
                 return services;
             }
 
+            services.AddOptions<StateManagerOptions>();
             services.AddSingleton(FacetMarker.Instance);
 
             // Orleans registers its mapper with TryAddSingleton from the SiloBuilder
@@ -64,9 +97,11 @@ public static class StateManagerRegistrationExtensions
         /// <c>[PersistentState]</c> attribute. Register a keyed factory as well, or
         /// instead, when different storage providers need different failure handling.
         /// </remarks>
-        public IServiceCollection AddDefaultStateManager()
+        public IServiceCollection AddDefaultStateManager(Action<StateManagerOptions>? configure = null)
         {
             ArgumentNullException.ThrowIfNull(services);
+
+            ConfigureFactory(services, Microsoft.Extensions.Options.Options.DefaultName, configure);
 
             return services
                 .AddStateManagerFacet()
@@ -77,10 +112,12 @@ public static class StateManagerRegistrationExtensions
         /// Registers a custom <see cref="IStateManagerFactory"/> for grains that register
         /// a manager without naming a storage name.
         /// </summary>
-        public IServiceCollection AddStateManagerFactory(Type factoryType)
+        public IServiceCollection AddStateManagerFactory(Type factoryType, Action<StateManagerOptions>? configure = null)
         {
             ArgumentNullException.ThrowIfNull(services);
             ValidateFactoryType(factoryType);
+
+            ConfigureFactory(services, Microsoft.Extensions.Options.Options.DefaultName, configure);
 
             return services
                 .AddStateManagerFacet()
@@ -91,10 +128,12 @@ public static class StateManagerRegistrationExtensions
         /// Registers the default keyed <see cref="IStateManagerFactory"/> for the
         /// given <paramref name="storageName"/>.
         /// </summary>
-        public IServiceCollection AddDefaultStateManager(string storageName)
+        public IServiceCollection AddDefaultStateManager(string storageName, Action<StateManagerOptions>? configure = null)
         {
             ArgumentNullException.ThrowIfNull(services);
             ValidateStorageName(storageName);
+
+            ConfigureFactory(services, storageName, configure);
 
             return services
                 .AddStateManagerFacet()
@@ -107,11 +146,13 @@ public static class StateManagerRegistrationExtensions
         /// </summary>
         public IServiceCollection AddStateManagerFactory(
             string storageName,
-            Type factoryType)
+            Type factoryType, Action<StateManagerOptions>? configure = null)
         {
             ArgumentNullException.ThrowIfNull(services);
             ValidateStorageName(storageName);
             ValidateFactoryType(factoryType);
+
+            ConfigureFactory(services, storageName, configure);
 
             return services
                 .AddStateManagerFacet()
@@ -121,15 +162,28 @@ public static class StateManagerRegistrationExtensions
         /// <summary>
         /// Registers a custom keyed state manager factory.
         /// </summary>
-        public IServiceCollection AddStateManagerFactory<TFactory>(string storageName)
+        public IServiceCollection AddStateManagerFactory<TFactory>(string storageName, Action<StateManagerOptions>? configure = null)
             where TFactory : class, IStateManagerFactory
         {
             ArgumentNullException.ThrowIfNull(services);
             ValidateStorageName(storageName);
 
+            ConfigureFactory(services, storageName, configure);
+
             return services
                 .AddStateManagerFacet()
                 .AddKeyedSingleton<IStateManagerFactory, TFactory>(storageName);
+        }
+    }
+
+    private static void ConfigureFactory(IServiceCollection services, string name, Action<StateManagerOptions>? configure)
+    {
+        services.AddOptions<StateManagerOptions>();
+        if (configure is not null)
+        {
+            // Post-configuration makes factory overrides win even if global callbacks
+            // are registered later. Names keep unrelated storage factories isolated.
+            services.PostConfigure(name, configure);
         }
     }
 
