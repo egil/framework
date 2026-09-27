@@ -43,7 +43,8 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     private IGrainTimer? dispatchTimer;
     private IGrainTimer? acknowledgementTimer;
     private IGrainReminder? reminder;
-    private Task? reminderRegistration;
+    private Task? reminderOperation;
+    private TimeSpan? reminderPeriod;
     private bool reminderTicked;
     private OutboxAcknowledgementBatch<OutboxMessageEnvelope<TOutbox>>? pendingAcknowledgement;
     private TaskCompletionSource? activeDrain;
@@ -107,7 +108,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
             cancellationToken.ThrowIfCancellationRequested();
             // Registration failure must reach the caller without arming an
             // in-memory retry that could dispatch before a reminder exists.
-            await EnsureReminderAsync();
+            await EnsureInitialReminderAsync();
         }
 
         await WaitForTurnAsync(cancellationToken);
@@ -137,9 +138,9 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     /// <remarks>
     /// With the default <see cref="OutboxReminderPolicy.OnRetry"/> policy, only
     /// an in-memory timer is armed here; a failed or incomplete dispatch later
-    /// establishes a reminder if none is known. With
+    /// establishes a reminder if this activation has not registered one. With
     /// <see cref="OutboxReminderPolicy.KeepRegistered"/>, this call first establishes
-    /// a durable reminder unless a registration or tick already proves one exists,
+    /// a durable reminder unless this activation has already registered one,
     /// even if the outbox is empty.
     /// </remarks>
     public async ValueTask PostInBackgroundAsync(CancellationToken cancellationToken = default)
@@ -147,13 +148,14 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         cancellationToken.ThrowIfCancellationRequested();
         if (options.ReminderPolicy == OutboxReminderPolicy.KeepRegistered)
         {
-            await EnsureReminderAsync();
+            await EnsureInitialReminderAsync();
             cancellationToken.ThrowIfCancellationRequested();
         }
 
         if (GetPendingItems().IsDefaultOrEmpty)
         {
             StopRetryTimers();
+            await ReconcileIdleReminderAsync();
             return;
         }
 
@@ -171,8 +173,8 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
             return ValueTask.CompletedTask;
         }
 
-        // An inherited or ambiguously registered reminder proves its existence
-        // by firing. No lookup or replacement registration is needed to use it.
+        // A tick is evidence for cleanup, not a durable registration guarantee:
+        // an already-queued tick can arrive after the reminder was removed.
         reminderTicked = true;
         return PostInBackgroundAsync();
     }
@@ -206,6 +208,13 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         }
 
         owner.GrainContext.SetComponent<IOutboxComponent>(this);
+        if (owner.GrainContext.GetComponent<OutboxDeactivationObserver>()!.HasStarted)
+        {
+            // Orleans runs lifecycle OnStart before the grain's OnActivateAsync.
+            // A processor attached there must start its own registration; posts
+            // and shutdown join the same operation before touching the reminder.
+            _ = InitializeReminderAfterLifecycleStartAsync();
+        }
     }
 
     private async Task DispatchInBackgroundAsync(CancellationToken cancellationToken)
@@ -382,6 +391,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         if (pending.IsDefaultOrEmpty)
         {
             StopRetryTimers();
+            await ReconcileIdleReminderAsync();
             return default;
         }
 
@@ -413,6 +423,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         if (pending.IsDefaultOrEmpty)
         {
             StopRetryTimers();
+            await ReconcileIdleReminderAsync();
             return;
         }
 
@@ -526,39 +537,6 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         acknowledgementTimer.Change(dueTime, Timeout.InfiniteTimeSpan);
     }
 
-    private async Task EnsureReminderAsync()
-    {
-        if (reminder is not null || reminderTicked)
-        {
-            return;
-        }
-
-        // Background posts can interleave while reminder storage is awaited.
-        // Share the write and retain its handle across batches. A failed attempt
-        // must remain retryable without discarding evidence from a concurrent tick.
-        var registration = reminderRegistration ??= RegisterReminderAsync();
-        try
-        {
-            await registration;
-        }
-        finally
-        {
-            if (ReferenceEquals(reminderRegistration, registration))
-            {
-                reminderRegistration = null;
-            }
-        }
-    }
-
-    private async Task RegisterReminderAsync()
-    {
-        var period = options.RetryDelay >= TimeSpan.FromMinutes(1)
-            ? options.RetryDelay
-            : TimeSpan.FromMinutes(1);
-
-        reminder = await owner.RegisterOrUpdateReminder(reminderName, period, period);
-    }
-
     private void StopRetryTimers()
     {
         dispatchTimer?.Dispose();
@@ -582,6 +560,9 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
 /// </summary>
 internal interface IOutboxComponent
 {
+    /// <summary>Establishes the fallback reminder during activation.</summary>
+    Task OnActivateAsync(CancellationToken cancellationToken);
+
     /// <summary>Forwards a reminder callback to the outbox processor.</summary>
     ValueTask ReceiveReminderAsync(string reminderName, TickStatus status);
 

@@ -14,6 +14,7 @@ public sealed class OutboxProcessorServiceCollectionExtensionsTests
         {
             options.TimeProvider = services.GetRequiredKeyedService<TimeProvider>("pricing");
             options.RetryDelay = TimeSpan.FromMinutes(5);
+            options.IdleReminderPeriod = TimeSpan.FromHours(3);
             options.KeepAlive = true;
             options.ReminderPolicy = OutboxReminderPolicy.KeepRegistered;
             options.Trace = MessageTraceOptions.None;
@@ -23,6 +24,7 @@ public sealed class OutboxProcessorServiceCollectionExtensionsTests
 
         Assert.Same(pricingClock, options.TimeProvider);
         Assert.Equal(TimeSpan.FromMinutes(5), options.RetryDelay);
+        Assert.Equal(TimeSpan.FromHours(3), options.IdleReminderPeriod);
         Assert.True(options.KeepAlive);
         Assert.Equal(OutboxReminderPolicy.KeepRegistered, options.ReminderPolicy);
         Assert.Equal(MessageTraceOptions.None, options.Trace);
@@ -86,9 +88,11 @@ public sealed class OutboxProcessorServiceCollectionExtensionsTests
             options.AcknowledgePosted = static _ => { };
         });
         captured!.RetryDelay = TimeSpan.FromHours(1);
+        captured.IdleReminderPeriod = TimeSpan.FromHours(3);
         captured.ReminderPolicy = OutboxReminderPolicy.KeepRegistered;
 
         Assert.Equal(TimeSpan.FromMinutes(2), options.RetryDelay);
+        Assert.Equal(TimeSpan.FromHours(1), options.IdleReminderPeriod);
         Assert.Equal(OutboxReminderPolicy.OnRetry, options.ReminderPolicy);
     }
 
@@ -144,6 +148,18 @@ public sealed class OutboxProcessorServiceCollectionExtensionsTests
 
         Assert.Equal("configure", error.ParamName);
         Assert.Contains("ReminderPolicy", error.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(59)]
+    public void Subminute_idle_reminder_period_is_rejected(int seconds)
+    {
+        var builder = new FakeSiloBuilder();
+        builder.ConfigureOutboxProcessor(options => options.IdleReminderPeriod = TimeSpan.FromSeconds(seconds));
+        var error = Assert.Throws<ArgumentOutOfRangeException>(
+            () => Resolve(builder, static options => options.AcknowledgePosted = static _ => { }));
+        Assert.Contains("IdleReminderPeriod", error.Message, StringComparison.Ordinal);
     }
 
     private static OutboxProcessorOptions<string> Resolve(
