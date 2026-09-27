@@ -13,35 +13,71 @@ public sealed partial class OutboxProcessor<TOutbox>
     /// Postman matching is first-match-wins, like a switch statement. Register
     /// more specific message types before base interfaces or catch-all types.
     /// Each outbox item is dispatched to at most one postman.
-    /// Callbacks take the payload, optionally followed by its delivery token and
-    /// cancellation token. Argument count selects the overload, even for unused
-    /// lambda parameters. Task and ValueTask callbacks are both supported. With C# 13
-    /// or newer, overload priority prefers ValueTask for ordinary async lambdas,
-    /// while Task-returning method groups and expressions use the Task adapters.
-    /// Older compilers require an explicitly typed delegate or lambda return type.
+    /// Handlers require only the payload. Delivery token, grain factory, and
+    /// cancellation token are independently optional, in that relative order.
+    /// On C# 13+, two-argument handlers prefer delivery token, then grain factory,
+    /// then cancellation. Three-argument handlers prefer token/cancellation,
+    /// then token/factory, then factory/cancellation. Within each shape,
+    /// ValueTask is preferred over Task for ordinary async lambdas.
+    /// Only applicable overloads participate; explicitly typed handlers can select
+    /// any shape. Older compilers may require explicit parameter and return types.
     /// </remarks>
+    // Shape priority preserves existing token-based callbacks when lambda parameters
+    // are unused or accept multiple types. Adjacent priorities prefer ValueTask within
+    // each shape without letting a different shape win just because of its return type.
+    // C# filters applicability before priority; typed Task handlers remain callable.
+    // https://github.com/dotnet/csharplang/blob/main/proposals/csharp-13.0/overload-resolution-priority.md
     [OverloadResolutionPriority(1)]
     public OutboxProcessor<TOutbox> AddPostman<TSub>(
         Func<TSub, ValueTask> postman) where TSub : TOutbox
     {
         ArgumentNullException.ThrowIfNull(postman);
-        AddPayloadPostman<TSub>((item, _) => postman(item));
+        AddPayloadPostman<TSub>((message, _) => postman(message));
         return this;
     }
 
-    /// <summary>Registers a ValueTask payload handler that also receives the stable delivery token.</summary>
-    [OverloadResolutionPriority(1)]
-    public OutboxProcessor<TOutbox> AddPostman<TSub>(Func<TSub, OutboxSequenceToken, ValueTask> postman)
-        where TSub : TOutbox
+    /// <summary>Registers a payload handler that also receives the stable delivery token.</summary>
+    [OverloadResolutionPriority(5)]
+    public OutboxProcessor<TOutbox> AddPostman<TSub>(
+        Func<TSub, OutboxSequenceToken, ValueTask> postman) where TSub : TOutbox
     {
         ArgumentNullException.ThrowIfNull(postman);
         return AddPostman<TSub>((message, token, _) => postman(message, token));
     }
 
-    /// <summary>Registers a cancellable payload handler with its stable delivery token.</summary>
+    /// <summary>Registers a payload handler that receives the grain factory for resolving destinations.</summary>
+    [OverloadResolutionPriority(3)]
+    public OutboxProcessor<TOutbox> AddPostman<TSub>(
+        Func<TSub, IGrainFactory, ValueTask> postman) where TSub : TOutbox
+    {
+        ArgumentNullException.ThrowIfNull(postman);
+        AddPayloadPostman<TSub>((message, _) => postman(message, grainFactory));
+        return this;
+    }
+
+    /// <summary>Registers a cancellable payload handler.</summary>
     [OverloadResolutionPriority(1)]
-    public OutboxProcessor<TOutbox> AddPostman<TSub>(Func<TSub, OutboxSequenceToken, CancellationToken, ValueTask> postman)
-        where TSub : TOutbox
+    public OutboxProcessor<TOutbox> AddPostman<TSub>(
+        Func<TSub, CancellationToken, ValueTask> postman) where TSub : TOutbox
+    {
+        ArgumentNullException.ThrowIfNull(postman);
+        AddPayloadPostman(postman);
+        return this;
+    }
+
+    /// <summary>Registers a payload handler with its delivery token and the grain factory.</summary>
+    [OverloadResolutionPriority(3)]
+    public OutboxProcessor<TOutbox> AddPostman<TSub>(
+        Func<TSub, OutboxSequenceToken, IGrainFactory, ValueTask> postman) where TSub : TOutbox
+    {
+        ArgumentNullException.ThrowIfNull(postman);
+        return AddPostman<TSub>((message, token, _) => postman(message, token, grainFactory));
+    }
+
+    /// <summary>Registers a cancellable payload handler with its stable delivery token.</summary>
+    [OverloadResolutionPriority(5)]
+    public OutboxProcessor<TOutbox> AddPostman<TSub>(
+        Func<TSub, OutboxSequenceToken, CancellationToken, ValueTask> postman) where TSub : TOutbox
     {
         ArgumentNullException.ThrowIfNull(postman);
         postmen.Add(typeof(TSub), item => item.Message is TSub,
@@ -50,32 +86,92 @@ public sealed partial class OutboxProcessor<TOutbox>
         return this;
     }
 
-    // Priority is applied to the ValueTask overloads, not these adapters. C# first
-    // filters applicable candidates, so Task method groups still reach these methods.
-    // When an async lambda fits both return types, priority selects ValueTask instead.
-    // https://learn.microsoft.com/dotnet/csharp/language-reference/proposals/csharp-13.0/overload-resolution-priority
+    /// <summary>Registers a cancellable payload handler with the grain factory.</summary>
+    [OverloadResolutionPriority(1)]
+    public OutboxProcessor<TOutbox> AddPostman<TSub>(
+        Func<TSub, IGrainFactory, CancellationToken, ValueTask> postman) where TSub : TOutbox
+    {
+        ArgumentNullException.ThrowIfNull(postman);
+        AddPayloadPostman<TSub>((message, cancellationToken) => postman(message, grainFactory, cancellationToken));
+        return this;
+    }
+
+    /// <summary>Registers a cancellable payload handler with its delivery token and the grain factory.</summary>
+    [OverloadResolutionPriority(1)]
+    public OutboxProcessor<TOutbox> AddPostman<TSub>(
+        Func<TSub, OutboxSequenceToken, IGrainFactory, CancellationToken, ValueTask> postman) where TSub : TOutbox
+    {
+        ArgumentNullException.ThrowIfNull(postman);
+        return AddPostman<TSub>((message, token, cancellationToken) =>
+            postman(message, token, grainFactory, cancellationToken));
+    }
+
     /// <summary>Registers a Task payload handler.</summary>
-    public OutboxProcessor<TOutbox> AddPostman<TSub>(Func<TSub, Task> postman)
-        where TSub : TOutbox
+    public OutboxProcessor<TOutbox> AddPostman<TSub>(
+        Func<TSub, Task> postman) where TSub : TOutbox
     {
         ArgumentNullException.ThrowIfNull(postman);
         return AddPostman<TSub>(message => new ValueTask(postman(message)));
     }
 
-    /// <summary>Registers a Task payload handler with its delivery token.</summary>
-    public OutboxProcessor<TOutbox> AddPostman<TSub>(Func<TSub, OutboxSequenceToken, Task> postman)
-        where TSub : TOutbox
+    /// <summary>Registers a Task payload handler that also receives the stable delivery token.</summary>
+    [OverloadResolutionPriority(4)]
+    public OutboxProcessor<TOutbox> AddPostman<TSub>(
+        Func<TSub, OutboxSequenceToken, Task> postman) where TSub : TOutbox
     {
         ArgumentNullException.ThrowIfNull(postman);
         return AddPostman<TSub>((message, token) => new ValueTask(postman(message, token)));
     }
 
-    /// <summary>Registers a cancellable Task payload handler with its delivery token.</summary>
-    public OutboxProcessor<TOutbox> AddPostman<TSub>(Func<TSub, OutboxSequenceToken, CancellationToken, Task> postman)
-        where TSub : TOutbox
+    /// <summary>Registers a Task payload handler that receives the grain factory for resolving destinations.</summary>
+    [OverloadResolutionPriority(2)]
+    public OutboxProcessor<TOutbox> AddPostman<TSub>(
+        Func<TSub, IGrainFactory, Task> postman) where TSub : TOutbox
+    {
+        ArgumentNullException.ThrowIfNull(postman);
+        return AddPostman<TSub>((message, grains) => new ValueTask(postman(message, grains)));
+    }
+
+    /// <summary>Registers a cancellable Task payload handler.</summary>
+    public OutboxProcessor<TOutbox> AddPostman<TSub>(
+        Func<TSub, CancellationToken, Task> postman) where TSub : TOutbox
+    {
+        ArgumentNullException.ThrowIfNull(postman);
+        return AddPostman<TSub>((message, cancellationToken) => new ValueTask(postman(message, cancellationToken)));
+    }
+
+    /// <summary>Registers a Task payload handler with its delivery token and the grain factory.</summary>
+    [OverloadResolutionPriority(2)]
+    public OutboxProcessor<TOutbox> AddPostman<TSub>(
+        Func<TSub, OutboxSequenceToken, IGrainFactory, Task> postman) where TSub : TOutbox
+    {
+        ArgumentNullException.ThrowIfNull(postman);
+        return AddPostman<TSub>((message, token, grains) => new ValueTask(postman(message, token, grains)));
+    }
+
+    /// <summary>Registers a cancellable Task payload handler with its stable delivery token.</summary>
+    [OverloadResolutionPriority(4)]
+    public OutboxProcessor<TOutbox> AddPostman<TSub>(
+        Func<TSub, OutboxSequenceToken, CancellationToken, Task> postman) where TSub : TOutbox
     {
         ArgumentNullException.ThrowIfNull(postman);
         return AddPostman<TSub>((message, token, cancellationToken) => new ValueTask(postman(message, token, cancellationToken)));
+    }
+
+    /// <summary>Registers a cancellable Task payload handler with the grain factory.</summary>
+    public OutboxProcessor<TOutbox> AddPostman<TSub>(
+        Func<TSub, IGrainFactory, CancellationToken, Task> postman) where TSub : TOutbox
+    {
+        ArgumentNullException.ThrowIfNull(postman);
+        return AddPostman<TSub>((message, grains, cancellationToken) => new ValueTask(postman(message, grains, cancellationToken)));
+    }
+
+    /// <summary>Registers a cancellable Task payload handler with its delivery token and the grain factory.</summary>
+    public OutboxProcessor<TOutbox> AddPostman<TSub>(
+        Func<TSub, OutboxSequenceToken, IGrainFactory, CancellationToken, Task> postman) where TSub : TOutbox
+    {
+        ArgumentNullException.ThrowIfNull(postman);
+        return AddPostman<TSub>((message, token, grains, cancellationToken) => new ValueTask(postman(message, token, grains, cancellationToken)));
     }
 
     /// <summary>Selects an existing stream provider for a group of postman registrations.</summary>
@@ -176,29 +272,6 @@ public sealed partial class OutboxProcessor<TOutbox>
         return this;
     }
 
-    /// <summary>
-    /// Registers a postman that resolves a grain for each item and invokes it.
-    /// </summary>
-    /// <remarks>
-    /// Like AddPostman, grain invocation callbacks support Task and ValueTask.
-    /// Additional arguments supply the delivery token and then cancellation.
-    /// ValueTask overload priority keeps ordinary async lambdas unambiguous on C# 13+;
-    /// Task-returning grain methods can also be registered directly.
-    /// </remarks>
-    [OverloadResolutionPriority(1)]
-    public OutboxProcessor<TOutbox> AddGrainPostman<TSub, TGrain>(
-        Func<TSub, IGrainFactory, TGrain> resolveGrain,
-        Func<TGrain, TSub, ValueTask> call)
-        where TSub : TOutbox
-        where TGrain : IGrain
-    {
-        ArgumentNullException.ThrowIfNull(resolveGrain);
-        ArgumentNullException.ThrowIfNull(call);
-
-        AddPayloadPostman<TSub>((message, _) => call(resolveGrain(message, grainFactory), message));
-        return this;
-    }
-
     /// <summary>Registers a stream projection which can include delivery metadata in its event.</summary>
     public OutboxProcessor<TOutbox> AddStreamPostman<TSub, TEvent>(
         string streamProviderName,
@@ -248,69 +321,6 @@ public sealed partial class OutboxProcessor<TOutbox>
         Func<TSub, OutboxSequenceToken, TSub> project)
         where TSub : TOutbox =>
         AddStreamPostman<TSub, TSub>(streamProviderName, streamId, project);
-
-    /// <summary>Registers a grain invocation that can forward the delivery token for deduplication.</summary>
-    [OverloadResolutionPriority(1)]
-    public OutboxProcessor<TOutbox> AddGrainPostman<TSub, TGrain>(
-        Func<TSub, IGrainFactory, TGrain> resolveGrain,
-        Func<TGrain, TSub, OutboxSequenceToken, ValueTask> call)
-        where TSub : TOutbox
-        where TGrain : IGrain
-    {
-        ArgumentNullException.ThrowIfNull(call);
-        return AddGrainPostman<TSub, TGrain>(resolveGrain,
-            (grain, message, token, _) => call(grain, message, token));
-    }
-
-    /// <summary>Registers a cancellable grain invocation with payload and delivery token.</summary>
-    [OverloadResolutionPriority(1)]
-    public OutboxProcessor<TOutbox> AddGrainPostman<TSub, TGrain>(
-        Func<TSub, IGrainFactory, TGrain> resolveGrain,
-        Func<TGrain, TSub, OutboxSequenceToken, CancellationToken, ValueTask> call)
-        where TSub : TOutbox
-        where TGrain : IGrain
-    {
-        ArgumentNullException.ThrowIfNull(resolveGrain);
-        ArgumentNullException.ThrowIfNull(call);
-        return AddPostman<TSub>((message, token, cancellationToken) =>
-            call(resolveGrain(message, grainFactory), message, token, cancellationToken));
-    }
-
-    /// <summary>Registers a Task grain invocation for each payload.</summary>
-    public OutboxProcessor<TOutbox> AddGrainPostman<TSub, TGrain>(
-        Func<TSub, IGrainFactory, TGrain> resolveGrain,
-        Func<TGrain, TSub, Task> call)
-        where TSub : TOutbox
-        where TGrain : IGrain
-    {
-        ArgumentNullException.ThrowIfNull(call);
-        return AddGrainPostman<TSub, TGrain>(resolveGrain,
-            (grain, message) => new ValueTask(call(grain, message)));
-    }
-
-    /// <summary>Registers a Task grain invocation with its delivery token.</summary>
-    public OutboxProcessor<TOutbox> AddGrainPostman<TSub, TGrain>(
-        Func<TSub, IGrainFactory, TGrain> resolveGrain,
-        Func<TGrain, TSub, OutboxSequenceToken, Task> call)
-        where TSub : TOutbox
-        where TGrain : IGrain
-    {
-        ArgumentNullException.ThrowIfNull(call);
-        return AddGrainPostman<TSub, TGrain>(resolveGrain,
-            (grain, message, token) => new ValueTask(call(grain, message, token)));
-    }
-
-    /// <summary>Registers a cancellable Task grain invocation with its delivery token.</summary>
-    public OutboxProcessor<TOutbox> AddGrainPostman<TSub, TGrain>(
-        Func<TSub, IGrainFactory, TGrain> resolveGrain,
-        Func<TGrain, TSub, OutboxSequenceToken, CancellationToken, Task> call)
-        where TSub : TOutbox
-        where TGrain : IGrain
-    {
-        ArgumentNullException.ThrowIfNull(call);
-        return AddGrainPostman<TSub, TGrain>(resolveGrain,
-            (grain, message, token, cancellationToken) => new ValueTask(call(grain, message, token, cancellationToken)));
-    }
 
     private void AddPayloadPostman<TSub>(Func<TSub, CancellationToken, ValueTask> postman)
         where TSub : TOutbox =>
