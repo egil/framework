@@ -276,7 +276,7 @@ public interface IStateManager<T>
     /// {
     ///     try
     ///     {
-    ///         await stateManager.SaveChangesAsync(cancellationToken);   // no-op when nothing is unsaved
+    ///         await stateManager.SaveChangesAsync(cancellationToken);   // no-op when unfenced and nothing is unsaved
     ///     }
     ///     catch (Exception ex)
     ///     {

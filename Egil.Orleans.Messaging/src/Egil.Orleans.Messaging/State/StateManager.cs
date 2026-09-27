@@ -474,12 +474,12 @@ public abstract class StateManagerBase<T> : IStateManager<T>
     }
 
     /// <summary>
-    /// Classifies a write failure so the base can decide recovery behavior.
+    /// Classifies a write failure for ReadBack recovery. Fencing bypasses this method.
     /// </summary>
     protected abstract StorageFailureKind ClassifyWriteFailure(Exception exception);
 
     /// <summary>
-    /// Classifies a clear failure so the base can decide recovery behavior.
+    /// Classifies a clear failure for ReadBack recovery. Fencing bypasses this method.
     /// </summary>
     protected virtual StorageFailureKind ClassifyClearFailure(Exception exception)
     {
@@ -522,10 +522,10 @@ public abstract class StateManagerBase<T> : IStateManager<T>
     {
         // Orleans.Journaling's DurableState<T> is an IPersistentState<T> whose
         // ReadStateAsync is a no-op: a journal is replayed at activation rather than
-        // re-read on demand. This manager resolves an ambiguous write by reading the
-        // record back, so against a journaled facet it would compare the attempted value
-        // with itself, find them equal, and report a failed write as a successful one.
-        // No configuration makes that combination safe, so refuse it at construction.
+        // re-read on demand. ReadBack would compare the attempted value with itself
+        // and could report a failed write as successful. Fencing bypasses that comparison,
+        // but this wrapper still requires meaningful explicit reads. Keep journaled
+        // facets unsupported under both policies; the journal owns their durability.
         //
         // Matched by interface name rather than by type: IJournaledState is public in
         // that package while DurableState<T> is internal, and this library does not
@@ -539,8 +539,8 @@ public abstract class StateManagerBase<T> : IStateManager<T>
 
             throw new NotSupportedException(
                 $"'{storage.GetType().FullName}' is a journaled state. Its ReadStateAsync does not re-read " +
-                $"storage, and {nameof(IStateManager<T>)}<T> resolves an ambiguous write by reading the record " +
-                "back, so it would report a failed write as a successful one. Use the journal's own durability " +
+                $"storage. {nameof(IStateManager<T>)}<T> requires meaningful reads under both recovery policies; " +
+                "ReadBack could report a failed write as a successful one. Use the journal's own durability " +
                 "rather than wrapping it, or supply a facet backed by an IGrainStorage provider.");
         }
     }
