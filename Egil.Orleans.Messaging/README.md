@@ -7,7 +7,7 @@ Composable messaging infrastructure for Microsoft Orleans grains.
 - `IStateManager<T>` wraps `IPersistentState<T>` so a grain does not keep observing uncommitted state after ambiguous write failures.
 - `Outbox<T>` stores messages alongside grain state and assigns durable message IDs; processors add sender identity at delivery.
 - `OutboxProcessor<T>` dispatches pending outbox items through registered postmen, with retry, reminder forwarding, failure acknowledgement, and telemetry.
-- `MessageTracker` records receiver-side high-water marks for outbox messages and Orleans streams.
+- `MessageTracker` records exact receipts for outbox stream messages and high-water marks for ordinary streams and explicit RPC tokens.
 - `StreamManager` gives grains a fluent subscription facade with resume-token and handler-error support.
 
 ## Install
@@ -1166,25 +1166,140 @@ and sequence space as well.
 
 ## Receiver Dedup
 
-`MessageTracker` accepts a message only when its stream token, stream cursor, or outbox token advances the stored high-water mark:
+`AddStreamPostman` publishes plain domain events with stable outbox identity in
+Orleans request context. `StreamManager` captures that identity into `StreamCursor`
+and removes the reserved context entry while invoking application code. Handlers
+keep their existing payload-and-cursor signature:
 
 ```csharp
-if (!state.State.Tracker.TryAcceptMessage("prices", token, out var tracker))
+async ValueTask HandleAsync(OrderSubmitted message, StreamCursor cursor)
 {
-    return;
-}
+    if (!state.State.Tracker.TryAcceptMessage(cursor, out var tracker))
+        return;
 
-await state.WriteAsync(state.State with { Tracker = tracker });
+    await state.WriteAsync(state.State with
+    {
+        Orders = state.State.Orders.Add(message.OrderId),
+        Tracker = tracker
+    });
+}
 ```
 
-When a stream delivery includes a provider sequence token, `StreamManager` supplies it from the runtime together with the provider name, so nothing has to ride on the payload. Tokenless stream deliveries are accepted without advancing `MessageTracker` state.
-The outbox token reaches a receiver as an argument instead, from `AddPostman`,
-and a receiver that passes it to `TryAcceptMessage` rejects a
-message the producer sent again after an acknowledgement was lost.
-`AddStreamPostman` publishes the payload alone, so an outbox message delivered over
-a stream is deduplicated by its stream token like any other stream message. That
-split is deliberate: delivery identity stays off the payload, so no event contract
-has to grow a field to carry it.
+Persist the tracker and business changes in the same write. If publication lands
+but removing the sender's outbox item fails, retry carries the same logical
+identity even when the provider assigns a new stream position. The retained
+receipt suppresses the second effect. A failed receiver commit leaves the event
+eligible after recovery. External side effects need their own atomicity or
+idempotency contract.
+
+Receipts use provider, complete `StreamId`, sender, epoch, and sequence number.
+Timestamp and trace metadata are informational. Unseen lower sequences and
+previous epochs remain eligible: different postman groups can deliver sequence 12
+before sequence 11. Fan-out to distinct full stream sources is independent.
+Equal payloads appended as separate outbox entries have separate identities.
+
+Custom stream callbacks opt in at the actual send (`using Orleans.Streams`):
+
+```csharp
+processor.AddPostman<OrderSubmitted>((message, token) =>
+    streamProvider.GetStream<OrderSubmitted>(StreamId.Create("orders", message.OrderId))
+        .PublishFromOutboxAsync(message, token));
+```
+
+Await every publication before the callback completes. The helper scopes only
+`egil.orleans.messaging.outbox`, whose value is `v1:` followed by the token's JSON
+as a string, and restores the previous entry, including null, in `finally`.
+Routing and projection run before that scope. Generic `AddPostman`, keyed
+`IPostman<T>`, `AddGrainPostman`, and the dispatcher do not establish ambient
+identity. RPC receivers continue receiving an explicit `OutboxSequenceToken`
+argument and using `TryAcceptMessage(token, out tracker)` with the existing
+sender high-water ordering assumptions.
+
+Ordinary stream publishers without the reserved metadata retain provider-position
+tracking; untagged null-token events leave the tracker unchanged. Tagged events
+still retain a receipt with a null native token. Present malformed, null,
+wrong-type, or unsupported-version metadata faults the observer before the
+application handler and bypasses its normal log-and-swallow error policy.
+Missing metadata cannot distinguish a raw publisher from an adapter that dropped
+context. There is no strict-identity subscription mode in this version.
+
+### Receipt retention and provider checkpoints
+
+Receipts grow until explicit eviction; there is no automatic TTL or size limit.
+Evicting a receipt ends its deduplication guarantee. Global and stream eviction
+remove checkpoints and receipts according to each entry's own receiver acceptance
+time. `EvictOutboxes` and sender-only eviction affect RPC high-water entries only.
+`Evict(streamId, cutoff)` targets that full stream across providers;
+`Evict(provider, streamId, cutoff)` narrows it to one provider. Namespace eviction
+covers all streams in that namespace. Journaling provides the same operations.
+
+Native checkpoints remain separate. Accepting an unseen identity never moves a
+checkpoint backwards. Rejecting a retry returns `false` and the original tracker,
+even at a newer native position, so ordinary early-return handlers do not silently
+lose an unpersisted checkpoint change. This can cause extra replay after
+activation. A maximum checkpoint does not establish safe resumption for an
+arbitrarily reordered provider; its ordering/replay contract still applies.
+
+Use `LatestStream(provider, streamId)` or
+`LatestStreamSequenceToken(provider, streamId)` for exact checkpoint lookup.
+`LatestStream(streamId)` returns no result when several providers match.
+Namespace lookups remain for legacy or unambiguous state and return no result
+rather than choose between multiple streams.
+
+Use a separate outbox entry for each distinct event on the same destination.
+Reusing one token for several payloads on one stream means one logical identity.
+The helper publishes one event; it exposes no batch identity API. Provider
+aggregation of separate single-event publications is exercised through Orleans'
+per-item observer with `BatchContainerBatchSize = 8`. A producer batch of distinct
+events sharing one context is outside this contract. Raw handlers that bypass
+`StreamManager` retain Orleans' normal transitive request-context behavior.
+
+### Upgrading stream tracking
+
+Old binary and JSON snapshots remain readable, with empty receipts. Their
+namespace-only checkpoints cannot reveal the original stream key. Tracked resume
+fails with an actionable migration error when only matching legacy state exists.
+For a verified mapping, bind and persist the full source before attaching:
+
+```csharp
+var tracker = state.State.Tracker;
+var legacy = tracker.LatestStream("events", "orders");
+if (legacy is { StreamId: null, Token: not null }
+    && tracker.TryAcceptMessage(
+        legacy with { ProviderName = "events", StreamId = streamId }, out var rebound))
+{
+    await state.WriteAsync(state.State with { Tracker = rebound });
+}
+```
+
+The legacy entry may remain; exact lookup wins for attachment. An unknown mapping
+requires a deliberate new checkpoint/replay baseline. Disabling tracked resume is
+an explicit choice to start from the provider default, not a lossless migration.
+
+Receipts for already processed events cannot be reconstructed. Coordinate the
+cutover: pause producers, finish and acknowledge old outboxes, wait for consumers
+to commit their catch-up, stop old receiver state writers, upgrade consumers and
+persist known source mappings, then upgrade publishers and resume production.
+This cannot repair effects duplicated by the old version. Keep existing business
+idempotency during the upgrade window if a clean baseline cannot be established.
+Mixed-version state writers and downgrade can discard new receipts and are
+unsupported without separate migration validation.
+
+### Provider evidence
+
+| Orleans 10.3.1 configuration | Verification |
+| --- | --- |
+| Default Memory streams | Real-cluster sender acknowledgement failure, reactivation, redelivery, durable receiver reload, and separately appended equal payloads; default body serializer round-trip |
+| Default Azure Queue V2 adapter | Provider-owned queue-text encode/decode, consumer serialization, and request-context import |
+| Default Event Hubs adapter | Provider-owned event-body encode/decode, cache conversion, consumer serialization, and request-context import |
+| Messaging enriched Event Hubs adapter with its default inner container | The same body/cache/consumer path, plus enriched token preservation |
+
+The plain-consumer tests run without a Messaging package reference or loaded
+Messaging assembly. Azure Queue and Event Hubs checks are serialization contracts,
+not live-broker delivery or production acceptance. Custom adapters need their own
+metadata-preservation proof. Receipt guarantees require retained state and a
+provider/adapter that preserves the reserved entry; they do not provide exactly-once
+transport.
 
 ### Tracker clock
 
@@ -1225,8 +1340,8 @@ share the clock of the most recently started silo that is still running. A
 silo that stops withdraws only its own clock. Give a tracker its own clock with
 `RegisterTimeProvider` when it needs a different one.
 
-Use `LatestStreamSequenceToken("prices")` when all you need is the previous
-resume token. Keep using `LatestStream("prices")` when you need the full
+Use `LatestStreamSequenceToken(provider, streamId)` when all you need is the previous
+resume token for a complete source. Keep using `LatestStream("prices")` when you need the full
 cursor or must distinguish "no stream tracked" from "tracked stream with a
 null token".
 
@@ -1529,6 +1644,19 @@ This package is messaging infrastructure, not an event-sourcing or CQRS framewor
   overload also suffices). This installs the automatic deactivation safeguard
   before Orleans starts the grain lifecycle. Missing setup now throws during
   processor registration. Constructor registration needs no extra host setup.
+
+- **Stream tracking now uses complete source identity.** `StreamCursor` adds
+  `StreamId` and `OutboxToken`; existing constructor arguments keep their meaning.
+  `StreamManager` always supplies the full source. Use provider-qualified full-id
+  lookups for resume. `LatestStream(StreamId)` and `Evict(StreamId, cutoff)` now
+  match the actual key rather than every key in its namespace. Rebind verified
+  legacy checkpoints before tracked attachment, following [Upgrading stream tracking](#upgrading-stream-tracking).
+- **Outbox stream publication now carries logical identity automatically through
+  `AddStreamPostman`.** Custom stream postmen use `PublishFromOutboxAsync`; generic
+  and RPC postmen remain context-free. Consumers must persist exact receipts with
+  business changes and retain them until deliberate eviction. Upgrade consumers
+  before publishers after a coordinated drain/catch-up baseline. Old state writers
+  can drop the new data. See [Receiver Dedup](#receiver-dedup).
 
 - **State recovery now defaults to `FenceAndDeactivate`.** To retain the previous
   behavior, explicitly set `RecoveryPolicy = StateRecoveryPolicy.ReadBack` globally,
