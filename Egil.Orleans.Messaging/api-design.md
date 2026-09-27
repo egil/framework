@@ -2301,14 +2301,31 @@ obligations, not passive notifications:
 
 `TOutbox` is the base payload type. All handler families operate on payloads;
 stored envelopes are available through `Outbox<T>.Envelopes` and acknowledgement callbacks.
-`AddPostman` callbacks take `(message)`, `(message, token)`, or
-`(message, token, cancellationToken)`, with both `Task` and `ValueTask` overloads.
-Argument count selects the parameter shape. `OverloadResolutionPriority(1)` on
-each ValueTask overload selects it when an ordinary async lambda fits both return
-types; Task method groups and expressions remain applicable to the Task adapter.
-This compiler support requires C# 13 or newer. Older compilers need explicit
-delegate or lambda return types for otherwise ambiguous lambdas. Grain factories are captured or supplied through the resolver
-of `AddGrainPostman`; the second direct-callback argument is always a delivery token.
+`AddPostman<TSub>` accepts a single handler. Only the payload is required;
+`OutboxSequenceToken`, `IGrainFactory`, and `CancellationToken` are independently
+optional, in that relative order. The eight parameter shapes each support `Task`
+and `ValueTask`, for sixteen delegate overloads. Grain resolution and invocation
+belong in that handler, so no separate grain helper or `TGrain` type parameter is
+needed. A handler can capture a grain factory already in scope or request one.
+
+On C# 13+, overload priority selects among applicable candidates. For two
+parameters, token beats factory, which beats cancellation. For three, token plus
+cancellation beats token plus factory, which beats factory plus cancellation.
+These defaults preserve existing token-based callbacks when lambda parameters
+are unused. Priority pairs are 5/4, 3/2, and 1/0 for ValueTask/Task respectively;
+the one- and four-parameter shapes use 1/0. Shape preference comes before the
+return-type preference. Task method groups and expressions remain callable
+because applicability is checked before priority. Parameter names do not select
+an overload; explicitly typed handlers can choose a specific interpretation.
+Older compilers may require explicit parameter and return types when a lambda
+fits multiple overloads.
+
+Handlers without a delivery-token parameter reuse the payload/cancellation
+dispatch path without constructing a token. Token-aware handlers share the
+existing token path, which combines the stored message ID with the owning grain
+ID for each delivery attempt. Factory-aware handlers receive the processor's
+activation-resolved grain factory. Registration order, acknowledgement of the
+original envelopes, retries, and dispatch cancellation remain shared by all shapes.
 
 Stream projections and selectors remain synchronous and independently choose
 `(message)` or `(message, token)`. Token-aware routing also supports forwarding the
@@ -2323,9 +2340,6 @@ caller could not apply before adding the message.
 These single-type-parameter overloads carry no `OverloadResolutionPriority`: it
 applies only when type arguments are omitted, where it would prune a projection
 returning a derived type and silently change the stream's event type.
-Grain invocations take `(grain, message)`, `(grain, message, token)`, or
-`(grain, message, token, cancellationToken)` with the same Task/ValueTask overload
-priority.
 `ForStreamProvider(name, configure)` invokes synchronous configuration and returns the
 original processor. Registrations are immediate and preserve first-match order,
 including if the callback subsequently throws. `ForStreamProvider(name)` returns an `OutboxStreamProviderBuilder<TOutbox>` with
@@ -2346,18 +2360,46 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         Func<TSub, ValueTask> postman) where TSub : TOutbox;
     public OutboxProcessor<TOutbox> AddPostman<TSub>(
         Func<TSub, Task> postman) where TSub : TOutbox;
-    [OverloadResolutionPriority(1)]
+    [OverloadResolutionPriority(5)]
     public OutboxProcessor<TOutbox> AddPostman<TSub>(
         Func<TSub, OutboxSequenceToken, ValueTask> postman) where TSub : TOutbox;
+    [OverloadResolutionPriority(4)]
     public OutboxProcessor<TOutbox> AddPostman<TSub>(
         Func<TSub, OutboxSequenceToken, Task> postman) where TSub : TOutbox;
+    [OverloadResolutionPriority(3)]
+    public OutboxProcessor<TOutbox> AddPostman<TSub>(
+        Func<TSub, IGrainFactory, ValueTask> postman) where TSub : TOutbox;
+    [OverloadResolutionPriority(2)]
+    public OutboxProcessor<TOutbox> AddPostman<TSub>(
+        Func<TSub, IGrainFactory, Task> postman) where TSub : TOutbox;
     [OverloadResolutionPriority(1)]
     public OutboxProcessor<TOutbox> AddPostman<TSub>(
-        Func<TSub, OutboxSequenceToken, CancellationToken, ValueTask> postman)
-        where TSub : TOutbox;
+        Func<TSub, CancellationToken, ValueTask> postman) where TSub : TOutbox;
     public OutboxProcessor<TOutbox> AddPostman<TSub>(
-        Func<TSub, OutboxSequenceToken, CancellationToken, Task> postman)
-        where TSub : TOutbox;
+        Func<TSub, CancellationToken, Task> postman) where TSub : TOutbox;
+    [OverloadResolutionPriority(3)]
+    public OutboxProcessor<TOutbox> AddPostman<TSub>(
+        Func<TSub, OutboxSequenceToken, IGrainFactory, ValueTask> postman) where TSub : TOutbox;
+    [OverloadResolutionPriority(2)]
+    public OutboxProcessor<TOutbox> AddPostman<TSub>(
+        Func<TSub, OutboxSequenceToken, IGrainFactory, Task> postman) where TSub : TOutbox;
+    [OverloadResolutionPriority(5)]
+    public OutboxProcessor<TOutbox> AddPostman<TSub>(
+        Func<TSub, OutboxSequenceToken, CancellationToken, ValueTask> postman) where TSub : TOutbox;
+    [OverloadResolutionPriority(4)]
+    public OutboxProcessor<TOutbox> AddPostman<TSub>(
+        Func<TSub, OutboxSequenceToken, CancellationToken, Task> postman) where TSub : TOutbox;
+    [OverloadResolutionPriority(1)]
+    public OutboxProcessor<TOutbox> AddPostman<TSub>(
+        Func<TSub, IGrainFactory, CancellationToken, ValueTask> postman) where TSub : TOutbox;
+    public OutboxProcessor<TOutbox> AddPostman<TSub>(
+        Func<TSub, IGrainFactory, CancellationToken, Task> postman) where TSub : TOutbox;
+    [OverloadResolutionPriority(1)]
+    public OutboxProcessor<TOutbox> AddPostman<TSub>(
+        Func<TSub, OutboxSequenceToken, IGrainFactory, CancellationToken, ValueTask> postman) where TSub : TOutbox;
+    public OutboxProcessor<TOutbox> AddPostman<TSub>(
+        Func<TSub, OutboxSequenceToken, IGrainFactory, CancellationToken, Task> postman) where TSub : TOutbox;
+
     public OutboxProcessor<TOutbox> AddPostman<TSub>(
         string postmanName) where TSub : TOutbox;
     public OutboxProcessor<TOutbox> AddStreamPostman<TSub>(
@@ -2401,12 +2443,6 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     public OutboxStreamProviderBuilder<TOutbox> ForStreamProvider(string streamProviderName);
     public OutboxProcessor<TOutbox> ForStreamProvider(
         string streamProviderName, Action<OutboxStreamProviderBuilder<TOutbox>> configure);
-    [OverloadResolutionPriority(1)]
-    public OutboxProcessor<TOutbox> AddGrainPostman<TSub, TGrain>(
-        Func<TSub, IGrainFactory, TGrain> resolveGrain,
-        Func<TGrain, TSub, ValueTask> call)
-        where TSub : TOutbox
-        where TGrain : IGrain;
 
     /// Posts pending items. Safe to call from grain's task scheduler.
     /// Schedules retry if items remain; unregisters retry work if empty.
