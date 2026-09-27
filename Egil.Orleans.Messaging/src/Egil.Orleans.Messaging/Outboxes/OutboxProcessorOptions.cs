@@ -42,8 +42,8 @@ public class OutboxProcessorOptions
     /// This provider controls the processing timeout and the
     /// <see cref="MessageTraceMode.ParentWithinLag"/> age check, so choosing a
     /// domain clock also decides which deliveries parent to the producing trace.
-    /// Orleans owns the grain timers and reminders used for
-    /// <see cref="RetryDelay"/>. Set a
+    /// Orleans owns grain-timer and reminder scheduling; this provider does not
+    /// control their periods. Set a
     /// shared domain clock once for the silo with the
     /// <c>ConfigureOutboxProcessor</c> overload that receives the
     /// <see cref="IServiceProvider"/>.
@@ -51,15 +51,23 @@ public class OutboxProcessorOptions
     public TimeProvider? TimeProvider { get; set; }
 
     /// <summary>
-    /// Delay before retrying remaining pending items. Cross-activation retry
-    /// is clamped to at least one minute because Orleans reminders do not
-    /// support sub-minute precision. Default: 2 minutes.
+    /// Grain-timer delay before retrying remaining pending items. Independent
+    /// of reminder recovery periods and may be less than one minute.
+    /// Default: 2 minutes.
     /// </summary>
     public TimeSpan RetryDelay { get; set; } = TimeSpan.FromMinutes(2);
 
     /// <summary>
+    /// Recovery reminder period while work remains pending, including after
+    /// deactivation. Grain timers use <see cref="RetryDelay"/> for normal retries;
+    /// reminders provide a fallback wakeup. Must be at least one minute.
+    /// Default: 5 minutes.
+    /// </summary>
+    public TimeSpan ActiveReminderPeriod { get; set; } = TimeSpan.FromMinutes(5);
+
+    /// <summary>
     /// Fallback period for <see cref="OutboxReminderPolicy.KeepRegistered"/> when
-    /// no retry is needed. Default: one hour. Configure this longer than the
+    /// no retry is needed. Default: one hour; minimum: one minute. Configure this longer than the
     /// grain's idle collection age, allowing time for the collection scan and
     /// deactivation, so an unused reminder can be removed before it fires.
     /// </summary>
@@ -67,9 +75,9 @@ public class OutboxProcessorOptions
 
     /// <summary>
     /// When to establish the durable reminder and whether to retain an idle
-    /// fallback until deactivation. Default: <see cref="OutboxReminderPolicy.OnRetry"/>.
+    /// fallback until deactivation. Default: <see cref="OutboxReminderPolicy.OnDeactivation"/>.
     /// </summary>
-    public OutboxReminderPolicy ReminderPolicy { get; set; } = OutboxReminderPolicy.OnRetry;
+    public OutboxReminderPolicy ReminderPolicy { get; set; } = OutboxReminderPolicy.OnDeactivation;
 
     /// <summary>
     /// Whether background posting may allow other grain calls to run while
@@ -134,6 +142,7 @@ public class OutboxProcessorOptions
         target.ProcessingTimeout = ProcessingTimeout;
         target.TimeProvider = TimeProvider;
         target.RetryDelay = RetryDelay;
+        target.ActiveReminderPeriod = ActiveReminderPeriod;
         target.IdleReminderPeriod = IdleReminderPeriod;
         target.ReminderPolicy = ReminderPolicy;
         target.Interleave = Interleave;
@@ -281,6 +290,11 @@ public sealed class OutboxProcessorOptions<TOutbox> : OutboxProcessorOptions
         if (IdleReminderPeriod < TimeSpan.FromMinutes(1))
         {
             throw new ArgumentOutOfRangeException(paramName, "IdleReminderPeriod must be at least one minute.");
+        }
+
+        if (ActiveReminderPeriod < TimeSpan.FromMinutes(1))
+        {
+            throw new ArgumentOutOfRangeException(paramName, "ActiveReminderPeriod must be at least one minute.");
         }
 
         if (!Enum.IsDefined(ReminderPolicy))

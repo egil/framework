@@ -493,7 +493,7 @@ A grain that stages and then never writes again never drains its durable outbox.
 Each activation that posts redelivers the same items, acknowledges them into a
 stage, and loses the stage at deactivation; later post runs in that same
 activation see the deferred, empty view and do nothing. And it is not
-self-correcting on a timer with the default `OnRetry` policy: a deferred
+self-correcting on a timer with the default `OnDeactivation` policy: a deferred
 acknowledgement empties the view the processor reconciles against, so retry and
 the durable reminder are disabled, and
 registering a processor does not post on activation. The items therefore stay in
@@ -2244,18 +2244,19 @@ public class OutboxProcessorOptions
     public TimeSpan ProcessingTimeout { get; set; } = TimeSpan.FromSeconds(20);
 
     /// Clock used to enforce ProcessingTimeout and to measure message age for
-    /// Trace = ParentWithinLag. Orleans owns the grain timers and reminders used
-    /// for RetryDelay. Null uses the TimeProvider registered in the silo's
+    /// Trace = ParentWithinLag. Orleans owns timer and reminder scheduling.
+    /// Null uses the TimeProvider registered in the silo's
     /// services, else TimeProvider.System.
     public TimeProvider? TimeProvider { get; set; }
 
-    /// Timer + reminder period. Orleans reminders fire at most once/minute.
+    /// Grain-timer delay for normal retries; independent of reminder periods.
     public TimeSpan RetryDelay { get; set; } = TimeSpan.FromMinutes(2);
 
-    /// Create on retry and remove after draining, or establish before the first
-    /// post and retain across batches and activations.
-    public OutboxReminderPolicy ReminderPolicy { get; set; } = OutboxReminderPolicy.OnRetry;
+    /// Create during pending deactivation, or establish an activation fallback
+    /// which is removed during empty deactivation.
+    public OutboxReminderPolicy ReminderPolicy { get; set; } = OutboxReminderPolicy.OnDeactivation;
     public TimeSpan IdleReminderPeriod { get; set; } = TimeSpan.FromHours(1);
+    public TimeSpan ActiveReminderPeriod { get; set; } = TimeSpan.FromMinutes(5);
 
     /// Whether background posting may allow other grain calls to run while
     /// postmen are awaiting asynchronous work.
@@ -2305,7 +2306,7 @@ public sealed class OutboxProcessorOptions<TOutbox> : OutboxProcessorOptions
 
 public enum OutboxReminderPolicy
 {
-    OnRetry,
+    OnDeactivation,
     KeepRegistered,
 }
 
@@ -2344,15 +2345,17 @@ payload type is known.
 
 ### Reminder policy and deactivation
 
-`OnRetry` preserves lazy registration: successful initial delivery does not
-register a reminder, background posts initially schedule only an in-memory timer,
-and failed or incomplete runs establish retry work. Empty drains remove reminders.
+`OnDeactivation` registers only during orderly deactivation with pending work.
+Active retries use grain timers, including when PostAsync throws; the caller need
+not schedule recovery. Empty drains remove known inherited reminders. Registration
+failure during deactivation still logs OutboxDeactivationReminderFailed.
 
 `KeepRegistered` starts an idle fallback during activation and posts await an
 in-progress registration before dispatch. Successful batches reuse it without
 reminder calls. Its configurable `IdleReminderPeriod` defaults to one hour and
 must exceed the grain's idle collection age with a collection/deactivation margin.
-Retries switch it to `RetryDelay`; draining restores the idle period once. Empty
+Retries switch it to `ActiveReminderPeriod` (default five minutes); draining restores
+the idle period once. Grain timers independently use `RetryDelay` for normal retries. Empty
 deactivation removes it so a normally collected grain need not receive idle ticks.
 
 Both policies assume no inherited reminder exists until it fires. Registration
@@ -2382,7 +2385,7 @@ runs lifecycle start before the grain's OnActivateAsync, so attachment there or
 later starts registration immediately and observes failures through
 `OutboxActivationReminderFailed`. Posts and shutdown join the operation. Await an
 empty KeepRegistered post before a business write if registration must have
-completed before that write. Undefined policies and idle periods below one minute
+completed before that write. Undefined policies and reminder periods below one minute
 are rejected. Alternative durable retry providers remain outside this API.
 
 An activation-scoped clock is supplied independently at both call sites:

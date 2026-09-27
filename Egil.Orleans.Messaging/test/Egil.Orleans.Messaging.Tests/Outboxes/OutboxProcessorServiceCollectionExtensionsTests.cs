@@ -15,6 +15,7 @@ public sealed class OutboxProcessorServiceCollectionExtensionsTests
             options.TimeProvider = services.GetRequiredKeyedService<TimeProvider>("pricing");
             options.RetryDelay = TimeSpan.FromMinutes(5);
             options.IdleReminderPeriod = TimeSpan.FromHours(3);
+            options.ActiveReminderPeriod = TimeSpan.FromMinutes(15);
             options.KeepAlive = true;
             options.ReminderPolicy = OutboxReminderPolicy.KeepRegistered;
             options.Trace = MessageTraceOptions.None;
@@ -25,6 +26,7 @@ public sealed class OutboxProcessorServiceCollectionExtensionsTests
         Assert.Same(pricingClock, options.TimeProvider);
         Assert.Equal(TimeSpan.FromMinutes(5), options.RetryDelay);
         Assert.Equal(TimeSpan.FromHours(3), options.IdleReminderPeriod);
+        Assert.Equal(TimeSpan.FromMinutes(15), options.ActiveReminderPeriod);
         Assert.True(options.KeepAlive);
         Assert.Equal(OutboxReminderPolicy.KeepRegistered, options.ReminderPolicy);
         Assert.Equal(MessageTraceOptions.None, options.Trace);
@@ -44,11 +46,11 @@ public sealed class OutboxProcessorServiceCollectionExtensionsTests
         {
             options.AcknowledgePosted = static _ => { };
             options.RetryDelay = TimeSpan.FromMinutes(10);
-            options.ReminderPolicy = OutboxReminderPolicy.OnRetry;
+            options.ReminderPolicy = OutboxReminderPolicy.OnDeactivation;
         });
 
         Assert.Equal(TimeSpan.FromMinutes(10), options.RetryDelay);
-        Assert.Equal(OutboxReminderPolicy.OnRetry, options.ReminderPolicy);
+        Assert.Equal(OutboxReminderPolicy.OnDeactivation, options.ReminderPolicy);
     }
 
     [Fact]
@@ -89,11 +91,13 @@ public sealed class OutboxProcessorServiceCollectionExtensionsTests
         });
         captured!.RetryDelay = TimeSpan.FromHours(1);
         captured.IdleReminderPeriod = TimeSpan.FromHours(3);
+        captured.ActiveReminderPeriod = TimeSpan.FromMinutes(15);
         captured.ReminderPolicy = OutboxReminderPolicy.KeepRegistered;
 
         Assert.Equal(TimeSpan.FromMinutes(2), options.RetryDelay);
         Assert.Equal(TimeSpan.FromHours(1), options.IdleReminderPeriod);
-        Assert.Equal(OutboxReminderPolicy.OnRetry, options.ReminderPolicy);
+        Assert.Equal(TimeSpan.FromMinutes(5), options.ActiveReminderPeriod);
+        Assert.Equal(OutboxReminderPolicy.OnDeactivation, options.ReminderPolicy);
     }
 
     [Fact]
@@ -160,6 +164,18 @@ public sealed class OutboxProcessorServiceCollectionExtensionsTests
         var error = Assert.Throws<ArgumentOutOfRangeException>(
             () => Resolve(builder, static options => options.AcknowledgePosted = static _ => { }));
         Assert.Contains("IdleReminderPeriod", error.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(59)]
+    public void Subminute_active_reminder_period_is_rejected(int seconds)
+    {
+        var builder = new FakeSiloBuilder();
+        builder.ConfigureOutboxProcessor(options => options.ActiveReminderPeriod = TimeSpan.FromSeconds(seconds));
+        var error = Assert.Throws<ArgumentOutOfRangeException>(
+            () => Resolve(builder, static options => options.AcknowledgePosted = static _ => { }));
+        Assert.Contains("ActiveReminderPeriod", error.Message, StringComparison.Ordinal);
     }
 
     private static OutboxProcessorOptions<string> Resolve(

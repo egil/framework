@@ -30,11 +30,10 @@ public sealed partial class OutboxProcessor<TOutbox>
     });
 
     private Task EnsureReminderAsync() =>
-        RunReminderOperationAsync(() => RegisterReminderIfNeededAsync(options.RetryDelay));
+        RunReminderOperationAsync(() => RegisterReminderIfNeededAsync(options.ActiveReminderPeriod));
 
     private async Task RegisterReminderIfNeededAsync(TimeSpan period)
     {
-        period = period < TimeSpan.FromMinutes(1) ? TimeSpan.FromMinutes(1) : period;
         if (reminder is not null && reminderPeriod == period)
         {
             return;
@@ -45,7 +44,7 @@ public sealed partial class OutboxProcessor<TOutbox>
     }
 
     private Task ReconcileIdleReminderAsync() =>
-        options.ReminderPolicy == OutboxReminderPolicy.OnRetry
+        options.ReminderPolicy == OutboxReminderPolicy.OnDeactivation
             ? TryRemoveIdleReminderAsync(CancellationToken.None)
             : RunReminderOperationAsync(async () =>
             {
