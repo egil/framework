@@ -15,6 +15,7 @@ public sealed class OutboxProcessorServiceCollectionExtensionsTests
             options.TimeProvider = services.GetRequiredKeyedService<TimeProvider>("pricing");
             options.RetryDelay = TimeSpan.FromMinutes(5);
             options.KeepAlive = true;
+            options.ReminderPolicy = OutboxReminderPolicy.KeepRegistered;
             options.Trace = MessageTraceOptions.None;
         });
 
@@ -23,6 +24,7 @@ public sealed class OutboxProcessorServiceCollectionExtensionsTests
         Assert.Same(pricingClock, options.TimeProvider);
         Assert.Equal(TimeSpan.FromMinutes(5), options.RetryDelay);
         Assert.True(options.KeepAlive);
+        Assert.Equal(OutboxReminderPolicy.KeepRegistered, options.ReminderPolicy);
         Assert.Equal(MessageTraceOptions.None, options.Trace);
     }
 
@@ -30,15 +32,21 @@ public sealed class OutboxProcessorServiceCollectionExtensionsTests
     public void Processor_configuration_overrides_silo_defaults()
     {
         var builder = new FakeSiloBuilder();
-        builder.ConfigureOutboxProcessor(static options => options.RetryDelay = TimeSpan.FromMinutes(5));
+        builder.ConfigureOutboxProcessor(static options =>
+        {
+            options.RetryDelay = TimeSpan.FromMinutes(5);
+            options.ReminderPolicy = OutboxReminderPolicy.KeepRegistered;
+        });
 
         var options = Resolve(builder, static options =>
         {
             options.AcknowledgePosted = static _ => { };
             options.RetryDelay = TimeSpan.FromMinutes(10);
+            options.ReminderPolicy = OutboxReminderPolicy.OnRetry;
         });
 
         Assert.Equal(TimeSpan.FromMinutes(10), options.RetryDelay);
+        Assert.Equal(OutboxReminderPolicy.OnRetry, options.ReminderPolicy);
     }
 
     [Fact]
@@ -78,8 +86,10 @@ public sealed class OutboxProcessorServiceCollectionExtensionsTests
             options.AcknowledgePosted = static _ => { };
         });
         captured!.RetryDelay = TimeSpan.FromHours(1);
+        captured.ReminderPolicy = OutboxReminderPolicy.KeepRegistered;
 
         Assert.Equal(TimeSpan.FromMinutes(2), options.RetryDelay);
+        Assert.Equal(OutboxReminderPolicy.OnRetry, options.ReminderPolicy);
     }
 
     [Fact]
@@ -121,6 +131,19 @@ public sealed class OutboxProcessorServiceCollectionExtensionsTests
         Assert.Equal(TimeSpan.FromSeconds(20), options.ProcessingTimeout);
         Assert.Equal(TimeSpan.FromMinutes(2), options.RetryDelay);
         Assert.Same(TimeProvider.System, options.TimeProvider);
+    }
+
+    [Fact]
+    public void Invalid_reminder_policy_is_rejected_when_the_processor_registers()
+    {
+        var builder = new FakeSiloBuilder();
+        builder.ConfigureOutboxProcessor(static options => options.ReminderPolicy = (OutboxReminderPolicy)42);
+
+        var error = Assert.Throws<ArgumentOutOfRangeException>(
+            () => Resolve(builder, static options => options.AcknowledgePosted = static _ => { }));
+
+        Assert.Equal("configure", error.ParamName);
+        Assert.Contains("ReminderPolicy", error.Message, StringComparison.Ordinal);
     }
 
     private static OutboxProcessorOptions<string> Resolve(

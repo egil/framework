@@ -43,6 +43,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     private IGrainTimer? dispatchTimer;
     private IGrainTimer? acknowledgementTimer;
     private IGrainReminder? reminder;
+    private Task? retainedReminderRegistration;
     private bool checkedForExistingReminder;
     private OutboxAcknowledgementBatch<OutboxMessageEnvelope<TOutbox>>? pendingAcknowledgement;
     private TaskCompletionSource? activeDrain;
@@ -84,8 +85,10 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
 
     /// <summary>
     /// Posts one pending snapshot by dispatching each item to its matching
-    /// postman. Arms timer/reminder if items remain; unregisters retry work if
-    /// empty. If the run itself fails — for example with a
+    /// postman. Arms retry work if items remain and stops local timers if empty.
+    /// Reminder creation and retention follow
+    /// <see cref="OutboxProcessorOptions.ReminderPolicy"/>.
+    /// If the run itself fails — for example with a
     /// <see cref="TimeoutException"/> when
     /// <see cref="OutboxProcessorOptions.ProcessingTimeout"/> elapses,
     /// or when an acknowledgement callback throws — retry work is armed before
@@ -99,6 +102,14 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
             return;
         }
 
+        if (options.ReminderPolicy == OutboxReminderPolicy.KeepRegistered)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            // Registration failure must reach the caller without arming an
+            // in-memory retry that could dispatch before a reminder exists.
+            await EnsureReminderAsync();
+        }
+
         await WaitForTurnAsync(cancellationToken);
         try
         {
@@ -107,10 +118,8 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         catch
         {
             // A failed foreground run (timeout, cancellation, or an acknowledgement
-            // callback error) skips ReconcileRetryStateAsync, and unlike the
-            // background path no timer/reminder was armed beforehand. Arm retry
-            // here — only on failure — so announced items still get delivered
-            // without paying the reminder write on every successful post.
+            // callback error) skips ReconcileRetryStateAsync. The default policy
+            // has not armed a reminder yet, so establish retry on this path too.
             await TrySchedulePendingRetryAsync();
             throw;
         }
@@ -126,14 +135,20 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     /// Schedules a timer-backed post run and returns after scheduling.
     /// </summary>
     /// <remarks>
-    /// Only an in-memory grain timer is armed here. The durable reminder —
-    /// which costs a storage write — is registered lazily, when a post run
-    /// fails or leaves items pending, so successful posts incur no reminder
-    /// I/O.
+    /// With the default <see cref="OutboxReminderPolicy.OnRetry"/> policy, only
+    /// an in-memory timer is armed here; a failed or incomplete dispatch later
+    /// registers the reminder. With <see cref="OutboxReminderPolicy.KeepRegistered"/>,
+    /// this call first awaits an existing or newly registered durable reminder,
+    /// even if the outbox is empty.
     /// </remarks>
     public async ValueTask PostInBackgroundAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (options.ReminderPolicy == OutboxReminderPolicy.KeepRegistered)
+        {
+            await EnsureReminderAsync();
+        }
+
         if (GetPendingItems().IsDefaultOrEmpty)
         {
             await DisableRetryAsync();
@@ -215,7 +230,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         {
             if (!drainCompleted)
             {
-                // The reminder is armed lazily, so a run that throws before
+                // The default policy arms the reminder lazily, so a run that throws before
                 // acknowledgement must arm retry itself or pending items would
                 // only survive in this activation's timer.
                 await TrySchedulePendingRetryAsync();
@@ -491,6 +506,44 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
 
     private async Task EnsureReminderAsync()
     {
+        if (options.ReminderPolicy == OutboxReminderPolicy.OnRetry)
+        {
+            await RegisterReminderAsync();
+            return;
+        }
+
+        // Background posts can interleave while reminder storage is awaited.
+        // Share the lookup/registration so overlapping posts do not each write
+        // a reminder. Retain success, but let a later call retry a failed attempt.
+        var registration = retainedReminderRegistration ??= FindOrRegisterReminderAsync();
+        try
+        {
+            await registration;
+        }
+        catch
+        {
+            if (ReferenceEquals(retainedReminderRegistration, registration))
+            {
+                retainedReminderRegistration = null;
+            }
+
+            throw;
+        }
+    }
+
+    private async Task FindOrRegisterReminderAsync()
+    {
+        // A retained reminder belongs to the grain, not this activation. Reuse
+        // it without resetting its schedule or paying another registration write.
+        reminder = await owner.GetReminder(reminderName);
+        if (reminder is null)
+        {
+            await RegisterReminderAsync();
+        }
+    }
+
+    private async Task RegisterReminderAsync()
+    {
         var period = options.RetryDelay >= TimeSpan.FromMinutes(1)
             ? options.RetryDelay
             : TimeSpan.FromMinutes(1);
@@ -510,6 +563,11 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         {
             acknowledgementTimer?.Dispose();
             acknowledgementTimer = null;
+        }
+
+        if (options.ReminderPolicy == OutboxReminderPolicy.KeepRegistered)
+        {
+            return;
         }
 
         // Look up a leftover reminder from a previous activation at most once;
