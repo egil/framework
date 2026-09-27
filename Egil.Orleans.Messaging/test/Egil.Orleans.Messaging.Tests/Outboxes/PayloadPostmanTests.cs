@@ -151,9 +151,8 @@ public sealed class PayloadSourceGrain : Grain, IPayloadSourceGrain, IOutboxGrai
             options.RetryDelay = TimeSpan.FromMinutes(10);
         })
         .AddPostman<LocalPayload>(DeliverLocalAsync)
-        .AddGrainPostman<GrainPayload, IPayloadSinkGrain>(
-            static (message, grains) => grains.GetGrain<IPayloadSinkGrain>(message.Target),
-            static (grain, message, token) => grain.ReceiveAsync(new(message.Value, token)));
+        .AddPostman<GrainPayload>(static (message, token, grains) =>
+            grains.GetGrain<IPayloadSinkGrain>(message.Target).ReceiveAsync(new(message.Value, token)));
 
         processor.ForStreamProvider(OutboxProcessorTestProviderNames.Events, provider => provider
             .AddStreamPostman<StreamPayload, PayloadDelivery>(
