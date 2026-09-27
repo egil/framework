@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Orleans.TestingHost;
 
@@ -7,6 +8,8 @@ namespace Egil.Orleans.Messaging.Tests.Outboxes;
 public sealed class OutboxReminderFixture : IAsyncLifetime
 {
     private InProcessTestCluster cluster = null!;
+    public bool ConfigureLifecycle { get; init; } = true;
+    public FakeOutboxLogProvider Logs { get; } = new();
 
     public TGrain GetUniqueGrain<TGrain>() where TGrain : IGrainWithGuidKey =>
         cluster.Client.GetGrain<TGrain>(Guid.NewGuid());
@@ -18,12 +21,17 @@ public sealed class OutboxReminderFixture : IAsyncLifetime
         var builder = new InProcessTestClusterBuilder(initialSilosCount: 1);
         builder.ConfigureSilo((_, silo) =>
         {
+            if (ConfigureLifecycle)
+            {
+                silo.ConfigureOutboxProcessor();
+            }
             silo.AddMemoryGrainStorage("Payload", options => options.GrainStorageSerializer =
                 new global::Orleans.Storage.SystemTextJsonGrainStorageSerializer(
                     Options.Create(new global::Orleans.Serialization.SystemTextJsonGrainStorageSerializerOptions())));
             silo.UseInMemoryReminderService();
             silo.ConfigureServices(services =>
             {
+                services.AddLogging(logging => logging.AddProvider(Logs));
                 // Keep Orleans' real reminder service and table. Only the table's
                 // write boundary rejects selected grains to model a storage outage.
                 var registration = services.Single(service => service.ServiceType == typeof(IReminderTable));
@@ -41,6 +49,34 @@ public sealed class OutboxReminderFixture : IAsyncLifetime
 
     public ValueTask DisposeAsync() => cluster.DisposeAsync();
 }
+
+public sealed class FakeOutboxLogProvider : ILoggerProvider
+{
+    public ConcurrentQueue<OutboxWarning> Warnings { get; } = new();
+
+    public ILogger CreateLogger(string categoryName) => new CaptureLogger(this, categoryName);
+    public void Dispose() { }
+
+    private sealed class CaptureLogger(FakeOutboxLogProvider owner, string category) : ILogger
+    {
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => logLevel == LogLevel.Warning
+            && category.StartsWith("Egil.Orleans.Messaging.Outboxes.OutboxProcessor", StringComparison.Ordinal);
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (IsEnabled(logLevel) && state is IEnumerable<KeyValuePair<string, object?>> properties)
+            {
+                owner.Warnings.Enqueue(new OutboxWarning(eventId, formatter(state, exception), exception,
+                    properties.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal)));
+            }
+        }
+    }
+}
+
+public sealed record OutboxWarning(EventId EventId, string Message, Exception? Exception,
+    IReadOnlyDictionary<string, object?> Properties);
 
 public sealed class FakeFailingReminderTable(IReminderTable inner) : IReminderTable
 {

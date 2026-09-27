@@ -10,6 +10,14 @@ public static class OutboxProcessorSiloBuilderExtensions
 {
     extension(ISiloBuilder builder)
     {
+        /// <inheritdoc cref="OutboxProcessorServiceCollectionExtensions.ConfigureOutboxProcessor(IServiceCollection)"/>
+        public ISiloBuilder ConfigureOutboxProcessor()
+        {
+            ArgumentNullException.ThrowIfNull(builder);
+            builder.ConfigureServices(services => services.ConfigureOutboxProcessor());
+            return builder;
+        }
+
         /// <inheritdoc cref="OutboxProcessorServiceCollectionExtensions.ConfigureOutboxProcessor(IServiceCollection, Action{OutboxProcessorOptions})"/>
         public ISiloBuilder ConfigureOutboxProcessor(Action<OutboxProcessorOptions> configure)
         {

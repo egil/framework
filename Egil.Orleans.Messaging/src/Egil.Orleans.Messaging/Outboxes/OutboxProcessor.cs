@@ -183,6 +183,20 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
             throw new InvalidOperationException(DuplicateRegistrationMessage);
         }
 
+        if (owner.GrainContext.GetComponent<OutboxDeactivationObserver>() is null)
+        {
+            // Lifecycle subscriptions are only accepted before activation starts.
+            // Constructor registration can install directly; later registration
+            // needs the silo configurator to have installed the forwarding hook.
+            if (owner.GrainContext.GrainInstance is not null)
+            {
+                throw new InvalidOperationException(
+                    "Call ConfigureOutboxProcessor() on the silo builder before registering an outbox processor in OnActivateAsync or a grain method. Alternatively, register the processor in the grain constructor.");
+            }
+
+            OutboxDeactivationObserver.Install(owner.GrainContext);
+        }
+
         owner.GrainContext.SetComponent<IOutboxComponent>(this);
     }
 
@@ -598,4 +612,7 @@ internal interface IOutboxComponent
 {
     /// <summary>Forwards a reminder callback to the outbox processor.</summary>
     ValueTask ReceiveReminderAsync(string reminderName, TickStatus status);
+
+    /// <summary>Attempts a durable wakeup for pending work before deactivation completes.</summary>
+    Task OnDeactivateAsync(CancellationToken cancellationToken);
 }

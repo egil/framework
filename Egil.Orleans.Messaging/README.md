@@ -647,6 +647,18 @@ public OrderGrain([PersistentState("state", "Default")] IPersistentState<OrderSt
 }
 ```
 
+Constructor registration automatically installs the deactivation safeguard. If
+registering the processor in `OnActivateAsync` or later, enable it once on the
+silo builder before starting the host:
+
+```csharp
+siloBuilder.ConfigureOutboxProcessor();
+```
+
+Both existing `ConfigureOutboxProcessor` overloads that accept options also
+enable the safeguard. Orleans requires lifecycle subscriptions before activation
+starts; late processor registration without this setup throws with instructions.
+
 `AddPostman<TSub>` takes one handler. Only the payload is required; the delivery
 `OutboxSequenceToken`, `IGrainFactory`, and `CancellationToken` are independently
 optional, in that relative order. Every shape supports both `Task` and `ValueTask`:
@@ -824,6 +836,21 @@ business write. Once established, the retained reminder also covers later batche
 whose state write succeeds but whose explicit post never runs. Returning to
 `OnRetry` on a later activation removes the inherited reminder when the processor
 next observes an empty outbox.
+
+With either policy, orderly deactivation checks for pending outbox entries and
+attempts to establish a reminder if none is known. This includes work persisted
+without posting and retries whose earlier reminder registration failed. Existing
+reminders are reused without another registration write; empty outboxes do not
+create reminders. The attempt respects Orleans' deactivation cancellation token.
+An abrupt silo crash can bypass this safeguard, and reminder storage can still
+fail or time out during shutdown.
+
+If the processor cannot confirm a reminder during deactivation, it emits a
+Warning named `OutboxDeactivationReminderFailed`, including the exception and
+structured `GrainId`, `GrainType`, and `ReminderName` properties. Use the grain ID
+to identify work that may need manual reactivation and an explicit post through
+the application's grain API. The warning does not block deactivation or claim
+that an interrupted registration definitely failed to reach storage.
 
 Background outbox postage allows unrelated grain calls to continue while
 postmen await I/O by default. `IPostman<T>` services should be state-free with
@@ -1496,6 +1523,12 @@ guaranteed; use a System.Text.Json serializer or the Orleans binary serializer.
 This package is messaging infrastructure, not an event-sourcing or CQRS framework. It wraps Orleans state, outbox dispatch, receiver deduplication, and stream subscription management while leaving domain modeling, read models, transport targets, and operational policy to the application.
 
 ## Beta API changes
+
+- If `RegisterOutboxProcessor` runs in `OnActivateAsync` or a grain method, add
+  `siloBuilder.ConfigureOutboxProcessor()` to host setup (an existing options
+  overload also suffices). This installs the automatic deactivation safeguard
+  before Orleans starts the grain lifecycle. Missing setup now throws during
+  processor registration. Constructor registration needs no extra host setup.
 
 - **State recovery now defaults to `FenceAndDeactivate`.** To retain the previous
   behavior, explicitly set `RecoveryPolicy = StateRecoveryPolicy.ReadBack` globally,

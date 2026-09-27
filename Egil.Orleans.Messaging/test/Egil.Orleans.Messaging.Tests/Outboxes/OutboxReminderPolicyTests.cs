@@ -144,6 +144,160 @@ public sealed class OutboxReminderPolicyTests(OutboxReminderFixture fixture)
         Assert.Equal(0, recovered.Pending);
         Assert.NotNull(await grain.GetReminderVersionAsync());
     }
+
+    [Fact]
+    public async Task Deactivation_establishes_a_reminder_for_work_persisted_without_posting()
+    {
+        var grain = fixture.GetUniqueGrain<IOutboxReminderPolicyGrain>();
+        await grain.PersistAsync("pending");
+        var activation = (await grain.ObserveAsync()).Activation;
+        Assert.Null(await grain.GetReminderVersionAsync());
+
+        await grain.DeactivateAsync();
+
+        Assert.NotEqual(activation, (await grain.ObserveAsync()).Activation);
+        Assert.NotNull(await grain.GetReminderVersionAsync());
+        await grain.DeliverReminderAsync();
+        await grain.WaitForDeliveryAsync().WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.Equal(0, (await grain.ObserveAsync()).Pending);
+    }
+
+    [Fact]
+    public async Task Deactivation_retries_a_failed_reminder_registration_while_work_remains()
+    {
+        var grain = fixture.GetUniqueGrain<IOutboxReminderPolicyGrain>();
+        await grain.UseDefaultPolicyAsync();
+        await grain.DeactivateAsync();
+        await grain.RejectDeliveryAsync();
+        fixture.Reminders.RejectWrites(grain.GetGrainId());
+        await Assert.ThrowsAnyAsync<Exception>(() => grain.PublishAsync("pending", inBackground: false));
+        Assert.Null(await grain.GetReminderVersionAsync());
+        var activation = (await grain.ObserveAsync()).Activation;
+        fixture.Reminders.AllowWrites(grain.GetGrainId());
+
+        await grain.DeactivateAsync();
+
+        Assert.NotEqual(activation, (await grain.ObserveAsync()).Activation);
+        Assert.NotNull(await grain.GetReminderVersionAsync());
+    }
+
+    [Fact]
+    public async Task Failed_deactivation_reminder_logs_the_grain_id_for_manual_recovery()
+    {
+        var grain = fixture.GetUniqueGrain<IOutboxReminderPolicyGrain>();
+        await grain.PersistAsync("pending");
+        var activation = (await grain.ObserveAsync()).Activation;
+        fixture.Reminders.RejectWrites(grain.GetGrainId());
+
+        await grain.DeactivateAsync();
+
+        var pending = await grain.ObserveAsync();
+        Assert.NotEqual(activation, pending.Activation);
+        Assert.Equal(1, pending.Pending);
+        Assert.Null(await grain.GetReminderVersionAsync());
+        var warning = Assert.Single(fixture.Logs.Warnings, entry =>
+            entry.EventId.Name == "OutboxDeactivationReminderFailed"
+            && Equals(entry.Properties.GetValueOrDefault("GrainId"), grain.GetGrainId()));
+        Assert.NotNull(warning.Exception);
+        Assert.Contains("manual reactivation", warning.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.NotNull(warning.Properties["ReminderName"]);
+
+        fixture.Reminders.AllowWrites(grain.GetGrainId());
+        await grain.PostAsync(inBackground: false);
+        Assert.Equal(0, (await grain.ObserveAsync()).Pending);
+    }
+
+    [Fact]
+    public async Task Empty_deactivation_does_not_create_a_reminder_or_warn()
+    {
+        var grain = fixture.GetUniqueGrain<IOutboxReminderPolicyGrain>();
+        var activation = (await grain.ObserveAsync()).Activation;
+        fixture.Reminders.RejectWrites(grain.GetGrainId());
+
+        await grain.DeactivateAsync();
+
+        Assert.NotEqual(activation, (await grain.ObserveAsync()).Activation);
+        Assert.Null(await grain.GetReminderVersionAsync());
+        Assert.Equal(0, fixture.Reminders.FailedWrites(grain.GetGrainId()));
+        Assert.DoesNotContain(fixture.Logs.Warnings, entry =>
+            Equals(entry.Properties.GetValueOrDefault("GrainId"), grain.GetGrainId()));
+    }
+
+    [Fact]
+    public async Task Deactivation_reuses_an_inherited_reminder_without_a_write()
+    {
+        var grain = fixture.GetUniqueGrain<IOutboxReminderPolicyGrain>();
+        await grain.PostAsync(inBackground: false);
+        var version = await grain.GetReminderVersionAsync();
+        await grain.PersistAsync("pending");
+        await grain.DeactivateAsync();
+        var activation = (await grain.ObserveAsync()).Activation;
+        fixture.Reminders.RejectWrites(grain.GetGrainId());
+
+        await grain.DeactivateAsync();
+
+        Assert.NotEqual(activation, (await grain.ObserveAsync()).Activation);
+        Assert.Equal(version, await grain.GetReminderVersionAsync());
+        Assert.Equal(0, fixture.Reminders.FailedWrites(grain.GetGrainId()));
+        Assert.DoesNotContain(fixture.Logs.Warnings, entry =>
+            Equals(entry.Properties.GetValueOrDefault("GrainId"), grain.GetGrainId()));
+    }
+
+    [Fact]
+    public async Task Constructor_registration_protects_pending_work_without_silo_configuration()
+    {
+        await using var unconfigured = new OutboxReminderFixture { ConfigureLifecycle = false };
+        await unconfigured.InitializeAsync();
+        var grain = unconfigured.GetUniqueGrain<IConstructorOutboxReminderGrain>();
+
+        var activation = await grain.PersistAndDeactivateAsync();
+
+        Assert.NotEqual(activation, await grain.GetActivationAsync());
+        var reminders = await unconfigured.Reminders.ReadRows(grain.GetGrainId());
+        Assert.Single(reminders.Reminders);
+    }
+
+    [Fact]
+    public async Task Late_registration_without_silo_configuration_explains_the_required_setup()
+    {
+        await using var unconfigured = new OutboxReminderFixture { ConfigureLifecycle = false };
+        await unconfigured.InitializeAsync();
+        var grain = unconfigured.GetUniqueGrain<IOutboxReminderPolicyGrain>();
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => grain.ObserveAsync());
+
+        Assert.Contains("ConfigureOutboxProcessor()", error.Message, StringComparison.Ordinal);
+        Assert.Contains("constructor", error.Message, StringComparison.Ordinal);
+    }
+}
+
+public interface IConstructorOutboxReminderGrain : IGrainWithGuidKey
+{
+    Task<Guid> PersistAndDeactivateAsync();
+    Task<Guid> GetActivationAsync();
+}
+
+public sealed class ConstructorOutboxReminderGrain : Grain, IConstructorOutboxReminderGrain, IOutboxGrain
+{
+    private readonly IPersistentState<OutboxReminderState> state;
+    private readonly Guid activation = Guid.NewGuid();
+
+    public ConstructorOutboxReminderGrain([PersistentState("state", "Payload")] IPersistentState<OutboxReminderState> state)
+    {
+        this.state = state;
+        this.RegisterOutboxProcessor(() => state.State.Outbox,
+            options => options.AcknowledgePosted = items => state.State.Outbox = state.State.Outbox.RemoveRange(items));
+    }
+
+    public async Task<Guid> PersistAndDeactivateAsync()
+    {
+        state.State.Outbox = state.State.Outbox.Add("pending");
+        await state.WriteStateAsync();
+        DeactivateOnIdle();
+        return activation;
+    }
+
+    public Task<Guid> GetActivationAsync() => Task.FromResult(activation);
 }
 
 public interface IOutboxReminderPolicyGrain : IGrainWithGuidKey
@@ -156,6 +310,7 @@ public interface IOutboxReminderPolicyGrain : IGrainWithGuidKey
     Task<string?> GetReminderVersionAsync();
     Task<OutboxReminderObservation> ObserveAsync();
     Task DeactivateAsync();
+    Task RejectDeliveryAsync();
     [AlwaysInterleave] Task WaitForDeliveryAsync();
 }
 
@@ -182,6 +337,7 @@ public sealed class OutboxReminderPolicyGrain(
     private readonly Guid activation = Guid.NewGuid();
     private readonly TaskCompletionSource delivery = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private OutboxProcessor<string>? processor;
+    private bool rejectDelivery;
 
     private OutboxProcessor<string> Processor => processor!;
 
@@ -237,12 +393,25 @@ public sealed class OutboxReminderPolicyGrain(
         return Task.CompletedTask;
     }
 
+    public Task RejectDeliveryAsync()
+    {
+        rejectDelivery = true;
+        return Task.CompletedTask;
+    }
+
     // The fixture's STJ storage provider is not activity-decorated. Signal after
     // persistence so recovery assertions wait for the real acknowledgement turn.
     public Task WaitForDeliveryAsync() => delivery.Task;
 
-    private async ValueTask PostItemAsync(string value) =>
+    private async ValueTask PostItemAsync(string value)
+    {
+        if (rejectDelivery)
+        {
+            throw new InvalidOperationException("Delivery is unavailable.");
+        }
+
         state.State.ReminderSeenByPostman = await this.GetReminder(Processor.ReminderName) is not null;
+    }
 
     private async ValueTask AcknowledgeAsync(
         ImmutableArray<OutboxMessageEnvelope<string>> items,
