@@ -493,8 +493,9 @@ A grain that stages and then never writes again never drains its durable outbox.
 Each activation that posts redelivers the same items, acknowledges them into a
 stage, and loses the stage at deactivation; later post runs in that same
 activation see the deferred, empty view and do nothing. And it is not
-self-correcting on a timer: a deferred acknowledgement empties the view the
-processor reconciles against, so retry and the durable reminder are disabled, and
+self-correcting on a timer with the default `OnRetry` policy: a deferred
+acknowledgement empties the view the processor reconciles against, so retry and
+the durable reminder are disabled, and
 registering a processor does not post on activation. The items therefore stay in
 storage until a fresh activation reads them back and something posts again. It is the same class of exposure as a write that fails
 just before deactivation, which has always been possible; what is new is that it
@@ -504,14 +505,17 @@ section.
 
 `OutboxProcessor<T>` reconciles its retry timer and durable reminder against
 `outboxAccessor`, which reads through the manager. A deferred acknowledgement that
-empties the outbox therefore disables retry, which is correct from the processor's
+empties the outbox therefore disables local retry and applies `ReminderPolicy`
+to the durable reminder, which is correct from the processor's
 point of view — it was told there is nothing pending, though on the strength of a
 removal that is not durable yet. Anything that later discards the change brings
 those items back as pending: a write that fails, a successful `ReadAsync` or
 `ClearAsync`, or a business write that was already in flight when the stage
 happened and finishes by adopting its own value.
-Neither re-arms the processor, and there is no activation hook that posts on its
-own. The documented pattern is to post again in either case. Coupling the
+These operations do not themselves request a post, and there is no activation
+hook that posts on its own. A retained reminder or the orderly-deactivation
+safeguard can provide a later wakeup; the documented pattern is to post again
+in either case. Coupling the
 processor to `HasUnsavedChanges` would remove the need, at the cost of making an
 outbox-only component depend on the state manager; that trade is not taken here.
 
@@ -1953,8 +1957,9 @@ in the `Clever.PricingEngine` codebase.
   subtypes use multiple postmen on the same processor.
 - **In-process retry** for fast retry while activated.
 - **Durable Reminder** for cross-activation recovery. Reactivates the
-  grain if it deactivates with pending items. Retry scheduling is updated on
-  activation.
+  grain once registered. `ReminderPolicy` controls creation and retention;
+  orderly deactivation also attempts to establish a wakeup for pending work.
+  An abrupt crash before registration can still leave persisted work dormant.
 - **Single active drain.** At most one send attempt may run per activation.
   `PostAsync`, `PostInBackgroundAsync`, retry callbacks, and reminder
   callbacks all coalesce through the same drain gate. If a post run is already
@@ -2185,6 +2190,10 @@ public class OutboxProcessorOptions
     /// Timer + reminder period. Orleans reminders fire at most once/minute.
     public TimeSpan RetryDelay { get; set; } = TimeSpan.FromMinutes(2);
 
+    /// Create on retry and remove after draining, or establish before the first
+    /// post and retain across batches and activations.
+    public OutboxReminderPolicy ReminderPolicy { get; set; } = OutboxReminderPolicy.OnRetry;
+
     /// Whether background posting may allow other grain calls to run while
     /// postmen are awaiting asynchronous work.
     public bool Interleave { get; set; } = true;
@@ -2231,9 +2240,17 @@ public sealed class OutboxProcessorOptions<TOutbox> : OutboxProcessorOptions
         CancellationToken, ValueTask>? AcknowledgeFailuresAsync { get; set; }
 }
 
-// Silo-wide defaults. Same pair on IServiceCollection.
+public enum OutboxReminderPolicy
+{
+    OnRetry,
+    KeepRegistered,
+}
+
+// Silo-wide lifecycle setup and defaults. Same overloads on IServiceCollection.
 public static class OutboxProcessorSiloBuilderExtensions
 {
+    public static ISiloBuilder ConfigureOutboxProcessor(this ISiloBuilder builder);
+
     public static ISiloBuilder ConfigureOutboxProcessor(
         this ISiloBuilder builder, Action<OutboxProcessorOptions> configure);
 
@@ -2261,6 +2278,44 @@ an invalid silo default fails the first registration with the `configure`
 parameter named. The split into a non-generic base and a generic subclass keeps
 the payload-typed acknowledgement callbacks out of the silo defaults, where no
 payload type is known.
+
+### Reminder policy and deactivation
+
+`OnRetry` preserves lazy registration: successful initial delivery does not
+register a reminder, background posts initially schedule only an in-memory timer,
+and failed or incomplete runs establish retry work. Empty drains remove reminders.
+
+`KeepRegistered` awaits reminder lookup or registration before foreground dispatch
+or background scheduling, including empty posts. Overlapping calls share that
+initial registration task; a failed attempt can be retried by a later post. Once
+registered, the reminder survives empty drains and is reused across activations
+without another write or resetting its original period. This trades idle wakeups
+for a durable wakeup covering later batches. Background posting rechecks caller
+cancellation after registration before scheduling its timer. Cancellation does
+not remove already-persisted entries or an established reminder.
+
+Both policies attempt to establish a missing reminder during orderly deactivation
+when the accessor reports pending work. Existing reminders are reused; empty
+outboxes do no reminder writes. Failure or cancellation emits the generated
+`OutboxDeactivationReminderFailed` Warning with `GrainId`, `GrainType`,
+`ReminderName`, and the exception. Operators can identify grains that may need
+manual reactivation and an explicit post. This does not block deactivation or
+guarantee recovery from an abrupt crash or an unavailable reminder store.
+
+Orleans rejects lifecycle subscriptions after startup begins. Constructor
+registration installs the observer directly; registration in `OnActivateAsync`
+or later requires `ConfigureOutboxProcessor()` on the silo builder before host
+startup. Both options overloads also install it. The observer is installed once
+per activation and looks up the attached processor at shutdown, preserving both
+registration styles without requiring a grain shutdown override. Raw
+`services.Configure<OutboxProcessorOptions>(...)` sets defaults only and does not
+install this hook.
+
+Merely registering a processor creates no reminder. A crash between the first
+state write and first post can still leave work without a durable wakeup. To
+establish one before that write, await an empty post with `KeepRegistered`.
+Undefined reminder policies are rejected during options validation. Alternative
+durable retry providers remain outside this API.
 
 An activation-scoped clock is supplied independently at both call sites:
 assign it to `OutboxProcessorOptions.TimeProvider` for deterministic
@@ -2445,11 +2500,13 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         string streamProviderName, Action<OutboxStreamProviderBuilder<TOutbox>> configure);
 
     /// Posts pending items. Safe to call from grain's task scheduler.
-    /// Schedules retry if items remain; unregisters retry work if empty.
+    /// Schedules retry if items remain; empty drains stop local timers and apply
+    /// the configured reminder retention policy.
     public ValueTask PostAsync(CancellationToken cancellationToken = default);
 
     /// Schedules posting through the same background drain path used for retry.
     /// Returns after the run has been scheduled, not after posting completes.
+    /// KeepRegistered first awaits reminder registration and rechecks cancellation.
     /// Multiple calls coalesce into a single active drain.
     public ValueTask PostInBackgroundAsync(
         CancellationToken cancellationToken = default);
@@ -2491,6 +2548,7 @@ public sealed class OutboxStreamProviderBuilder<TOutbox>
 internal interface IOutboxComponent
 {
     ValueTask ReceiveReminderAsync(string reminderName, TickStatus status);
+    Task OnDeactivateAsync(CancellationToken cancellationToken);
 }
 ```
 
@@ -2500,6 +2558,10 @@ Two obligations (registration is checked at runtime):
 
 1. Implement `IOutboxGrain`.
 2. Call `RegisterOutboxProcessor(...)` in the constructor or `OnActivateAsync`.
+
+For `OnActivateAsync` or later registration, first call
+`siloBuilder.ConfigureOutboxProcessor()` during host setup (an existing options
+overload also suffices). Missing lifecycle setup is rejected at registration.
 
 No `ReceiveReminder` override needed (DIM handles it). No manual retry
 lifecycle. No telemetry wiring.
