@@ -59,4 +59,3 @@ internal sealed record LegacyStreamCursor([property: Id(0)] string Namespace, [p
 [GenerateSerializer]
 internal readonly record struct LegacyOutboxEntry([property: Id(0)] DateTimeOffset Epoch, [property: Id(1)] long Sequence,
     [property: Id(2)] DateTimeOffset Received, [property: Id(3)] DateTimeOffset Timestamp);
-
