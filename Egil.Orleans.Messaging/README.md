@@ -1210,8 +1210,9 @@ Await every publication before the callback completes. The helper scopes only
 `egil.orleans.messaging.outbox`, whose value is `v1:` followed by the token's JSON
 as a string, and restores the previous entry, including null, in `finally`.
 Routing and projection run before that scope. Generic `AddPostman`, keyed
-`IPostman<T>`, `AddGrainPostman`, and the dispatcher do not establish ambient
-identity. RPC receivers continue receiving an explicit `OutboxSequenceToken`
+`IPostman<T>`, and the dispatcher do not establish ambient identity. RPC
+handlers use `AddPostman` with an optional grain factory; receivers continue
+receiving an explicit `OutboxSequenceToken`
 argument and using `TryAcceptMessage(token, out tracker)` with the existing
 sender high-water ordering assumptions.
 
