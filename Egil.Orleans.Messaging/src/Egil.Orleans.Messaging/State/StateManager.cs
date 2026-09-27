@@ -226,6 +226,10 @@ public abstract class StateManagerBase<T> : IStateManager<T>
         try
         {
             await storage.ReadStateAsync(cancellationToken);
+            // A call that entered before fencing can resume after it. Although overlapping
+            // storage operations are unsupported, their late completions must not reopen
+            // state adoption or rebuild private grain data through configuration and hooks.
+            ThrowIfFenced();
             AdoptLoadedState();
             await hookDispatcher.InvokeAsync(operationHooks, state, StateManagerOperation.Read,
                 storage.RecordExists, cancellationToken);
@@ -339,6 +343,7 @@ public abstract class StateManagerBase<T> : IStateManager<T>
         // value storage never saw as durable and lose this write's fence.
         // A callback failure must not trigger another storage read or be mistaken for
         // a lost response and silently retried.
+        ThrowIfFenced();
         Adopt(newState);
         await hookDispatcher.InvokeAsync(operationHooks, state, StateManagerOperation.Write, true, cancellationToken);
     }
@@ -412,6 +417,7 @@ public abstract class StateManagerBase<T> : IStateManager<T>
         // The unsaved question is settled first, before the factory can throw: a
         // deactivation flush must never write an unsaved value back over a record the
         // grain just asked to delete.
+        ThrowIfFenced();
         hasUnsavedChanges = false;
         Adopt(CreateInitialState());
         await hookDispatcher.InvokeAsync(operationHooks, state, StateManagerOperation.Clear, false, cancellationToken);
