@@ -12,16 +12,17 @@ namespace Egil.Orleans.Messaging.Outboxes;
 public enum OutboxReminderPolicy
 {
     /// <summary>
-    /// Register when a dispatch fails or leaves pending work, reuse the reminder
-    /// during retries, and remove it when the outbox drains. Successful initial
-    /// dispatches make no reminder API calls.
+    /// Retry using grain timers while active. Register a durable reminder only
+    /// during orderly deactivation with pending work. Remove a known inherited
+    /// reminder when the outbox drains. Abrupt crashes can bypass registration.
     /// </summary>
-    OnRetry,
+    OnDeactivation,
 
     /// <summary>
     /// Establish a fallback reminder during activation and retain it across batches
     /// until empty deactivation. Use <see cref="OutboxProcessorOptions.IdleReminderPeriod"/>
-    /// while idle and <see cref="OutboxProcessorOptions.RetryDelay"/> while retrying.
+    /// while idle and <see cref="OutboxProcessorOptions.ActiveReminderPeriod"/>
+    /// for pending-work recovery. Grain timers provide the normal retry cadence.
     /// </summary>
     /// <remarks>
     /// Constructor attachment registers through the activation lifecycle. Attachment

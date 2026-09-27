@@ -74,7 +74,7 @@ public sealed class OutboxProcessorCoverageTests(MessagingTestClusterFixture fix
     }
 
     [Fact]
-    public async Task Failed_dispatch_registers_reminder_and_successful_retry_removes_it()
+    public async Task Failed_dispatch_and_successful_retry_need_no_reminder_while_active()
     {
         var grain = fixture.GrainFactory.GetGrain<IOutboxProcessorRetryPendingGrain>(Guid.NewGuid());
 
@@ -82,7 +82,7 @@ public sealed class OutboxProcessorCoverageTests(MessagingTestClusterFixture fix
 
         Assert.Equal(1, failedState.FailedCount);
         Assert.Equal(1, failedState.Outbox?.Count);
-        Assert.True(await grain.HasReminderAsync());
+        Assert.False(await grain.HasReminderAsync());
 
         var recoveredState = await grain.RetrySuccessfullyAsync();
 

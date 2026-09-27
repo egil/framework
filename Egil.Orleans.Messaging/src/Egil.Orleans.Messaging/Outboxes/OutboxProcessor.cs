@@ -119,8 +119,8 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         catch
         {
             // A failed foreground run (timeout, cancellation, or an acknowledgement
-            // callback error) skips ReconcileRetryStateAsync. The default policy
-            // has not armed a reminder yet, so establish retry on this path too.
+            // callback error) skips ReconcileRetryStateAsync. Arm the retry timer
+            // here so the caller need not schedule recovery after catching it.
             await TrySchedulePendingRetryAsync();
             throw;
         }
@@ -136,9 +136,9 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     /// Schedules a timer-backed post run and returns after scheduling.
     /// </summary>
     /// <remarks>
-    /// With the default <see cref="OutboxReminderPolicy.OnRetry"/> policy, only
-    /// an in-memory timer is armed here; a failed or incomplete dispatch later
-    /// establishes a reminder if this activation has not registered one. With
+    /// With the default <see cref="OutboxReminderPolicy.OnDeactivation"/> policy, only
+    /// an in-memory timer is armed here. Failed or incomplete dispatches also use
+    /// that timer; a reminder is registered only during pending deactivation. With
     /// <see cref="OutboxReminderPolicy.KeepRegistered"/>, this call first establishes
     /// a durable reminder unless this activation has already registered one,
     /// even if the outbox is empty.
@@ -261,9 +261,8 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         {
             if (!drainCompleted)
             {
-                // The default policy arms the reminder lazily, so a run that throws before
-                // acknowledgement must arm retry itself or pending items would
-                // only survive in this activation's timer.
+                // A run that throws before acknowledgement skips reconciliation.
+                // Arm its timer here so recovery does not require another post.
                 await TrySchedulePendingRetryAsync();
                 CompleteDrain();
             }
@@ -297,8 +296,7 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
             pendingAcknowledgement = null;
 
             // A failed acknowledgement callback skips ReconcileRetryStateAsync;
-            // arm retry so pending items are not stranded if the activation
-            // goes away.
+            // arm the retry timer while this activation remains available.
             await TrySchedulePendingRetryAsync();
             throw;
         }
@@ -428,7 +426,10 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         }
 
         EnsureDispatchTimer(options.RetryDelay);
-        await EnsureReminderAsync();
+        if (options.ReminderPolicy == OutboxReminderPolicy.KeepRegistered)
+        {
+            await EnsureReminderAsync();
+        }
     }
 
     private void ScheduleRequestedDrain()
@@ -458,7 +459,10 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
             }
 
             EnsureDispatchTimer(options.RetryDelay);
-            await EnsureReminderAsync();
+            if (options.ReminderPolicy == OutboxReminderPolicy.KeepRegistered)
+            {
+                await EnsureReminderAsync();
+            }
         }
         catch (Exception ex)
         {

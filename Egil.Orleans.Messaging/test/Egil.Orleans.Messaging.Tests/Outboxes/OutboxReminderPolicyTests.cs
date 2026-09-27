@@ -7,11 +7,28 @@ public sealed partial class OutboxReminderPolicyTests(OutboxReminderFixture fixt
     : IClassFixture<OutboxReminderFixture>
 {
     [Theory]
+    [InlineData(false, null)]
+    [InlineData(true, typeof(InvalidOperationException))]
+    public async Task Failed_posts_automatically_retry_on_a_timer_without_reminder_calls(
+        bool acknowledgementFails, Type? exceptionType)
+    {
+        var grain = await CreateGrainAsync(OutboxReminderPolicy.OnDeactivation, TimeSpan.FromMilliseconds(50));
+        await grain.FailNextPostAsync(acknowledgementFails);
+
+        var exception = await Record.ExceptionAsync(() => grain.PublishAsync("pending", false));
+        Assert.Equal(exceptionType, exception?.GetType());
+        await grain.WaitForDeliveryAsync().WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, (await grain.ObserveAsync()).Pending);
+        Assert.Equal(new ReminderApiCounts(0, 0, 0), fixture.ReminderApi.For(grain.GetGrainId()));
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task Successful_default_posts_make_no_reminder_calls(bool inBackground)
     {
-        var grain = await CreateGrainAsync(OutboxReminderPolicy.OnRetry);
+        var grain = await CreateGrainAsync(OutboxReminderPolicy.OnDeactivation);
         await grain.PublishAsync("first", inBackground);
         await grain.WaitForDeliveryAsync().WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         await grain.PostAsync(inBackground);
@@ -40,7 +57,7 @@ public sealed partial class OutboxReminderPolicyTests(OutboxReminderFixture fixt
     }
 
     [Theory]
-    [InlineData(OutboxReminderPolicy.OnRetry, 1, 1)]
+    [InlineData(OutboxReminderPolicy.OnDeactivation, 0, 0)]
     [InlineData(OutboxReminderPolicy.KeepRegistered, 3, 0)]
     public async Task Retry_transitions_make_only_the_required_reminder_calls(
         OutboxReminderPolicy policy, int registrations, int removals)
@@ -48,8 +65,6 @@ public sealed partial class OutboxReminderPolicyTests(OutboxReminderFixture fixt
         var grain = await CreateGrainAsync(policy);
         await grain.RejectDeliveryAsync();
         await grain.PublishAsync("pending", false);
-        var retry = Assert.Single((await fixture.Reminders.ReadRows(grain.GetGrainId())).Reminders);
-        Assert.Equal(TimeSpan.FromHours(1), retry.Period);
         await grain.PostAsync(false);
         await grain.AllowDeliveryAsync();
         await grain.PostAsync(false);
@@ -64,6 +79,8 @@ public sealed partial class OutboxReminderPolicyTests(OutboxReminderFixture fixt
         var grain = await CreateGrainAsync(OutboxReminderPolicy.KeepRegistered);
         await grain.RejectDeliveryAsync();
         await grain.PublishAsync("pending", false);
+        var active = Assert.Single((await fixture.Reminders.ReadRows(grain.GetGrainId())).Reminders);
+        Assert.Equal(TimeSpan.FromMinutes(10), active.Period);
         await grain.AllowDeliveryAsync();
         await grain.PostAsync(false);
         var row = Assert.Single((await fixture.Reminders.ReadRows(grain.GetGrainId())).Reminders);
@@ -79,7 +96,7 @@ public sealed partial class OutboxReminderPolicyTests(OutboxReminderFixture fixt
     [Fact]
     public async Task Inherited_reminder_is_looked_up_only_when_recovery_finishes()
     {
-        var grain = await CreateGrainAsync(OutboxReminderPolicy.OnRetry);
+        var grain = await CreateGrainAsync(OutboxReminderPolicy.OnDeactivation);
         await grain.PersistAsync("pending");
         await grain.DeactivateAsync();
         await grain.ObserveAsync();
@@ -94,10 +111,12 @@ public sealed partial class OutboxReminderPolicyTests(OutboxReminderFixture fixt
     [Fact]
     public async Task Stale_empty_tick_does_not_suppress_a_later_required_registration()
     {
-        var grain = await CreateGrainAsync(OutboxReminderPolicy.OnRetry);
+        var grain = await CreateGrainAsync(OutboxReminderPolicy.OnDeactivation);
         await grain.DeliverReminderAsync();
         await grain.RejectDeliveryAsync();
         await grain.PublishAsync("pending", false);
+        Assert.Null(await grain.GetReminderVersionAsync());
+        await grain.DeactivateAsync();
         Assert.NotNull(await grain.GetReminderVersionAsync());
         Assert.Equal(new ReminderApiCounts(1, 1, 0), fixture.ReminderApi.For(grain.GetGrainId()));
     }
@@ -105,48 +124,54 @@ public sealed partial class OutboxReminderPolicyTests(OutboxReminderFixture fixt
     [Fact]
     public async Task Stale_tick_with_pending_work_does_not_replace_a_durable_retry_registration()
     {
-        var grain = await CreateGrainAsync(OutboxReminderPolicy.OnRetry);
+        var grain = await CreateGrainAsync(OutboxReminderPolicy.OnDeactivation);
         await grain.RejectDeliveryAsync();
         await grain.PersistAsync("pending");
         await grain.DeliverReminderAsync();
         await grain.PostAsync(false);
+        Assert.Null(await grain.GetReminderVersionAsync());
+        await grain.DeactivateAsync();
         Assert.NotNull(await grain.GetReminderVersionAsync());
         Assert.Equal(new ReminderApiCounts(0, 1, 0), fixture.ReminderApi.For(grain.GetGrainId()));
     }
 
     [Fact]
-    public async Task Unseen_inherited_reminder_is_upserted_without_a_lookup_when_retry_is_needed()
+    public async Task Unseen_inherited_reminder_is_upserted_without_a_lookup_on_the_next_pending_deactivation()
     {
-        var grain = await CreateGrainAsync(OutboxReminderPolicy.OnRetry);
+        var grain = await CreateGrainAsync(OutboxReminderPolicy.OnDeactivation);
         await grain.PersistAsync("pending");
         await grain.DeactivateAsync();
         await grain.RejectDeliveryAsync();
         await grain.PostAsync(false);
+        await grain.DeactivateAsync();
+        await grain.ObserveAsync();
         Assert.Equal(new ReminderApiCounts(0, 2, 0), fixture.ReminderApi.For(grain.GetGrainId()));
     }
 
     [Fact]
     public async Task A_lost_registration_response_is_retried_without_a_lookup()
     {
-        var grain = await CreateGrainAsync(OutboxReminderPolicy.OnRetry);
+        var grain = await CreateGrainAsync(OutboxReminderPolicy.KeepRegistered);
+        await grain.PostAsync(false);
         await grain.RejectDeliveryAsync();
         fixture.ReminderApi.LoseNextRegistrationResponse(grain.GetGrainId());
         await Assert.ThrowsAsync<TimeoutException>(() => grain.PublishAsync("pending", false));
         await grain.AllowDeliveryAsync();
         await grain.DeliverReminderAsync();
         await grain.PostAsync(false);
-        Assert.Null(await grain.GetReminderVersionAsync());
+        Assert.NotNull(await grain.GetReminderVersionAsync());
         Assert.Equal(0, fixture.ReminderApi.For(grain.GetGrainId()).Lookups);
     }
 
     [Fact]
     public async Task Failed_registration_is_retryable_without_a_lookup()
     {
-        var grain = await CreateGrainAsync(OutboxReminderPolicy.OnRetry);
+        var grain = await CreateGrainAsync(OutboxReminderPolicy.KeepRegistered);
+        await grain.PostAsync(false);
         await grain.RejectDeliveryAsync();
         fixture.Reminders.RejectWrites(grain.GetGrainId());
         await Assert.ThrowsAnyAsync<Exception>(() => grain.PublishAsync("pending", false));
-        Assert.Null(await grain.GetReminderVersionAsync());
+        Assert.NotNull(await grain.GetReminderVersionAsync());
         fixture.Reminders.AllowWrites(grain.GetGrainId());
         await grain.PostAsync(false);
         Assert.NotNull(await grain.GetReminderVersionAsync());
@@ -158,7 +183,8 @@ public sealed partial class OutboxReminderPolicyTests(OutboxReminderFixture fixt
     [InlineData(true)]
     public async Task Overlapping_posts_share_the_initial_retry_registration(bool firstInBackground)
     {
-        var grain = await CreateGrainAsync(OutboxReminderPolicy.OnRetry);
+        var grain = await CreateGrainAsync(OutboxReminderPolicy.KeepRegistered);
+        await grain.PostAsync(false);
         await grain.RejectDeliveryAsync();
         await grain.PersistAsync("pending");
         using var writes = fixture.Reminders.HoldWrites(grain.GetGrainId());
@@ -167,7 +193,7 @@ public sealed partial class OutboxReminderPolicyTests(OutboxReminderFixture fixt
         writes.Release();
         await posts.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         await grain.PostAsync(false);
-        Assert.Equal(new ReminderApiCounts(0, 1, 0), fixture.ReminderApi.For(grain.GetGrainId()));
+        Assert.Equal(new ReminderApiCounts(0, 2, 0), fixture.ReminderApi.For(grain.GetGrainId()));
     }
 
     [Fact]
@@ -242,6 +268,8 @@ public sealed class ConstructorOutboxReminderGrain : Grain, IConstructorOutboxRe
 
 public interface IOutboxReminderPolicyGrain : IGrainWithGuidKey
 {
+    Task FailNextPostAsync(bool acknowledgementFails);
+    Task ClearPendingAsync();
     Task PublishAsync(string value, bool inBackground);
     Task PersistAsync(string value);
     Task PostAsync(bool inBackground);
@@ -278,7 +306,7 @@ public sealed class OutboxReminderState
     [Id(0)] public Outbox<string> Outbox { get; set; } = [];
     [Id(1)] public int Delivered { get; set; }
     [Id(2)] public bool ReminderSeenByPostman { get; set; }
-    [Id(3)] public OutboxReminderPolicy Policy { get; set; } = OutboxReminderPolicy.OnRetry;
+    [Id(3)] public OutboxReminderPolicy Policy { get; set; } = OutboxReminderPolicy.OnDeactivation;
     [Id(4)] public TimeSpan RetryDelay { get; set; } = TimeSpan.FromHours(1);
 }
 
@@ -291,9 +319,18 @@ public sealed class OutboxReminderPolicyGrain(
     private readonly TaskCompletionSource delivery = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private OutboxProcessor<string>? processor;
     private bool rejectDelivery;
+    private bool failNextDelivery;
+    private bool failNextAcknowledgement;
     private CancellationTokenSource? postCancellation;
 
     private OutboxProcessor<string> Processor => processor!;
+
+    public Task FailNextPostAsync(bool acknowledgementFails)
+    {
+        failNextAcknowledgement = acknowledgementFails;
+        failNextDelivery = !acknowledgementFails;
+        return Task.CompletedTask;
+    }
 
     public override Task OnActivateAsync(CancellationToken cancellationToken)
     {
@@ -302,6 +339,7 @@ public sealed class OutboxReminderPolicyGrain(
             options.ReminderPolicy = state.State.Policy;
             options.AcknowledgePostedAsync = AcknowledgeAsync;
             options.RetryDelay = state.State.RetryDelay;
+            options.ActiveReminderPeriod = TimeSpan.FromMinutes(10);
             options.IdleReminderPeriod = TimeSpan.FromHours(2);
         }).AddPostman<string>(PostItemAsync);
         return base.OnActivateAsync(cancellationToken);
@@ -368,7 +406,7 @@ public sealed class OutboxReminderPolicyGrain(
 
     public async Task UseDefaultPolicyAsync()
     {
-        state.State.Policy = OutboxReminderPolicy.OnRetry;
+        state.State.Policy = OutboxReminderPolicy.OnDeactivation;
         await state.WriteStateAsync();
     }
 
@@ -415,9 +453,14 @@ public sealed class OutboxReminderPolicyGrain(
 
     public async Task DropPendingAndDeactivateAsync()
     {
+        await ClearPendingAsync();
+        DeactivateOnIdle();
+    }
+
+    public async Task ClearPendingAsync()
+    {
         state.State.Outbox = [];
         await state.WriteStateAsync();
-        DeactivateOnIdle();
     }
 
     public Task ObserveDeactivationAsync()
@@ -432,6 +475,12 @@ public sealed class OutboxReminderPolicyGrain(
 
     private async ValueTask PostItemAsync(string value)
     {
+        if (failNextDelivery)
+        {
+            failNextDelivery = false;
+            throw new InvalidOperationException("Transient delivery failure.");
+        }
+
         if (rejectDelivery)
         {
             throw new InvalidOperationException("Delivery is unavailable.");
@@ -444,6 +493,12 @@ public sealed class OutboxReminderPolicyGrain(
         ImmutableArray<OutboxMessageEnvelope<string>> items,
         CancellationToken cancellationToken)
     {
+        if (failNextAcknowledgement)
+        {
+            failNextAcknowledgement = false;
+            throw new InvalidOperationException("Transient acknowledgement failure.");
+        }
+
         state.State.Outbox = state.State.Outbox.RemoveRange(items);
         state.State.Delivered += items.Length;
         await state.WriteStateAsync(cancellationToken);
