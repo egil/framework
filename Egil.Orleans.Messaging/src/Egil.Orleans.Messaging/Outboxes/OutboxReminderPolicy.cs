@@ -6,19 +6,29 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// <remarks>
 /// Both policies also attempt to establish a reminder during orderly deactivation
 /// if pending work has no known reminder. This safeguard is best effort and does
-/// not run after an abrupt silo crash.
+/// not run after an abrupt silo crash. Neither policy looks up reminders: a
+/// successful registration or matching tick establishes existence for the activation.
+/// Otherwise, registration upserts with the current retry period, which can reset
+/// an inherited reminder's schedule.
 /// </remarks>
 public enum OutboxReminderPolicy
 {
     /// <summary>
-    /// Register a reminder when a dispatch fails or leaves pending work, and remove
-    /// it when the outbox drains. Successful initial dispatches need no reminder write.
+    /// Register a reminder when a dispatch fails or leaves pending work, unless one
+    /// is already known. Retain it across batches and remove it during deactivation
+    /// only if the outbox is empty and this activation holds its registration handle.
+    /// Successful initial dispatches make no reminder API calls.
     /// </summary>
+    /// <remarks>
+    /// Inherited reminders without a locally held handle remain registered, even
+    /// when empty. Empty drains and ticks make no reminder API calls.
+    /// </remarks>
     OnRetry,
 
     /// <summary>
-    /// Establish a reminder before the first foreground or background post, even
-    /// with an empty outbox, and retain it across batches and activations.
+    /// Establish a reminder before the first foreground or background post unless
+    /// a matching tick already proves one exists, even with an empty outbox.
+    /// Retain it across batches and activations.
     /// </summary>
     /// <remarks>
     /// Empty reminder ticks leave the reminder registered. Registration is awaited
