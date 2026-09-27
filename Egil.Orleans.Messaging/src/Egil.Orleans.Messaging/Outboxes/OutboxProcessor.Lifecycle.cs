@@ -8,7 +8,7 @@ public sealed partial class OutboxProcessor<TOutbox>
     {
         try
         {
-            if (reminderRegistration is { } registration)
+            if (reminderOperation is { } registration)
             {
                 try
                 {
@@ -20,27 +20,21 @@ public sealed partial class OutboxProcessor<TOutbox>
                 {
                     // The original caller observes this failure. Pending work can
                     // still need the final best-effort registration attempt below.
-                    if (ReferenceEquals(reminderRegistration, registration))
+                    if (ReferenceEquals(reminderOperation, registration))
                     {
-                        reminderRegistration = null;
+                        reminderOperation = null;
                     }
                 }
             }
 
             if (!GetPendingItems().IsDefaultOrEmpty)
             {
-                // A known handle or tick already guarantees a durable wakeup.
-                // Otherwise upsert directly: discovering an inherited reminder
-                // would add a read before the write when no reminder exists.
-                if (reminder is null && !reminderTicked)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    await EnsureReminderAsync().WaitAsync(cancellationToken);
-                }
+                cancellationToken.ThrowIfCancellationRequested();
+                await EnsureReminderAsync().WaitAsync(cancellationToken);
             }
-            else if (options.ReminderPolicy == OutboxReminderPolicy.OnRetry && reminder is { } idleReminder)
+            else
             {
-                await TryRemoveReminderOnDeactivateAsync(idleReminder, cancellationToken);
+                await TryRemoveIdleReminderAsync(cancellationToken);
             }
         }
         catch (Exception exception)
@@ -49,26 +43,6 @@ public sealed partial class OutboxProcessor<TOutbox>
             // Include the identity so operators can find and explicitly post
             // this grain if the best-effort durable handoff did not complete.
             LogDeactivationReminderFailed(
-                exception,
-                owner.GrainContext.GrainId,
-                grainType,
-                reminderName);
-        }
-    }
-
-    private async Task TryRemoveReminderOnDeactivateAsync(IGrainReminder idleReminder, CancellationToken cancellationToken)
-    {
-        try
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            await owner.UnregisterReminder(idleReminder).WaitAsync(cancellationToken);
-            reminder = null;
-        }
-        catch (Exception exception)
-        {
-            // Cleanup failure leaves harmless ticks, not stranded pending work.
-            // Do not report it as a failure to establish a durable wakeup.
-            LogDeactivationReminderRemovalFailed(
                 exception,
                 owner.GrainContext.GrainId,
                 grainType,
@@ -90,11 +64,23 @@ public sealed partial class OutboxProcessor<TOutbox>
 
     [LoggerMessage(
         EventId = 2,
-        EventName = "OutboxDeactivationReminderRemovalFailed",
+        EventName = "OutboxReminderRemovalFailed",
         Level = LogLevel.Warning,
-        Message = "Could not remove the idle outbox reminder for grain {GrainId} ({GrainType}) during deactivation. " +
+        Message = "Could not remove the idle outbox reminder for grain {GrainId} ({GrainType}). " +
             "The reminder may continue firing. Reminder: {ReminderName}.")]
-    private partial void LogDeactivationReminderRemovalFailed(
+    private partial void LogReminderRemovalFailed(
+        Exception exception,
+        GrainId grainId,
+        string grainType,
+        string reminderName);
+
+    [LoggerMessage(
+        EventId = 3,
+        EventName = "OutboxActivationReminderFailed",
+        Level = LogLevel.Warning,
+        Message = "Could not establish the fallback outbox reminder for grain {GrainId} ({GrainType}) during activation. " +
+            "A subsequent post or deactivation will retry registration. Reminder: {ReminderName}.")]
+    private partial void LogActivationReminderFailed(
         Exception exception,
         GrainId grainId,
         string grainType,

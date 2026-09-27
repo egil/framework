@@ -58,8 +58,16 @@ public class OutboxProcessorOptions
     public TimeSpan RetryDelay { get; set; } = TimeSpan.FromMinutes(2);
 
     /// <summary>
-    /// When to establish the durable reminder and whether to retain it during
-    /// deactivation with an empty outbox. Default: <see cref="OutboxReminderPolicy.OnRetry"/>.
+    /// Fallback period for <see cref="OutboxReminderPolicy.KeepRegistered"/> when
+    /// no retry is needed. Default: one hour. Configure this longer than the
+    /// grain's idle collection age, allowing time for the collection scan and
+    /// deactivation, so an unused reminder can be removed before it fires.
+    /// </summary>
+    public TimeSpan IdleReminderPeriod { get; set; } = TimeSpan.FromHours(1);
+
+    /// <summary>
+    /// When to establish the durable reminder and whether to retain an idle
+    /// fallback until deactivation. Default: <see cref="OutboxReminderPolicy.OnRetry"/>.
     /// </summary>
     public OutboxReminderPolicy ReminderPolicy { get; set; } = OutboxReminderPolicy.OnRetry;
 
@@ -126,6 +134,7 @@ public class OutboxProcessorOptions
         target.ProcessingTimeout = ProcessingTimeout;
         target.TimeProvider = TimeProvider;
         target.RetryDelay = RetryDelay;
+        target.IdleReminderPeriod = IdleReminderPeriod;
         target.ReminderPolicy = ReminderPolicy;
         target.Interleave = Interleave;
         target.InterleaveAcknowledgementCallbacks = InterleaveAcknowledgementCallbacks;
@@ -185,8 +194,10 @@ public sealed class OutboxProcessorOptions<TOutbox> : OutboxProcessorOptions
     /// with interleaved acknowledgement — a business write that was already in flight when
     /// the assignment happened and finishes by adopting its own value. Post again in any of
     /// those cases. With <see cref="OutboxReminderPolicy.KeepRegistered"/>, the
-    /// reminder remains registered and a later tick can discover pending items
-    /// after the durable state is read back.
+    /// reminder remains registered until empty deactivation and a later tick in
+    /// that activation can discover pending items after state is read back.
+    /// Both policies remove known reminders on empty deactivation, so persist
+    /// deferred removals in the grain's shutdown hook before processor cleanup.
     /// </para>
     /// The batch contains exactly the items that posted successfully and is
     /// <em>not necessarily a contiguous prefix</em> of the outbox accessor's
@@ -265,6 +276,11 @@ public sealed class OutboxProcessorOptions<TOutbox> : OutboxProcessorOptions
         if (RetryDelay <= TimeSpan.Zero)
         {
             throw new ArgumentOutOfRangeException(paramName, "RetryDelay must be greater than zero.");
+        }
+
+        if (IdleReminderPeriod < TimeSpan.FromMinutes(1))
+        {
+            throw new ArgumentOutOfRangeException(paramName, "IdleReminderPeriod must be at least one minute.");
         }
 
         if (!Enum.IsDefined(ReminderPolicy))

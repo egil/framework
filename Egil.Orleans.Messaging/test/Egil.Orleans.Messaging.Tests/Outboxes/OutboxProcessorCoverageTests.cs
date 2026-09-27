@@ -74,7 +74,7 @@ public sealed class OutboxProcessorCoverageTests(MessagingTestClusterFixture fix
     }
 
     [Fact]
-    public async Task Failed_dispatch_registers_reminder_and_successful_retry_retains_it()
+    public async Task Failed_dispatch_registers_reminder_and_successful_retry_removes_it()
     {
         var grain = fixture.GrainFactory.GetGrain<IOutboxProcessorRetryPendingGrain>(Guid.NewGuid());
 
@@ -88,7 +88,7 @@ public sealed class OutboxProcessorCoverageTests(MessagingTestClusterFixture fix
 
         Assert.Equal(1, recoveredState.AcknowledgedCount);
         Assert.Equal(0, recoveredState.Outbox?.Count);
-        Assert.True(await grain.HasReminderAsync());
+        Assert.False(await grain.HasReminderAsync());
     }
 
     [Fact]
@@ -226,7 +226,7 @@ public sealed class OutboxProcessorCoverageTests(MessagingTestClusterFixture fix
         Assert.Equal(
             "Only one outbox processor can be registered per grain activation.",
             error);
-        Assert.Equal(1, state.FirstProcessorReminderCount);
+        Assert.True(state.FirstProcessorReminderCount > 0);
     }
 
     [Fact]

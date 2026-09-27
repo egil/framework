@@ -9,6 +9,10 @@ public sealed class RecordingReminderRegistry(IReminderRegistry inner) : IRemind
     private readonly ConcurrentDictionary<GrainId, byte> lostResponses = new();
     private readonly ConcurrentDictionary<GrainId, byte> rejectedRemovals = new();
     private readonly ConcurrentDictionary<GrainId, ReminderWriteGate> heldResponses = new();
+    private readonly ConcurrentDictionary<GrainId, TaskCompletionSource> registered = new();
+
+    public Task WaitForRegistrationAsync(GrainId grainId) =>
+        registered.GetOrAdd(grainId, static _ => new(TaskCreationOptions.RunContinuationsAsynchronously)).Task;
 
     public ReminderApiCounts For(GrainId grainId)
     {
@@ -21,6 +25,7 @@ public sealed class RecordingReminderRegistry(IReminderRegistry inner) : IRemind
 
     public void LoseNextRegistrationResponse(GrainId grainId) => lostResponses.TryAdd(grainId, 0);
     public void RejectRemoval(GrainId grainId) => rejectedRemovals.TryAdd(grainId, 0);
+    public void AllowRemoval(GrainId grainId) => rejectedRemovals.TryRemove(grainId, out _);
 
     public ReminderWriteGate HoldRegistrationResponse(GrainId grainId)
     {
@@ -38,6 +43,7 @@ public sealed class RecordingReminderRegistry(IReminderRegistry inner) : IRemind
     {
         calls.Enqueue(new(callingGrainId, reminderName, nameof(RegisterOrUpdateReminder)));
         var reminder = await inner.RegisterOrUpdateReminder(callingGrainId, reminderName, dueTime, period);
+        registered.GetOrAdd(callingGrainId, static _ => new(TaskCreationOptions.RunContinuationsAsynchronously)).TrySetResult();
         if (heldResponses.TryGetValue(callingGrainId, out var gate))
         {
             await gate.EnterAsync();

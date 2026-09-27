@@ -8,6 +8,8 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// </summary>
 internal sealed class OutboxDeactivationObserver(IGrainContext context) : ILifecycleObserver
 {
+    public bool HasStarted { get; private set; }
+
     public static void Install(IGrainContext context)
     {
         if (context.GetComponent<OutboxDeactivationObserver>() is not null)
@@ -20,7 +22,11 @@ internal sealed class OutboxDeactivationObserver(IGrainContext context) : ILifec
         context.SetComponent(observer);
     }
 
-    public Task OnStart(CancellationToken cancellationToken) => Task.CompletedTask;
+    public Task OnStart(CancellationToken cancellationToken)
+    {
+        HasStarted = true;
+        return context.GetComponent<IOutboxComponent>()?.OnActivateAsync(cancellationToken) ?? Task.CompletedTask;
+    }
 
     public Task OnStop(CancellationToken cancellationToken) =>
         context.GetComponent<IOutboxComponent>()?.OnDeactivateAsync(cancellationToken) ?? Task.CompletedTask;

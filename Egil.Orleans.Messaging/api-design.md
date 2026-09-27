@@ -2255,6 +2255,7 @@ public class OutboxProcessorOptions
     /// Create on retry and remove after draining, or establish before the first
     /// post and retain across batches and activations.
     public OutboxReminderPolicy ReminderPolicy { get; set; } = OutboxReminderPolicy.OnRetry;
+    public TimeSpan IdleReminderPeriod { get; set; } = TimeSpan.FromHours(1);
 
     /// Whether background posting may allow other grain calls to run while
     /// postmen are awaiting asynchronous work.
@@ -2347,22 +2348,25 @@ payload type is known.
 register a reminder, background posts initially schedule only an in-memory timer,
 and failed or incomplete runs establish retry work. Empty drains remove reminders.
 
-`KeepRegistered` awaits reminder lookup or registration before foreground dispatch
-or background scheduling, including empty posts. Overlapping calls share that
-initial registration task; a failed attempt can be retried by a later post. Once
-registered, the reminder survives empty drains and is reused across activations
-without another write or resetting its original period. This trades idle wakeups
-for a durable wakeup covering later batches. Background posting rechecks caller
-cancellation after registration before scheduling its timer. Cancellation does
-not remove already-persisted entries or an established reminder.
+`KeepRegistered` starts an idle fallback during activation and posts await an
+in-progress registration before dispatch. Successful batches reuse it without
+reminder calls. Its configurable `IdleReminderPeriod` defaults to one hour and
+must exceed the grain's idle collection age with a collection/deactivation margin.
+Retries switch it to `RetryDelay`; draining restores the idle period once. Empty
+deactivation removes it so a normally collected grain need not receive idle ticks.
 
-Both policies attempt to establish a missing reminder during orderly deactivation
-when the accessor reports pending work. Existing reminders are reused; empty
-outboxes do no reminder writes. Failure or cancellation emits the generated
-`OutboxDeactivationReminderFailed` Warning with `GrainId`, `GrainType`,
-`ReminderName`, and the exception. Operators can identify grains that may need
-manual reactivation and an explicit post. This does not block deactivation or
-guarantee recovery from an abrupt crash or an unavailable reminder store.
+Both policies assume no inherited reminder exists until it fires. Registration
+upserts directly without a lookup. Removal uses the cached handle or, only after
+an inherited tick, looks up the handle needed to unregister. A tick alone is not
+a durable registration guarantee because an already queued tick can outlive removal.
+Reminder mutations are serialized; unchanged periods require no writes.
+
+Orderly deactivation waits for in-flight reminder work, then registers or updates
+the retry reminder for pending entries or removes a known reminder for an empty
+outbox. Failures remain best effort: registration logs
+`OutboxDeactivationReminderFailed`; cleanup logs `OutboxReminderRemovalFailed`.
+Both include grain identity and the exception. An abrupt crash or unavailable
+reminder store can still prevent recovery.
 
 Orleans rejects lifecycle subscriptions after startup begins. Constructor
 registration installs the observer directly; registration in `OnActivateAsync`
@@ -2373,11 +2377,13 @@ registration styles without requiring a grain shutdown override. Raw
 `services.Configure<OutboxProcessorOptions>(...)` sets defaults only and does not
 install this hook.
 
-Merely registering a processor creates no reminder. A crash between the first
-state write and first post can still leave work without a durable wakeup. To
-establish one before that write, await an empty post with `KeepRegistered`.
-Undefined reminder policies are rejected during options validation. Alternative
-durable retry providers remain outside this API.
+For constructor attachment, the lifecycle awaits fallback registration. Orleans
+runs lifecycle start before the grain's OnActivateAsync, so attachment there or
+later starts registration immediately and observes failures through
+`OutboxActivationReminderFailed`. Posts and shutdown join the operation. Await an
+empty KeepRegistered post before a business write if registration must have
+completed before that write. Undefined policies and idle periods below one minute
+are rejected. Alternative durable retry providers remain outside this API.
 
 An activation-scoped clock is supplied independently at both call sites:
 assign it to `OutboxProcessorOptions.TimeProvider` for deterministic
