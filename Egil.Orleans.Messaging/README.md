@@ -709,13 +709,16 @@ outbox. Each activation that posts redelivers the same items, stages the
 acknowledgement, and loses it again at deactivation; within that activation later
 post runs see the deferred, empty view and do nothing. Nor does it recover on a
 timer — the deferred removal empties the view the processor reconciles against, so
-retry and the reminder are disabled, and registering a processor does not post on
-activation. The items sit in storage until a fresh activation reads them back and
-something posts again.
+local retry stops. With the default `OnRetry` reminder policy, the reminder is also
+removed, and registering a processor does not post on activation. The items sit in
+storage until a fresh activation reads them back and something posts again.
+`KeepRegistered` retains the reminder, allowing a later tick on a fresh activation
+to discover the durable items; ticks on the existing activation still see the
+deferred, empty view.
 
 Two consequences of the processor seeing the deferred view are worth planning for.
 The processor reconciles its retry timer and reminder against the outbox accessor, so
-a deferred acknowledgement that empties the outbox **disables retry** — correctly,
+a deferred acknowledgement that empties the outbox **disables local retry** — correctly,
 as far as the processor can tell, though on the strength of a removal that is not
 durable yet. Anything that later discards the change brings those items back as
 pending without re-arming the processor: a `WriteAsync` that fails, a successful
@@ -723,7 +726,8 @@ pending without re-arming the processor: a `WriteAsync` that fails, a successful
 or with `InterleaveAcknowledgementCallbacks` on — a business write that was already
 in flight when the assignment happened and finishes by adopting its own value. Call
 `PostInBackgroundAsync` in any of those cases; a grain that does nothing else can
-leave the batch waiting until something posts again. Second, a redelivery is a real delivery: receivers must
+leave the batch waiting until something posts again (or a retained reminder ticks).
+Second, a redelivery is a real delivery: receivers must
 already be idempotent for at-least-once, and deferring makes the duplicate path
 slightly more likely, not differently shaped.
 
@@ -737,6 +741,7 @@ scheduling settings:
 |--------------------------------------|----------------------------|-----------------------------------------------------------------|
 | `ProcessingTimeout`                  | 20 seconds                 | Maximum time per post run.                                      |
 | `RetryDelay`                         | 2 minutes                  | Delay before retrying pending items. Reminders use >= 1 minute. |
+| `ReminderPolicy`                     | `OnRetry`                  | Create on retry and remove after draining, or use `KeepRegistered` to establish on the first post and retain across batches. |
 | `Interleave`                         | `true`                     | Let other grain calls run while postmen await.                  |
 | `InterleaveAcknowledgementCallbacks` | `false`                    | Let the acknowledgement callbacks interleave.                   |
 | `KeepAlive`                          | `false`                    | Keep the activation alive while items are pending.              |
@@ -790,11 +795,35 @@ compared for equality, not order, and do not change message IDs or delivery toke
 
 If a post run fails before acknowledgement completes — for example when the
 run exceeds `ProcessingTimeout` or an acknowledgement callback throws — the
-processor arms its retry timer and durable reminder before rethrowing, so
-pending items are retried without requiring another explicit post. Successful
-posts never pay reminder I/O: `PostInBackgroundAsync` schedules an in-memory
-grain timer only, and the durable reminder is registered lazily when a run
-fails or leaves items pending.
+processor attempts to arm its retry timer and durable reminder before rethrowing.
+With the default `OutboxReminderPolicy.OnRetry`, successful initial posts do not
+register a reminder: `PostInBackgroundAsync` schedules an in-memory grain timer
+only, and the reminder is registered when a run fails or leaves items pending.
+It is removed when the outbox drains. An empty drain can also perform a one-time
+lookup for a reminder inherited from a previous activation.
+
+To retain a reminder across batches, configure this once for the silo or in a
+grain's `RegisterOutboxProcessor` callback:
+
+```csharp
+options.ReminderPolicy = OutboxReminderPolicy.KeepRegistered;
+```
+
+With `KeepRegistered`, both `PostAsync` and `PostInBackgroundAsync` await reminder
+registration before dispatching or scheduling, including when the outbox is
+empty. Subsequent calls reuse the reminder, and a fresh activation looks up and
+reuses the existing registration without rewriting it. Its original period is
+retained even if `RetryDelay` changes in a later activation. Empty outboxes stop
+local timers but keep the reminder, so idle grains continue receiving reminder
+ticks. Registration errors fail the post call; a later post can retry registration.
+
+Registering the processor itself does not establish the reminder. A crash between
+persisting the first batch and the first post can still leave work without a
+durable wakeup. If that gap must be closed, await an empty post before the first
+business write. Once established, the retained reminder also covers later batches
+whose state write succeeds but whose explicit post never runs. Returning to
+`OnRetry` on a later activation removes the inherited reminder when the processor
+next observes an empty outbox.
 
 Background outbox postage allows unrelated grain calls to continue while
 postmen await I/O by default. `IPostman<T>` services should be state-free with

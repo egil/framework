@@ -58,6 +58,12 @@ public class OutboxProcessorOptions
     public TimeSpan RetryDelay { get; set; } = TimeSpan.FromMinutes(2);
 
     /// <summary>
+    /// When to create the durable reminder and whether to retain it after the
+    /// outbox drains. Default: <see cref="OutboxReminderPolicy.OnRetry"/>.
+    /// </summary>
+    public OutboxReminderPolicy ReminderPolicy { get; set; } = OutboxReminderPolicy.OnRetry;
+
+    /// <summary>
     /// Whether background posting may allow other grain calls to run while
     /// postmen are awaiting asynchronous work.
     /// </summary>
@@ -120,6 +126,7 @@ public class OutboxProcessorOptions
         target.ProcessingTimeout = ProcessingTimeout;
         target.TimeProvider = TimeProvider;
         target.RetryDelay = RetryDelay;
+        target.ReminderPolicy = ReminderPolicy;
         target.Interleave = Interleave;
         target.InterleaveAcknowledgementCallbacks = InterleaveAcknowledgementCallbacks;
         target.KeepAlive = KeepAlive;
@@ -170,14 +177,16 @@ public sealed class OutboxProcessorOptions<TOutbox> : OutboxProcessorOptions
     /// message. A grain using <c>IStateManager&lt;T&gt;</c> can therefore
     /// assign <c>State</c> and let the next business write carry it. If it does,
     /// note that this processor reconciles its retry timer and reminder against the
-    /// outbox accessor's snapshot, which reflects the deferred removal. Retry
+    /// outbox accessor's snapshot, which reflects the deferred removal. Local retry
     /// is therefore disabled on the strength of a removal that is not durable yet, and
     /// anything that later discards the change brings those items back as pending without
     /// re-arming it: a write that fails, a successful <c>ReadAsync</c> or
     /// <c>ClearAsync</c>, which let storage win, or — in a <c>[Reentrant]</c> grain or
     /// with interleaved acknowledgement — a business write that was already in flight when
     /// the assignment happened and finishes by adopting its own value. Post again in any of
-    /// those cases.
+    /// those cases. With <see cref="OutboxReminderPolicy.KeepRegistered"/>, the
+    /// reminder remains registered and a later tick can discover pending items
+    /// after the durable state is read back.
     /// </para>
     /// The batch contains exactly the items that posted successfully and is
     /// <em>not necessarily a contiguous prefix</em> of the outbox accessor's
@@ -256,6 +265,11 @@ public sealed class OutboxProcessorOptions<TOutbox> : OutboxProcessorOptions
         if (RetryDelay <= TimeSpan.Zero)
         {
             throw new ArgumentOutOfRangeException(paramName, "RetryDelay must be greater than zero.");
+        }
+
+        if (!Enum.IsDefined(ReminderPolicy))
+        {
+            throw new ArgumentOutOfRangeException(paramName, "ReminderPolicy must be a defined OutboxReminderPolicy value.");
         }
     }
 }
