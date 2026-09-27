@@ -32,11 +32,11 @@ public sealed class OutboxStreamRetryTests(MessagingTestClusterFixture fixture) 
         Assert.Equal(0, await source.PendingAsync());
         var deliveries = await receiver.DeliveriesAsync();
         Assert.Equal(2, deliveries.Length);
+        await receiver.DeactivateAsync();
+        Assert.Equal(1, (await receiver.ReadAsync()).Effects);
         Assert.NotNull(deliveries[0].OutboxToken);
         Assert.Equal(deliveries[0].OutboxToken, deliveries[1].OutboxToken);
         Assert.NotEqual(deliveries[0].Token, deliveries[1].Token);
-        await receiver.DeactivateAsync();
-        Assert.Equal(1, (await receiver.ReadAsync()).Effects);
         await source.PublishAsync(key, failAcknowledgement: false);
         await fixture.WaitForAssertionAsync(receiver, async () =>
             Assert.Equal(2, (await receiver.ReadAsync()).Effects), ct: TestContext.Current.CancellationToken);
@@ -76,7 +76,7 @@ public sealed class OutboxStreamRetryTests(MessagingTestClusterFixture fixture) 
         await receiver.FailNextCommitAsync();
         await stream.PublishFromOutboxAsync(new(key), token);
         await fixture.WaitForAssertionAsync(receiver, async () =>
-            Assert.NotEqual(initial.Activation, (await receiver.ReadAsync()).Activation), ct: TestContext.Current.CancellationToken);
+            Assert.NotEqual(initial.Activation, await ActivationAfterStorageFailureAsync(receiver)), ct: TestContext.Current.CancellationToken);
         Assert.Equal(0, (await receiver.ReadAsync()).Effects);
 
         await stream.PublishFromOutboxAsync(new(key), token);
@@ -85,6 +85,20 @@ public sealed class OutboxStreamRetryTests(MessagingTestClusterFixture fixture) 
             Assert.Equal(1, (await receiver.ReadAsync()).Effects), ct: TestContext.Current.CancellationToken);
         await receiver.DeactivateAsync();
         Assert.Equal(1, (await receiver.ReadAsync()).Effects);
+    }
+
+    private static async Task<Guid> ActivationAfterStorageFailureAsync(IStreamRetryReceiver receiver)
+    {
+        try
+        {
+            return await receiver.ActivationAsync();
+        }
+        catch (InvalidOperationException error) when (error.Message == "Injected state write failure.")
+        {
+            // Orleans rejects RPCs queued on the failed activation with its deactivation reason.
+            // One new RPC observes the replacement rather than reusing fenced state.
+            return await receiver.ActivationAsync();
+        }
     }
 
 }
@@ -234,6 +248,8 @@ public sealed record StreamRetryReceiverState
 public interface IStreamRetryReceiver : IGrainWithGuidKey
 {
     Task<(int Effects, int Attempts, Guid Activation)> ReadAsync();
+    Task<Guid> ActivationAsync();
+    Task<int> DeliverAggregateAsync(ImmutableArray<IBatchContainer> containers);
     Task FailNextCommitAsync();
     Task DeactivateAsync();
     Task<ImmutableArray<StreamCursor>> DeliveriesAsync();
@@ -265,6 +281,22 @@ public sealed class StreamRetryReceiver : Grain, IStreamRetryReceiver
         await state.WriteAsync(state.State with { Effects = state.State.Effects + 1, Tracker = next });
     }
     public Task<(int Effects, int Attempts, Guid Activation)> ReadAsync() => Task.FromResult((state.State.Effects, deliveries.Length, activation));
+    public async Task<int> DeliverAggregateAsync(ImmutableArray<IBatchContainer> containers)
+    {
+        // Discovery returns detached handles. Use the live handle retained by the manager,
+        // whose observer is the one installed on this activation.
+        var handles = (List<object>)typeof(StreamManager).GetField("subscriptionHandles",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(streams)!;
+        var handle = Assert.IsAssignableFrom<StreamSubscriptionHandle<StreamRetryEvent>>(Assert.Single(handles));
+        Assert.Contains("StreamSubscriptionHandleImpl", handle.GetType().Name);
+        var aggregate = new BatchContainerBatch(containers.ToList());
+        // The public handle has no provider delivery API. Invoke Orleans' actual consumer
+        // entry point so the contract test exercises its per-container context switching.
+        var deliver = handle.GetType().GetMethod("DeliverBatch")!;
+        await (Task)deliver.Invoke(handle, [aggregate, null])!;
+        return aggregate.BatchContainers.Count;
+    }
+    public Task<Guid> ActivationAsync() => Task.FromResult(activation);
     public Task FailNextCommitAsync()
     {
         storage.FailNextWrite = true;
