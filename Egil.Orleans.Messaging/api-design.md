@@ -1034,13 +1034,11 @@ property, but each write replaces it with a fresh version on a copy.
 
 **Status:** Settled.
 
-Receiver-side, persisted dedup state. Tracks high-water position from
-each upstream source. Two source kinds:
+Receiver-side immutable persisted state separates three concerns:
 
-- **Orleans streams** — keyed by `StreamId`; position is a
-  `StreamCursor` wrapping `(stream namespace, StreamSequenceToken)`.
-- **Outbox messages** — keyed by sender `GrainId`; position is an
-  `OutboxSequenceToken`.
+- Native checkpoints keyed by provider and complete `StreamId`. Legacy entries retain namespace-only keys.
+- Exact stream receipts keyed by provider, complete `StreamId`, sender, epoch, and sequence number.
+- Existing explicit RPC outbox high-water marks keyed by sender `GrainId`.
 
 ### Shape
 
@@ -1055,6 +1053,7 @@ public sealed class MessageTracker
 {
     [Id(0)] private ImmutableDictionary<StreamSource, StreamEntry> streams;
     [Id(1)] private ImmutableDictionary<GrainId, OutboxEntry> outbox;
+    [Id(2)] private ImmutableDictionary<StreamMessageIdentity, DateTimeOffset>? receipts;
 
     // Non-persisted; no [Id]. Mutable.
     [NonSerialized]
@@ -1078,6 +1077,8 @@ public sealed class MessageTracker
     public StreamCursor? LatestStream(string streamNamespace);
     public StreamCursor? LatestStream(string streamProviderName, string streamNamespace);
     public StreamCursor? LatestStream(StreamId stream);
+    public StreamCursor? LatestStream(string streamProviderName, StreamId stream);
+    public StreamSequenceToken? LatestStreamSequenceToken(string streamProviderName, StreamId stream);
     public StreamSequenceToken? LatestStreamSequenceToken(string streamNamespace);
     public StreamSequenceToken? LatestStreamSequenceToken(string streamProviderName, string streamNamespace);
     public OutboxSequenceToken? LatestOutbox(GrainId sender);
@@ -1086,12 +1087,21 @@ public sealed class MessageTracker
     public MessageTracker EvictStreams(DateTimeOffset olderThan);
     public MessageTracker EvictOutboxes(DateTimeOffset olderThan);
     public MessageTracker Evict(StreamId stream, DateTimeOffset olderThan);
+    public MessageTracker Evict(string streamProviderName, StreamId stream, DateTimeOffset olderThan);
     public MessageTracker Evict(GrainId sender, DateTimeOffset olderThan);
 
     [GenerateSerializer]
     private readonly record struct StreamSource(
         [property: Id(0)] string StreamNamespace,
-        [property: Id(1)] string? ProviderName);
+        [property: Id(1)] string? ProviderName,
+        [property: Id(2)] StreamId? StreamId);
+
+    [GenerateSerializer]
+    private readonly record struct StreamMessageIdentity(
+        [property: Id(0)] StreamSource Source,
+        [property: Id(1)] GrainId Sender,
+        [property: Id(2)] DateTimeOffset Epoch,
+        [property: Id(3)] long SequenceNumber);
 
     [GenerateSerializer]
     private readonly record struct StreamEntry(
@@ -1116,11 +1126,62 @@ public sealed class MessageTracker
   traceparent, and `LatestOutbox` still reconstructs a token equal to the one it
   accepted. Persisting it per sender instead would hold stale trace context in the
   receiver's durable state for a message already processed.
-- Stream identity: stream namespace, plus provider name when available.
-  Stream keys are intentionally not part of `MessageTracker` state because
-  the tracker is scoped to one grain activation's durable state.
+- Stream source identity: provider plus complete `StreamId`, including key bytes.
+  Two keys in one namespace and fan-out across providers remain independent.
+- Logical stream identity: source plus sender, epoch, and sequence. Timestamp and
+  trace metadata are excluded. The receipt stores its original acceptance time.
 
-### `TryAcceptMessage(StreamCursor)` and stream token semantics
+### Outbox stream delivery and exact receipts
+
+`AddStreamPostman` calls `IAsyncStream<T>.PublishFromOutboxAsync(message, token)`
+(in `Orleans.Streams`) after routing and projection. The async helper scopes only
+`egil.orleans.messaging.outbox` around awaited `OnNextAsync(message)` and restores
+its prior presence/value in `finally`. Wire format is a primitive string:
+`v1:` followed by the existing token JSON. Native sequence tokens are never supplied
+by this helper. Generic callbacks, keyed postmen, grain/RPC postmen, and the general
+dispatcher do not establish the entry. Custom stream callbacks explicitly use the
+helper; RPC continues passing its token as an argument.
+
+`StreamCursor` retains positional fields 0-2 and adds `[Id(3)] StreamId? StreamId`
+and `[Id(4)] OutboxSequenceToken? OutboxToken`. Full source and provider are required
+for tagged cursors. Per-item observer entry validates present metadata before the
+business-handler error wrapper, projects it into the cursor, masks the reserved
+entry during application code, and restores it afterward. Missing metadata permits
+ordinary publishers; corrupt/null/wrong-type/unsupported metadata faults delivery.
+
+An unseen exact receipt is accepted even if another sender sequence/epoch or a
+newer native position has already arrived. A retry returns false with the original
+tracker, including retries at new native positions. Tagged null-token events still
+store receipts. Acceptance updates the native checkpoint only when it advances;
+a max checkpoint is not a universal replay protocol for unordered providers.
+
+Receipts persist in binary/JSON snapshots and journal operations. Journal replay
+uses recorded acceptance times and preserves receipts when replaying old operation
+kinds. All immutable reconstructions retain receipts. Explicit stream/global
+retention operations remove each receipt using its own acceptance time; RPC sender
+eviction does not remove stream receipts. No automatic TTL is safe while senders
+can retry indefinitely, so exact receipts grow until deliberate eviction.
+
+One logical output per destination uses one token. Distinct events on one stream
+need separate outbox entries; no producer batch identity API is exposed. Provider
+aggregation of independent single-event containers remains on the per-item observer.
+
+Exact provider/full-id lookups never infer missing legacy keys. Namespace lookups
+return no arbitrary match when several streams qualify. Tracked attachment with
+only matching namespace-era state requires explicit verified rebinding or a chosen
+replay baseline. Old snapshots read with empty receipts, but previously accepted
+logical identities cannot be recovered. Pause producers, drain/acknowledge old
+outboxes, wait for committed consumer catch-up, stop old writers, upgrade consumers
+and bind their known sources, then upgrade publishers. Mixed-version writers can
+lose receipts. See the README's upgrade example and provider evidence table.
+
+Default Memory has real-cluster fault/retry evidence. Default Azure Queue V2,
+default Event Hubs, and the enriched Event Hubs adapter's default inner container
+have provider-owned serialization contract evidence. A separate ordinary-consumer
+executable has no Messaging reference. Live Azure Queue/Event Hubs delivery and
+custom adapters require separate proof.
+
+### Untagged `TryAcceptMessage(StreamCursor)` and native stream token semantics
 
 Users can pass either a `StreamCursor` or the raw Orleans
 `StreamSequenceToken` plus stream namespace. Provider-qualified overloads are
@@ -1513,7 +1574,7 @@ to `CreateStreamId`, or retained by configuring their previous ids explicitly.
   creates the typed handle with `factory.Create<TEvent>()`, and calls
   `ResumeAsync(observer, token)` to attach the handler. The token comes from
   the activation-time `MessageTracker` snapshot when a cursor exists for the
-  same provider and namespace and that subscription has
+  same provider and complete stream identity and that subscription has
   `UseTrackedResumeToken = true`.
 - If no handler is configured for the implicit stream namespace, the manager
   throws during `OnSubscribed(...)`. A mismatched attribute/configuration is a
@@ -1550,8 +1611,8 @@ to `CreateStreamId`, or retained by configuring their previous ids explicitly.
 
 - Stream handlers receive a `StreamCursor`, not a raw
   `StreamSequenceToken?`.
-- The cursor includes the stream namespace, provider name when known, and the
-  delivered Orleans sequence token.
+- The cursor includes the namespace, actual subscription provider, full `StreamId`,
+  delivered native sequence token, and optional logical `OutboxToken`.
 - `MessageTracker` provides provider-aware resume tokens for both implicit
   handle resume and explicit subscribe/resume when a subscription opts into
   tracked resume tokens.
@@ -1563,7 +1624,8 @@ to `CreateStreamId`, or retained by configuring their previous ids explicitly.
 ### Per-subscription `OnError`
 
 Signature: `Action<string, Exception>`, where the string is the stream
-namespace. Default when omitted: log + emit counter, do NOT rethrow.
+namespace. Default for application-handler errors: log + emit counter, do NOT rethrow.
+Invalid reserved identity metadata bypasses this wrapper and faults the observer task.
 
 ### One-provider-per-namespace
 
