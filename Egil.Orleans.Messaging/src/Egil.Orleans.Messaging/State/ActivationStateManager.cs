@@ -13,8 +13,20 @@ internal sealed class ActivationStateManager<T> : IStateManager<T>
 
     public void ConfigureHooks(Action<StateManagerHooks<T>> configure)
     {
+        if (manager is { } initialized)
+        {
+            // Let the manager reject a fenced activation before invoking caller code.
+            StateManagerHooks<T>? configured = null;
+            initialized.ConfigureHooks(target =>
+            {
+                configured = StateManagerHooks<T>.Create(configure);
+                configured.CopyTo(target);
+            });
+            hooks = configured!;
+            return;
+        }
+
         var snapshot = StateManagerHooks<T>.Create(configure);
-        manager?.ConfigureHooks(snapshot.CopyTo);
         hooks = snapshot;
     }
 

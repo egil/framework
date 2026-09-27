@@ -10,7 +10,7 @@ public sealed class StateManagerCancellationTests
         using var cancellation = new CancellationTokenSource();
         using var storage = new CancellableStorage(operation) { CancelAfterPersisting = cancellation };
         storage.Release.TrySetResult();
-        IStateManager<Snapshot> manager = new DefaultStateManager<Snapshot>(storage, static () => new("default"));
+        IStateManager<Snapshot> manager = new DefaultStateManager<Snapshot>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         await Invoke(manager, operation, cancellation.Token);
 
@@ -25,7 +25,7 @@ public sealed class StateManagerCancellationTests
     public async Task Cancellation_before_start_leaves_snapshot_and_storage_untouched(StorageOperation operation)
     {
         using var storage = new CancellableStorage(operation);
-        IStateManager<Snapshot> manager = new DefaultStateManager<Snapshot>(storage, static () => new("default"));
+        IStateManager<Snapshot> manager = new DefaultStateManager<Snapshot>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
         var previous = manager.State;
         using var cancellation = new CancellationTokenSource();
         await cancellation.CancelAsync();
@@ -45,7 +45,7 @@ public sealed class StateManagerCancellationTests
     public async Task Cancellation_interrupts_storage_without_publishing_uncommitted_state(StorageOperation operation)
     {
         using var storage = new CancellableStorage(operation);
-        IStateManager<Snapshot> manager = new DefaultStateManager<Snapshot>(storage, static () => new("default"));
+        IStateManager<Snapshot> manager = new DefaultStateManager<Snapshot>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
         var previous = manager.State;
         using var cancellation = new CancellationTokenSource();
         var pending = Invoke(manager, operation, cancellation.Token);
@@ -67,7 +67,7 @@ public sealed class StateManagerCancellationTests
     public async Task Cancellation_interrupts_recovery_and_a_fresh_read_restores_durable_state(StorageOperation operation)
     {
         using var storage = new CancellableStorage(StorageOperation.Read) { LoseResponse = true };
-        IStateManager<Snapshot> manager = new DefaultStateManager<Snapshot>(storage, static () => new("default"));
+        IStateManager<Snapshot> manager = new DefaultStateManager<Snapshot>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
         var previous = manager.State;
         using var cancellation = new CancellationTokenSource();
         var pending = Invoke(manager, operation, cancellation.Token);

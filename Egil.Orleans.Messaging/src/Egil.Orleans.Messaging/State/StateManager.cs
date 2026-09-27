@@ -15,9 +15,10 @@ namespace Egil.Orleans.Messaging.State;
 /// deliberately published by <see cref="State"/>. It never returns an
 /// in-flight write candidate: during <see cref="WriteAsync(T, CancellationToken)"/>
 /// the underlying <see cref="IPersistentState{T}"/>.State is mutated, but the
-/// caller's view is updated only after the write succeeds. On failure, the
-/// recovery path re-reads from storage to determine whether the write actually
-/// landed. An unsaved value is not a write candidate — its durability is knowingly
+/// caller's view is updated only after the write succeeds. On storage failure, the
+/// default policy permanently fences the manager and requests deactivation. Opt-in
+/// <see cref="StateRecoveryPolicy.ReadBack"/> reconciles within the current activation.
+/// An unsaved value is not a write candidate — its durability is knowingly
 /// deferred rather than unknown — which is why it is exposed and flagged instead
 /// of fenced. See the deferred-writes note below.
 /// </para>
@@ -25,14 +26,14 @@ namespace Egil.Orleans.Messaging.State;
 /// <b>Version stamping:</b> If <typeparamref name="T"/> derives from
 /// <see cref="VersionedState"/>, the manager stamps a fresh
 /// <see cref="Guid.CreateVersion7()"/> on a copy before every write. The
-/// caller's record remains unchanged. The recovery path then compares versions
+/// caller's record remains unchanged under both policies. Read-back recovery compares versions
 /// directly (pattern-matched via <c>is VersionedState</c>) instead of
 /// relying on <see cref="IEquatable{T}.Equals(T)"/>, which avoids the
 /// <see cref="System.Collections.Immutable.ImmutableArray{T}"/>
 /// reference-equality trap.
 /// </para>
 /// <para>
-/// <b>Recovery matrix:</b>
+/// <b>Read-back recovery matrix:</b> applies only to <see cref="StateRecoveryPolicy.ReadBack"/>.
 /// <list type="table">
 /// <listheader>
 ///   <term>Failure</term>
@@ -68,6 +69,14 @@ namespace Egil.Orleans.Messaging.State;
 ///   before the next write to re-sync.</description>
 /// </item>
 /// </list>
+/// </para>
+/// <para>
+/// <b>Fencing:</b> <see cref="StateRecoveryPolicy.FenceAndDeactivate"/> bypasses the
+/// matrix and rethrows every storage write/clear exception, even when persistence may
+/// have succeeded. Every subsequent member rejects access with that exception as its
+/// inner exception. Reads, validation, configuration and lifecycle-hook failures do not
+/// fence. Without a grain context, the owner must reload storage before constructing a
+/// replacement. Direct construction does not resolve silo options.
 /// </para>
 /// <para>
 /// <b>Deferred writes:</b> the manager tracks two snapshots. <see cref="State"/> is what the
@@ -108,6 +117,9 @@ public abstract class StateManagerBase<T> : IStateManager<T>
     private readonly IPersistentState<T> storage;
     private readonly Func<T> createInitialState;
     private readonly Action<T>? configureState;
+    private readonly StateRecoveryPolicy recoveryPolicy;
+    private readonly IGrainContext? grainContext;
+    private Exception? fencingFailure;
     private T state;
     private T lastStored;
     private bool hasUnsavedChanges;
@@ -118,11 +130,13 @@ public abstract class StateManagerBase<T> : IStateManager<T>
     /// <inheritdoc/>
     public void ConfigureHooks(Action<StateManagerHooks<T>> configure)
     {
+        ThrowIfFenced();
         Volatile.Write(ref hooks, StateManagerHooks<T>.Create(configure));
     }
 
     private void ThrowIfInsideHandler()
     {
+        ThrowIfFenced();
         if (hookDispatcher.IsInvoking)
         {
             throw new InvalidOperationException("Storage operations on this manager cannot be called from a lifecycle handler.");
@@ -137,14 +151,20 @@ public abstract class StateManagerBase<T> : IStateManager<T>
     protected StateManagerBase(
         IPersistentState<T> storage,
         Func<T> createInitialState,
-        Action<T>? configureState = null)
+        Action<T>? configureState = null,
+        StateRecoveryPolicy recoveryPolicy = StateRecoveryPolicy.FenceAndDeactivate,
+        IGrainContext? grainContext = null)
     {
         ArgumentNullException.ThrowIfNull(storage);
         ArgumentNullException.ThrowIfNull(createInitialState);
+        if (!Enum.IsDefined(recoveryPolicy))
+            throw new ArgumentOutOfRangeException(nameof(recoveryPolicy));
         ThrowIfFacetCannotBeReadBack(storage);
         this.storage = storage;
         this.createInitialState = createInitialState;
         this.configureState = configureState;
+        this.recoveryPolicy = recoveryPolicy;
+        this.grainContext = grainContext;
         state = ResolveLoadedState();
         lastStored = state;
         storage.State = state;
@@ -154,9 +174,14 @@ public abstract class StateManagerBase<T> : IStateManager<T>
     /// <inheritdoc/>
     public T State
     {
-        get => state;
+        get
+        {
+            ThrowIfFenced();
+            return state;
+        }
         set
         {
+            ThrowIfFenced();
             ArgumentNullException.ThrowIfNull(value);
 
             // Assignment is Adopt without the durability claim: the snapshot moves forward
@@ -177,7 +202,14 @@ public abstract class StateManagerBase<T> : IStateManager<T>
     }
 
     /// <inheritdoc/>
-    public bool HasUnsavedChanges => hasUnsavedChanges;
+    public bool HasUnsavedChanges
+    {
+        get
+        {
+            ThrowIfFenced();
+            return hasUnsavedChanges;
+        }
+    }
 
     /// <inheritdoc/>
     public async Task ReadAsync(CancellationToken cancellationToken = default)
@@ -208,6 +240,8 @@ public abstract class StateManagerBase<T> : IStateManager<T>
     public Task SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         ThrowIfInsideHandler();
+        // The fence is checked even for a no-op: deactivation must not flush staged
+        // data through a manager whose last mutation has an unknown durable outcome.
         // Deliberately does not observe the token when there is nothing to write: this
         // method exists to be called unconditionally from deactivation hooks, where the
         // token is routinely already canceled.
@@ -224,6 +258,8 @@ public abstract class StateManagerBase<T> : IStateManager<T>
 
         if (newState is VersionedState versioned)
         {
+            // Version remains observable under both policies. Switching recovery policy
+            // must not silently stop stamping records already using VersionedState.
             // Record cloning preserves the concrete state type. This manager also accepts
             // non-versioned T, so its generic constraint cannot express that invariant.
             newState = (T)(object)(versioned with { Version = Guid.CreateVersion7() });
@@ -255,6 +291,12 @@ public abstract class StateManagerBase<T> : IStateManager<T>
         }
         catch (Exception ex)
         {
+            if (recoveryPolicy is StateRecoveryPolicy.FenceAndDeactivate)
+            {
+                Fence(ex);
+                throw;
+            }
+
             var failureKind = ClassifyWriteFailure(ex);
             if (failureKind is StorageFailureKind.DidNotPersist)
             {
@@ -326,6 +368,12 @@ public abstract class StateManagerBase<T> : IStateManager<T>
         }
         catch (Exception ex)
         {
+            if (recoveryPolicy is StateRecoveryPolicy.FenceAndDeactivate)
+            {
+                Fence(ex);
+                throw;
+            }
+
             var failureKind = ClassifyClearFailure(ex);
             if (failureKind is StorageFailureKind.DidNotPersist)
             {
@@ -367,6 +415,43 @@ public abstract class StateManagerBase<T> : IStateManager<T>
         hasUnsavedChanges = false;
         Adopt(CreateInitialState());
         await hookDispatcher.InvokeAsync(operationHooks, state, StateManagerOperation.Clear, false, cancellationToken);
+    }
+
+    private void ThrowIfFenced()
+    {
+        if (fencingFailure is { } failure)
+        {
+            throw new InvalidOperationException(
+                "The state manager is fenced after a storage mutation failed. " +
+                "Recover through a new activation or reload storage before constructing a new manager.", failure);
+        }
+    }
+
+    private void Fence(Exception failure)
+    {
+        if (fencingFailure is not null)
+            return;
+
+        // Only the write/clear storage-call catch blocks reach this method. User hooks
+        // and state configuration run outside them and cannot fence a successful commit.
+        // Fencing deliberately bypasses classification and read-back, including the
+        // VersionedState comparison: even a committed write with a lost response fails.
+        // Replacing the activation also discards possibly stale private grain fields;
+        // reconciling only this facet cannot repair them. ReadBack intentionally retains
+        // them for grains that can safely continue and are expensive to initialize.
+        // Publish the fence before requesting deactivation so callbacks cannot reuse it.
+        fencingFailure = failure;
+        try
+        {
+            grainContext?.Deactivate(new DeactivationReason(
+                DeactivationReasonCode.ApplicationError, failure, "State manager storage mutation failed."));
+        }
+        catch (Exception)
+        {
+            // Deactivation is best effort; its failure cannot replace the original
+            // storage error or make this manager usable again. No operation token is
+            // passed because it may already be canceled by the failed storage call.
+        }
     }
 
     private async Task<bool> TryReadForRecoveryAsync(CancellationToken cancellationToken)

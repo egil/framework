@@ -31,10 +31,12 @@ public static partial class StateManagerExtensions
         /// <see cref="IConfigurableState.Configure"/> when the state type implements it. This
         /// callback must not change persisted business values or perform storage I/O.
         /// </param>
+        /// <param name="configure">Overrides global and factory recovery settings for this manager only.</param>
         public IStateManager<TState> RegisterStateManager<TState>(
             string storageName,
             IPersistentState<TState> storage,
-            Action<TState>? configureState = null)
+            Action<TState>? configureState = null,
+            Action<StateManagerOptions>? configure = null)
             where TState : class, IEquatable<TState>
         {
             ArgumentNullException.ThrowIfNull(grain);
@@ -48,7 +50,7 @@ public static partial class StateManagerExtensions
                 grain.GetType(),
                 createInitialState: null,
                 configureState,
-                grain.GrainContext.GrainInstance is null ? grain.GrainContext.ObservableLifecycle : null);
+                grain.GrainContext.GrainInstance is null ? grain.GrainContext.ObservableLifecycle : null, configure);
         }
 
         /// <summary>
@@ -70,9 +72,11 @@ public static partial class StateManagerExtensions
         /// <see cref="IConfigurableState.Configure"/> when the state type implements it. This
         /// callback must not change persisted business values or perform storage I/O.
         /// </param>
+        /// <param name="configure">Overrides global and factory recovery settings for this manager only.</param>
         public IStateManager<TState> RegisterStateManager<TState>(
             IPersistentState<TState> storage,
-            Action<TState>? configureState = null)
+            Action<TState>? configureState = null,
+            Action<StateManagerOptions>? configure = null)
             where TState : class, IEquatable<TState>
         {
             ArgumentNullException.ThrowIfNull(grain);
@@ -85,7 +89,7 @@ public static partial class StateManagerExtensions
                 grain.GetType(),
                 createInitialState: null,
                 configureState,
-                grain.GrainContext.GrainInstance is null ? grain.GrainContext.ObservableLifecycle : null);
+                grain.GrainContext.GrainInstance is null ? grain.GrainContext.ObservableLifecycle : null, configure);
         }
 
         /// <summary>
@@ -118,10 +122,12 @@ public static partial class StateManagerExtensions
         /// callback must not change persisted business values or perform storage I/O.
         /// </param>
         /// <returns>An <see cref="IStateManager{T}"/> instance.</returns>
+        /// <param name="configure">Overrides global and factory recovery settings for this manager only.</param>
         public IStateManager<TState> RegisterStateManager<TState>(
             IPersistentState<TState> storage,
             Func<TState> createInitialState,
-            Action<TState>? configureState = null)
+            Action<TState>? configureState = null,
+            Action<StateManagerOptions>? configure = null)
             where TState : class, IEquatable<TState>
         {
             ArgumentNullException.ThrowIfNull(grain);
@@ -135,7 +141,7 @@ public static partial class StateManagerExtensions
                 grain.GetType(),
                 createInitialState,
                 configureState,
-                grain.GrainContext.GrainInstance is null ? grain.GrainContext.ObservableLifecycle : null);
+                grain.GrainContext.GrainInstance is null ? grain.GrainContext.ObservableLifecycle : null, configure);
         }
 
         /// <summary>
@@ -185,11 +191,13 @@ public static partial class StateManagerExtensions
         /// <returns>
         /// A keyed <see cref="IStateManager{T}"/> instance.
         /// </returns>
+        /// <param name="configure">Overrides global and factory recovery settings for this manager only.</param>
         public IStateManager<TState> RegisterStateManager<TState>(
             string storageName,
             IPersistentState<TState> storage,
             Func<TState> createInitialState,
-            Action<TState>? configureState = null)
+            Action<TState>? configureState = null,
+            Action<StateManagerOptions>? configure = null)
             where TState : class, IEquatable<TState>
         {
             ArgumentNullException.ThrowIfNull(grain);
@@ -204,7 +212,7 @@ public static partial class StateManagerExtensions
                 grain.GetType(),
                 createInitialState,
                 configureState,
-                grain.GrainContext.GrainInstance is null ? grain.GrainContext.ObservableLifecycle : null);
+                grain.GrainContext.GrainInstance is null ? grain.GrainContext.ObservableLifecycle : null, configure);
         }
     }
 
@@ -215,7 +223,8 @@ public static partial class StateManagerExtensions
         Type grainType,
         Func<TState>? createInitialState,
         Action<TState>? configureState = null,
-        IGrainLifecycle? lifecycle = null)
+        IGrainLifecycle? lifecycle = null,
+        Action<StateManagerOptions>? configure = null)
         where TState : class, IEquatable<TState>
     {
         ArgumentNullException.ThrowIfNull(grainContext);
@@ -243,10 +252,11 @@ public static partial class StateManagerExtensions
         }
 
         var initialState = ResolveInitialState(grainContext, grainType, createInitialState);
-        var configure = ComposeConfiguration<TState>(grainContext, configureState);
+        var configureInstance = ComposeConfiguration<TState>(grainContext, configureState);
 
         return new ActivationStateManager<TState>(
-            () => factory.Create(storage, initialState, configure), () => storage.RecordExists, lifecycle);
+            () => factory.Create(storage, initialState,
+                StateManagerOptions.Resolve(activationServices, storageName, configure), configureInstance, grainContext), () => storage.RecordExists, lifecycle);
     }
 
     private static Func<TState> ResolveInitialState<TState>(

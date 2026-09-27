@@ -21,8 +21,10 @@ public sealed class DefaultStateManager<T> : StateManagerBase<T>
     public DefaultStateManager(
         IPersistentState<T> storage,
         Func<T> createInitialState,
-        Action<T>? configureState = null)
-        : base(storage, createInitialState, configureState)
+        Action<T>? configureState = null,
+        StateRecoveryPolicy recoveryPolicy = StateRecoveryPolicy.FenceAndDeactivate,
+        IGrainContext? grainContext = null)
+        : base(storage, createInitialState, configureState, recoveryPolicy, grainContext)
     {
     }
 

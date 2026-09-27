@@ -10,6 +10,16 @@ namespace Egil.Orleans.Messaging.State;
 /// </summary>
 /// <remarks>
 /// <para>
+/// <b>Recovery policy:</b> The default <see cref="StateRecoveryPolicy.FenceAndDeactivate"/>
+/// permanently rejects every member after a storage write/clear throws, including state
+/// access, hook configuration, reads and no-op saves. The rejection is an
+/// <see cref="InvalidOperationException"/> whose inner exception is the original storage
+/// failure. Deactivation is requested when a context is available. This replaces private
+/// grain state as well as reloading storage; <see cref="StateRecoveryPolicy.ReadBack"/>
+/// instead reconciles this manager and retains the activation. That can save expensive
+/// initialization, provided the grain's other fields remain safe to use.
+/// </para>
+/// <para>
 /// <b>Committed-state fence:</b> <see cref="State"/> exposes the loaded or last
 /// successfully written value, or a configured default for a missing record. During an in-flight write, the underlying
 /// <see cref="IPersistentState{TState}"/>.State already holds the uncommitted
@@ -31,7 +41,8 @@ namespace Egil.Orleans.Messaging.State;
 /// <b>Cancellation:</b> Operations forward the token to storage, including recovery
 /// reads. Cancellation is cooperative and depends on provider support. An already
 /// canceled token prevents storage access and write-version stamping. Once a write
-/// or clear starts, cancellation does not prove that it failed to persist. If recovery
+/// or clear starts, cancellation does not prove that it failed to persist. A storage
+/// cancellation fences under the default policy. With ReadBack, if recovery
 /// is canceled after the operation started, <see cref="State"/> reverts to the last
 /// stored value and the original operation exception is rethrown. Call <see cref="ReadAsync"/> with a fresh token before the
 /// next mutation to refresh state and ETag. A provider-confirmed success is adopted
@@ -58,7 +69,7 @@ namespace Egil.Orleans.Messaging.State;
 /// directly after wrapping — doing so bypasses the committed-state fence.
 /// </para>
 /// <para>
-/// <b>Recovery:</b> On ambiguous write failure, the manager re-reads from
+/// <b>Opt-in read-back recovery:</b> On ambiguous write failure, the manager re-reads from
 /// storage. If the write actually persisted (detected via version or equality
 /// check), it swallows the exception. If the write did not persist, it rethrows.
 /// If both write and re-read fail (double failure), the manager reverts to the
@@ -70,13 +81,14 @@ namespace Egil.Orleans.Messaging.State;
 /// </remarks>
 /// <typeparam name="T">
 /// The grain state type. Must be a reference type (atomic pointer swap for
-/// interleaved reads) and implement <see cref="IEquatable{T}"/> (recovery path
+/// interleaved reads) and implement <see cref="IEquatable{T}"/> (the supported ReadBack path
 /// compares server-side state to attempted write). Records satisfy both for free.
 /// For state containing <see cref="System.Collections.Immutable.ImmutableArray{T}"/>
-/// or other types with reference-based equality, inherit from
+/// or other types with reference-based equality, ReadBack benefits from inheriting
 /// <see cref="VersionedState"/> — the recovery path pattern-matches against it
 /// and compares <see cref="VersionedState.Version"/> directly, bypassing
-/// <c>Equals</c> entirely.
+/// <c>Equals</c> entirely. Fencing performs no comparison, so ordinary immutable
+/// records suffice. The equality constraint remains because both policies are supported.
 /// <para>
 /// <b>Deep immutability:</b> Every type referenced from the state record
 /// should also be immutable. The strength of this requirement depends on
@@ -152,7 +164,7 @@ public interface IStateManager<T>
     /// has not reached durable storage yet.
     /// </summary>
     /// <remarks>
-    /// Cleared by every operation that settles the durability question, including the
+    /// Throws after fencing. Under ReadBack, cleared by operations that settle the durability question, including the
     /// ones that settle it by failing: a successful write or clear adopts the new value,
     /// a successful read adopts what storage holds, and a write that failed reverts
     /// <see cref="State"/> to the last stored snapshot. It is therefore never
@@ -173,7 +185,7 @@ public interface IStateManager<T>
     /// Not required during activation — <see cref="IPersistentState{TState}"/>
     /// auto-hydrates before <c>OnActivateAsync</c>. Use only when the grain
     /// needs to force a re-read mid-activation (e.g., after a known external
-    /// mutation or to recover from a double-failure scenario).
+    /// mutation or to recover from a ReadBack double-failure scenario). Cannot revive a fenced manager.
     /// <para>
     /// Storage wins: once the read <em>succeeds</em>, any unsaved value is discarded and
     /// <see cref="HasUnsavedChanges"/> is cleared. A read is an explicit request for what
@@ -196,12 +208,12 @@ public interface IStateManager<T>
     /// <remarks>
     /// <para>
     /// If <paramref name="newState"/> derives from <see cref="VersionedState"/>,
-    /// a copy is stamped with a fresh <see cref="Guid"/> version (v7) before
+    /// a copy is stamped under either policy with a fresh <see cref="Guid"/> version (v7) before
     /// writing. The caller's record keeps its original version; read the
     /// persisted version from <see cref="State"/> after the write.
     /// </para>
     /// <para>
-    /// <b>Recovery on failure:</b> Re-reads from storage. If the write actually
+    /// <b>ReadBack recovery on failure:</b> Re-reads from storage. If the write actually
     /// landed (version or equality match), swallows the exception and returns
     /// normally. If it did not land, adopts the persisted state before
     /// rethrowing the original exception so the state remains paired with the
@@ -211,13 +223,13 @@ public interface IStateManager<T>
     /// concurrent write.
     /// </para>
     /// <para>
-    /// <b>Double failure:</b> If both write and re-read fail, reverts
+    /// <b>ReadBack double failure:</b> If both write and re-read fail, reverts
     /// <see cref="State"/> to the last stored value and rethrows. The grain
-    /// holds correct data but a stale ETag — call <see cref="ReadAsync"/>
+    /// holds its last stored snapshot, which may be stale, and a stale ETag — call <see cref="ReadAsync"/>
     /// before the next write.
     /// </para>
     /// <para>
-    /// <b>Unsaved changes:</b> once the write reaches storage, <paramref name="newState"/>
+    /// <b>Unsaved changes under ReadBack:</b> once the write reaches storage, <paramref name="newState"/>
     /// wins and <see cref="HasUnsavedChanges"/> is cleared whatever the outcome. On failure
     /// the unsaved value is discarded along with the attempted one, because the value a
     /// write falls back to must be one that storage actually holds. For an outbox that
@@ -244,7 +256,8 @@ public interface IStateManager<T>
     /// success.
     /// </para>
     /// <para>
-    /// With nothing to save this touches neither storage nor
+    /// Fenced managers always throw, even with nothing to save, so deactivation cannot
+    /// flush staged data after a failed mutation. Otherwise, with nothing to save this touches neither storage nor
     /// <paramref name="cancellationToken"/>: it is a no-op, not a canceled operation.
     /// Deactivation tokens are routinely already canceled during silo shutdown, and a
     /// grain with nothing outstanding should not have to handle an exception for it.
@@ -302,14 +315,14 @@ public interface IStateManager<T>
     /// </summary>
     /// <remarks>
     /// <para>
-    /// For failures whose outcome is ambiguous, the manager reads storage to
+    /// With ReadBack selected, for failures whose outcome is ambiguous, the manager reads storage to
     /// determine whether the clear landed. A missing record confirms a
     /// non-conflicting clear, but an <c>InconsistentStateException</c> always
     /// rethrows because a coincidental deletion must not hide an optimistic
     /// concurrency conflict.
     /// </para>
     /// <para>
-    /// When recovery successfully reads a provider value before rethrowing,
+    /// With ReadBack selected, when recovery successfully reads a provider value before rethrowing,
     /// <see cref="State"/> adopts that value and can therefore change even
     /// though this method throws. If recovery also fails, <see cref="State"/>
     /// reverts to the last stored value, which is not the pre-clear value when there
@@ -324,7 +337,7 @@ public interface IStateManager<T>
     /// A null result is rejected with an InvalidOperationException for diagnosis.
     /// </para>
     /// <para>
-    /// Once the clear reaches storage, any unsaved value is discarded and
+    /// On success or ReadBack recovery, any unsaved value is discarded and
     /// <see cref="HasUnsavedChanges"/> is cleared in every branch: a clear settles the
     /// durability question either way, and the marker is cleared before the default-state
     /// factory runs so that a failing factory cannot leave an unsaved value waiting to be

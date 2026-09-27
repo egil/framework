@@ -8,7 +8,7 @@ public sealed class StateManagerTests
     public void Missing_state_exposes_default_without_writing()
     {
         var storage = new FakePersistentState(null);
-        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         Assert.Equal(new TestState("default"), manager.State);
         Assert.Equal(0, storage.WriteCount);
@@ -22,7 +22,7 @@ public sealed class StateManagerTests
         {
             RecordExists = false
         };
-        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         Assert.Equal(new TestState("default"), manager.State);
         Assert.False(storage.RecordExists);
@@ -32,7 +32,7 @@ public sealed class StateManagerTests
     public async Task ReadAsync_refreshes_state_from_storage()
     {
         var storage = new FakePersistentState(new TestState("initial"));
-        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
         storage.State = new TestState("fresh");
 
         await manager.ReadAsync(TestContext.Current.CancellationToken);
@@ -51,7 +51,7 @@ public sealed class StateManagerTests
                 state.RecordExists = false;
             }
         };
-        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         await manager.ReadAsync(TestContext.Current.CancellationToken);
 
@@ -64,7 +64,7 @@ public sealed class StateManagerTests
     public async Task WriteAsync_success_updates_committed_state()
     {
         var storage = new FakePersistentState(new TestState("initial"));
-        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
         var next = new TestState("next");
 
         await manager.WriteAsync(next, TestContext.Current.CancellationToken);
@@ -81,7 +81,7 @@ public sealed class StateManagerTests
             WriteException = new TimeoutException("write timeout"),
             OnRead = state => state.State = new TestState("next")
         };
-        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
         var next = new TestState("next");
 
         await manager.WriteAsync(next, TestContext.Current.CancellationToken);
@@ -103,7 +103,7 @@ public sealed class StateManagerTests
                 state.Etag = "etag-2";
             }
         };
-        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         var ex = await Assert.ThrowsAsync<TimeoutException>(() => manager.WriteAsync(new TestState("next"), TestContext.Current.CancellationToken));
 
@@ -128,7 +128,7 @@ public sealed class StateManagerTests
                 state.Etag = "etag-2";
             }
         };
-        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         var ex = await Assert.ThrowsAsync<InconsistentStateException>(
             () => manager.WriteAsync(attempted, TestContext.Current.CancellationToken));
@@ -153,7 +153,7 @@ public sealed class StateManagerTests
                 state.Etag = "etag-2";
             }
         };
-        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         var ex = await Assert.ThrowsAsync<InconsistentStateException>(
             () => manager.WriteAsync(attempted, TestContext.Current.CancellationToken));
@@ -172,7 +172,7 @@ public sealed class StateManagerTests
             WriteException = writeException,
             ReadException = new InvalidOperationException("read failed")
         };
-        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         var ex = await Assert.ThrowsAsync<TimeoutException>(() => manager.WriteAsync(new TestState("next"), TestContext.Current.CancellationToken));
 
@@ -190,7 +190,7 @@ public sealed class StateManagerTests
             WriteException = writeException,
             ReadException = new InvalidOperationException("read failed")
         };
-        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         var ex = await Assert.ThrowsAsync<InconsistentStateException>(
             () => manager.WriteAsync(new TestState("next"), TestContext.Current.CancellationToken));
@@ -259,7 +259,7 @@ public sealed class StateManagerTests
     {
         var original = new VersionedTestState("initial");
         var storage = new FakePersistentVersionedState(original);
-        var manager = new DefaultStateManager<VersionedTestState>(storage, static () => new("default"));
+        var manager = new DefaultStateManager<VersionedTestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
         var next = new VersionedTestState("next") { Version = Guid.Empty };
 
         await manager.WriteAsync(next, TestContext.Current.CancellationToken);
@@ -273,7 +273,7 @@ public sealed class StateManagerTests
     public async Task ClearAsync_success_updates_committed_state()
     {
         var storage = new FakePersistentState(new TestState("initial"));
-        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         await manager.ClearAsync(TestContext.Current.CancellationToken);
 
@@ -286,7 +286,7 @@ public sealed class StateManagerTests
     public async Task WriteAsync_after_clear_can_persist_new_state()
     {
         var storage = new FakePersistentState(new TestState("initial"));
-        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
         var next = new TestState("next");
 
         await manager.ClearAsync(TestContext.Current.CancellationToken);
@@ -301,7 +301,7 @@ public sealed class StateManagerTests
     {
         var writeException = new TimeoutException("write timeout");
         var storage = new FakePersistentState(new TestState("initial"));
-        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
         await manager.ClearAsync(TestContext.Current.CancellationToken);
         storage.WriteException = writeException;
         storage.OnRead = state =>
@@ -331,7 +331,7 @@ public sealed class StateManagerTests
                 state.RecordExists = false;
             }
         };
-        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         await manager.ClearAsync(TestContext.Current.CancellationToken);
 
@@ -355,7 +355,7 @@ public sealed class StateManagerTests
                 state.Etag = "etag-2";
             }
         };
-        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         var ex = await Assert.ThrowsAsync<TimeoutException>(() => manager.ClearAsync(TestContext.Current.CancellationToken));
 
@@ -378,7 +378,7 @@ public sealed class StateManagerTests
                 state.RecordExists = false;
             }
         };
-        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         var ex = await Assert.ThrowsAsync<InconsistentStateException>(() => manager.ClearAsync(TestContext.Current.CancellationToken));
 
@@ -397,7 +397,7 @@ public sealed class StateManagerTests
             ClearException = clearException,
             ReadException = new InvalidOperationException("read failed")
         };
-        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         var ex = await Assert.ThrowsAsync<TimeoutException>(() => manager.ClearAsync(TestContext.Current.CancellationToken));
 
@@ -414,7 +414,7 @@ public sealed class StateManagerTests
             WriteException = failure,
             OnRead = loaded => { loaded.State = null!; loaded.RecordExists = false; }
         };
-        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         var error = await Assert.ThrowsAsync<TimeoutException>(() => manager.WriteAsync(new("default"), TestContext.Current.CancellationToken));
 
@@ -430,7 +430,7 @@ public sealed class StateManagerTests
         var initial = new TestState("initial");
         var loaded = new TestState("loaded");
         var storage = new FakePersistentState(initial) { OnRead = state => state.State = loaded };
-        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), configured.Add);
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), configured.Add, recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         await manager.ReadAsync(TestContext.Current.CancellationToken);
         await manager.ClearAsync(TestContext.Current.CancellationToken);
@@ -446,7 +446,7 @@ public sealed class StateManagerTests
         var storage = new FakePersistentState(null);
 
         var error = Assert.Throws<InvalidOperationException>(() =>
-            new DefaultStateManager<TestState>(storage, static () => null!));
+            new DefaultStateManager<TestState>(storage, static () => null!, recoveryPolicy: StateRecoveryPolicy.ReadBack));
 
         Assert.Contains("factory returned null", error.Message);
     }
@@ -457,7 +457,7 @@ public sealed class StateManagerTests
         var storage = new FakePersistentState(null) { RecordExists = true };
 
         var error = Assert.Throws<InvalidOperationException>(() =>
-            new DefaultStateManager<TestState>(storage, static () => new("default")));
+            new DefaultStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack));
 
         Assert.Contains("existing state record", error.Message);
     }
@@ -469,7 +469,7 @@ public sealed class StateManagerTests
         var previous = new TestState("previous");
         var next = new TestState("next");
         var storage = new FakePersistentState(previous) { WriteCompletion = completion.Task };
-        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         var write = manager.WriteAsync(next, TestContext.Current.CancellationToken);
 
@@ -498,7 +498,7 @@ public sealed class StateManagerTests
             configured = value;
             observedManager = manager?.State;
             observedStorage = storage.State;
-        });
+        }, recoveryPolicy: StateRecoveryPolicy.ReadBack);
         storage.OnRead = loaded => loaded.State = new("loaded");
         storage.WriteException = operation == "write-recovery" ? new TimeoutException() : null;
         storage.ClearException = operation == "clear-recovery" ? new TimeoutException() : null;
@@ -530,7 +530,7 @@ public sealed class StateManagerTests
                 failNextConfiguration = false;
                 throw failure;
             }
-        });
+        }, recoveryPolicy: StateRecoveryPolicy.ReadBack);
         failNextConfiguration = true;
         var recoveryReads = 0;
         storage.OnRead = _ => recoveryReads++;
@@ -555,7 +555,7 @@ public sealed class StateManagerTests
             ClearException = new TimeoutException("clear failed"),
             OnRead = loaded => { loaded.State = null!; loaded.RecordExists = recordExists; }
         };
-        var manager = new DefaultStateManager<TestState>(storage, static () => null!);
+        var manager = new DefaultStateManager<TestState>(storage, static () => null!, recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => clear ? manager.ClearAsync(TestContext.Current.CancellationToken) : manager.WriteAsync(new("next"), TestContext.Current.CancellationToken));
 
@@ -578,7 +578,7 @@ public sealed class StateManagerTests
         var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), value =>
         {
             if (ReferenceEquals(value, loaded)) throw failure;
-        });
+        }, recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         var error = await Record.ExceptionAsync(() => clear ? manager.ClearAsync(TestContext.Current.CancellationToken) : manager.WriteAsync(new("next"), TestContext.Current.CancellationToken));
 
@@ -591,7 +591,7 @@ public sealed class StateManagerTests
     public void Assigning_State_publishes_the_snapshot_without_writing_to_storage()
     {
         var storage = new FakePersistentState(new TestState("stored"));
-        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
         var staged = new TestState("staged");
 
         manager.State = staged;
@@ -606,7 +606,7 @@ public sealed class StateManagerTests
     public void Assigning_null_to_State_is_rejected()
     {
         var storage = new FakePersistentState(new TestState("stored"));
-        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         Assert.Throws<ArgumentNullException>(() => manager.State = null!);
     }
@@ -616,7 +616,7 @@ public sealed class StateManagerTests
     {
         var configured = new List<TestState>();
         var storage = new FakePersistentState(new TestState("stored"));
-        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), configured.Add);
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), configured.Add, recoveryPolicy: StateRecoveryPolicy.ReadBack);
         var staged = new TestState("staged");
 
         manager.State = staged;
@@ -628,7 +628,7 @@ public sealed class StateManagerTests
     public async Task SaveChangesAsync_persists_the_current_snapshot_once()
     {
         var storage = new FakePersistentState(new TestState("stored"));
-        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
         manager.State = new TestState("first");
         var last = new TestState("last");
         manager.State = last;
@@ -645,7 +645,7 @@ public sealed class StateManagerTests
     public async Task SaveChangesAsync_without_unsaved_changes_does_not_reach_storage_or_observe_cancellation()
     {
         var storage = new FakePersistentState(new TestState("stored"));
-        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
         using var cancellation = new CancellationTokenSource();
         await cancellation.CancelAsync();
 
@@ -659,7 +659,7 @@ public sealed class StateManagerTests
     public async Task WriteAsync_with_a_new_state_supersedes_the_unsaved_snapshot()
     {
         var storage = new FakePersistentState(new TestState("stored"));
-        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
         manager.State = new TestState("staged");
         var next = new TestState("next");
 
@@ -674,7 +674,7 @@ public sealed class StateManagerTests
     public async Task Assigning_State_does_not_stamp_a_version_but_the_following_write_does()
     {
         var storage = new FakePersistentVersionedState(new VersionedTestState("stored"));
-        var manager = new DefaultStateManager<VersionedTestState>(storage, static () => new("default"));
+        var manager = new DefaultStateManager<VersionedTestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
         var staged = new VersionedTestState("staged") { Version = Guid.Empty };
 
         manager.State = staged;
@@ -727,7 +727,7 @@ public sealed class StateManagerTests
             WriteException = new TimeoutException("write timeout"),
             OnRead = state => state.State = new TestState("staged")
         };
-        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
         manager.State = staged;
 
         await manager.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -745,7 +745,7 @@ public sealed class StateManagerTests
             WriteException = new TimeoutException("write timeout"),
             OnRead = state => state.State = persisted
         };
-        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
         manager.State = new TestState("staged");
 
         await Assert.ThrowsAsync<TimeoutException>(() => manager.SaveChangesAsync(TestContext.Current.CancellationToken));
@@ -763,7 +763,7 @@ public sealed class StateManagerTests
             WriteException = new TimeoutException("write timeout"),
             ReadException = new InvalidOperationException("read failed")
         };
-        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
         manager.State = new TestState("staged");
 
         await Assert.ThrowsAsync<TimeoutException>(() => manager.SaveChangesAsync(TestContext.Current.CancellationToken));
@@ -782,7 +782,7 @@ public sealed class StateManagerTests
         {
             OnRead = state => state.State = new TestState("stored")
         };
-        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
         manager.State = new TestState("staged");
 
         await manager.ReadAsync(TestContext.Current.CancellationToken);
@@ -795,7 +795,7 @@ public sealed class StateManagerTests
     public async Task ClearAsync_discards_unsaved_changes()
     {
         var storage = new FakePersistentState(new TestState("stored"));
-        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
         manager.State = new TestState("staged");
 
         await manager.ClearAsync(TestContext.Current.CancellationToken);
@@ -811,7 +811,7 @@ public sealed class StateManagerTests
         var failFactory = false;
         var manager = new DefaultStateManager<TestState>(
             storage,
-            () => failFactory ? throw new InvalidOperationException("factory failed") : new TestState("default"));
+            () => failFactory ? throw new InvalidOperationException("factory failed") : new TestState("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
         manager.State = new TestState("staged");
         failFactory = true;
 
@@ -833,7 +833,7 @@ public sealed class StateManagerTests
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var next = new TestState("next");
         var storage = new FakePersistentState(new TestState("stored")) { WriteCompletion = completion.Task };
-        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         var write = manager.WriteAsync(next, TestContext.Current.CancellationToken);
         manager.State = new TestState("staged");
@@ -861,7 +861,7 @@ public sealed class StateManagerTests
         {
             OnRead = state => state.State = null!
         };
-        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
         manager.State = new TestState("staged");
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => manager.ReadAsync(TestContext.Current.CancellationToken));
@@ -888,7 +888,7 @@ public sealed class StateManagerTests
     // through read-back recovery. The DidNotPersist branch skips that, so it needs a
     // manager that reports it.
     private sealed class RejectingStateManager(IPersistentState<TestState> storage, Func<TestState> createInitialState)
-        : StateManagerBase<TestState>(storage, createInitialState)
+        : StateManagerBase<TestState>(storage, createInitialState, recoveryPolicy: StateRecoveryPolicy.ReadBack)
     {
         protected override StorageFailureKind ClassifyWriteFailure(Exception exception) => StorageFailureKind.DidNotPersist;
 
@@ -899,7 +899,7 @@ public sealed class StateManagerTests
     // attempt did not persist and that the local ETag is stale, so recovery must re-read
     // and always rethrow — even if the persisted value happens to match the attempt.
     private sealed class ConflictingStateManager(IPersistentState<TestState> storage, Func<TestState> createInitialState)
-        : StateManagerBase<TestState>(storage, createInitialState)
+        : StateManagerBase<TestState>(storage, createInitialState, recoveryPolicy: StateRecoveryPolicy.ReadBack)
     {
         protected override StorageFailureKind ClassifyWriteFailure(Exception exception) => StorageFailureKind.Conflict;
 
@@ -923,7 +923,7 @@ public sealed class StateManagerTests
                 state.Etag = "etag-2";
             }
         };
-        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         var actual = await Record.ExceptionAsync(
             () => manager.WriteAsync(attempted, TestContext.Current.CancellationToken));
@@ -949,7 +949,7 @@ public sealed class StateManagerTests
                 state.Etag = "etag-2";
             }
         };
-        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         var actual = await Record.ExceptionAsync(() => manager.ClearAsync(TestContext.Current.CancellationToken));
 
@@ -970,7 +970,7 @@ public sealed class StateManagerTests
             WriteException = CreateUncertainFailure(failureShape),
             OnRead = state => state.State = attempted
         };
-        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         await manager.WriteAsync(attempted, TestContext.Current.CancellationToken);
 
@@ -992,7 +992,7 @@ public sealed class StateManagerTests
                 state.RecordExists = false;
             }
         };
-        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"));
+        var manager = new DefaultStateManager<TestState>(storage, static () => new("default"), recoveryPolicy: StateRecoveryPolicy.ReadBack);
 
         await manager.ClearAsync(TestContext.Current.CancellationToken);
 

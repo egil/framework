@@ -186,16 +186,16 @@ public sealed class StateManagerRegistrationExtensionsTests
 
     private sealed class CustomStateManagerFactory : IStateManagerFactory
     {
-        public IStateManager<TState> Create<TState>(IPersistentState<TState> storage, Func<TState> createInitialState, Action<TState>? configureState = null)
+        public IStateManager<TState> Create<TState>(IPersistentState<TState> storage, Func<TState> createInitialState, StateManagerOptions options, Action<TState>? configureState = null, IGrainContext? grainContext = null)
             where TState : class, IEquatable<TState> =>
-            new DefaultStateManager<TState>(storage, createInitialState, configureState);
+            new DefaultStateManager<TState>(storage, createInitialState, configureState, options.RecoveryPolicy, grainContext);
     }
 
     private sealed class TestStateManagerFactory : IStateManagerFactory
     {
-        public IStateManager<TState> Create<TState>(IPersistentState<TState> storage, Func<TState> createInitialState, Action<TState>? configureState = null)
+        public IStateManager<TState> Create<TState>(IPersistentState<TState> storage, Func<TState> createInitialState, StateManagerOptions options, Action<TState>? configureState = null, IGrainContext? grainContext = null)
             where TState : class, IEquatable<TState> =>
-            new DefaultStateManager<TState>(storage, createInitialState, configureState);
+            new DefaultStateManager<TState>(storage, createInitialState, configureState, options.RecoveryPolicy, grainContext);
     }
 
     private sealed class FakeSiloBuilder : ISiloBuilder
