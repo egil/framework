@@ -3,6 +3,11 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// <summary>
 /// Controls when an outbox processor establishes and removes its durable reminder.
 /// </summary>
+/// <remarks>
+/// Both policies also attempt to establish a reminder during orderly deactivation
+/// if pending work has no known reminder. This safeguard is best effort and does
+/// not run after an abrupt silo crash.
+/// </remarks>
 public enum OutboxReminderPolicy
 {
     /// <summary>

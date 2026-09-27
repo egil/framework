@@ -7,9 +7,9 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Zero ceremony:</b> Implementing this interface is one of two obligations
-/// for grains using the outbox pattern (the other is calling
-/// <c>RegisterOutboxProcessor</c> in <c>OnActivateAsync</c>). No manual
+/// Implement this interface and call <c>RegisterOutboxProcessor</c> in the
+/// constructor, or in <c>OnActivateAsync</c> after enabling
+/// <c>ConfigureOutboxProcessor()</c> on the silo builder. No manual
 /// <c>ReceiveReminder</c> override is needed — the DIM discovers the
 /// <see cref="IOutboxComponent"/> registered on the grain context and
 /// forwards the callback.
@@ -53,7 +53,7 @@ public interface IOutboxGrain : IRemindable
         if (component is null)
         {
             throw new InvalidOperationException(
-                $"No {nameof(OutboxProcessor<object>)} is attached to the grain context. Call RegisterOutboxProcessor(...) from OnActivateAsync before outbox reminders are received.");
+                $"No {nameof(OutboxProcessor<object>)} is attached to the grain context. Call RegisterOutboxProcessor(...) during grain construction or activation before outbox reminders are received.");
         }
 
         return component.ReceiveReminderAsync(reminderName, status).AsTask();

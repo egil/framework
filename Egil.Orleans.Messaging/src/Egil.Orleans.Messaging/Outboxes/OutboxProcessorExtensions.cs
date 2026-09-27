@@ -26,6 +26,12 @@ public static class OutboxProcessorExtensions
         /// for reminder forwarding.
         /// </para>
         /// <para>
+        /// Constructor registration also installs the deactivation safeguard.
+        /// For registration in <c>OnActivateAsync</c> or later, first call
+        /// <c>ConfigureOutboxProcessor()</c> on the silo builder so the shutdown
+        /// hook is installed before Orleans starts the grain lifecycle.
+        /// </para>
+        /// <para>
         /// Register exactly one processor per grain activation. Add multiple
         /// postmen to that processor when different outbox item subtypes need
         /// different delivery behavior. A second registration throws
@@ -79,7 +85,8 @@ public static class OutboxProcessorExtensions
         /// </exception>
         /// <exception cref="InvalidOperationException">
         /// An outbox processor is already registered for the current grain
-        /// activation.
+        /// activation, or registration after construction has no silo-wide
+        /// deactivation hook configured.
         /// </exception>
         public OutboxProcessor<TOutbox> RegisterOutboxProcessor<TOutbox>(
             Func<Outbox<TOutbox>> outboxAccessor,

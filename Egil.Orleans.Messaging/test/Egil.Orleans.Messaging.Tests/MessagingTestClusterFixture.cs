@@ -27,6 +27,7 @@ public sealed class MessagingTestClusterFixture : IAsyncLifetime, IGrainActivity
 
         builder.ConfigureSilo((_, siloBuilder) =>
         {
+            siloBuilder.ConfigureOutboxProcessor(static _ => { });
             siloBuilder.AddMemoryGrainStorage("Default");
             // Exercise the toolbox's supported STJ storage format across reactivation.
             siloBuilder.AddMemoryGrainStorage("Payload", options => options.GrainStorageSerializer =
