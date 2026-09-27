@@ -1249,8 +1249,12 @@ rather than choose between multiple streams.
 Use a separate outbox entry for each distinct event on the same destination.
 Reusing one token for several payloads on one stream means one logical identity.
 The helper publishes one event; it exposes no batch identity API. Provider
-aggregation of separate single-event publications is exercised through Orleans'
-per-item observer with `BatchContainerBatchSize = 8`. A producer batch of distinct
+aggregation of separate single-event publications is covered by a deterministic
+provider serialization and aggregate delivery contract test: two independently
+identified Azure Queue containers pass through Orleans' real `BatchContainerBatch`
+delivery method and the registered per-item observer. Cluster tests enable
+`BatchContainerBatchSize = 8`; they do not prove a live pulling agent formed an
+aggregate. A producer batch of distinct
 events sharing one context is outside this contract. Raw handlers that bypass
 `StreamManager` retain Orleans' normal transitive request-context behavior.
 
