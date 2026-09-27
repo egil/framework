@@ -11,15 +11,6 @@ namespace Egil.Orleans.Messaging.State;
 public enum StateRecoveryPolicy
 {
     /// <summary>
-    /// Classify the failure and, when its outcome is uncertain, read storage back.
-    /// A confirmed lost response can be reported as success. Select this explicitly
-    /// to keep an activation usable after a failed storage mutation.
-    /// <see cref="VersionedState"/> recognizes persisted writes without depending on
-    /// structural equality. Private grain state remains the application's responsibility.
-    /// </summary>
-    ReadBack = 1,
-
-    /// <summary>
     /// Permanently reject all manager access, request grain deactivation when a context
     /// is available, and rethrow the storage failure without attempting read-back.
     /// Even a write that committed before losing its response is reported as failed.
@@ -28,4 +19,13 @@ public enum StateRecoveryPolicy
     /// ordinary immutable records are sufficient. A subsequent activation loads storage.
     /// </summary>
     FenceAndDeactivate = 0,
+
+    /// <summary>
+    /// Classify the failure and, when its outcome is uncertain, read storage back.
+    /// A confirmed lost response can be reported as success. Select this explicitly
+    /// to keep an activation usable after a failed storage mutation.
+    /// <see cref="VersionedState"/> recognizes persisted writes without depending on
+    /// structural equality. Private grain state remains the application's responsibility.
+    /// </summary>
+    ReadBack = 1,
 }
