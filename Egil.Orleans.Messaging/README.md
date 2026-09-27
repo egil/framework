@@ -43,6 +43,10 @@ using Orleans.Hosting;
 
 ## State Manager
 
+Default and Azure managers use `FenceAndDeactivate`: a failed storage mutation
+permanently closes the manager and requests grain deactivation. Opt into `ReadBack`
+when retaining the activation is safe and valuable; see [Choosing a recovery policy](#choosing-a-recovery-policy).
+
 Register the default state manager factory on the silo:
 
 ```csharp
@@ -60,7 +64,7 @@ siloBuilder.AddAzureStorageStateManager("blobs");
 state = this.RegisterStateManager("blobs", storage, () => new OrderState());
 ```
 
-The default manager re-reads after every failed write or clear. It recognizes
+With `ReadBack` selected, the default manager re-reads after every failed write or clear. It recognizes
 `InconsistentStateException` through exception wrappers and rethrows the original
 exception after refreshing state and the ETag, even if the recovered value
 matches. Aggregates containing only concurrency conflicts behave the same way;
@@ -77,7 +81,7 @@ and register the Azure-aware factory instead:
 siloBuilder.AddAzureStorageStateManager("state");
 ```
 
-The Azure-aware manager uses Azure SDK `RequestFailedException.Status` and
+With `ReadBack` selected, the Azure-aware manager uses Azure SDK `RequestFailedException.Status` and
 `ErrorCode` values to decide recovery. ETag and record-existence conflicts
 (including HTTP 412, 409 and 404 unless a specific rejection code applies)
 re-read storage to refresh the local state and ETag, then always rethrow.
@@ -115,7 +119,8 @@ the provider decides whether it can interrupt in-flight work. Existing calls may
 token prevents storage access and write-version stamping.
 
 Cancellation after a write or clear starts does not establish whether it persisted.
-If recovery is also canceled, `State` reverts to the last stored value — discarding
+By default, cancellation reported by storage fences the manager. With `ReadBack`,
+if recovery is also canceled, `State` reverts to the last stored value — discarding
 an unsaved value, which is not the same as the previously visible snapshot — and the
 manager rethrows the original operation exception. Re-read with a fresh token before
 another mutation to refresh the state and ETag. A provider-confirmed success is
@@ -139,7 +144,7 @@ An existing record with a null value, or a factory returning null, is rejected.
 **Creating a default does not write it to storage.** The first business operation
 can persist its resulting state with `WriteAsync`.
 
-`State` stays read-only. It exposes the loaded or successfully written snapshot,
+While the manager is usable, `State` exposes the loaded or successfully written snapshot,
 or the default representing absent storage. Interleaved readers cannot observe an
 in-flight *write candidate* — a value whose durability is unknown because a write
 is still running. An *unsaved* value is different: its durability is knowingly
@@ -182,19 +187,122 @@ The facet must be one backed by an `IGrainStorage` provider. A journaled facet f
 `Orleans.Journaling` is also an `IPersistentState<T>`, and that package registers one
 for every DI key, so it can reach `RegisterStateManager` by accident — but its
 `ReadStateAsync` is a no-op, because a journal is replayed at activation rather than
-re-read. Recovery would then compare an attempted write with itself and report a
-failure as success, so wrapping one throws `NotSupportedException` at construction.
-Use the journal's own durability instead.
+re-read. `ReadBack` could then compare an attempted write with itself and report a
+failure as success. Fencing skips that comparison, but the wrapper still requires
+meaningful explicit reads: wrapping a journaled facet throws `NotSupportedException`
+under either policy. Use the journal's own durability instead.
 
-State types must be reference types and implement `IEquatable<T>`. For
-non-trivial state graphs, inherit from `VersionedState` so the recovery path
-compares a library-stamped version rather than relying on structural
-collection equality.
+State types must be reference types and implement `IEquatable<T>`. This constraint
+remains because the manager supports read-back recovery. Ordinary immutable records
+are sufficient under fencing, including records containing immutable collections.
+
+`VersionedState` primarily helps **read-back recovery recognize a persisted write**
+without depending on structural equality. This matters for `ImmutableArray<T>` and
+other immutable collections whose equality is based on their backing references:
+a deserialized collection can contain identical values yet compare unequal.
+Read-back compares the stamped version instead. Fencing performs no recovery
+comparison, so inheriting from `VersionedState` offers less recovery value there.
 
 `VersionedState.Version` has a public `init` accessor so a consumer's
 `JsonSerializerContext` can restore it without a custom resolver. A write stamps
 a fresh version on a copy of the record; the input record keeps its original
 version. Use `manager.State` after the write to observe the persisted version.
+Existing versioned types keep version stamping under **both** policies. The version
+does **not** provide storage optimistic concurrency; the provider is responsible
+for that, typically through ETags.
+
+### Choosing a recovery policy
+
+`FenceAndDeactivate` is the default for Default and Azure state managers. It is the
+safer default because a failed storage mutation may leave more than the persisted
+facet out of date: private grain fields, derived caches, or partially updated
+in-memory bookkeeping may also be inconsistent. Fencing permanently closes the
+manager and requests deactivation, allowing subsequent work to use a fresh
+activation whose persisted state is loaded again.
+
+`ReadBack` reconciles the storage facet while retaining the activation. It can be
+valuable when grain initialization is expensive—for example, rebuilding a large
+private cache or establishing subscriptions—and the grain can safely retain its
+other fields after reconciliation. The application must ensure those fields are
+still valid or repair them. Storage read-back alone cannot do that.
+
+Both policies normally incur a storage read before useful work resumes: `ReadBack`
+reads during recovery, while fencing leaves that read to the next activation.
+Fencing additionally pays for grain construction and activation lifecycle work;
+its cost depends on the grain. Subsequent routing and activation also give Orleans
+an opportunity to resolve ownership through the grain directory, which may reveal
+an already active instance on another silo. This is not a guarantee that fencing
+prevents all duplicate activations or replaces provider concurrency checks.
+
+| Outcome | `FenceAndDeactivate` (default) | `ReadBack` (opt-in) |
+| --- | --- | --- |
+| Write/clear succeeds | Adopt the result | Adopt the result |
+| Ambiguous storage failure | Fence, request deactivation, rethrow | Read storage and reconcile |
+| Write committed but response was lost | Report the original failure | May report success if recovery proves persistence |
+| Conflict | Fence and rethrow | Refresh state/ETag and rethrow |
+| Classified as definitely not persisted | Fence and rethrow | Restore the last stored snapshot and rethrow |
+| Recovery read fails | No recovery read in this activation | Restore last stored snapshot, rethrow original; read again before another mutation |
+| Failed read, invalid argument, pre-storage cancellation | No permanent fence | Existing state remains available |
+| Storage write/clear reports cancellation | Fence | Apply read-back recovery rules |
+| State configuration or lifecycle handler throws | Propagate without fencing | Propagate without fencing |
+
+Fencing records the original exception before requesting deactivation. Failure to
+request deactivation cannot replace the storage exception or undo the fence.
+Every later manager member throws `InvalidOperationException` with the original
+failure as `InnerException`: state access, `HasUnsavedChanges`, hook configuration,
+reads, writes, clears, and **even no-op saves**. A read cannot revive it, and a
+deactivation-time `SaveChangesAsync` cannot flush staged data. Handle that failure
+in deactivation cleanup just as other save failures are handled. Neither policy
+automatically retries the command, queues operations, or flushes pending changes.
+
+### Recovery configuration
+
+Precedence is **library defaults → silo-wide configuration → factory-registration
+configuration → grain-local configuration**. Every manager gets an isolated options
+snapshot after hydration which stays fixed for its lifetime.
+
+```csharp
+// Shared baseline for every named and unkeyed manager in this silo.
+siloBuilder.ConfigureStateManager(options =>
+{
+    options.RecoveryPolicy = StateRecoveryPolicy.FenceAndDeactivate;
+});
+siloBuilder.AddDefaultStateManager();
+siloBuilder.AddDefaultStateManager("Orders");
+
+// Retain this activation when reconciliation is safe and rebuilding is expensive.
+siloBuilder.AddAzureStorageStateManager("Archive", options =>
+{
+    options.RecoveryPolicy = StateRecoveryPolicy.ReadBack;
+});
+
+// Override only this manager, retaining state initialization and runtime wiring.
+state = this.RegisterStateManager("Orders", storage,
+    createInitialState: static () => new OrderState(),
+    configureState: loaded => loaded.AttachRuntimeServices(services),
+    configure: options => options.RecoveryPolicy = StateRecoveryPolicy.ReadBack);
+```
+
+`ConfigureStateManager` and the factory helpers are available on both `ISiloBuilder`
+and `IServiceCollection`. Global configuration also has an overload accepting
+`Action<StateManagerOptions, IServiceProvider>` for silo-local dependencies.
+Global callbacks use `ConfigureAll` semantics; factory callbacks use named
+post-configuration, so factory overrides win even if globals are registered later.
+Callbacks within a layer run in registration order. Storage names identify named
+options; unkeyed factories use `Options.DefaultName`. Options are freshly created,
+then the grain callback runs, and the result is copied and validated before the
+factory receives it.
+
+Direct `[PersistentState] IStateManager<T>` injection inherits global and factory
+settings. Use explicit synchronous or asynchronous registration for a grain-local
+override. The async callback comes before `cancellationToken`.
+
+Direct construction accepts `recoveryPolicy` and optional `grainContext` after
+`configureState`; it does not implicitly resolve silo configuration. Without a
+context the manager still fences, but cannot request deactivation. Its owner must
+reload durable storage **before constructing a replacement**; simply wrapping the
+same facet again could adopt the failed write candidate. Journaling preview APIs
+and their recovery behavior are unchanged.
 
 ### State manager lifecycle hooks
 
@@ -248,6 +356,9 @@ captured at its start, including if a handler reconfigures the manager.
 | Successful clear or recovery confirming a lost clear response | `Clear`, with a fresh default |
 | Failed mutation followed by a successful recovery adopting storage state | `Read`, then the original storage error |
 | Direct `State` assignment, no-op save, classified non-persistence, or failed recovery | None |
+
+The recovery notifications below apply only to `ReadBack`; fencing skips adoption
+and lifecycle handlers for the failed mutation.
 
 An optimistic concurrency conflict is still reported even when recovery happens
 to match the attempted change; its recovery notification is `Read`. Recovery
@@ -403,8 +514,9 @@ public override async Task OnDeactivateAsync(DeactivationReason reason, Cancella
 The library does not do this for you. A lifecycle observer never receives the
 `DeactivationReason`, so it could not tell an idle deactivation from a silo
 shutdown or a failure, and the stop token is routinely already cancelled by then.
-Calling `SaveChangesAsync` unconditionally is safe: with nothing outstanding it does
-not reach storage and does not observe the cancellation token. With unsaved changes
+Calling `SaveChangesAsync` inside the guarded cleanup is safe: a fenced manager
+rejects the save even when nothing is outstanding, and the catch lets cleanup continue.
+Otherwise, with nothing outstanding it reaches neither storage nor the cancellation token. With unsaved changes
 it does observe the token, which is why the write is guarded — an already-cancelled
 deactivation would otherwise throw out of the hook and skip the rest of it.
 
@@ -412,7 +524,8 @@ Keep it unconditional. Filtering on `DeactivationReason` is tempting, but every
 reason code you skip is a reason code that drops unsaved data, and `ShuttingDown` is
 an orderly, expected event on every deployment.
 
-Failures discard unsaved work rather than preserving it. A failed write reverts
+With fencing, failures permanently reject access and deactivation-time saves.
+With `ReadBack`, failures discard unsaved work rather than preserving it. A failed write reverts
 `State` to the last value storage confirmed and clears `HasUnsavedChanges`; a
 successful `ReadAsync` or `ClearAsync` discards it too, because storage wins. The
 marker is true only while `State` holds a value that no storage operation has
@@ -1324,6 +1437,20 @@ guaranteed; use a System.Text.Json serializer or the Orleans binary serializer.
 This package is messaging infrastructure, not an event-sourcing or CQRS framework. It wraps Orleans state, outbox dispatch, receiver deduplication, and stream subscription management while leaving domain modeling, read models, transport targets, and operational policy to the application.
 
 ## Beta API changes
+
+- **State recovery now defaults to `FenceAndDeactivate`.** To retain the previous
+  behavior, explicitly set `RecoveryPolicy = StateRecoveryPolicy.ReadBack` globally,
+  on a factory registration, or on an individual manager. Direct construction can
+  pass `recoveryPolicy: StateRecoveryPolicy.ReadBack`.
+- Custom `IStateManagerFactory.Create<T>` implementations must accept
+  `StateManagerOptions options` after `createInitialState`, then the existing optional
+  `configureState`, then `IGrainContext? grainContext = null`. Forward
+  `options.RecoveryPolicy` and `grainContext` to the manager constructor. Factories
+  remain stateless; registration resolves a fresh snapshot before invoking them.
+- `RegisterStateManagerAsync` now accepts `configure` before `cancellationToken`.
+  Change positional token arguments to `cancellationToken: token` (or supply the
+  new callback argument). Synchronous registration and factory helpers append the
+  optional callback. `IStateManager<T>` gains no members.
 
 - `RegisterOutboxProcessor` takes the outbox accessor and a `configure`
   callback instead of an `OutboxProcessorOptions<T>` instance.

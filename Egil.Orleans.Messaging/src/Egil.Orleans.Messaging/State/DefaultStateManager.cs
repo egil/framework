@@ -12,7 +12,8 @@ public sealed class DefaultStateManager<T> : StateManagerBase<T>
     where T : class, IEquatable<T>
 {
     /// <summary>
-    /// Creates a manager over the grain's persistent state facet. Recognizes
+    /// Creates a manager over the grain's persistent state facet. With
+    /// <see cref="StateRecoveryPolicy.ReadBack"/> selected, recognizes
     /// <see cref="InconsistentStateException"/> through exception wrappers as
     /// <see cref="StorageFailureKind.Conflict"/>. Other failures have an
     /// <see cref="StorageFailureKind.UnknownOutcome"/> because general providers
