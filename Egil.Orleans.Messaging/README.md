@@ -1514,7 +1514,8 @@ This package is messaging infrastructure, not an event-sourcing or CQRS framewor
   manager. Hook configuration objects are library-owned, so independent implementations
   cannot construct the callback argument themselves. Registration handles awaited
   initial notification internally; there is no public initialization method.
-  Existing `IStateManagerFactory` signatures are unchanged. Configure hooks in the constructor for injected or
+  Custom factories must accept and forward the resolved `StateManagerOptions` and
+  optional `IGrainContext` described above. Configure hooks in the constructor for injected or
   constructor-registered managers; use and await `RegisterStateManagerAsync` when
   registering with hooks in `OnActivateAsync`. Keep transient dependency wiring
   in `configureState`; move confirmed-storage effects to lifecycle hooks.
@@ -1609,7 +1610,7 @@ The constructor-registration and payload-postman changes tracked in
 - Stored envelopes expose `Id` (`OutboxMessageId`); delivery tokens are supplied to handlers by the processor.
 - Use `OutboxProcessor<TPayload>` and `OutboxProcessorOptions<TPayload>`, not envelope generic arguments.
 - Register payload subtypes with `AddPostman`, `AddStreamPostman`, and `AddGrainPostman`. Direct `AddPostman` callbacks take one, two, or three arguments. Direct and grain callbacks accept both `Task` and `ValueTask`, preferring `ValueTask` for async lambdas on C# 13+. Replace `AddPostmanWithToken` with `AddPostman`; move cancellation to the third argument and capture a grain factory rather than receiving it as a callback argument.
-- Supply state factories for types without a public parameterless constructor. Custom `IStateManagerFactory` implementations receive the initial-state factory and runtime configuration callback.
+- Supply state factories for types without a public parameterless constructor. Custom `IStateManagerFactory` implementations receive storage, the initial-state factory, resolved `StateManagerOptions`, optional runtime configuration, and optional `IGrainContext`. Forward the recovery policy and grain context to each manager.
 - Pass a tracker accessor to `RegisterStreamManager`, for example `() => state.State.Tracker`. It is evaluated when attaching/resuming subscriptions, after hydration, and observes later state replacement.
 
 Outbox messages now carry the producer's W3C traceparent:
