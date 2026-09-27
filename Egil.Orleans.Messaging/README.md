@@ -721,8 +721,9 @@ outbox. Each activation that posts redelivers the same items, stages the
 acknowledgement, and loses it again at deactivation; within that activation later
 post runs see the deferred, empty view and do nothing. Nor does it recover on a
 timer — the deferred removal empties the view the processor reconciles against, so
-local retry stops. With the default `OnRetry` reminder policy, the reminder is also
-removed, and registering a processor does not post on activation. The items sit in
+local retry stops. With the default `OnRetry` reminder policy, a locally held reminder
+is removed during deactivation if that view remains empty, and registering a processor
+does not post on activation. The items sit in
 storage until a fresh activation reads them back and something posts again.
 `KeepRegistered` retains the reminder, allowing a later tick on a fresh activation
 to discover the durable items; ticks on the existing activation still see the
@@ -753,7 +754,7 @@ scheduling settings:
 |--------------------------------------|----------------------------|-----------------------------------------------------------------|
 | `ProcessingTimeout`                  | 20 seconds                 | Maximum time per post run.                                      |
 | `RetryDelay`                         | 2 minutes                  | Delay before retrying pending items. Reminders use >= 1 minute. |
-| `ReminderPolicy`                     | `OnRetry`                  | Create on retry and remove after draining, or use `KeepRegistered` to establish on the first post and retain across batches. |
+| `ReminderPolicy`                     | `OnRetry`                  | Establish on retry and remove a locally held reminder during empty deactivation, or use `KeepRegistered` to establish before the first post and retain across activations. |
 | `Interleave`                         | `true`                     | Let other grain calls run while postmen await.                  |
 | `InterleaveAcknowledgementCallbacks` | `false`                    | Let the acknowledgement callbacks interleave.                   |
 | `KeepAlive`                          | `false`                    | Keep the activation alive while items are pending.              |
@@ -808,11 +809,13 @@ compared for equality, not order, and do not change message IDs or delivery toke
 If a post run fails before acknowledgement completes — for example when the
 run exceeds `ProcessingTimeout` or an acknowledgement callback throws — the
 processor attempts to arm its retry timer and durable reminder before rethrowing.
-With the default `OutboxReminderPolicy.OnRetry`, successful initial posts do not
-register a reminder: `PostInBackgroundAsync` schedules an in-memory grain timer
-only, and the reminder is registered when a run fails or leaves items pending.
-It is removed when the outbox drains. An empty drain can also perform a one-time
-lookup for a reminder inherited from a previous activation.
+With the default `OutboxReminderPolicy.OnRetry`, successful initial posts make no
+reminder API calls: `PostInBackgroundAsync` schedules an in-memory grain timer
+only. A failed or incomplete run establishes a reminder if none is known. The
+processor reuses that reminder across retries and later batches. Empty drains
+stop local retry timers without removing the reminder. During deactivation, an
+empty outbox removes the reminder only if this activation holds its registration
+handle; pending work keeps its durable wakeup.
 
 To retain a reminder across batches, configure this once for the silo or in a
 grain's `RegisterOutboxProcessor` callback:
@@ -821,27 +824,34 @@ grain's `RegisterOutboxProcessor` callback:
 options.ReminderPolicy = OutboxReminderPolicy.KeepRegistered;
 ```
 
-With `KeepRegistered`, both `PostAsync` and `PostInBackgroundAsync` await reminder
-registration before dispatching or scheduling, including when the outbox is
-empty. Subsequent calls reuse the reminder, and a fresh activation looks up and
-reuses the existing registration without rewriting it. Its original period is
-retained even if `RetryDelay` changes in a later activation. Empty outboxes stop
-local timers but keep the reminder, so idle grains continue receiving reminder
-ticks. Registration errors fail the post call; a later post can retry registration.
+With `KeepRegistered`, both `PostAsync` and `PostInBackgroundAsync` establish a
+reminder before dispatching or scheduling, including when the outbox is empty.
+Once known, the reminder is reused across posts and retained during deactivation.
+Registration errors fail the post call; a later post can retry registration.
+
+Neither policy looks up reminders. A successful registration or matching reminder
+tick establishes existence for the activation. Until then, a required registration
+uses one direct upsert with the current `RetryDelay` (clamped to at least one
+minute). This can reset an inherited reminder's due time and period. Overlapping
+calls share an in-progress registration, and a tick can establish existence even
+after a registration response was lost. Empty ticks make no reminder API calls.
 
 Registering the processor itself does not establish the reminder. A crash between
 persisting the first batch and the first post can still leave work without a
 durable wakeup. If that gap must be closed, await an empty post before the first
 business write. Once established, the retained reminder also covers later batches
 whose state write succeeds but whose explicit post never runs. Returning to
-`OnRetry` on a later activation removes the inherited reminder when the processor
-next observes an empty outbox.
+`OnRetry` on a later activation does not discover or remove an inherited reminder
+without a locally held handle. Such a reminder can remain registered indefinitely,
+including when the outbox is empty.
 
 With either policy, orderly deactivation checks for pending outbox entries and
 attempts to establish a reminder if none is known. This includes work persisted
-without posting and retries whose earlier reminder registration failed. Existing
-reminders are reused without another registration write; empty outboxes do not
-create reminders. The attempt respects Orleans' deactivation cancellation token.
+without posting and retries whose earlier reminder registration failed. A known
+registration or tick avoids another write; otherwise one direct upsert establishes
+the wakeup without a preceding lookup. An in-progress registration is awaited
+before deciding whether a write or removal is needed. Empty outboxes do not create
+reminders. The attempt respects Orleans' deactivation cancellation token.
 An abrupt silo crash can bypass this safeguard, and reminder storage can still
 fail or time out during shutdown.
 
@@ -851,6 +861,10 @@ structured `GrainId`, `GrainType`, and `ReminderName` properties. Use the grain 
 to identify work that may need manual reactivation and an explicit post through
 the application's grain API. The warning does not block deactivation or claim
 that an interrupted registration definitely failed to reach storage.
+
+Failed removal of an idle `OnRetry` reminder instead emits
+`OutboxDeactivationReminderRemovalFailed`. Deactivation continues, and the
+reminder may keep firing; this warning does not indicate stranded pending work.
 
 Background outbox postage allows unrelated grain calls to continue while
 postmen await I/O by default. `IPostman<T>` services should be state-free with
@@ -1643,6 +1657,14 @@ guaranteed; use a System.Text.Json serializer or the Orleans binary serializer.
 This package is messaging infrastructure, not an event-sourcing or CQRS framework. It wraps Orleans state, outbox dispatch, receiver deduplication, and stream subscription management while leaving domain modeling, read models, transport targets, and operational policy to the application.
 
 ## Beta API changes
+
+- **Outbox reminder calls are reduced under both policies.** Neither policy looks
+  up reminders, and retries and batches reuse a registration or matching tick.
+  `OnRetry` now removes locally held reminders only during empty deactivation.
+  Inherited reminders without a local handle can continue firing indefinitely.
+  `KeepRegistered` can reset an inherited reminder's schedule to the current
+  `RetryDelay` when posting before its first tick. No call-site changes are required;
+  update expectations that relied on immediate cleanup or preserved cadence.
 
 - If `RegisterOutboxProcessor` runs in `OnActivateAsync` or a grain method, add
   `siloBuilder.ConfigureOutboxProcessor()` to host setup (an existing options

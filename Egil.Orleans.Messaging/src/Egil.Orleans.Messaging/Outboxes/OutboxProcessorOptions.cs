@@ -58,8 +58,8 @@ public class OutboxProcessorOptions
     public TimeSpan RetryDelay { get; set; } = TimeSpan.FromMinutes(2);
 
     /// <summary>
-    /// When to create the durable reminder and whether to retain it after the
-    /// outbox drains. Default: <see cref="OutboxReminderPolicy.OnRetry"/>.
+    /// When to establish the durable reminder and whether to retain it during
+    /// deactivation with an empty outbox. Default: <see cref="OutboxReminderPolicy.OnRetry"/>.
     /// </summary>
     public OutboxReminderPolicy ReminderPolicy { get; set; } = OutboxReminderPolicy.OnRetry;
 

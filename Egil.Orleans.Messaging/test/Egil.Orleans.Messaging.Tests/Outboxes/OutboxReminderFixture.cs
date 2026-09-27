@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Orleans.TestingHost;
+using Orleans.Timers;
 
 namespace Egil.Orleans.Messaging.Tests.Outboxes;
 
@@ -10,11 +11,14 @@ public sealed class OutboxReminderFixture : IAsyncLifetime
     private InProcessTestCluster cluster = null!;
     public bool ConfigureLifecycle { get; init; } = true;
     public FakeOutboxLogProvider Logs { get; } = new();
+    public OutboxDeactivationProbe Deactivations { get; } = new();
 
     public TGrain GetUniqueGrain<TGrain>() where TGrain : IGrainWithGuidKey =>
         cluster.Client.GetGrain<TGrain>(Guid.NewGuid());
     public FakeFailingReminderTable Reminders =>
         cluster.Silos.Single().ServiceProvider.GetRequiredService<FakeFailingReminderTable>();
+    public RecordingReminderRegistry ReminderApi =>
+        cluster.Silos.Single().ServiceProvider.GetRequiredService<RecordingReminderRegistry>();
 
     public async ValueTask InitializeAsync()
     {
@@ -32,6 +36,7 @@ public sealed class OutboxReminderFixture : IAsyncLifetime
             silo.ConfigureServices(services =>
             {
                 services.AddLogging(logging => logging.AddProvider(Logs));
+                services.AddSingleton(Deactivations);
                 // Keep Orleans' real reminder service and table. Only the table's
                 // write boundary rejects selected grains to model a storage outage.
                 var registration = services.Single(service => service.ServiceType == typeof(IReminderTable));
@@ -41,6 +46,16 @@ public sealed class OutboxReminderFixture : IAsyncLifetime
                         ?? registration.ImplementationFactory?.Invoke(provider)
                         ?? ActivatorUtilities.CreateInstance(provider, registration.ImplementationType!))));
                 services.AddSingleton<IReminderTable>(provider => provider.GetRequiredService<FakeFailingReminderTable>());
+
+                // Observe processor API calls, not the service's own table scans or
+                // the test's storage reads. Keep the actual reminder service running.
+                var registry = services.Single(service => service.ServiceType == typeof(IReminderRegistry));
+                services.Remove(registry);
+                services.AddSingleton(provider => new RecordingReminderRegistry(
+                    (IReminderRegistry)(registry.ImplementationInstance
+                        ?? registry.ImplementationFactory?.Invoke(provider)
+                        ?? ActivatorUtilities.CreateInstance(provider, registry.ImplementationType!))));
+                services.AddSingleton<IReminderRegistry>(provider => provider.GetRequiredService<RecordingReminderRegistry>());
             });
         });
         cluster = builder.Build();
