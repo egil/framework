@@ -81,6 +81,18 @@ public sealed record OutboxWarning(EventId EventId, string Message, Exception? E
 public sealed class FakeFailingReminderTable(IReminderTable inner) : IReminderTable
 {
     private readonly ConcurrentDictionary<GrainId, int> rejected = new();
+    private readonly ConcurrentDictionary<GrainId, ReminderWriteGate> held = new();
+
+    public ReminderWriteGate HoldWrites(GrainId grainId)
+    {
+        var gate = new ReminderWriteGate();
+        if (!held.TryAdd(grainId, gate))
+        {
+            throw new InvalidOperationException("Reminder writes are already held for this grain.");
+        }
+
+        return gate;
+    }
 
     public void RejectWrites(GrainId grainId) => rejected.TryAdd(grainId, 0);
     public void AllowWrites(GrainId grainId) => rejected.TryRemove(grainId, out _);
@@ -95,14 +107,39 @@ public sealed class FakeFailingReminderTable(IReminderTable inner) : IReminderTa
     public Task<bool> RemoveRow(GrainId grainId, string reminderName, string eTag) => inner.RemoveRow(grainId, reminderName, eTag);
     public Task TestOnlyClearTable() => inner.TestOnlyClearTable();
 
-    public Task<string?> UpsertRow(ReminderEntry entry)
+    public async Task<string?> UpsertRow(ReminderEntry entry)
     {
+        if (held.TryGetValue(entry.GrainId, out var gate))
+        {
+            await gate.EnterAsync();
+        }
+
         if (rejected.TryGetValue(entry.GrainId, out var count))
         {
             rejected[entry.GrainId] = count + 1;
             throw new InvalidOperationException("Reminder storage is unavailable.");
         }
 
-        return inner.UpsertRow(entry);
+        return await inner.UpsertRow(entry);
     }
+}
+
+public sealed class ReminderWriteGate : IDisposable
+{
+    private readonly TaskCompletionSource entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource released = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private int attempts;
+
+    public Task Entered => entered.Task;
+    public int Attempts => Volatile.Read(ref attempts);
+
+    public Task EnterAsync()
+    {
+        Interlocked.Increment(ref attempts);
+        entered.TrySetResult();
+        return released.Task;
+    }
+
+    public void Release() => released.TrySetResult();
+    public void Dispose() => Release();
 }

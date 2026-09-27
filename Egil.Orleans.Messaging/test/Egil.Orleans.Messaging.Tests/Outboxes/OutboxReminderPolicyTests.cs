@@ -269,6 +269,43 @@ public sealed class OutboxReminderPolicyTests(OutboxReminderFixture fixture)
         Assert.Contains("ConfigureOutboxProcessor()", error.Message, StringComparison.Ordinal);
         Assert.Contains("constructor", error.Message, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public async Task Cancellation_during_reminder_registration_cancels_the_background_post()
+    {
+        var grain = fixture.GetUniqueGrain<IOutboxReminderPolicyGrain>();
+        await grain.PersistAsync("pending");
+        using var writes = fixture.Reminders.HoldWrites(grain.GetGrainId());
+        var post = grain.PostWithCancellationAsync();
+        await writes.Entered.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        await grain.CancelPostAsync();
+        writes.Release();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => post);
+        Assert.NotNull(await grain.GetReminderVersionAsync());
+        Assert.Equal(1, (await grain.ObserveAsync()).Pending);
+        await grain.PostAsync(inBackground: false);
+        Assert.Equal(0, (await grain.ObserveAsync()).Pending);
+        Assert.Equal(1, writes.Attempts);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Overlapping_posts_share_the_initial_reminder_registration(bool firstInBackground)
+    {
+        var grain = fixture.GetUniqueGrain<IOutboxReminderPolicyGrain>();
+        using var writes = fixture.Reminders.HoldWrites(grain.GetGrainId());
+
+        var posts = grain.PostConcurrentlyAsync(firstInBackground);
+        await writes.Entered.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        writes.Release();
+        await posts.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, writes.Attempts);
+        Assert.NotNull(await grain.GetReminderVersionAsync());
+    }
 }
 
 public interface IConstructorOutboxReminderGrain : IGrainWithGuidKey
@@ -311,6 +348,9 @@ public interface IOutboxReminderPolicyGrain : IGrainWithGuidKey
     Task<OutboxReminderObservation> ObserveAsync();
     Task DeactivateAsync();
     Task RejectDeliveryAsync();
+    Task PostWithCancellationAsync();
+    [AlwaysInterleave] Task CancelPostAsync();
+    Task PostConcurrentlyAsync(bool firstInBackground);
     [AlwaysInterleave] Task WaitForDeliveryAsync();
 }
 
@@ -338,6 +378,7 @@ public sealed class OutboxReminderPolicyGrain(
     private readonly TaskCompletionSource delivery = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private OutboxProcessor<string>? processor;
     private bool rejectDelivery;
+    private CancellationTokenSource? postCancellation;
 
     private OutboxProcessor<string> Processor => processor!;
 
@@ -367,6 +408,31 @@ public sealed class OutboxReminderPolicyGrain(
     public Task PostAsync(bool inBackground) => inBackground
         ? Processor.PostInBackgroundAsync().AsTask()
         : Processor.PostAsync().AsTask();
+
+    public async Task PostWithCancellationAsync()
+    {
+        using var cancellation = new CancellationTokenSource();
+        postCancellation = cancellation;
+        try
+        {
+            await Processor.PostInBackgroundAsync(cancellation.Token);
+        }
+        finally
+        {
+            postCancellation = null;
+        }
+    }
+
+    public Task CancelPostAsync() => postCancellation!.CancelAsync();
+
+    public Task PostConcurrentlyAsync(bool firstInBackground)
+    {
+        // Both calls begin on the activation scheduler while the first reminder
+        // write is held at the storage boundary, forcing their awaits to overlap.
+        var first = PostAsync(firstInBackground);
+        var second = PostAsync(inBackground: true);
+        return Task.WhenAll(first, second);
+    }
 
     public Task DeliverReminderAsync()
     {
