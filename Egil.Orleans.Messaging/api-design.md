@@ -681,7 +681,9 @@ overloads that take no `createInitialState` resolve an absent record through
 
 Register a keyed `IStateManagerFactory` with `AddDefaultStateManager`,
 `AddAzureStorageStateManager`, or `AddStateManagerFactory`. Its `Create<T>` method
-receives storage, the default factory, and optional runtime configuration.
+receives storage, the initial-state factory, resolved `StateManagerOptions`, optional
+runtime configuration, and optional `IGrainContext`. Forward `options.RecoveryPolicy`
+and `grainContext` to the manager constructor; each manager captures its own settings.
 
 ### Injecting the manager as a facet
 
