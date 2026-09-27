@@ -24,7 +24,7 @@ public sealed class OutboxStreamRetryTests(MessagingTestClusterFixture fixture) 
         await source.ReleaseAcknowledgementAsync();
         var firstActivation = await publishing;
 
-        var retryActivation = await source.RetryAsync();
+        var retryActivation = await RetryAfterStorageFailureAsync(source);
 
         Assert.NotEqual(firstActivation, retryActivation);
         await fixture.WaitForAssertionAsync(receiver, async () =>
@@ -56,7 +56,7 @@ public sealed class OutboxStreamRetryTests(MessagingTestClusterFixture fixture) 
         await source.ReleaseAcknowledgementAsync();
         var originalActivation = await publishing;
 
-        Assert.NotEqual(originalActivation, await source.RetryAsync());
+        Assert.NotEqual(originalActivation, await RetryAfterStorageFailureAsync(source));
 
         await fixture.WaitForAssertionAsync(receiver, async () =>
             Assert.Equal(4, (await receiver.ReadAsync()).Attempts), ct: TestContext.Current.CancellationToken);
@@ -85,6 +85,20 @@ public sealed class OutboxStreamRetryTests(MessagingTestClusterFixture fixture) 
             Assert.Equal(1, (await receiver.ReadAsync()).Effects), ct: TestContext.Current.CancellationToken);
         await receiver.DeactivateAsync();
         Assert.Equal(1, (await receiver.ReadAsync()).Effects);
+    }
+
+    private static async Task<Guid> RetryAfterStorageFailureAsync(IStreamRetrySource source)
+    {
+        try
+        {
+            return await source.RetryAsync();
+        }
+        catch (InvalidOperationException error) when (error.Message == "Injected state write failure.")
+        {
+            // A retry queued during failed-ack deactivation is rejected before it executes.
+            // The replacement activation must perform the actual outbox retry.
+            return await source.RetryAsync();
+        }
     }
 
     private static async Task<Guid> ActivationAfterStorageFailureAsync(IStreamRetryReceiver receiver)
