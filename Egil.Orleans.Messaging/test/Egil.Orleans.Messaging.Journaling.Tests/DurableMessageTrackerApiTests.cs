@@ -32,7 +32,7 @@ public sealed class DurableMessageTrackerApiTests(JournalingPrototypeFixture fix
         Assert.Null(original.LatestStream("legacy"));
         Assert.NotSame(original, tracker.AsImmutable());
         Assert.Equal(legacyToken, tracker.LatestStreamSequenceToken("legacy"));
-        Assert.Equal(tracker.LatestStream("legacy"), tracker.LatestStream(StreamId.Create("legacy", "unused-key")));
+        Assert.Null(tracker.LatestStream(StreamId.Create("legacy", "unused-key")));
         Assert.Equal(legacyToken, tracker.LatestStreamSequenceToken("any-provider", "legacy"));
         Assert.Equal(providerToken, tracker.LatestStream("provider-a", "orders")?.Token);
         Assert.Equal(cursor, tracker.LatestStream("provider-b", "orders"));
@@ -75,8 +75,8 @@ public sealed class DurableMessageTrackerApiTests(JournalingPrototypeFixture fix
         var clock = new ManualTimeProvider(ReceivedAt);
         await using var session = await fixture.NewSessionAsync(time: clock);
         var tracker = session.Tracker;
-        Assert.True(tracker.TryAcceptMessage("provider-a", "orders", new EventSequenceToken(5)));
-        Assert.True(tracker.TryAcceptMessage("provider-b", "orders", new EventSequenceToken(8)));
+        Assert.True(tracker.TryAcceptMessage(new StreamCursor("orders", new EventSequenceToken(5), "provider-a") { StreamId = StreamId.Create("orders", "one") }));
+        Assert.True(tracker.TryAcceptMessage(new StreamCursor("orders", new EventSequenceToken(8), "provider-b") { StreamId = StreamId.Create("orders", "one") }));
         Assert.True(tracker.TryAcceptMessage("payments", new EventSequenceToken(2)));
         Assert.True(tracker.TryAcceptMessage(Token("sender-a")));
         Assert.True(tracker.TryAcceptMessage(Token("sender-b")));
@@ -112,7 +112,7 @@ public sealed class DurableMessageTrackerApiTests(JournalingPrototypeFixture fix
             EvictionScope.Streams => tracker.EvictStreams(cutoff),
             EvictionScope.Outboxes => tracker.EvictOutboxes(cutoff),
             EvictionScope.Namespace => tracker.Evict("orders", cutoff),
-            EvictionScope.StreamId => tracker.Evict(StreamId.Create("orders", "unused-key"), cutoff),
+            EvictionScope.StreamId => tracker.Evict(StreamId.Create("orders", "one"), cutoff),
             EvictionScope.Sender => tracker.Evict(Token("sender-a").Sender, cutoff),
             _ => throw new ArgumentOutOfRangeException(nameof(scope))
         };

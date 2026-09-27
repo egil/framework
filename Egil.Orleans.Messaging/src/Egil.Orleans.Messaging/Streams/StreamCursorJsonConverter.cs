@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Egil.Orleans.Messaging.Outboxes;
 using Orleans.Streams;
 
 namespace Egil.Orleans.Messaging.Streams;
@@ -47,18 +48,24 @@ internal sealed class StreamCursorJsonConverter : JsonConverter<StreamCursor>
         var hasToken = false;
         string? providerName = null;
         var hasProviderName = false;
+        StreamId? streamId = null;
+        OutboxSequenceToken? identity = null;
+        var hasStreamId = false;
+        var hasIdentity = false;
         while (reader.Read())
         {
             if (reader.TokenType is JsonTokenType.EndObject)
             {
-                return new StreamCursor(
+                var result = new StreamCursor(
                     hasStreamNamespace
                         ? streamNamespace!
                         : throw new JsonException($"Missing StreamCursor property '{nameof(StreamCursor.StreamNamespace)}'."),
                     hasToken
                         ? token
                         : throw new JsonException($"Missing StreamCursor property '{nameof(StreamCursor.Token)}'."),
-                    providerName);
+                    providerName) { StreamId = streamId, OutboxToken = identity };
+                result.ValidateSource();
+                return result;
             }
 
             if (reader.TokenType is not JsonTokenType.PropertyName)
@@ -107,6 +114,16 @@ internal sealed class StreamCursorJsonConverter : JsonConverter<StreamCursor>
                         : reader.GetString();
                     hasProviderName = true;
                     break;
+                case nameof(StreamCursor.StreamId):
+                    ThrowIfDuplicate(hasStreamId, nameof(StreamCursor.StreamId));
+                    streamId = JsonSerializer.Deserialize<StreamIdJsonModel>(ref reader, options)?.ToStreamId();
+                    hasStreamId = true;
+                    break;
+                case nameof(StreamCursor.OutboxToken):
+                    ThrowIfDuplicate(hasIdentity, nameof(StreamCursor.OutboxToken));
+                    identity = JsonSerializer.Deserialize<OutboxSequenceToken>(ref reader, options);
+                    hasIdentity = true;
+                    break;
                 default:
                     reader.Skip();
                     break;
@@ -119,6 +136,7 @@ internal sealed class StreamCursorJsonConverter : JsonConverter<StreamCursor>
     /// <inheritdoc/>
     public override void Write(Utf8JsonWriter writer, StreamCursor value, JsonSerializerOptions options)
     {
+        value.ValidateSource();
         writer.WriteStartObject();
         writer.WriteString(nameof(StreamCursor.StreamNamespace), value.StreamNamespace);
         writer.WritePropertyName(nameof(StreamCursor.Token));
@@ -136,6 +154,16 @@ internal sealed class StreamCursorJsonConverter : JsonConverter<StreamCursor>
             writer.WriteString(nameof(StreamCursor.ProviderName), value.ProviderName);
         }
 
+        if (value.StreamId is { } id)
+        {
+            writer.WritePropertyName(nameof(StreamCursor.StreamId));
+            JsonSerializer.Serialize(writer, StreamIdJsonModel.From(id), options);
+        }
+        if (value.OutboxToken is { } identity)
+        {
+            writer.WritePropertyName(nameof(StreamCursor.OutboxToken));
+            JsonSerializer.Serialize(writer, identity, options);
+        }
         writer.WriteEndObject();
     }
 

@@ -43,7 +43,7 @@ public sealed class StreamManagerServiceCollectionExtensionsTests
         builder.ConfigureStreamManager(options => options.UseTrackedResumeToken = false);
         var factory = builder.Services.BuildServiceProvider().GetRequiredService<IOptionsFactory<StreamSubscriptionOptions>>();
         var tracker = new MessageTracker();
-        tracker.TryAcceptMessage(new StreamCursor("orders", new EventSequenceToken(7), "provider-a"), out tracker);
+        tracker.TryAcceptMessage(new StreamCursor("orders", new EventSequenceToken(7), "provider-a") { StreamId = StreamId.Create("orders", "one") }, out tracker);
         var stream = new StreamManagerResumeTests.FakeStream<string>("provider-a", StreamId.Create("orders", "one"));
         var manager = StreamManagerResumeTests.CreateManager(
             () => tracker, stream, createDefaultOptions: () => factory.Create(Options.DefaultName));

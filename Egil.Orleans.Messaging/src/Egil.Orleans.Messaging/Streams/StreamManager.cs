@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Egil.Orleans.Messaging.Tracking;
+using Egil.Orleans.Messaging.Outboxes;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -383,13 +384,13 @@ public sealed class StreamManager : IStreamManagerComponent
         {
             var observer = new StreamObserver<TEvent>(
                 this,
-                streamNamespace,
+                handleFactory.StreamId,
                 handleFactory.ProviderName,
                 onNextAsync,
                 settings);
             var handle = await handleFactory.Create<TEvent>().ResumeAsync(
                 observer,
-                GetResumeToken(handleFactory.ProviderName, streamNamespace, settings.UseTrackedResumeToken));
+                GetResumeToken(handleFactory.ProviderName, handleFactory.StreamId, settings.UseTrackedResumeToken));
 
             subscriptionHandles.Add(handle);
             MessagingTelemetry.RecordStreamSubscription(streamNamespace, "established");
@@ -422,13 +423,13 @@ public sealed class StreamManager : IStreamManagerComponent
             {
                 var observer = new StreamObserver<TEvent>(
                     this,
-                    streamNamespace,
+                    streamId,
                     streamProviderName,
                     onNextAsync,
                     settings);
                 var handle = await stream.SubscribeAsync(
                     observer,
-                    GetResumeToken(streamProviderName, streamNamespace, settings.UseTrackedResumeToken),
+                    GetResumeToken(streamProviderName, streamId, settings.UseTrackedResumeToken),
                     filterData: null);
 
                 subscriptionHandles.Add(handle);
@@ -442,13 +443,13 @@ public sealed class StreamManager : IStreamManagerComponent
 
                 var observer = new StreamObserver<TEvent>(
                     this,
-                    streamNamespace,
+                    streamId,
                     handle.ProviderName,
                     onNextAsync,
                     settings);
                 var resumedHandle = await handle.ResumeAsync(
                     observer,
-                    GetResumeToken(handle.ProviderName, streamNamespace, settings.UseTrackedResumeToken));
+                    GetResumeToken(handle.ProviderName, streamId, settings.UseTrackedResumeToken));
 
                 subscriptionHandles.Add(resumedHandle);
                 MessagingTelemetry.RecordStreamSubscription(streamNamespace, "established");
@@ -476,7 +477,7 @@ public sealed class StreamManager : IStreamManagerComponent
 
     private StreamSequenceToken? GetResumeToken(
         string? streamProviderName,
-        string streamNamespace,
+        StreamId streamId,
         bool useTrackedResumeToken)
     {
         if (!useTrackedResumeToken)
@@ -488,21 +489,56 @@ public sealed class StreamManager : IStreamManagerComponent
         // the tracker instance captured during grain construction.
         var trackerSnapshot = getTracker?.Invoke();
         var cursor = string.IsNullOrWhiteSpace(streamProviderName)
-            ? trackerSnapshot?.LatestStream(streamNamespace)
-            : trackerSnapshot?.LatestStream(streamProviderName, streamNamespace);
+            ? trackerSnapshot?.LatestStream(streamId)
+            : trackerSnapshot?.LatestStream(streamProviderName, streamId);
+        if (cursor is null && trackerSnapshot?.HasLegacyStream(streamProviderName, streamId.GetNamespace()!) == true)
+            throw new InvalidOperationException($"Legacy namespace-only checkpoint for '{streamId}' requires migration. Explicitly rebind the known source with TryAcceptMessage(legacy with {{ StreamId = streamId, ProviderName = providerName }}, out next), persist it, and then attach subscriptions; otherwise establish a deliberate replay baseline.");
 
         return cursor?.Token;
     }
 
     private async Task OnNextAsync<TEvent>(
-        string streamNamespace,
+        StreamId streamId,
         string? providerName,
         TEvent item,
         StreamSequenceToken? token,
         Func<TEvent, StreamCursor, ValueTask> onNextAsync,
         SubscriptionSettings settings)
     {
-        var cursor = new StreamCursor(streamNamespace, token, providerName);
+        OutboxSequenceToken? identity;
+        try
+        {
+            // Decode before the business-handler catch: corrupt identity must fault the observer task.
+            identity = OutboxStreamContext.Read();
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Invalid outbox identity for stream {StreamId} from provider {ProviderName}.", streamId, providerName);
+            throw;
+        }
+        var hadIdentity = RequestContext.Keys.Contains(OutboxStreamContext.Key);
+        var previous = RequestContext.Get(OutboxStreamContext.Key);
+        RequestContext.Remove(OutboxStreamContext.Key);
+        try
+        {
+            await InvokeHandlerAsync(streamId, providerName, item, token, identity, onNextAsync, settings);
+        }
+        finally
+        {
+            // Application publications and RPCs must not inherit this delivered item's logical identity.
+            if (hadIdentity)
+                RequestContext.Set(OutboxStreamContext.Key, previous!);
+            else
+                RequestContext.Remove(OutboxStreamContext.Key);
+        }
+    }
+
+    private async Task InvokeHandlerAsync<TEvent>(StreamId streamId, string? providerName, TEvent item,
+        StreamSequenceToken? token, OutboxSequenceToken? identity,
+        Func<TEvent, StreamCursor, ValueTask> onNextAsync, SubscriptionSettings settings)
+    {
+        var streamNamespace = streamId.GetNamespace()!;
+        var cursor = new StreamCursor(streamNamespace, token, providerName) { StreamId = streamId, OutboxToken = identity };
         var started = Stopwatch.GetTimestamp();
 
         var ambient = Activity.Current;
@@ -714,17 +750,17 @@ public sealed class StreamManager : IStreamManagerComponent
 
     private sealed class StreamObserver<TEvent>(
         StreamManager manager,
-        string streamNamespace,
+        StreamId streamId,
         string? providerName,
         Func<TEvent, StreamCursor, ValueTask> onNextAsync,
         SubscriptionSettings settings)
         : IAsyncObserver<TEvent>
     {
         public Task OnNextAsync(TEvent item, StreamSequenceToken? token = null) =>
-            manager.OnNextAsync(streamNamespace, providerName, item, token, onNextAsync, settings);
+            manager.OnNextAsync(streamId, providerName, item, token, onNextAsync, settings);
 
         public Task OnCompletedAsync() => Task.CompletedTask;
 
-        public Task OnErrorAsync(Exception ex) => manager.OnErrorAsync(streamNamespace, ex, settings.OnError);
+        public Task OnErrorAsync(Exception ex) => manager.OnErrorAsync(streamId.GetNamespace()!, ex, settings.OnError);
     }
 }

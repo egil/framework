@@ -47,6 +47,7 @@ public sealed class MessagingTestClusterFixture : IAsyncLifetime, IGrainActivity
                     (provider, _) => new RecordingStreamProvider(
                         provider.GetRequiredKeyedService<IStreamProvider>(OutboxProcessorTestProviderNames.Events)));
                 services
+                    .AddOutboxPostman<ContextBoundaryPostman>("context-free")
                     .AddOutboxPostman<KeyedOutboxProcessorSuccessPostman>(OutboxProcessorTestPostmanNames.Success)
                     .AddOutboxPostman<KeyedOutboxProcessorFailingPostman>(OutboxProcessorTestPostmanNames.Failure)
                     .AddOutboxPostman<KeyedOutboxProcessorDelayingPostman>(OutboxProcessorTestPostmanNames.Delay);
@@ -100,6 +101,8 @@ public sealed class MessagingTestClusterFixture : IAsyncLifetime, IGrainActivity
         siloBuilder.AddMemoryStreams(StreamManagerTestProviderNames.Explicit);
         siloBuilder.AddMemoryStreams(StreamManagerTestProviderNames.Implicit);
         siloBuilder.AddMemoryStreams(OutboxProcessorTestProviderNames.Events);
+        siloBuilder.ConfigureServices(services => services.Configure<global::Orleans.Configuration.StreamPullingAgentOptions>(
+            OutboxProcessorTestProviderNames.Events, options => options.BatchContainerBatchSize = 8));
     }
 
     private static void AddStreamProviders(IClientBuilder clientBuilder)

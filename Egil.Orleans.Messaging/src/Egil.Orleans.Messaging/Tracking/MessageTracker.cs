@@ -7,64 +7,28 @@ using Orleans.Streams;
 namespace Egil.Orleans.Messaging.Tracking;
 
 /// <summary>
-/// Receiver-side, persisted dedup state. Tracks the high-water position from
-/// each upstream message source so the grain can detect and reject duplicates.
+/// Immutable receiver-side deduplication state. Persist the returned snapshot with business changes.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Two source kinds:</b>
-/// <list type="bullet">
-/// <item><b>Orleans streams</b> — keyed by stream namespace within the grain,
-/// plus stream provider name when the received token exposes one; position is
-/// a <see cref="StreamCursor"/> wrapping <c>(streamNamespace, StreamSequenceToken)</c>.</item>
-/// <item><b>Outbox messages</b> — keyed by sender <see cref="GrainId"/>;
-/// position is an <see cref="OutboxSequenceToken"/>.</item>
-/// </list>
+/// Outbox-tagged stream deliveries use exact receipts scoped by provider, complete StreamId,
+/// sender, epoch, and sequence. Unseen lower sequences and earlier epochs remain eligible.
+/// Native checkpoints are separate and never move backwards. Ordinary untagged streams and
+/// explicit RPC outbox tokens retain their provider/sender high-water rules.
 /// </para>
 /// <para>
-/// <b>Sealed class, not record.</b> Consistent with <see cref="Outbox{T}"/> —
-/// avoids <c>time</c> field participating in record-synthesized equality, and
-/// prevents <c>with { ... }</c> expressions that could bypass invariants.
+/// Receipts also track deliveries with null native positions and grow until explicit eviction.
+/// Removing a receipt ends its deduplication guarantee. Duplicate rejection returns the original
+/// tracker even at a newer native position, so callers need not make checkpoint-only writes.
 /// </para>
 /// <para>
-/// <b>TryAcceptMessage semantics (streams):</b>
-/// <list type="bullet">
-/// <item><c>cursor.Token is null</c> → Accept, no tracking update.</item>
-/// <item>No prior entry → Accept, insert <c>(LastPosition = cursor, Received = now)</c>.</item>
-/// <item><c>cursor &gt; stored.LastPosition</c> → Accept, update position + received.</item>
-/// <item><c>cursor &lt;= stored.LastPosition</c> → Reject (duplicate), no change.</item>
-/// </list>
+/// Acceptance times use the instance clock from <see cref="RegisterTimeProvider"/>, then the
+/// silo-wide clock, then <see cref="TimeProvider.System"/>. Immutable updates retain the instance
+/// clock; serialization does not persist it. Eviction compares each entry's own acceptance time.
 /// </para>
 /// <para>
-/// <b>TryAcceptMessage semantics (outbox):</b>
-/// <list type="bullet">
-/// <item>No prior entry → Accept, insert.</item>
-/// <item><c>token.Epoch &gt; stored.Epoch</c> → Accept (sender reset), replace entry.</item>
-/// <item>Same epoch, <c>token.Seq &gt; stored.LastSeq</c> → Accept, update.</item>
-/// <item>Same epoch, <c>token.Seq &lt;= stored.LastSeq</c> → Reject (duplicate).</item>
-/// <item><c>token.Epoch &lt; stored.Epoch</c> → Reject (stale epoch).</item>
-/// </list>
-/// </para>
-/// <para>
-/// <b>Eviction:</b> Five overloads, one rule — remove entries where
-/// <c>entry.Received &lt;= olderThan</c>. No separate <c>Forget</c> API.
-/// <c>Evict(id, DateTimeOffset.MaxValue)</c> is the documented idiom for
-/// unconditional removal of a single source entry.
-/// </para>
-/// <para>
-/// <b>TimeProvider:</b> Non-persisted (<c>[NonSerialized]</c>,
-/// <c>[JsonIgnore]</c>, no <c>[Id]</c>). <c>Received</c> timestamps use the
-/// first clock found in this order: the instance clock set with
-/// <see cref="RegisterTimeProvider"/>, the silo-wide clock installed with
-/// <c>ConfigureMessageTracker</c> on the silo builder, then
-/// <see cref="TimeProvider.System"/>.
-/// Snapshots returned by <c>TryAcceptMessage</c> and <c>Evict</c> keep the
-/// instance clock.
-/// </para>
-/// <para>
-/// <b>Serialization:</b> Decorated with <c>[GenerateSerializer]</c> for Orleans
-/// and <c>[JsonConverter]</c> for STJ. The custom converter keeps private backing
-/// fields encapsulated.
+/// Old namespace-only checkpoints remain legacy entries. Complete-source lookup never guesses
+/// their missing keys; callers with known mappings explicitly rebind before tracked resume.
 /// </para>
 /// </remarks>
 [GenerateSerializer]
@@ -74,6 +38,11 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
 {
     [Id(0)] private readonly ImmutableDictionary<StreamSource, StreamEntry> streams;
     [Id(1)] private readonly ImmutableDictionary<GrainId, OutboxEntry> outbox;
+    [Id(2)] private readonly ImmutableDictionary<StreamMessageIdentity, DateTimeOffset>? receipts;
+
+    [JsonIgnore]
+    internal ImmutableDictionary<StreamMessageIdentity, DateTimeOffset> StreamReceipts =>
+        receipts ?? ImmutableDictionary<StreamMessageIdentity, DateTimeOffset>.Empty;
 
     // Journal replay restores entries without invoking receive-time clocks or telemetry.
     // Immutable views keep that reconstruction seam internal to the toolbox. Only the
@@ -104,8 +73,10 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
 
     internal MessageTracker(
         ImmutableDictionary<StreamSource, StreamEntry> streams,
-        ImmutableDictionary<GrainId, OutboxEntry> outbox)
+        ImmutableDictionary<GrainId, OutboxEntry> outbox,
+        ImmutableDictionary<StreamMessageIdentity, DateTimeOffset>? receipts = null)
     {
+        this.receipts = receipts;
         this.streams = streams;
         this.outbox = outbox;
     }
@@ -118,20 +89,30 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
     public void RegisterTimeProvider(TimeProvider time) => this.time = time;
 
     /// <summary>
-    /// Evaluates a stream message for acceptance. Returns <c>true</c> if the
-    /// <paramref name="cursor"/> has no token or advances past the stored high-water mark.
-    /// Tokenless messages leave tracking state unchanged.
+    /// Accepts an unseen logical stream identity, or a newer native position for an untagged delivery.
     /// </summary>
-    /// <param name="cursor">The stream cursor to evaluate.</param>
-    /// <param name="next">
-    /// When accepted, a new <see cref="MessageTracker"/> with the updated
-    /// position. Tokenless messages are accepted without advancing the position
-    /// and return <c>this</c>. Rejected messages also return <c>this</c>.
-    /// </param>
-    /// <returns><c>true</c> if accepted, including tokenless messages; <c>false</c> if duplicate or stale.</returns>
+    /// <remarks>
+    /// A tagged delivery requires complete source metadata and stores a receipt even without a native
+    /// token. Untagged tokenless deliveries leave state unchanged. Rejection returns this instance.
+    /// </remarks>
     public bool TryAcceptMessage(StreamCursor cursor, out MessageTracker next)
     {
+        ArgumentNullException.ThrowIfNull(cursor);
+        cursor.ValidateSource();
         var now = Clock.GetUtcNow();
+        if (cursor.OutboxToken is not null)
+        {
+            if (StreamReceipts.ContainsKey(StreamMessageIdentity.From(cursor)))
+            {
+                // Keep callers' early-return/atomic-write pattern. A newer native position may replay
+                // again after activation, but must not repeat the effect of a retained identity.
+                next = this;
+                return false;
+            }
+            MessagingTelemetry.RecordStreamReceiveLag(cursor, now);
+            next = RecordStreamAcceptance(cursor, now);
+            return true;
+        }
         if (cursor.Token is null)
         {
             MessagingTelemetry.RecordStreamReceiveLag(cursor, now);
@@ -255,29 +236,7 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
     public StreamCursor? LatestStream(string streamNamespace)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(streamNamespace);
-        var conventionSource = new StreamSource(streamNamespace, null);
-        if (streams.TryGetValue(conventionSource, out var entry))
-        {
-            return entry.LastPosition;
-        }
-
-        StreamCursor? result = null;
-        foreach (var item in streams)
-        {
-            if (!string.Equals(item.Key.StreamNamespace, streamNamespace, StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            if (result is not null)
-            {
-                return null;
-            }
-
-            result = item.Value.LastPosition;
-        }
-
-        return result;
+        return UniqueStream(source => source.StreamNamespace == streamNamespace);
     }
 
     /// <summary>
@@ -310,15 +269,9 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(streamProviderName);
         ArgumentException.ThrowIfNullOrWhiteSpace(streamNamespace);
-
-        if (streams.TryGetValue(new StreamSource(streamNamespace, streamProviderName), out var providerEntry))
-        {
-            return providerEntry.LastPosition;
-        }
-
-        return streams.TryGetValue(new StreamSource(streamNamespace, null), out var conventionEntry)
-            ? conventionEntry.LastPosition
-            : null;
+        if (streams.Keys.Any(source => source.ProviderName == streamProviderName && source.StreamNamespace == streamNamespace))
+            return UniqueStream(source => source.ProviderName == streamProviderName && source.StreamNamespace == streamNamespace);
+        return UniqueStream(source => source.ProviderName is null && source.StreamNamespace == streamNamespace);
     }
 
     /// <summary>
@@ -336,11 +289,39 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
         LatestStream(streamProviderName, streamNamespace)?.Token;
 
     /// <summary>
-    /// Returns the last accepted <see cref="StreamCursor"/> for the namespace
-    /// in the given <paramref name="stream"/>.
+    /// Returns the cursor for this complete <paramref name="stream"/> across providers,
+    /// or null when no checkpoint exists or more than one provider matches.
     /// </summary>
-    public StreamCursor? LatestStream(StreamId stream) =>
-        LatestStream(stream.GetNamespace() ?? throw new ArgumentException("StreamId must have a namespace.", nameof(stream)));
+    public StreamCursor? LatestStream(StreamId stream) => UniqueStream(source => source.StreamId == stream);
+
+    /// <summary>Returns the checkpoint for exactly this provider and complete stream identity.</summary>
+    public StreamCursor? LatestStream(string streamProviderName, StreamId stream)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(streamProviderName);
+        return streams.TryGetValue(new StreamSource(stream.GetNamespace()!, streamProviderName, stream), out var entry)
+            ? entry.LastPosition : null;
+    }
+
+    /// <summary>Returns the native checkpoint for exactly this provider and complete stream identity.</summary>
+    public StreamSequenceToken? LatestStreamSequenceToken(string streamProviderName, StreamId stream) => LatestStream(streamProviderName, stream)?.Token;
+
+    internal bool HasLegacyStream(string? providerName, string streamNamespace) =>
+        streams.Keys.Any(source => source.StreamId is null && source.StreamNamespace == streamNamespace
+            && (source.ProviderName is null || source.ProviderName == providerName));
+
+    private StreamCursor? UniqueStream(Func<StreamSource, bool> matches)
+    {
+        StreamCursor? result = null;
+        foreach (var item in streams)
+        {
+            if (!matches(item.Key))
+                continue;
+            if (result is not null)
+                return null;
+            result = item.Value.LastPosition;
+        }
+        return result;
+    }
 
     /// <summary>
     /// Returns the last accepted <see cref="OutboxSequenceToken"/> for the
@@ -362,72 +343,43 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
     /// Removes all entries (both stream and outbox) where
     /// <c>entry.Received &lt;= <paramref name="olderThan"/></c>.
     /// </summary>
-    public MessageTracker Evict(DateTimeOffset olderThan)
-    {
-        var newStreams = FilterByReceived(streams, olderThan, static entry => entry.Received, out var streamsChanged);
-        var newOutbox = FilterByReceived(outbox, olderThan, static entry => entry.Received, out var outboxChanged);
+    public MessageTracker Evict(DateTimeOffset olderThan) => EvictSources(static _ => true, olderThan, includeOutboxes: true);
 
-        return streamsChanged || outboxChanged
-            ? CreateTracker(newStreams, newOutbox)
-            : this;
-    }
+    /// <summary>Evicts stream checkpoints and receipts received at or before the cutoff.</summary>
+    public MessageTracker EvictStreams(DateTimeOffset olderThan) => EvictSources(static _ => true, olderThan);
 
-    /// <summary>
-    /// Removes stream entries where
-    /// <c>entry.Received &lt;= <paramref name="olderThan"/></c>.
-    /// Outbox entries are unaffected.
-    /// </summary>
-    public MessageTracker EvictStreams(DateTimeOffset olderThan)
-    {
-        var newStreams = FilterByReceived(streams, olderThan, static entry => entry.Received, out var changed);
-        return changed ? CreateTracker(newStreams, outbox) : this;
-    }
-
-    /// <summary>
-    /// Removes outbox entries where
-    /// <c>entry.Received &lt;= <paramref name="olderThan"/></c>.
-    /// Stream entries are unaffected.
-    /// </summary>
+    /// <summary>Evicts RPC sender high-water entries; stream receipts are retained.</summary>
     public MessageTracker EvictOutboxes(DateTimeOffset olderThan)
     {
-        var newOutbox = FilterByReceived(outbox, olderThan, static entry => entry.Received, out var changed);
-        return changed ? CreateTracker(streams, newOutbox) : this;
+        var remaining = FilterByReceived(outbox, olderThan, static entry => entry.Received, out var changed);
+        return changed ? CreateTracker(streams, remaining) : this;
     }
 
-    /// <summary>
-    /// Removes the entry for the given <paramref name="streamNamespace"/> if
-    /// <c>entry.Received &lt;= <paramref name="olderThan"/></c>.
-    /// Use <c>DateTimeOffset.MaxValue</c> to unconditionally remove.
-    /// </summary>
+    /// <summary>Evicts all checkpoints and receipts in this namespace across providers.</summary>
     public MessageTracker Evict(string streamNamespace, DateTimeOffset olderThan)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(streamNamespace);
-        var builder = streams.ToBuilder();
-        var changed = false;
-        foreach (var item in streams)
-        {
-            if (string.Equals(item.Key.StreamNamespace, streamNamespace, StringComparison.Ordinal)
-                && item.Value.Received <= olderThan)
-            {
-                builder.Remove(item.Key);
-                changed = true;
-            }
-        }
-
-        if (!changed)
-        {
-            return this;
-        }
-
-        return CreateTracker(builder.ToImmutable(), outbox);
+        return EvictSources(source => source.StreamNamespace == streamNamespace, olderThan);
     }
 
-    /// <summary>
-    /// Removes the entry for the namespace in the given <paramref name="stream"/>
-    /// if <c>entry.Received &lt;= <paramref name="olderThan"/></c>.
-    /// </summary>
-    public MessageTracker Evict(StreamId stream, DateTimeOffset olderThan) =>
-        Evict(stream.GetNamespace() ?? throw new ArgumentException("StreamId must have a namespace.", nameof(stream)), olderThan);
+    /// <summary>Evicts this complete stream source across providers, ending deduplication for removed receipts.</summary>
+    public MessageTracker Evict(StreamId stream, DateTimeOffset olderThan) => EvictSources(source => source.StreamId == stream, olderThan);
+
+    /// <summary>Evicts this complete stream source within one provider.</summary>
+    public MessageTracker Evict(string streamProviderName, StreamId stream, DateTimeOffset olderThan)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(streamProviderName);
+        return EvictSources(source => source.StreamId == stream && source.ProviderName == streamProviderName, olderThan);
+    }
+
+    private MessageTracker EvictSources(Func<StreamSource, bool> matches, DateTimeOffset olderThan, bool includeOutboxes = false)
+    {
+        var remainingStreams = streams.RemoveRange(streams.Where(item => matches(item.Key) && item.Value.Received <= olderThan).Select(item => item.Key));
+        var remainingReceipts = StreamReceipts.RemoveRange(StreamReceipts.Where(item => matches(item.Key.Source) && item.Value <= olderThan).Select(item => item.Key));
+        var remainingOutboxes = includeOutboxes ? FilterByReceived(outbox, olderThan, static entry => entry.Received, out _) : outbox;
+        return remainingStreams.Count == streams.Count && remainingReceipts.Count == StreamReceipts.Count && remainingOutboxes.Count == outbox.Count
+            ? this : CreateTracker(remainingStreams, remainingOutboxes, remainingReceipts);
+    }
 
     /// <summary>
     /// Removes the entry for the given outbox <paramref name="sender"/> if
@@ -452,7 +404,7 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
             return true;
         }
 
-        if (other is null || streams.Count != other.streams.Count || outbox.Count != other.outbox.Count)
+        if (other is null || streams.Count != other.streams.Count || outbox.Count != other.outbox.Count || StreamReceipts.Count != other.StreamReceipts.Count)
         {
             return false;
         }
@@ -473,6 +425,11 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
             }
         }
 
+        foreach (var item in StreamReceipts)
+        {
+            if (!other.StreamReceipts.TryGetValue(item.Key, out var received) || received != item.Value)
+                return false;
+        }
         return true;
     }
 
@@ -486,19 +443,46 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
             streams.Count,
             AggregateHash(streams),
             outbox.Count,
-            AggregateHash(outbox));
+            AggregateHash(outbox), StreamReceipts.Count, AggregateHash(StreamReceipts));
     }
 
     private MessageTracker CreateTracker(
         ImmutableDictionary<StreamSource, StreamEntry> streams,
-        ImmutableDictionary<GrainId, OutboxEntry> outbox)
+        ImmutableDictionary<GrainId, OutboxEntry> outbox,
+        ImmutableDictionary<StreamMessageIdentity, DateTimeOffset>? receipts = null)
     {
-        var next = new MessageTracker(streams, outbox)
+        var next = new MessageTracker(streams, outbox, receipts ?? StreamReceipts)
         {
             time = time
         };
 
         return next;
+    }
+
+    // Replay uses the original acceptance time without receive telemetry. A receipt is independent
+    // of provider progress: accepting an unseen older event must never move a checkpoint backwards.
+    internal MessageTracker RecordStreamAcceptance(StreamCursor cursor, DateTimeOffset received)
+    {
+        cursor.ValidateSource();
+        var source = StreamSource.From(cursor);
+        var updatedStreams = streams;
+        if (cursor.Token is not null && (!streams.TryGetValue(source, out var previous) || IsNewer(cursor.Token, previous.LastPosition.Token)))
+            updatedStreams = streams.SetItem(source, new StreamEntry(cursor, received));
+        var updatedReceipts = cursor.OutboxToken is null ? StreamReceipts : StreamReceipts.SetItem(StreamMessageIdentity.From(cursor), received);
+        return CreateTracker(updatedStreams, outbox, updatedReceipts);
+    }
+
+    // Dispatcher groups can deliver higher sequences before unseen lower ones. Timestamp and trace
+    // metadata do not identify a message; neither sender high-water marks nor full token equality is safe.
+    [GenerateSerializer]
+    internal readonly record struct StreamMessageIdentity(
+        [property: Id(0)] StreamSource Source,
+        [property: Id(1)] GrainId Sender,
+        [property: Id(2)] DateTimeOffset Epoch,
+        [property: Id(3)] long SequenceNumber)
+    {
+        public static StreamMessageIdentity From(StreamCursor cursor) =>
+            new(StreamSource.From(cursor), cursor.OutboxToken!.Sender, cursor.OutboxToken.Epoch, cursor.OutboxToken.SequenceNumber);
     }
 
     private static bool IsNewer(StreamSequenceToken? candidate, StreamSequenceToken? stored)
@@ -560,12 +544,13 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
     [GenerateSerializer]
     internal readonly record struct StreamSource(
         [property: Id(0)] string StreamNamespace,
-        [property: Id(1)] string? ProviderName)
+        [property: Id(1)] string? ProviderName,
+        [property: Id(2)] StreamId? StreamId = null)
     {
         public static StreamSource From(StreamCursor cursor) =>
             new(
                 cursor.StreamNamespace,
-                cursor.TryGetProviderName(out var providerName) ? providerName : null);
+                cursor.TryGetProviderName(out var providerName) ? providerName : null, cursor.StreamId);
     }
 
     /// <summary>

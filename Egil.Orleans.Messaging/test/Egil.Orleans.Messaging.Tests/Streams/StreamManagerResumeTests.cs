@@ -25,24 +25,23 @@ public sealed class StreamManagerResumeTests
         Assert.Same(manager, configured);
     }
 
-    [Theory]
-    [InlineData(false, 7)]
-    [InlineData(true, 9)]
-    public async Task Legacy_position_resumes_subscription_unless_provider_has_its_own_position(bool hasProviderPosition, long expectedSequence)
+    [Fact]
+    public async Task Legacy_checkpoint_requires_explicit_source_migration_before_tracked_resume()
     {
         var tracker = new MessageTracker();
         tracker.TryAcceptMessage(new StreamCursor("orders", new EventSequenceToken(7)), out tracker);
-        if (hasProviderPosition)
-        {
-            tracker.TryAcceptMessage(new StreamCursor("orders", new EventSequenceToken(9), "provider-a"), out tracker);
-        }
         var stream = new FakeStream<string>("provider-a", StreamId.Create("orders", "one"));
-        var manager = CreateManager(() => tracker, stream);
+        var manager = CreateManager(() => tracker, stream)
+            .ConfigureExplicitSubscription<string>("provider-a", "orders", static (_, _) => ValueTask.CompletedTask);
 
-        await manager.ConfigureExplicitSubscription<string>("provider-a", "orders", static (_, _) => ValueTask.CompletedTask)
-            .EnsureExplicitSubscriptionsAsync(TestContext.Current.CancellationToken);
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => manager.EnsureExplicitSubscriptionsAsync(TestContext.Current.CancellationToken));
 
-        Assert.Equal(new EventSequenceToken(expectedSequence), stream.SubscribeToken);
+        Assert.Contains("requires migration", error.Message);
+        Assert.Equal(0, stream.SubscribeCount);
+        var legacy = Assert.IsType<StreamCursor>(tracker.LatestStream("orders"));
+        Assert.True(tracker.TryAcceptMessage(legacy with { StreamId = stream.StreamId, ProviderName = "provider-a" }, out tracker));
+        await manager.EnsureExplicitSubscriptionsAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(new EventSequenceToken(7), stream.SubscribeToken);
     }
 
     [Fact]
@@ -252,7 +251,7 @@ public sealed class StreamManagerResumeTests
             new StreamCursor(
                 streamNamespace,
                 new EventSequenceToken(sequenceNumber),
-                providerName),
+                providerName) { StreamId = StreamId.Create(streamNamespace, "one") },
             out tracker);
 
         return tracker;

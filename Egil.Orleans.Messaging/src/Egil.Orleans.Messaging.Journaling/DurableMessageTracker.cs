@@ -35,6 +35,8 @@ internal sealed class DurableMessageTracker : JournaledSnapshot<MessageTracker, 
     public StreamCursor? LatestStream(string streamProviderName, string streamNamespace) => Current.LatestStream(streamProviderName, streamNamespace);
     public StreamSequenceToken? LatestStreamSequenceToken(string streamProviderName, string streamNamespace) => Current.LatestStreamSequenceToken(streamProviderName, streamNamespace);
     public StreamCursor? LatestStream(StreamId stream) => Current.LatestStream(stream);
+    public StreamCursor? LatestStream(string streamProviderName, StreamId stream) => Current.LatestStream(streamProviderName, stream);
+    public StreamSequenceToken? LatestStreamSequenceToken(string streamProviderName, StreamId stream) => Current.LatestStreamSequenceToken(streamProviderName, stream);
     public OutboxSequenceToken? LatestOutbox(GrainId sender) => Current.LatestOutbox(sender);
 
     public bool TryAcceptMessage(string streamNamespace, StreamSequenceToken? token)
@@ -98,11 +100,12 @@ internal sealed class DurableMessageTracker : JournaledSnapshot<MessageTracker, 
             return false;
         }
 
-        // Tokenless delivery is accepted by MessageTracker without changing dedup state.
+        // Identity-bearing tokenless events still have durable receipts; ordinary tokenless events do not.
         if (!ReferenceEquals(next, Current))
         {
             var source = MessageTracker.StreamSource.From(cursor);
-            Stage(next, new TrackerOperation("stream", Stream: cursor, Received: next.StreamEntries[source].Received));
+            Stage(next, new TrackerOperation("stream", Stream: cursor, Received: cursor.OutboxToken is null ? next.StreamEntries[source].Received
+                : next.StreamReceipts[MessageTracker.StreamMessageIdentity.From(cursor)]));
         }
 
         return true;
@@ -122,7 +125,10 @@ internal sealed class DurableMessageTracker : JournaledSnapshot<MessageTracker, 
             new TrackerOperation("evict-namespace", Received: olderThan, StreamNamespace: streamNamespace));
 
     public IDurableMessageTracker Evict(StreamId stream, DateTimeOffset olderThan) =>
-        Evict(stream.GetNamespace() ?? throw new ArgumentException("StreamId must have a namespace.", nameof(stream)), olderThan);
+        StageEviction(Current.Evict(stream, olderThan), new TrackerOperation("evict-stream", Received: olderThan, StreamId: StreamIdJsonModel.From(stream)));
+
+    public IDurableMessageTracker Evict(string streamProviderName, StreamId stream, DateTimeOffset olderThan) =>
+        StageEviction(Current.Evict(streamProviderName, stream, olderThan), new TrackerOperation("evict-stream", Received: olderThan, StreamId: StreamIdJsonModel.From(stream), ProviderName: streamProviderName));
 
     public IDurableMessageTracker Evict(GrainId sender, DateTimeOffset olderThan) =>
         StageEviction(Current.Evict(sender, olderThan), new TrackerOperation("evict-sender", Received: olderThan, Sender: sender));
@@ -150,10 +156,9 @@ internal sealed class DurableMessageTracker : JournaledSnapshot<MessageTracker, 
                 return operation.State ?? throw new InvalidOperationException("Missing tracker snapshot.");
             case "outbox" when operation.OutboxToken is { } token:
                 return new MessageTracker(value.StreamEntries, value.OutboxEntries.SetItem(token.Sender,
-                    new MessageTracker.OutboxEntry(token.Epoch, token.SequenceNumber, operation.Received, token.Timestamp)));
+                    new MessageTracker.OutboxEntry(token.Epoch, token.SequenceNumber, operation.Received, token.Timestamp)), value.StreamReceipts);
             case "stream" when operation.Stream is { } cursor:
-                return new MessageTracker(value.StreamEntries.SetItem(MessageTracker.StreamSource.From(cursor),
-                    new MessageTracker.StreamEntry(cursor, operation.Received)), value.OutboxEntries);
+                return value.RecordStreamAcceptance(cursor, operation.Received);
             case "evict":
                 return value.Evict(operation.Received);
             case "evict-streams":
@@ -162,6 +167,10 @@ internal sealed class DurableMessageTracker : JournaledSnapshot<MessageTracker, 
                 return value.EvictOutboxes(operation.Received);
             case "evict-namespace" when operation.StreamNamespace is { } streamNamespace:
                 return value.Evict(streamNamespace, operation.Received);
+            case "evict-stream" when operation.StreamId is { } streamId:
+                return operation.ProviderName is { } providerName
+                    ? value.Evict(providerName, streamId.ToStreamId(), operation.Received)
+                    : value.Evict(streamId.ToStreamId(), operation.Received);
             case "evict-sender" when operation.Sender is { } sender:
                 return value.Evict(sender, operation.Received);
             default:
@@ -177,4 +186,6 @@ internal sealed record TrackerOperation(
     DateTimeOffset Received = default,
     MessageTracker? State = null,
     string? StreamNamespace = null,
-    GrainId? Sender = null);
+    GrainId? Sender = null,
+    StreamIdJsonModel? StreamId = null,
+    string? ProviderName = null);

@@ -67,6 +67,11 @@ public sealed class PayloadPostmanTests(MessagingTestClusterFixture fixture)
             Assert.Equal([1L, 2L, 3L, 4L], deliveries.Select(item => item.Token.SequenceNumber).Order().ToArray());
         }, ct: TestContext.Current.CancellationToken);
         Assert.Equal(0, await source.PendingCountAsync());
+        var cursors = await sink.GetStreamCursorsAsync();
+        Assert.Equal(2, cursors.Length);
+        Assert.All(cursors, cursor => Assert.Equal(source.GetGrainId(), cursor.OutboxToken!.Sender));
+        Assert.Equal([2L, 4L], cursors.Select(cursor => cursor.OutboxToken!.SequenceNumber).Order());
+        Assert.All(cursors, cursor => Assert.Equal(StreamManager.CreateStreamId("payload-postmen", sink.GetGrainId()), cursor.StreamId));
     }
 
     [Fact]
@@ -220,18 +225,24 @@ public interface IPayloadSinkGrain : IGrainWithGuidKey
     Task EnsureActiveAsync();
     Task ReceiveAsync(PayloadDelivery delivery);
     Task<ImmutableArray<PayloadDelivery>> GetDeliveriesAsync();
+    Task<ImmutableArray<StreamCursor>> GetStreamCursorsAsync();
 }
 
 public sealed class PayloadSinkGrain : Grain, IPayloadSinkGrain
 {
     private readonly StreamManager streams;
     private ImmutableArray<PayloadDelivery> deliveries = [];
+    private ImmutableArray<StreamCursor> cursors = [];
 
     public PayloadSinkGrain()
     {
         streams = this.RegisterStreamManager()
             .ConfigureExplicitSubscription<PayloadDelivery>(OutboxProcessorTestProviderNames.Events,
-                "payload-postmen", (delivery, _) => new ValueTask(ReceiveAsync(delivery)));
+                "payload-postmen", (delivery, cursor) =>
+                {
+                    cursors = cursors.Add(cursor);
+                    return new ValueTask(ReceiveAsync(delivery));
+                });
     }
 
     public override Task OnActivateAsync(CancellationToken cancellationToken) =>
@@ -246,6 +257,7 @@ public sealed class PayloadSinkGrain : Grain, IPayloadSinkGrain
     }
 
     public Task<ImmutableArray<PayloadDelivery>> GetDeliveriesAsync() => Task.FromResult(deliveries);
+    public Task<ImmutableArray<StreamCursor>> GetStreamCursorsAsync() => Task.FromResult(cursors);
 }
 
 public interface IPartialProviderConfigurationGrain : IGrainWithGuidKey

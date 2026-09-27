@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using Egil.Orleans.Messaging.Tracking;
+using Egil.Orleans.Messaging.Outboxes;
 using Orleans.Streams;
 
 namespace Egil.Orleans.Messaging.Streams;
@@ -53,6 +54,26 @@ public sealed record StreamCursor(
     [property: Id(1)] StreamSequenceToken? Token,
     [property: Id(2)] string? ProviderName = null)
 {
+    /// <summary>The complete source identity, absent only in legacy cursors.</summary>
+    [Id(3)] public StreamId? StreamId { get; init; }
+
+    /// <summary>The logical outbox identity, independent of the provider position.</summary>
+    [Id(4)] public OutboxSequenceToken? OutboxToken { get; init; }
+
+    /// <summary>Validates complete source metadata before tracking or persisting it.</summary>
+    internal void ValidateSource()
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(StreamNamespace);
+        if (StreamId is { } id && !string.Equals(id.GetNamespace(), StreamNamespace, StringComparison.Ordinal))
+            throw new ArgumentException("StreamId namespace must agree with StreamNamespace.");
+        if (OutboxToken is { } identity)
+        {
+            if (StreamId is null || !TryGetProviderName(out _))
+                throw new ArgumentException("Outbox stream identity requires a full StreamId and provider name.");
+            OutboxStreamContext.Validate(identity);
+        }
+    }
+
     /// <summary>
     /// Attempts to extract the broker-side enqueue time from the underlying
     /// <see cref="Token"/>.
@@ -98,15 +119,15 @@ public sealed record StreamCursor(
     /// </returns>
     public bool TryGetProviderName([NotNullWhen(true)] out string? providerName)
     {
-        if (Token is IStreamSequenceTokenMetadata metadata
-            && metadata.TryGetProviderName(out providerName))
-        {
-            return true;
-        }
-
+        // Subscription metadata is authoritative even if a token retained an older adapter name.
         if (!string.IsNullOrWhiteSpace(ProviderName))
         {
             providerName = ProviderName;
+            return true;
+        }
+
+        if (Token is IStreamSequenceTokenMetadata metadata && metadata.TryGetProviderName(out providerName))
+        {
             return true;
         }
 
