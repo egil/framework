@@ -140,9 +140,13 @@ prevents all duplicate activations or replaces provider concurrency checks.
 
 Fencing records the original exception before requesting deactivation. Failure to
 request deactivation cannot replace the storage exception or undo the fence.
-Every later manager member throws `InvalidOperationException` with the original
-failure as `InnerException`: state access, `HasUnsavedChanges`, hook configuration,
-reads, writes, clears, and **even no-op saves**. A read cannot revive it, and a
+`State` and `HasUnsavedChanges` remain readable for local inspection. They retain
+the last published snapshot and its marker without adopting a failed write
+candidate or reading storage, and cannot establish the current durable state.
+State assignment, hook configuration, storage reads, writes, clears, and **even
+no-op saves** throw `StateManagerFencedException`, derived from
+`InvalidOperationException`, with the original failure as `InnerException`.
+A storage read cannot revive it, and a
 deactivation-time `SaveChangesAsync` cannot flush staged data. Handle that failure
 in deactivation cleanup just as other save failures are handled. Neither policy
 automatically retries the command, queues operations, or flushes pending changes.
@@ -234,11 +238,19 @@ also expose `ConfigureStateManager(Action<StateManagerOptions>)` and
 `StateRecoveryPolicy recoveryPolicy = StateRecoveryPolicy.FenceAndDeactivate` and
 `IGrainContext? grainContext = null` after `configureState`.
 
-Only the storage write/clear call is inside the fencing catch. Fencing branches
-before provider classification, recovery reads, and adoption callbacks. The
-original exception is recorded before requesting `ApplicationError` deactivation,
-with that exception and no operation cancellation token. A failed request cannot
-remove the fence or replace the original exception. Guards precede validation,
+Only the storage write/clear call is inside the fencing catch. Both policies call
+the existing `ClassifyWriteFailure` or `ClassifyClearFailure` once. `ReadBack` uses
+the result for reconciliation; fencing preserves it as `FailureKind` in
+`StateManagerFencedException` without recovery reads or adoption callbacks.
+If a custom classifier throws under fencing, the kind remains `UnknownOutcome`
+and the initial operation still throws its original storage exception.
+The original exception and classification are recorded before requesting
+`ApplicationError` deactivation, with that exception and no operation cancellation
+token. The description includes the full state type, operation (`WriteAsync` or
+`ClearAsync`), and classification. A failed request cannot
+remove the fence or replace the original exception. Recording failure evidence on
+the grain context is a separate best-effort step; a component access failure
+cannot suppress the deactivation request. Guards precede validation,
 callbacks, cancellation checks, and no-op saves, including through the activation
 wrapper. The existing concurrency contract and journaled-facet rejection remain.
 
@@ -249,6 +261,18 @@ retain the old behavior. Custom factories add `options` and `grainContext` to
 `Create`, forwarding `options.RecoveryPolicy` and the context to their managers.
 Positional async registration token arguments must become `cancellationToken: token`
 or include the new callback argument. `IStateManager<T>` has no new members.
+Fenced-operation exact-type checks should use `StateManagerFencedException` and its
+`FailureKind` rather than the former generic `InvalidOperationException`.
+Custom classifiers now run under either recovery policy; a classifier failure
+under fencing preserves the storage failure with `UnknownOutcome`.
+`State` and `HasUnsavedChanges` remain readable for local inspection after fencing;
+the setter, storage operations and hook configuration remain rejected. Readable
+snapshots are not evidence of the current durable state. Fencing is also recorded
+on the grain context for outbox deactivation; direct construction inside a grain
+must supply that context to participate in the recovery handoff.
+Read-only calls already admitted or interleaved before deactivation completes can
+return stale or unsaved snapshots without an exception. Consumers requiring those
+reads to fail must keep an application-level failure guard.
 See the [README migration guide](README.md#beta-api-changes).
 
 ### Goal
@@ -372,7 +396,7 @@ adopts the server value (or an absent-record default) while retaining the refres
 ETag. Equivalence can confirm a lost response only when a persisted record exists;
 a reconstructed default must never be mistaken for proof that a write landed.
 
-ReadBack behaviour matrix (fencing instead rejects all access and requests deactivation):
+ReadBack behaviour matrix (fencing instead preserves local inspection, rejects further operations and requests deactivation):
 
 | Failure                            | After `WriteAsync` returns/throws               |
 | ---------------------------------- | ------------------------------------------------ |
@@ -429,8 +453,10 @@ value there mid-write would persist the unsaved snapshot instead of the one bein
 written. A stage that interleaves a write therefore publishes to `State` only, and
 is discarded when that write completes.
 
-After fencing, both `State` and `HasUnsavedChanges` reject access, and saves cannot
-flush staged data. While usable, `HasUnsavedChanges` is true only while `State`
+After fencing, both `State` and `HasUnsavedChanges` retain their readable local
+values, but saves cannot flush staged data. The snapshot may no longer match
+storage and the marker does not establish whether the failed mutation persisted.
+While usable, `HasUnsavedChanges` is true only while `State`
 holds a value that no storage operation has confirmed. Successful storage operations
 clear it. With `ReadBack`, failed writes also settle the marker: recovery discards
 unsaved work and adopts the recovered provider value, or restores the last stored
@@ -593,12 +619,13 @@ With `ReadBack` selected, each storage provider we care to optimise for may ship
 - Optionally exploits provider features (conditional writes, blob
   versions) to avoid the re-read.
 
-`StorageFailureKind` is intentionally named for storage operations rather
+Those recovery actions apply to `ReadBack`; `FenceAndDeactivate` retains the same
+classification in its exception without reading storage. `StorageFailureKind` is intentionally named for storage operations rather
 than only writes. The same classification is useful for clear operations:
 an Azure Storage HTTP 412/ETag conflict definitely did not clear the record
 this attempt, but proves the local ETag is stale and so goes through
-`Conflict`; transient 5xx errors remain ambiguous and require read-back
-recovery through `UnknownOutcome`.
+`Conflict`; transient 5xx errors remain ambiguous (`UnknownOutcome`). Under
+`ReadBack`, both require a recovery read.
 Read failures do not use the classification because no local committed state
 has been tentatively changed.
 
@@ -606,7 +633,7 @@ The Azure Storage companion package follows Orleans' Azure provider semantics:
 the Orleans provider wraps Azure Table/Blob optimistic-update failures
 (precondition failed, conflict, and not found during conditional write/clear)
 as `InconsistentStateException`, so those are classified as `Conflict`. The
-recovery read then refreshes the ETag, and the exception is always rethrown so
+recovery read under `ReadBack` then refreshes the ETag, and the exception is always rethrown so
 the grain sees the concurrency failure even when the value happens to match.
 
 It also understands Azure SDK `RequestFailedException` directly:
@@ -2401,7 +2428,7 @@ payload type is known.
 
 ### Reminder policy and deactivation
 
-`OnDeactivation` registers only during orderly deactivation with pending work.
+`OnDeactivation` registers only during orderly deactivation with pending or uncertain work.
 Active retries use grain timers, including when PostAsync throws; the caller need
 not schedule recovery. Empty drains remove known inherited reminders. Registration
 failure during deactivation still logs OutboxDeactivationReminderFailed.
@@ -2424,11 +2451,26 @@ Failed period adjustments log `OutboxReminderAdjustmentFailed` without failing
 the post when a fallback is already established. Initial registration failures
 still propagate; a previously delivered tick is not enough to suppress them.
 
-Orderly deactivation waits for in-flight reminder work, then registers or updates
-the retry reminder for pending entries or removes a known reminder for an empty
-outbox. Failures remain best effort: registration logs
+Orderly deactivation waits for in-flight reminder work, then inspects the outbox
+and the fencing recorded on the grain context. Without fencing, it registers or
+updates the retry reminder for pending entries or removes a known reminder for an
+empty outbox. When every recorded fencing failure is `Conflict`, it skips both
+registration and removal. This deliberately relies on a competing owner or later
+activation; it does not prove another activation is alive. Any `UnknownOutcome` or
+`DidNotPersist` ensures a durable recovery reminder, even when the local snapshot
+is readable and empty: a failed write may have persisted new messages which the
+manager never adopted. A conflict on another manager must not suppress that need.
+An accessor which throws `StateManagerFencedException` contributes the same failure
+evidence, but leaves the observed count unknown.
+An unrelated accessor error cannot suppress a recorded fence's recovery policy;
+the local count remains unknown. Successful fallback registration produces no
+failure warning. Without a recorded fence, unrelated accessor exceptions retain
+the failure warning rather than being treated as fencing.
+Failures remain best effort: registration logs
 `OutboxDeactivationReminderFailed`; cleanup logs `OutboxReminderRemovalFailed`.
-Both include grain identity and the exception. An abrupt crash or unavailable
+Both include grain identity and the exception. The deactivation warning also has
+nullable `OutboxItemCount`: the observed count when readable, `null` when unknown.
+An abrupt crash or unavailable
 reminder store can still prevent recovery.
 
 Orleans rejects lifecycle subscriptions after startup begins. Constructor

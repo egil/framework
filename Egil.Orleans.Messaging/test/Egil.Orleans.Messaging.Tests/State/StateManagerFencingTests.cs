@@ -3,11 +3,15 @@ namespace Egil.Orleans.Messaging.Tests.State;
 public sealed class StateManagerFencingTests
 {
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(false, true)]
-    [InlineData(true, false)]
-    [InlineData(true, true)]
-    public async Task Failed_mutation_fences_without_reconciling_even_when_it_committed(bool clear, bool persisted)
+    [InlineData(false, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(true, false, false)]
+    [InlineData(true, true, false)]
+    [InlineData(false, false, true)]
+    [InlineData(false, true, true)]
+    [InlineData(true, false, true)]
+    [InlineData(true, true, true)]
+    public async Task Failed_mutation_preserves_local_inspection_and_fences_further_changes(bool clear, bool persisted, bool staged)
     {
         var failure = new IOException("The storage response was lost.");
         var storage = new RecoveryStorage<Snapshot>(new("stored"))
@@ -16,6 +20,9 @@ public sealed class StateManagerFencingTests
             PersistBeforeFailure = persisted,
         };
         IStateManager<Snapshot> manager = new DefaultStateManager<Snapshot>(storage, static () => new("default"));
+        if (staged)
+            manager.State = new("staged");
+        var visibleSnapshot = manager.State;
 
         var error = await Assert.ThrowsAsync<IOException>(() => clear
             ? manager.ClearAsync(TestContext.Current.CancellationToken)
@@ -23,21 +30,23 @@ public sealed class StateManagerFencingTests
 
         Assert.Same(failure, error);
         Assert.Equal(0, storage.Reads);
-        var fenced = Assert.Throws<InvalidOperationException>(() => manager.State);
+        Assert.Same(visibleSnapshot, manager.State);
+        Assert.Equal(staged, manager.HasUnsavedChanges);
+        var fenced = Assert.Throws<StateManagerFencedException>(() => manager.State = new("rejected"));
         Assert.Same(failure, fenced.InnerException);
+        Assert.Equal(StorageFailureKind.UnknownOutcome, fenced.FailureKind);
         Assert.Contains("fenced", fenced.Message, StringComparison.Ordinal);
-        Assert.Same(failure, Assert.Throws<InvalidOperationException>(() => manager.State = null!).InnerException);
-        Assert.Same(failure, Assert.Throws<InvalidOperationException>(() => manager.HasUnsavedChanges).InnerException);
-        Assert.Same(failure, Assert.Throws<InvalidOperationException>(() => manager.ConfigureHooks(null!)).InnerException);
+        Assert.Same(failure, Assert.Throws<StateManagerFencedException>(() => manager.State = null!).InnerException);
+        Assert.Same(failure, Assert.Throws<StateManagerFencedException>(() => manager.ConfigureHooks(null!)).InnerException);
         var callbackRan = false;
-        Assert.Throws<InvalidOperationException>(() => manager.ConfigureHooks(_ => callbackRan = true));
+        Assert.Throws<StateManagerFencedException>(() => manager.ConfigureHooks(_ => callbackRan = true));
         Assert.False(callbackRan);
         using var canceled = new CancellationTokenSource();
         await canceled.CancelAsync();
-        Assert.Same(failure, (await Assert.ThrowsAsync<InvalidOperationException>(() => manager.ReadAsync(canceled.Token))).InnerException);
-        Assert.Same(failure, (await Assert.ThrowsAsync<InvalidOperationException>(() => manager.ClearAsync(canceled.Token))).InnerException);
-        Assert.Same(failure, (await Assert.ThrowsAsync<InvalidOperationException>(() => manager.WriteAsync(null!, canceled.Token))).InnerException);
-        Assert.Same(failure, (await Assert.ThrowsAsync<InvalidOperationException>(() => manager.SaveChangesAsync(canceled.Token))).InnerException);
+        Assert.Same(failure, (await Assert.ThrowsAsync<StateManagerFencedException>(() => manager.ReadAsync(canceled.Token))).InnerException);
+        Assert.Same(failure, (await Assert.ThrowsAsync<StateManagerFencedException>(() => manager.ClearAsync(canceled.Token))).InnerException);
+        Assert.Same(failure, (await Assert.ThrowsAsync<StateManagerFencedException>(() => manager.WriteAsync(null!, canceled.Token))).InnerException);
+        Assert.Same(failure, (await Assert.ThrowsAsync<StateManagerFencedException>(() => manager.SaveChangesAsync(canceled.Token))).InnerException);
         Assert.Equal(1, storage.Mutations);
         Assert.Equal(0, storage.Reads);
     }
@@ -56,24 +65,61 @@ public sealed class StateManagerFencingTests
         DeactivationReason? requestedReason = null;
         CancellationToken? requestedToken = null;
         Exception? failureDuringDeactivation = null;
+        Snapshot? snapshotDuringDeactivation = null;
         context.OnDeactivate = (reason, token) =>
         {
             canceled.Cancel();
             requestedReason = reason;
             requestedToken = token;
-            failureDuringDeactivation = Record.Exception(() => manager.State);
+            snapshotDuringDeactivation = manager.State;
+            failureDuringDeactivation = Record.Exception(() => manager.State = new("rejected"));
             throw new InvalidOperationException("deactivation failed");
         };
 
         Assert.Same(failure, await Assert.ThrowsAsync<OperationCanceledException>(() => clear
             ? manager.ClearAsync(canceled.Token) : manager.WriteAsync(new("candidate"), canceled.Token)));
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => manager.SaveChangesAsync(TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<StateManagerFencedException>(() => manager.SaveChangesAsync(TestContext.Current.CancellationToken));
         Assert.Equal(1, context.Deactivations);
         Assert.Equal(DeactivationReasonCode.ApplicationError, requestedReason!.Value.ReasonCode);
         Assert.Same(failure, requestedReason.Value.Exception);
         Assert.False(requestedToken!.Value.CanBeCanceled);
-        Assert.Same(failure, Assert.IsType<InvalidOperationException>(failureDuringDeactivation).InnerException);
+        Assert.Equal("stored", snapshotDuringDeactivation!.Value);
+        Assert.Same(failure, Assert.IsType<StateManagerFencedException>(failureDuringDeactivation).InnerException);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task Failed_fence_recording_cannot_prevent_deactivation_or_replace_the_storage_failure(bool clear, bool readFailure)
+    {
+        using var services = new ServiceCollection().BuildServiceProvider();
+        var failure = new IOException("Storage failed.");
+        var recordingFailure = new InvalidOperationException("Component storage unavailable.");
+        var storage = new RecoveryStorage<Snapshot>(new("stored")) { MutationFailure = failure };
+        var context = new RecoveryGrainContext(services)
+        {
+            ComponentReadFailure = readFailure ? recordingFailure : null,
+            ComponentWriteFailure = readFailure ? null : recordingFailure,
+        };
+        DeactivationReason? reason = null;
+        context.OnDeactivate = (value, _) => reason = value;
+        var manager = new DefaultStateManager<Snapshot>(storage, () => new("default"), grainContext: context);
+
+        Assert.Same(failure, await Assert.ThrowsAsync<IOException>(() => clear
+            ? manager.ClearAsync(TestContext.Current.CancellationToken)
+            : manager.WriteAsync(new("candidate"), TestContext.Current.CancellationToken)));
+
+        Assert.Equal(1, context.Deactivations);
+        Assert.Equal(DeactivationReasonCode.ApplicationError, reason!.Value.ReasonCode);
+        Assert.Same(failure, reason.Value.Exception);
+        Assert.Same(failure, (await Assert.ThrowsAsync<StateManagerFencedException>(
+            () => manager.SaveChangesAsync(TestContext.Current.CancellationToken))).InnerException);
+        Assert.Equal("stored", manager.State.Value);
+        Assert.Equal(0, storage.Reads);
+        Assert.Equal(1, storage.Mutations);
     }
 
     [Fact]

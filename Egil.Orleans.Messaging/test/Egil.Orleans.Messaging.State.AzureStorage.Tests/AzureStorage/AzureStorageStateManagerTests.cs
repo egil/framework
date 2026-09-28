@@ -467,13 +467,14 @@ public sealed class AzureStorageStateManagerTests
         Assert.Equal(1, storage.ReadCount);
     }
     [Theory]
-    [InlineData(400, false)]
-    [InlineData(412, false)]
-    [InlineData(503, false)]
-    [InlineData(400, true)]
-    [InlineData(412, true)]
-    [InlineData(503, true)]
-    public async Task Default_policy_fences_all_Azure_mutation_failures_without_classification(int status, bool clear)
+    [InlineData(400, false, StorageFailureKind.DidNotPersist)]
+    [InlineData(412, false, StorageFailureKind.Conflict)]
+    [InlineData(503, false, StorageFailureKind.UnknownOutcome)]
+    [InlineData(400, true, StorageFailureKind.DidNotPersist)]
+    [InlineData(412, true, StorageFailureKind.Conflict)]
+    [InlineData(503, true, StorageFailureKind.UnknownOutcome)]
+    public async Task Default_policy_fences_Azure_mutation_failures_with_the_existing_classification(
+        int status, bool clear, StorageFailureKind expected)
     {
         var failure = new RequestFailedException(status, "failed");
         var storage = new FakePersistentState(new("stored")) { WriteException = failure, ClearException = failure };
@@ -484,7 +485,9 @@ public sealed class AzureStorageStateManagerTests
             : manager.WriteAsync(new("candidate"), TestContext.Current.CancellationToken)));
 
         Assert.Equal(0, storage.ReadCount);
-        Assert.Same(failure, Assert.Throws<InvalidOperationException>(() => manager.State).InnerException);
+        var fenced = Assert.Throws<StateManagerFencedException>(() => manager.State = new("rejected"));
+        Assert.Same(failure, fenced.InnerException);
+        Assert.Equal(expected, fenced.FailureKind);
     }
 
     [Fact]

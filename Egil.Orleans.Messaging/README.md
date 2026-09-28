@@ -248,12 +248,30 @@ prevents all duplicate activations or replaces provider concurrency checks.
 
 Fencing records the original exception before requesting deactivation. Failure to
 request deactivation cannot replace the storage exception or undo the fence.
-Every later manager member throws `InvalidOperationException` with the original
-failure as `InnerException`: state access, `HasUnsavedChanges`, hook configuration,
-reads, writes, clears, and **even no-op saves**. A read cannot revive it, and a
+Recording the activation's failure evidence is best effort and cannot prevent
+the separate deactivation request.
+`State` and `HasUnsavedChanges` remain readable for local inspection. They retain
+the last published snapshot and its marker, including unsaved assignments, without
+adopting the failed write candidate or reading storage. They cannot establish the
+current durable state. State assignment, hook configuration, storage reads, writes,
+clears, and **even no-op saves** throw `StateManagerFencedException` (derived from
+`InvalidOperationException`) with the original failure as `InnerException`.
+A storage read cannot revive it, and a
 deactivation-time `SaveChangesAsync` cannot flush staged data. Handle that failure
 in deactivation cleanup just as other save failures are handled. Neither policy
 automatically retries the command, queues operations, or flushes pending changes.
+
+The exception's `FailureKind` carries the existing `StorageFailureKind`
+classification: `Conflict`, `DidNotPersist`, or `UnknownOutcome`. Both policies
+invoke `ClassifyWriteFailure` or `ClassifyClearFailure` once per storage failure.
+`ReadBack` uses that result for reconciliation; fencing preserves it without
+additional storage reads. If a custom classifier throws while fencing, the kind
+is `UnknownOutcome` and the original storage failure is still preserved. The
+initial failed operation continues to throw its original exception.
+
+Deactivation uses `ApplicationError` and retains the original exception. Its
+description includes the state type, operation, and classification, for example:
+`State manager for 'Example.OrderState' was fenced after WriteAsync failed. Storage failure: Conflict.`
 
 ### Recovery configuration
 
@@ -524,7 +542,8 @@ Keep it unconditional. Filtering on `DeactivationReason` is tempting, but every
 reason code you skip is a reason code that drops unsaved data, and `ShuttingDown` is
 an orderly, expected event on every deployment.
 
-With fencing, failures permanently reject access and deactivation-time saves.
+With fencing, failures preserve the readable local snapshot and unsaved-changes
+marker, but permanently reject changes and deactivation-time saves.
 With `ReadBack`, failures discard unsaved work rather than preserving it. A failed write reverts
 `State` to the last value storage confirmed and clears `HasUnsavedChanges`; a
 successful `ReadAsync` or `ClearAsync` discards it too, because storage wins. The
@@ -858,15 +877,38 @@ suppress a later required retry registration. Overlapping registrations, updates
 and removals are serialized and reuse completed state.
 
 With either policy, orderly deactivation waits for in-flight reminder work, then
-establishes a reminder at `ActiveReminderPeriod` for pending entries or removes a known
-reminder for an empty outbox. No inherited tick and no local handle means no empty
-cleanup call. These operations respect the deactivation cancellation budget and
+applies the following policy:
+
+| Outbox observation | Deactivation action |
+| --- | --- |
+| Unfenced, readable and empty | Normal idle cleanup; no new reminder |
+| Unfenced, readable with pending entries | Ensure a reminder at `ActiveReminderPeriod` |
+| All recorded fencing failures are `Conflict` | Neither register nor remove a reminder |
+| Any fencing failure is `UnknownOutcome` or `DidNotPersist` | Ensure a reminder at `ActiveReminderPeriod`, even if the local snapshot is empty |
+
+State managers record fencing on the grain context before requesting deactivation,
+so the processor can recognize it even while local state remains readable. If
+several managers fail, a conflict cannot hide another manager's uncertain outcome.
+An accessor which throws `StateManagerFencedException` is also supported.
+If local inspection throws an unrelated exception after fencing was recorded,
+the processor still follows the recorded recovery policy, with an unknown count.
+Skipping confirmed conflicts deliberately leaves recovery to
+the competing owner or a subsequent activation. A conflict does **not** prove
+that another activation is still alive. Other fenced outcomes cannot establish
+whether durable outbox work remains, so a recovery reminder is needed even if its
+next activation ends up doing nothing. An empty local snapshot can precede a failed
+write which actually persisted new messages; readable does not mean current.
+
+No inherited tick and no local handle means no empty cleanup call.
+These operations respect the deactivation cancellation budget and
 are best effort; an abrupt silo crash or unavailable reminder store can still
 prevent recovery.
 
 A failed deactivation registration emits `OutboxDeactivationReminderFailed` with
-`GrainId`, `GrainType`, `ReminderName` and the exception, identifying work that may
-need manual reactivation and an explicit post. Cleanup failures instead emit
+`GrainId`, `GrainType`, `ReminderName`, nullable `OutboxItemCount`, and the exception,
+identifying work that may need manual reactivation and an explicit post. The count
+is the observed number of entries when readable, or `null` when unknown. Successful
+fallback registration after fencing emits no failure warning. Cleanup failures instead emit
 `OutboxReminderRemovalFailed`; delivery and deactivation continue, and a later
 drain, tick or deactivation can retry cleanup.
 
@@ -1858,6 +1900,34 @@ guaranteed; use a System.Text.Json serializer or the Orleans binary serializer.
 This package is messaging infrastructure, not an event-sourcing or CQRS framework. It wraps Orleans state, outbox dispatch, receiver deduplication, and stream subscription management while leaving domain modeling, read models, transport targets, and operational policy to the application.
 
 ## Beta API changes
+
+- **Fenced operations throw `StateManagerFencedException`; local inspection remains available.** It still derives from
+  `InvalidOperationException`, but exact-type checks should use the dedicated type.
+  Inspect `FailureKind` for the existing storage classification and `InnerException`
+  for the original failure. `State` and `HasUnsavedChanges` can be read during
+  cleanup, but describe the retained local snapshot, not necessarily current storage.
+  **Review read-only grain methods:** calls already admitted or interleaved before
+  deactivation finishes can now return stale or unsaved values without a fencing
+  exception. Do not treat getter availability as proof of a healthy activation or
+  durable data. If such reads must fail after a write failure, retain an
+  application-level failure guard.
+  State assignment, `ReadAsync`, mutations and hook configuration remain fenced;
+  the initial failed operation still throws its original exception. Custom state managers now
+  have their write/clear classifiers called once under either recovery policy.
+  Under fencing, a classifier failure produces `UnknownOutcome` without replacing
+  the storage error. Deactivation reasons include state type, operation, and kind.
+  The exception uses the stable Orleans alias
+  `egil.orleans.messaging.StateManagerFencedException`.
+- **Outbox deactivation handles classified fencing.** Unknown outcomes and definite
+  non-persistence ensure a recovery reminder; confirmed conflicts skip registration
+  and removal, relying on another owner or a subsequent activation without proving
+  that owner is alive. `OutboxDeactivationReminderFailed` adds nullable
+  `OutboxItemCount`; treat `null` as unknown, not zero. Successful fallback
+  registration produces no failure warning. Unfenced, readable empty outboxes retain
+  normal idle cleanup. Fencing is recorded on the grain context; a readable empty
+  snapshot does not suppress recovery after an uncertain failure. When constructing
+  a manager directly inside a grain, pass its grain context so deactivation and this
+  recovery handoff are available. Injected and registered managers already do so.
 
 - **Stream tracking now defaults to provider positions, including outbox-tagged deliveries.**
   Receivers must be idempotent for republished messages at new provider positions.

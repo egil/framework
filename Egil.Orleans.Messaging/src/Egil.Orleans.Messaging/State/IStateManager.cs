@@ -1,20 +1,23 @@
 namespace Egil.Orleans.Messaging.State;
 
 /// <summary>
-/// A thin wrapper around <see cref="IPersistentState{TState}"/> that guarantees
-/// the grain's observable <see cref="State"/> never exposes a value whose durability
-/// is unknown, even when <see cref="WriteAsync(T, CancellationToken)"/> fails ambiguously
-/// (timeout, network drop, server 5xx, ETag conflict). It exposes the loaded or
+/// A thin wrapper around <see cref="IPersistentState{TState}"/> that keeps
+/// in-flight storage write candidates separate from the grain's observable
+/// <see cref="State"/>, including after an ambiguous write failure.
+/// It exposes the loaded or
 /// committed snapshot, a default for absent storage, or a value the grain deliberately
 /// published with <see cref="State"/> and has not written yet.
 /// </summary>
 /// <remarks>
 /// <para>
 /// <b>Recovery policy:</b> The default <see cref="StateRecoveryPolicy.FenceAndDeactivate"/>
-/// permanently rejects every member after a storage write/clear throws, including state
-/// access, hook configuration, reads and no-op saves. The rejection is an
-/// <see cref="InvalidOperationException"/> whose inner exception is the original storage
-/// failure. Deactivation is requested when a context is available. This replaces private
+/// preserves local inspection through <see cref="State"/> and <see cref="HasUnsavedChanges"/>
+/// after a storage write/clear throws. The snapshot may no longer match storage.
+/// State assignment, hook configuration, storage reads and saves (including no-op saves)
+/// are permanently rejected. The rejection is a
+/// <see cref="StateManagerFencedException"/> carrying the failure classification and
+/// the original storage failure as its inner exception. Deactivation is requested when
+/// a context is available. This replaces private
 /// grain state as well as reloading storage; <see cref="StateRecoveryPolicy.ReadBack"/>
 /// instead reconciles this manager and retains the activation. That can save expensive
 /// initialization, provided the grain's other fields remain safe to use.
@@ -156,15 +159,25 @@ public interface IStateManager<T>
     /// grain sees and nothing else. Use <see cref="WriteAsync(T, CancellationToken)"/>
     /// instead when the value must not become visible unless it persisted.
     /// </para>
+    /// <para>
+    /// After fencing, the getter retains the last published snapshot, including any
+    /// unsaved assignment. It performs no storage read and does not adopt the failed
+    /// write candidate. This snapshot is for local inspection; it cannot establish
+    /// the current durable state. The setter continues to reject changes.
+    /// Read-only grain calls still executing before deactivation completes can
+    /// therefore return stale or unsaved values without a fencing exception.
+    /// </para>
     /// </remarks>
     T State { get; set; }
 
     /// <summary>
     /// Gets a value indicating whether <see cref="State"/> has been assigned a value that
-    /// has not reached durable storage yet.
+    /// has not been confirmed as durably stored by this manager.
     /// </summary>
     /// <remarks>
-    /// Throws after fencing. Under ReadBack, cleared by operations that settle the durability question, including the
+    /// Remains readable and unchanged after fencing. It describes the local snapshot,
+    /// not whether the failed operation actually persisted. Under ReadBack, cleared by
+    /// operations that settle the durability question, including the
     /// ones that settle it by failing: a successful write or clear adopts the new value,
     /// a successful read adopts what storage holds, and a write that failed reverts
     /// <see cref="State"/> to the last stored snapshot. It is therefore never

@@ -5,7 +5,11 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// </summary>
 /// <remarks>
 /// Both policies establish a retry reminder during orderly deactivation if pending
-/// work has no locally registered retry reminder. Registration uses a direct upsert,
+/// work has no locally registered retry reminder, including when a fenced state manager
+/// leaves the durable outcome uncertain despite a readable local snapshot. If every
+/// recorded fencing failure is a confirmed storage conflict, registration and removal
+/// are skipped, leaving recovery to a competing owner or a later activation.
+/// Registration uses a direct upsert,
 /// without checking for an inherited reminder. An inherited tick allows a lookup
 /// only when cleanup needs a handle; a tick alone cannot guarantee a durable wakeup.
 /// </remarks>
@@ -13,7 +17,7 @@ public enum OutboxReminderPolicy
 {
     /// <summary>
     /// Retry using grain timers while active. Register a durable reminder only
-    /// during orderly deactivation with pending work. Remove a known inherited
+    /// during orderly deactivation with pending or uncertain work as described above. Remove a known inherited
     /// reminder when the outbox drains. Abrupt crashes can bypass registration.
     /// </summary>
     OnDeactivation,

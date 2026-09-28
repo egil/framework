@@ -11,9 +11,12 @@ namespace Egil.Orleans.Messaging.State;
 public enum StateRecoveryPolicy
 {
     /// <summary>
-    /// Permanently reject all manager access, request grain deactivation when a context
-    /// is available, and rethrow the storage failure without attempting read-back.
+    /// Permanently reject mutations and storage reads, request grain deactivation when
+    /// a context is available, and rethrow the storage failure without attempting read-back.
+    /// The local state snapshot and unsaved-changes marker remain readable.
     /// Even a write that committed before losing its response is reported as failed.
+    /// Subsequent mutations, storage reads and hook configuration throw <see cref="StateManagerFencedException"/> with the
+    /// storage failure's classification and original exception.
     /// This is the default policy.
     /// Recovery comparison, including <see cref="VersionedState.Version"/>, is skipped;
     /// ordinary immutable records are sufficient. A subsequent activation loads storage.
