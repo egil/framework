@@ -16,6 +16,7 @@ public sealed class StreamReceiptReplayTests(JournalingPrototypeFixture fixture)
         var receivedAt = DateTimeOffset.UnixEpoch;
         var clock = new ManualTimeProvider(receivedAt);
         await using var session = await fixture.NewSessionAsync(time: clock);
+        session.Tracker.Configure(options => options.StreamTrackingMode = StreamTrackingMode.OutboxIdentity);
         var high = Cursor(12, nullPosition ? null : 100);
         var low = Cursor(11, nullPosition ? null : 99);
         Assert.True(session.Tracker.TryAcceptMessage(high));
@@ -32,6 +33,7 @@ public sealed class StreamReceiptReplayTests(JournalingPrototypeFixture fixture)
         clock.Advance(TimeSpan.FromDays(1));
 
         await using var recovered = await fixture.NewSessionAsync(session.Id, clock);
+        recovered.Tracker.Configure(options => options.StreamTrackingMode = StreamTrackingMode.OutboxIdentity);
 
         Assert.Equal(expected, recovered.Tracker.AsImmutable());
         Assert.False(recovered.Tracker.TryAcceptMessage(high with { Token = new EventSequenceToken(101) }));
@@ -41,6 +43,7 @@ public sealed class StreamReceiptReplayTests(JournalingPrototypeFixture fixture)
         await recovered.Manager.WriteStateAsync(TestContext.Current.CancellationToken);
         await recovered.DisposeAsync();
         await using var evicted = await fixture.NewSessionAsync(session.Id, clock);
+        evicted.Tracker.Configure(options => options.StreamTrackingMode = StreamTrackingMode.OutboxIdentity);
         Assert.True(evicted.Tracker.TryAcceptMessage(high));
         Assert.NotNull(evicted.Tracker.LatestStream("legacy"));
     }
@@ -49,6 +52,7 @@ public sealed class StreamReceiptReplayTests(JournalingPrototypeFixture fixture)
     public async Task Full_stream_eviction_replays_without_removing_another_key_in_the_same_namespace()
     {
         await using var session = await fixture.NewSessionAsync();
+        session.Tracker.Configure(options => options.StreamTrackingMode = StreamTrackingMode.OutboxIdentity);
         var first = Cursor(1, 1);
         var second = first with { StreamId = StreamId.Create("orders", "second") };
         Assert.True(session.Tracker.TryAcceptMessage(first));
@@ -59,6 +63,7 @@ public sealed class StreamReceiptReplayTests(JournalingPrototypeFixture fixture)
         await session.DisposeAsync();
 
         await using var recovered = await fixture.NewSessionAsync(session.Id);
+        recovered.Tracker.Configure(options => options.StreamTrackingMode = StreamTrackingMode.OutboxIdentity);
 
         Assert.True(recovered.Tracker.TryAcceptMessage(first));
         Assert.False(recovered.Tracker.TryAcceptMessage(second));

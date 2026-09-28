@@ -16,6 +16,8 @@ public interface IDurableMessageTracker
     MessageTracker AsImmutable();
     /// <summary>Sets the clock used for future receive timestamps; existing timestamps are unchanged.</summary>
     void RegisterTimeProvider(TimeProvider time);
+    /// <summary>Overrides global tracking and retention settings for this grain's journal component.</summary>
+    void Configure(Action<MessageTrackerOptions> configure);
     /// <summary>Accepts a new position and stages it for journaling; rejects duplicates or stale positions.</summary>
     bool TryAcceptMessage(OutboxSequenceToken token);
     /// <summary>Accepts a new position and stages it for journaling; rejects duplicates or stale positions.</summary>
@@ -52,6 +54,8 @@ public interface IDurableMessageTracker
     IDurableMessageTracker Evict(DateTimeOffset olderThan);
     /// <summary>Evicts stream entries received at or before the cutoff and returns this component.</summary>
     IDurableMessageTracker EvictStreams(DateTimeOffset olderThan);
+    /// <summary>Evicts stream receipts at the cutoff, preserving checkpoints and RPC positions.</summary>
+    IDurableMessageTracker EvictStreamReceipts(DateTimeOffset olderThan);
     /// <summary>Evicts outbox sender entries received at or before the cutoff and returns this component.</summary>
     IDurableMessageTracker EvictOutboxes(DateTimeOffset olderThan);
     /// <summary>Evicts entries in the specified namespace across providers received at or before the cutoff and returns this component.</summary>

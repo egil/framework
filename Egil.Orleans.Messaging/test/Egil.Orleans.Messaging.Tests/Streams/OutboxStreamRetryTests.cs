@@ -308,10 +308,13 @@ public sealed class CustomStreamRetrySource([PersistentState("stream-retry-sourc
     : StreamRetrySource(storage, customPostman: true), ICustomStreamRetrySource;
 
 [GenerateSerializer]
-public sealed record StreamRetryReceiverState
+public sealed record StreamRetryReceiverState : IConfigurableState
 {
     [Id(0)] public int Effects { get; init; }
     [Id(1)] public MessageTracker Tracker { get; init; } = new();
+
+    public void Configure(IGrainContext context) =>
+        Tracker.Configure(options => options.StreamTrackingMode = StreamTrackingMode.OutboxIdentity);
 }
 
 public interface IStreamRetryReceiver : IGrainWithGuidKey

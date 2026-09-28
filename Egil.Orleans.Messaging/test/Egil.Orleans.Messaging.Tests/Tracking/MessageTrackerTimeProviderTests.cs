@@ -105,6 +105,48 @@ public sealed class MessageTrackerTimeProviderTests
     private static void UsePricingClock(MessageTrackerOptions options, IServiceProvider services) =>
         options.TimeProvider = services.GetRequiredKeyedService<TimeProvider>("pricing");
 
+    [Fact]
+    public async Task Global_mode_and_retention_apply_unless_a_grain_tracker_overrides_them()
+    {
+        var clock = new ManualTimeProvider(SiloNow);
+        var silo = StartSilo((options, _) =>
+        {
+            options.StreamTrackingMode = StreamTrackingMode.OutboxIdentity;
+            options.RetentionPeriod = TimeSpan.FromHours(1);
+            options.TimeProvider = clock;
+        });
+        var delivery = new StreamCursor("orders", new EventSequenceToken(1), "events")
+        {
+            StreamId = StreamId.Create("orders", "one"),
+            OutboxToken = new(1, GrainId.Create("sender", "one"), SiloNow, SiloNow)
+        };
+        await silo.StartAsync();
+        var inherited = new MessageTracker();
+        var overridden = new MessageTracker();
+        overridden.Configure(options =>
+        {
+            options.StreamTrackingMode = StreamTrackingMode.StreamPosition;
+            options.RetentionPeriod = null;
+        });
+        inherited.TryAcceptMessage(delivery, out inherited);
+        overridden.TryAcceptMessage(delivery, out overridden);
+        var retry = delivery with { Token = new EventSequenceToken(2) };
+
+        var globalRejectsRetry = !inherited.TryAcceptMessage(retry, out _);
+        var grainAcceptsRetry = overridden.TryAcceptMessage(retry, out _);
+        clock.Advance(TimeSpan.FromHours(1));
+        var globalExpires = inherited.TryAcceptMessage(delivery, out _);
+        var grainRetains = !overridden.TryAcceptMessage(delivery, out _);
+        await silo.StopAsync();
+        var afterStopUsesPosition = inherited.TryAcceptMessage(retry, out _);
+
+        Assert.True(globalRejectsRetry);
+        Assert.True(grainAcceptsRetry);
+        Assert.True(globalExpires);
+        Assert.True(grainRetains);
+        Assert.True(afterStopUsesPosition);
+    }
+
     private static DateTimeOffset ReceivedAt(MessageTracker tracker)
     {
         tracker.TryAcceptMessage(new StreamCursor("orders", new EventSequenceToken(1)), out var next);
