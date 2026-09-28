@@ -1224,20 +1224,68 @@ processor.AddPostman<OrderSubmitted>((message, token) =>
         .PublishFromOutboxAsync(message, token));
 ```
 
-Await every publication before the callback completes. The helper scopes only
-`egil.orleans.messaging.outbox`, whose value is `v1:` followed by the token's JSON
-as a string, and restores the previous entry, including null, in `finally`.
-Routing and projection run before that scope. Generic `AddPostman`, keyed
-`IPostman<T>`, and the dispatcher do not establish ambient identity. RPC
-handlers use `AddPostman` with an optional grain factory; receivers continue
-receiving an explicit `OutboxSequenceToken`
-argument and using `TryAcceptMessage(token, out tracker)` with the existing
-sender high-water ordering assumptions.
+For a custom fanout, attach the token once around the awaited publications. The
+existing publishing method can keep returning an `IEnumerable<Task>`:
+
+```csharp
+processor.AddPostman<SessionUpdatedEvent>(async (message, token) =>
+{
+    using var scope = RequestContext.AttachOutboxToken(token);
+    await Task.WhenAll(PublishSessionUpdateEvent(message));
+});
+```
+
+`AttachOutboxToken`, `GetOutboxToken`, and `DetachOutboxToken` are C# 14 static
+extension members on Orleans' `RequestContext`, imported with `using Orleans.Streams`.
+Attachment validates the token and stores the typed `OutboxSequenceToken`. Orleans serializes
+it alongside the domain event through the configured provider; participating
+endpoints must reference OM and have its generated serializers available.
+There is no additional JSON encoding. The token's JSON converter remains available
+for storage. `PublishFromOutboxAsync` uses this same scope after routing and projection.
+
+Await every publication before the callback completes. Dispose the scope in the
+same logical execution flow; nested scopes restore in reverse order. Disposal
+restores only OM's previous entry, including a present null or an absent entry,
+and repeated disposal is harmless. Open the scope around iterator enumeration,
+not across `yield return` inside the iterator. The same token on distinct providers
+or full stream IDs has independent receipts. Publishing distinct events to the
+same destination needs separate outbox entries.
+
+Grain calls and asynchronous work started inside the scope also inherit the token.
+Keep the scope limited to deliveries of that outbox item. If a called grain publishes
+an unrelated event, it inherits the same identity; when both events reach the same
+stream, receivers can discard one as a duplicate. Disposal does not revoke context
+already captured by that work. A grain method or custom stream observer can read
+and remove the incoming token before processing the message:
+
+```csharp
+var token = RequestContext.DetachOutboxToken();
+await HandleAsync(message, token);
+```
+
+`DetachOutboxToken` returns the token and removes its entry from the current logical
+flow, preserving unrelated context. It does not create a restore scope. Detach
+before starting unrelated publications or grain calls; already-started work keeps
+its captured context. Use `GetOutboxToken()` when you want to read without removing.
+
+Both methods return null only when the entry is absent. Present null, wrong-type,
+or invalid identity values throw `InvalidOperationException` and leave it unchanged.
+Invalid attachment arguments throw `ArgumentException` (`ArgumentNullException`
+for null). `StreamManager` detaches before invoking application code; its async
+boundary isolates that removal from the publisher. Its handlers continue reading
+`cursor.OutboxToken`. Manual stream receivers
+must include the token, provider, and complete stream ID in a `StreamCursor` when
+tracking messages. The bare-token `TryAcceptMessage(token, out tracker)` overload
+uses RPC sender high-water ordering, which is different from per-stream receipts.
+
+Generic `AddPostman`, keyed `IPostman<T>`, and the dispatcher do not establish
+ambient identity automatically. RPC postmen can pass the token explicitly or opt
+in to the same request-context scope.
 
 Ordinary stream publishers without the reserved metadata retain provider-position
 tracking; untagged null-token events leave the tracker unchanged. Tagged events
 still retain a receipt with a null native token. Present malformed, null,
-wrong-type, or unsupported-version metadata faults the observer before the
+wrong-type, or legacy string metadata faults the observer before the
 application handler and bypasses its normal log-and-swallow error policy.
 Missing metadata cannot distinguish a raw publisher from an adapter that dropped
 context. There is no strict-identity subscription mode in this version.
@@ -1317,10 +1365,11 @@ unsupported without separate migration validation.
 | Default Event Hubs adapter | Provider-owned event-body encode/decode, cache conversion, consumer serialization, and request-context import |
 | Messaging enriched Event Hubs adapter with its default inner container | The same body/cache/consumer path, plus enriched token preservation |
 
-The plain-consumer tests run without a Messaging package reference or loaded
-Messaging assembly. Azure Queue and Event Hubs checks are serialization contracts,
-not live-broker delivery or production acceptance. Custom adapters need their own
-metadata-preservation proof. Receipt guarantees require retained state and a
+The consumer tests register both the domain-event and Messaging serializers and
+verify typed outbox metadata alongside the event. Azure Queue and Event Hubs checks
+are serialization contracts, not live-broker delivery or production acceptance.
+Custom adapters need their own metadata-preservation proof. Receipt guarantees
+require retained state and a
 provider/adapter that preserves the reserved entry; they do not provide exactly-once
 transport.
 
@@ -1662,6 +1711,15 @@ This package is messaging infrastructure, not an event-sourcing or CQRS framewor
 
 ## Beta API changes
 
+- **Outbox request-context metadata is now a typed `OutboxSequenceToken`.** Use
+  `RequestContext.AttachOutboxToken(token)` for scoped fanout or grain calls and
+  `RequestContext.GetOutboxToken()` for manual reception (`using Orleans.Streams`,
+  C# 14). Use `RequestContext.DetachOutboxToken()` to read and remove the token before
+  unrelated downstream work. Participating endpoints must
+  have OM's generated serializers available.
+  The former `v1:` JSON string is no longer accepted.
+  Persisted tokens and receipts keep their existing formats.
+
 - **Rename `OutboxReminderPolicy.OnRetry` to `OnDeactivation` in configuration.**
   The default policy now uses only grain timers while active and registers a
   reminder only during orderly deactivation with pending work. Failed registration
@@ -1700,8 +1758,9 @@ This package is messaging infrastructure, not an event-sourcing or CQRS framewor
   match the actual key rather than every key in its namespace. Rebind verified
   legacy checkpoints before tracked attachment, following [Upgrading stream tracking](#upgrading-stream-tracking).
 - **Outbox stream publication now carries logical identity automatically through
-  `AddStreamPostman`.** Custom stream postmen use `PublishFromOutboxAsync`; generic
-  and RPC postmen remain context-free. Consumers must persist exact receipts with
+  `AddStreamPostman`.** Custom stream postmen use `PublishFromOutboxAsync` or an
+  explicit `AttachOutboxToken` scope; generic and RPC postmen remain context-free
+  unless they opt in. Consumers must persist exact receipts with
   business changes and retain them until deliberate eviction. Upgrade consumers
   before publishers after a coordinated drain/catch-up baseline. Old state writers
   can drop the new data. See [Receiver Dedup](#receiver-dedup).
