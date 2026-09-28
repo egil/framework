@@ -157,7 +157,7 @@ public sealed class MessageTrackerPolicyTests
             ? tracker.TryAcceptMessage(trigger.OutboxToken! with { Sender = GrainId.Create("sender", "other") }, out tracker)
             : tracker.TryAcceptMessage(trigger with { StreamId = StreamId.Create("orders", "other") }, out tracker));
 
-        Assert.Null(tracker.LatestOutbox(old.OutboxToken.Sender));
+        Assert.Null(tracker.LatestOutbox(old.OutboxToken!.Sender))
         Assert.Null(tracker.LatestStream("events", staleStream.StreamId.Value));
         Assert.Equal(recent, tracker.LatestStream("events", recent.StreamId!.Value));
         Assert.True(tracker.TryAcceptMessage(old, out _));
