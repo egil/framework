@@ -1136,17 +1136,48 @@ public sealed class MessageTracker
 `AddStreamPostman` calls `IAsyncStream<T>.PublishFromOutboxAsync(message, token)`
 (in `Orleans.Streams`) after routing and projection. The async helper scopes only
 `egil.orleans.messaging.outbox` around awaited `OnNextAsync(message)` and restores
-its prior presence/value in `finally`. Wire format is a primitive string:
-`v1:` followed by the existing token JSON. Native sequence tokens are never supplied
-by this helper. Generic callbacks, keyed postmen, grain/RPC postmen, and the general
-dispatcher do not establish the entry. Custom stream callbacks explicitly use the
-helper; RPC continues passing its token as an argument.
+its prior presence/value using `RequestContext.AttachOutboxToken(token)`. The context
+value is the typed `OutboxSequenceToken`; Orleans serializes it with the domain
+event through the provider's normal serializer. Participating endpoints must have
+OM's generated serializers available. There is no additional JSON or byte-array
+envelope. The token's STJ converter remains for storage. Native sequence tokens
+are never supplied by this helper. Generic callbacks, keyed postmen, grain/RPC
+postmen, and the general dispatcher do not establish the entry automatically.
+
+The existing `OutboxStreamExtensions` class in `Orleans.Streams` provides C# 14
+static extension members: `IDisposable RequestContext.AttachOutboxToken(OutboxSequenceToken token)`
+and `OutboxSequenceToken? RequestContext.GetOutboxToken()` for publication and reading,
+and `OutboxSequenceToken? RequestContext.DetachOutboxToken()` for consuming the incoming identity.
+Custom fanout opens its scope inside the async postman and awaits all publications,
+including enumeration of any task-producing iterator. Nested scopes restore in reverse order in the
+same logical flow; repeated disposal is harmless. Only OM's entry is restored,
+preserving prior absence/null and unrelated context changes. Attachment rejects
+null (`ArgumentNullException`) or invalid identity (`ArgumentException`) before
+changing context. Grain calls inherit the scoped token, and disposal does not
+revoke context captured by work already started. If a called grain publishes an
+unrelated event with that identity to the same stream, receivers can discard it
+as a duplicate. Detach the incoming token before starting unrelated publications
+or grain calls. Detachment returns the token and removes only OM's entry from the
+current logical flow; it does not create a restoration scope.
+
+The getter reads without consuming the entry. Both reading and detaching return
+null when absent; a present null, wrong-type value, or invalid token throws
+`InvalidOperationException` before changing context.
+RPC receivers can read the context when their method cannot take a token parameter.
+Manual stream receivers still build a full-source `StreamCursor` for exact
+receipts rather than using the bare-token RPC high-water tracking overload.
+StreamManager reads and removes the token through `DetachOutboxToken` in its
+metadata-validation try block. Its async observer entry isolates that change from
+the publisher's context. Application handlers continue using `cursor.OutboxToken`.
+
+This replaces the old `v1:` JSON-string transport without a legacy decoding branch.
+Persisted token and receipt formats are unchanged.
 
 `StreamCursor` retains positional fields 0-2 and adds `[Id(3)] StreamId? StreamId`
 and `[Id(4)] OutboxSequenceToken? OutboxToken`. Full source and provider are required
 for tagged cursors. Per-item observer entry validates present metadata before the
-business-handler error wrapper, projects it into the cursor, masks the reserved
-entry during application code, and restores it afterward. Missing metadata permits
+business-handler error wrapper, projects it into the cursor, and removes the reserved
+entry from the handler's flow. Missing metadata permits
 ordinary publishers; corrupt/null/wrong-type/unsupported metadata faults delivery.
 
 An unseen exact receipt is accepted even if another sender sequence/epoch or a
@@ -1177,9 +1208,10 @@ lose receipts. See the README's upgrade example and provider evidence table.
 
 Default Memory has real-cluster fault/retry evidence. Default Azure Queue V2,
 default Event Hubs, and the enriched Event Hubs adapter's default inner container
-have provider-owned serialization contract evidence. A separate ordinary-consumer
-executable has no Messaging reference. Live Azure Queue/Event Hubs delivery and
-custom adapters require separate proof.
+have provider-owned serialization contract evidence. A separate consumer executable
+registers the domain-event and OM serializers and verifies typed metadata through
+the same body/cache round-trip as the event. Live Azure Queue/Event Hubs delivery
+and custom adapters require separate proof.
 
 ### Untagged `TryAcceptMessage(StreamCursor)` and native stream token semantics
 
