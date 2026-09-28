@@ -32,13 +32,14 @@ public sealed class StateManagerLateCompletionTests
         Assert.Same(failure, await Assert.ThrowsAsync<IOException>(() => manager.WriteAsync(new("failed"), token)));
         storage.Complete();
 
-        var rejected = await Assert.ThrowsAsync<InvalidOperationException>(() => pending);
+        var rejected = await Assert.ThrowsAsync<StateManagerFencedException>(() => pending);
 
         Assert.Same(failure, rejected.InnerException);
         Assert.Equal(1, configurations);
         Assert.Equal(0, notifications);
         Assert.Equal(0, defaults);
-        Assert.Same(failure, Assert.Throws<InvalidOperationException>(() => manager.State).InnerException);
+        Assert.Equal("stored", manager.State.Value);
+        Assert.False(manager.HasUnsavedChanges);
     }
 
     private sealed record Snapshot(string Value);

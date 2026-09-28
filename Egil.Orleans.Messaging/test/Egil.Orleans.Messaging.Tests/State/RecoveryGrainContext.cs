@@ -2,7 +2,10 @@ namespace Egil.Orleans.Messaging.Tests.State;
 
 internal sealed class RecoveryGrainContext(IServiceProvider services) : IGrainContext
 {
+    private readonly Dictionary<Type, object?> components = [];
     public IServiceProvider ActivationServices { get; } = services;
+    public Exception? ComponentReadFailure { get; init; }
+    public Exception? ComponentWriteFailure { get; init; }
 
     public GrainReference GrainReference => throw new NotSupportedException();
     public GrainId GrainId => throw new NotSupportedException();
@@ -32,14 +35,23 @@ internal sealed class RecoveryGrainContext(IServiceProvider services) : IGrainCo
     public void Rehydrate(IRehydrationContext context) => throw new NotSupportedException();
 
     public void SetComponent<TComponent>(TComponent? value) where TComponent : class
-        => throw new NotSupportedException();
+    {
+        if (ComponentWriteFailure is { } failure)
+            throw failure;
+        components[typeof(TComponent)] = value;
+    }
 
     public TComponent? GetComponent<TComponent>() where TComponent : class
-        => throw new NotSupportedException();
+        => (TComponent?)GetComponent(typeof(TComponent));
 
     public TTarget GetTarget<TTarget>() where TTarget : class => throw new NotSupportedException();
 
-    public object GetComponent(Type componentType) => throw new NotSupportedException();
+    public object GetComponent(Type componentType)
+    {
+        if (ComponentReadFailure is { } failure)
+            throw failure;
+        return components.GetValueOrDefault(componentType)!;
+    }
 
     public object GetTarget() => throw new NotSupportedException();
 

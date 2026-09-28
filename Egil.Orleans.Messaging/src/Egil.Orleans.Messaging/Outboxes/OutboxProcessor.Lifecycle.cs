@@ -1,3 +1,4 @@
+using Egil.Orleans.Messaging.State;
 using Microsoft.Extensions.Logging;
 
 namespace Egil.Orleans.Messaging.Outboxes;
@@ -6,6 +7,7 @@ public sealed partial class OutboxProcessor<TOutbox>
 {
     async Task IOutboxComponent.OnDeactivateAsync(CancellationToken cancellationToken)
     {
+        int? outboxItemCount = null;
         try
         {
             if (reminderOperation is { } registration)
@@ -27,14 +29,43 @@ public sealed partial class OutboxProcessor<TOutbox>
                 }
             }
 
-            if (!GetPendingItems().IsDefaultOrEmpty)
+            var activationFencing = owner.GrainContext.GetComponent<StateManagerFencing>();
+            var fenced = activationFencing is not null;
+            var onlyConflicts = activationFencing?.OnlyConflicts ?? true;
+            try
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                await EnsureReminderAsync().WaitAsync(cancellationToken);
+                var pendingItems = GetPendingItems();
+                outboxItemCount = pendingItems.IsDefaultOrEmpty ? 0 : pendingItems.Length;
+            }
+            catch (StateManagerFencedException exception)
+            {
+                fenced = true;
+                onlyConflicts &= exception.FailureKind is StorageFailureKind.Conflict;
+            }
+            catch (Exception) when (fenced)
+            {
+                // Local inspection can fail independently of storage. The recorded
+                // fence still determines recovery; only the diagnostic count is lost.
+            }
+
+            if (fenced && onlyConflicts)
+            {
+                // Leave recovery to the competing owner or a later activation.
+                // A conflict does not prove that another activation is still alive.
+                return;
+            }
+
+            // An empty local snapshot can precede a failed write which actually
+            // persisted new messages. Fencing keeps that recovery need separate
+            // from the readable count used for diagnostics.
+            if (!fenced && outboxItemCount == 0)
+            {
+                await TryRemoveIdleReminderAsync(cancellationToken);
             }
             else
             {
-                await TryRemoveIdleReminderAsync(cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+                await EnsureReminderAsync().WaitAsync(cancellationToken);
             }
         }
         catch (Exception exception)
@@ -46,7 +77,8 @@ public sealed partial class OutboxProcessor<TOutbox>
                 exception,
                 owner.GrainContext.GrainId,
                 grainType,
-                reminderName);
+                reminderName,
+                outboxItemCount);
         }
     }
 
@@ -55,12 +87,14 @@ public sealed partial class OutboxProcessor<TOutbox>
         EventName = "OutboxDeactivationReminderFailed",
         Level = LogLevel.Warning,
         Message = "Could not confirm an outbox reminder for grain {GrainId} ({GrainType}) during deactivation. " +
-            "Pending outbox work may require manual reactivation and an explicit post. Reminder: {ReminderName}.")]
+            "Pending outbox work may require manual reactivation and an explicit post. " +
+            "Reminder: {ReminderName}. Outbox item count: {OutboxItemCount}.")]
     private partial void LogDeactivationReminderFailed(
         Exception exception,
         GrainId grainId,
         string grainType,
-        string reminderName);
+        string reminderName,
+        int? outboxItemCount);
 
     [LoggerMessage(
         EventId = 2,

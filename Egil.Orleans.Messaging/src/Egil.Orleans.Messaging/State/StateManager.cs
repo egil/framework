@@ -73,8 +73,11 @@ namespace Egil.Orleans.Messaging.State;
 /// <para>
 /// <b>Fencing:</b> <see cref="StateRecoveryPolicy.FenceAndDeactivate"/> bypasses the
 /// matrix and rethrows every storage write/clear exception, even when persistence may
-/// have succeeded. Every subsequent member rejects access with that exception as its
-/// inner exception. Reads, validation, configuration and lifecycle-hook failures do not
+/// have succeeded. Local inspection through <see cref="State"/> and
+/// <see cref="HasUnsavedChanges"/> remains available, but cannot establish the current
+/// durable state. Subsequent mutations, storage reads and hook configuration throw
+/// <see cref="StateManagerFencedException"/> with the classification and original failure.
+/// Reads, validation, configuration and lifecycle-hook failures do not
 /// fence. Without a grain context, the owner must reload storage before constructing a
 /// replacement. Direct construction does not resolve silo options.
 /// </para>
@@ -120,6 +123,7 @@ public abstract class StateManagerBase<T> : IStateManager<T>
     private readonly StateRecoveryPolicy recoveryPolicy;
     private readonly IGrainContext? grainContext;
     private Exception? fencingFailure;
+    private StorageFailureKind fencingFailureKind;
     private T state;
     private T lastStored;
     private bool hasUnsavedChanges;
@@ -174,11 +178,9 @@ public abstract class StateManagerBase<T> : IStateManager<T>
     /// <inheritdoc/>
     public T State
     {
-        get
-        {
-            ThrowIfFenced();
-            return state;
-        }
+        // Shutdown can inspect the last published snapshot without adopting the
+        // failed write candidate or claiming that this snapshot still matches storage.
+        get => state;
         set
         {
             ThrowIfFenced();
@@ -202,14 +204,7 @@ public abstract class StateManagerBase<T> : IStateManager<T>
     }
 
     /// <inheritdoc/>
-    public bool HasUnsavedChanges
-    {
-        get
-        {
-            ThrowIfFenced();
-            return hasUnsavedChanges;
-        }
-    }
+    public bool HasUnsavedChanges => hasUnsavedChanges;
 
     /// <inheritdoc/>
     public async Task ReadAsync(CancellationToken cancellationToken = default)
@@ -295,13 +290,23 @@ public abstract class StateManagerBase<T> : IStateManager<T>
         }
         catch (Exception ex)
         {
+            var failureKind = StorageFailureKind.UnknownOutcome;
+            try
+            {
+                failureKind = ClassifyWriteFailure(ex);
+            }
+            catch (Exception) when (recoveryPolicy is StateRecoveryPolicy.FenceAndDeactivate)
+            {
+                // A broken custom classifier cannot keep failed state usable or
+                // replace the original storage error. Its outcome stays unknown.
+            }
+
             if (recoveryPolicy is StateRecoveryPolicy.FenceAndDeactivate)
             {
-                Fence(ex);
+                Fence(ex, failureKind, nameof(WriteAsync));
                 throw;
             }
 
-            var failureKind = ClassifyWriteFailure(ex);
             if (failureKind is StorageFailureKind.DidNotPersist)
             {
                 // Provider-specific classification says the write never reached durable storage
@@ -373,13 +378,23 @@ public abstract class StateManagerBase<T> : IStateManager<T>
         }
         catch (Exception ex)
         {
+            var failureKind = StorageFailureKind.UnknownOutcome;
+            try
+            {
+                failureKind = ClassifyClearFailure(ex);
+            }
+            catch (Exception) when (recoveryPolicy is StateRecoveryPolicy.FenceAndDeactivate)
+            {
+                // Preserve the original clear failure and fence even if custom
+                // classification fails, just as for a failed write.
+            }
+
             if (recoveryPolicy is StateRecoveryPolicy.FenceAndDeactivate)
             {
-                Fence(ex);
+                Fence(ex, failureKind, nameof(ClearAsync));
                 throw;
             }
 
-            var failureKind = ClassifyClearFailure(ex);
             if (failureKind is StorageFailureKind.DidNotPersist)
             {
                 RestoreState();
@@ -427,30 +442,55 @@ public abstract class StateManagerBase<T> : IStateManager<T>
     {
         if (fencingFailure is { } failure)
         {
-            throw new InvalidOperationException(
-                "The state manager is fenced after a storage mutation failed. " +
-                "Recover through a new activation or reload storage before constructing a new manager.", failure);
+            throw new StateManagerFencedException(fencingFailureKind, failure);
         }
     }
 
-    private void Fence(Exception failure)
+    private void Fence(Exception failure, StorageFailureKind failureKind, string operation)
     {
         if (fencingFailure is not null)
             return;
 
         // Only the write/clear storage-call catch blocks reach this method. User hooks
         // and state configuration run outside them and cannot fence a successful commit.
-        // Fencing deliberately bypasses classification and read-back, including the
+        // Fencing deliberately bypasses read-back, including the
         // VersionedState comparison: even a committed write with a lost response fails.
         // Replacing the activation also discards possibly stale private grain fields;
         // reconciling only this facet cannot repair them. ReadBack intentionally retains
         // them for grains that can safely continue and are expensive to initialize.
         // Publish the fence before requesting deactivation so callbacks cannot reuse it.
+        fencingFailureKind = failureKind;
         fencingFailure = failure;
+        if (grainContext is not { } context)
+            return;
+
         try
         {
-            grainContext?.Deactivate(new DeactivationReason(
-                DeactivationReasonCode.ApplicationError, failure, "State manager storage mutation failed."));
+            var activationFencing = context.GetComponent<StateManagerFencing>();
+            if (activationFencing is null)
+            {
+                // A custom context can store the component before reporting a
+                // failure, so publish evidence that already includes this failure.
+                activationFencing = new(failureKind);
+                context.SetComponent(activationFencing);
+            }
+            else
+            {
+                activationFencing.Record(failureKind);
+            }
+        }
+        catch (Exception)
+        {
+            // Recording helps shutdown coordinate recovery, but a custom context
+            // which cannot store components must still receive deactivation.
+        }
+
+        try
+        {
+            context.Deactivate(new DeactivationReason(
+                DeactivationReasonCode.ApplicationError, failure,
+                $"State manager for '{typeof(T).FullName}' was fenced after {operation} failed. " +
+                $"Storage failure: {failureKind}."));
         }
         catch (Exception)
         {
@@ -480,12 +520,18 @@ public abstract class StateManagerBase<T> : IStateManager<T>
     }
 
     /// <summary>
-    /// Classifies a write failure for ReadBack recovery. Fencing bypasses this method.
+    /// Classifies a write failure once for either recovery policy. ReadBack uses the
+    /// result for reconciliation; fencing preserves it in <see cref="StateManagerFencedException"/>.
     /// </summary>
+    /// <remarks>
+    /// If this classifier throws under FenceAndDeactivate, the manager still fences
+    /// with UnknownOutcome and preserves the original storage exception.
+    /// </remarks>
     protected abstract StorageFailureKind ClassifyWriteFailure(Exception exception);
 
     /// <summary>
-    /// Classifies a clear failure for ReadBack recovery. Fencing bypasses this method.
+    /// Classifies a clear failure once for either recovery policy, with the same
+    /// failure handling as <see cref="ClassifyWriteFailure"/>.
     /// </summary>
     protected virtual StorageFailureKind ClassifyClearFailure(Exception exception)
     {

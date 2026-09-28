@@ -87,6 +87,7 @@ public sealed partial class OutboxReminderPolicyTests
         var warning = Assert.Single(fixture.Logs.Warnings, entry =>
             Equals(entry.Properties.GetValueOrDefault("GrainId"), grain.GetGrainId()));
         Assert.Equal("OutboxDeactivationReminderFailed", warning.EventId.Name);
+        Assert.Equal(1, warning.Properties["OutboxItemCount"]);
         Assert.Contains("manual reactivation", warning.Message, StringComparison.OrdinalIgnoreCase);
         fixture.Reminders.AllowWrites(grain.GetGrainId());
         await grain.PostAsync(false);
