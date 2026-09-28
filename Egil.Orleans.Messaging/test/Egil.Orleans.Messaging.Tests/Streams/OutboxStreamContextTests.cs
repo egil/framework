@@ -82,6 +82,37 @@ public sealed class OutboxStreamContextTests
     }
 
     [Fact]
+    public async Task Synchronous_receiver_detaches_identity_without_changing_the_publishers_context()
+    {
+        RequestContext.Remove(Key);
+        var stream = Stream();
+        var identity = Token(1);
+        StreamCursor? receivedCursor = null;
+        OutboxSequenceToken? handlerIdentity = null;
+        var manager = StreamManagerResumeTests.CreateManager(null, stream)
+            .ConfigureExplicitSubscription<string>("provider", stream.StreamId, (_, cursor) =>
+            {
+                receivedCursor = cursor;
+                handlerIdentity = RequestContext.GetOutboxToken();
+                return ValueTask.CompletedTask;
+            }, options => options.Trace = MessageTraceOptions.None);
+        await manager.EnsureExplicitSubscriptionsAsync(TestContext.Current.CancellationToken);
+
+        using (RequestContext.AttachOutboxToken(identity))
+        {
+            var delivery = stream.OnNextAsync("incoming");
+            Assert.True(delivery.IsCompletedSuccessfully);
+            await delivery;
+            Assert.Equal(identity, RequestContext.GetOutboxToken());
+        }
+
+        Assert.NotNull(receivedCursor);
+        Assert.Equal(identity, receivedCursor.OutboxToken);
+        Assert.Null(handlerIdentity);
+        Assert.DoesNotContain(Key, RequestContext.Keys);
+    }
+
+    [Fact]
     public async Task Receiver_masks_incoming_identity_for_nested_raw_publication_and_preserves_full_source()
     {
         RequestContext.Remove(Key);
