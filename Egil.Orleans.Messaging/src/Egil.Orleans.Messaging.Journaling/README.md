@@ -109,6 +109,32 @@ The tracker exposes all receive, lookup, and eviction overloads, including
 provider-qualified stream cursors. Receive overloads with `out next` return this
 same durable component; the simpler overloads without `out` avoid assignment.
 `RegisterTimeProvider` affects subsequent receives, never replay timestamps.
+Global `ConfigureMessageTracker` settings apply to journaled trackers too. Streams
+default to provider-position tracking. A grain can opt into receipts and override
+retention once per activation:
+
+```csharp
+tracker.Configure(options =>
+{
+    options.StreamTrackingMode = StreamTrackingMode.OutboxIdentity;
+    options.RetentionPeriod = TimeSpan.FromDays(14);
+});
+```
+
+Import `Egil.Orleans.Messaging.Tracking` for the mode. `RetentionPeriod` defaults
+to `null` (manual eviction) and expires stream checkpoints, receipts, and RPC
+sender entries according to their receiver acceptance time. Cleanup is staged
+with an accepted message and saved by the grain's next journal write. No timer
+is registered. Replay restores the recorded cutoff and tracking decision without
+consulting current settings or the current clock. Keep business changes and
+tracker changes in the same journal write.
+
+`EvictStreamReceipts(cutoff)` removes only receipts while preserving checkpoints
+and RPC positions. Use `DateTimeOffset.MaxValue` and save when migrating an
+existing grain to position tracking. New retention and receipt-eviction journal
+operations require compatible OM readers and writers; do not downgrade after
+recording them.
+
 Construction and restoration belong to Orleans; immutable `Create`/`Restore`
 factories are not duplicated on the durable interfaces.
 

@@ -1037,8 +1037,25 @@ property, but each write replaces it with a fresh version on a copy.
 Receiver-side immutable persisted state separates three concerns:
 
 - Native checkpoints keyed by provider and complete `StreamId`. Legacy entries retain namespace-only keys.
-- Exact stream receipts keyed by provider, complete `StreamId`, sender, epoch, and sequence number.
+- Opt-in exact stream receipts keyed by provider, complete `StreamId`, sender, epoch, and sequence number.
 - Existing explicit RPC outbox high-water marks keyed by sender `GrainId`.
+
+`StreamTrackingMode.StreamPosition` is the default, including for streams carrying
+outbox metadata. `OutboxIdentity` opts into exact receipts for republishing at new
+provider positions. Both modes pass the original metadata to handlers. Neither
+mode promises exactly-once delivery or atomic external side effects.
+
+`ConfigureMessageTracker` supplies global settings. `MessageTracker.Configure`
+and `IDurableMessageTracker.Configure` override the effective settings per grain;
+state configuration hooks restore runtime overrides after loading. Each acceptance
+captures one settings snapshot for its mode, clock, and retention decision.
+
+Automatic eviction is disabled by default. `RetentionPeriod = null` retains state
+until explicit eviction, and a grain can set it to `null` to disable a global
+duration. A positive duration opts into cleanup during acceptance, using receiver
+acceptance time and an inclusive cutoff. Rejected messages return the original
+state. No background timer or schedule runs. Expiry ends duplicate protection;
+retention bounds history rather than imposing a fixed entry count.
 
 ### Shape
 
@@ -1061,6 +1078,7 @@ public sealed class MessageTracker
     private TimeProvider time = TimeProvider.System;
 
     public void RegisterTimeProvider(TimeProvider time) => this.time = time;
+    public void Configure(Action<MessageTrackerOptions> configure);
 
     public bool TryAcceptMessage(StreamCursor cursor, out MessageTracker next);
     public bool TryAcceptMessage(
@@ -1085,6 +1103,7 @@ public sealed class MessageTracker
 
     public MessageTracker Evict(DateTimeOffset olderThan);
     public MessageTracker EvictStreams(DateTimeOffset olderThan);
+    public MessageTracker EvictStreamReceipts(DateTimeOffset olderThan);
     public MessageTracker EvictOutboxes(DateTimeOffset olderThan);
     public MessageTracker Evict(StreamId stream, DateTimeOffset olderThan);
     public MessageTracker Evict(string streamProviderName, StreamId stream, DateTimeOffset olderThan);
@@ -1180,18 +1199,23 @@ business-handler error wrapper, projects it into the cursor, and removes the res
 entry from the handler's flow. Missing metadata permits
 ordinary publishers; corrupt/null/wrong-type/unsupported metadata faults delivery.
 
-An unseen exact receipt is accepted even if another sender sequence/epoch or a
+In `OutboxIdentity` mode, an unseen exact receipt is accepted even if another sender sequence/epoch or a
 newer native position has already arrived. A retry returns false with the original
 tracker, including retries at new native positions. Tagged null-token events still
 store receipts. Acceptance updates the native checkpoint only when it advances;
 a max checkpoint is not a universal replay protocol for unordered providers.
 
 Receipts persist in binary/JSON snapshots and journal operations. Journal replay
-uses recorded acceptance times and preserves receipts when replaying old operation
-kinds. All immutable reconstructions retain receipts. Explicit stream/global
-retention operations remove each receipt using its own acceptance time; RPC sender
-eviction does not remove stream receipts. No automatic TTL is safe while senders
-can retry indefinitely, so exact receipts grow until deliberate eviction.
+uses recorded acceptance times, tracking decisions, and actual cleanup cutoffs,
+independently of today's clock and settings. Old operation kinds retain their
+meaning. Immutable reconstructions retain receipts until configured retention or
+explicit eviction removes them by acceptance time. RPC sender eviction does not
+remove stream receipts; `EvictStreamReceipts` preserves checkpoints and RPC state.
+Automatic cleanup caches an in-memory earliest-expiry bound, so no scan is needed
+until an entry could expire. A due sweep still scans retained entries and refreshes
+the bound. Loading state or manual eviction causes a lazy rebuild. The cache is
+excluded from serialization and equality. Receipt tracking with retention disabled
+grows until deliberate eviction.
 
 One logical output per destination uses one token. Distinct events on one stream
 need separate outbox entries; no producer batch identity API is exposed. Provider

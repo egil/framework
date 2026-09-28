@@ -7,7 +7,7 @@ Composable messaging infrastructure for Microsoft Orleans grains.
 - `IStateManager<T>` wraps `IPersistentState<T>` so a grain does not keep observing uncommitted state after ambiguous write failures.
 - `Outbox<T>` stores messages alongside grain state and assigns durable message IDs; processors add sender identity at delivery.
 - `OutboxProcessor<T>` dispatches pending outbox items through registered postmen, with retry, reminder forwarding, failure acknowledgement, and telemetry.
-- `MessageTracker` records exact receipts for outbox stream messages and high-water marks for ordinary streams and explicit RPC tokens.
+- `MessageTracker` tracks stream positions by default, offers opt-in outbox stream receipts, and records sender high-water marks for explicit RPC tokens.
 - `StreamManager` gives grains a fluent subscription facade with resume-token and handler-error support.
 
 ## Install
@@ -1186,8 +1186,69 @@ and sequence space as well.
 
 `AddStreamPostman` publishes plain domain events with stable outbox identity in
 Orleans request context. `StreamManager` captures that identity into `StreamCursor`
-and removes the reserved context entry while invoking application code. Handlers
-keep their existing payload-and-cursor signature:
+and removes the reserved context entry while invoking application code. The
+receiver chooses whether to use that identity for deduplication:
+
+| `StreamTrackingMode` | Duplicate detection | Retained state |
+| --- | --- | --- |
+| `StreamPosition` (default) | Rejects provider positions at or below the retained checkpoint. A republished outbox item at a new position remains eligible. | One checkpoint per provider + full stream ID. |
+| `OutboxIdentity` | Tagged deliveries use exact outbox receipts, including retries at new provider positions. Untagged deliveries use stream positions. | Checkpoints plus one receipt per accepted logical identity per stream source. |
+
+Position tracking suits idempotent handlers, such as a charge point accepting
+updates from many short-lived charging sessions over a stable set of streams.
+Sender identity does not increase the stored state in this mode. The source count
+can still grow if every session has its own stream ID.
+
+Provider-position high-water marks assume earlier positions have been processed
+or can be discarded as stale. They are not a reorder buffer; ordering depends on
+the [Orleans stream provider](https://learn.microsoft.com/en-us/dotnet/orleans/streaming/streams-programming-apis#stream-order-and-sequence-tokens).
+Neither mode changes the provider's delivery guarantees. Receipt tracking can
+give effectively-once committed state changes while a receipt remains retained;
+it does not provide exactly-once delivery or atomic external side effects.
+
+### Global settings and per-grain overrides
+
+Automatic eviction is disabled by default. Configure defaults on the silo builder
+or `IServiceCollection`:
+
+```csharp
+siloBuilder.ConfigureMessageTracker(options =>
+{
+    options.StreamTrackingMode = StreamTrackingMode.StreamPosition;
+    options.RetentionPeriod = null;
+});
+```
+
+Leave `RetentionPeriod` unset or set it to `null` to retain entries until explicit
+eviction. To opt in, set a positive duration such as `TimeSpan.FromDays(14)`. It
+applies to stream checkpoints, stream receipts, and explicit RPC sender entries.
+
+A grain can override the defaults on its tracker. Restore overrides in the state
+configuration hook so they apply after activation, explicit reads, and recovery:
+
+```csharp
+[GenerateSerializer]
+public sealed record ReceiptReceiverState : IConfigurableState
+{
+    [Id(0)] public MessageTracker Tracker { get; init; } = new();
+
+    public void Configure(IGrainContext context) => Tracker.Configure(options =>
+    {
+        options.StreamTrackingMode = StreamTrackingMode.OutboxIdentity;
+        options.RetentionPeriod = TimeSpan.FromDays(7);
+    });
+}
+```
+
+The callback starts with the effective settings; setting only the mode inherits
+the duration. Set `RetentionPeriod = null` to disable a global duration for this
+grain. Settings are captured when configured, inherited by immutable updates, and
+excluded from persisted state and value equality. With `IPersistentState<T>` or
+custom storage, reapply them after each load; the `configureState` callback on
+`RegisterStateManager` is another place to do this. Journaled grains use the same
+`Configure` method on their `IDurableMessageTracker` once per activation.
+
+Handlers keep their payload-and-cursor signature:
 
 ```csharp
 async ValueTask HandleAsync(OrderSubmitted message, StreamCursor cursor)
@@ -1203,20 +1264,22 @@ async ValueTask HandleAsync(OrderSubmitted message, StreamCursor cursor)
 }
 ```
 
-Persist the tracker and business changes in the same write. If publication lands
+Persist the tracker and business changes in the same write. In `OutboxIdentity`
+mode, if publication lands
 but removing the sender's outbox item fails, retry carries the same logical
 identity even when the provider assigns a new stream position. The retained
 receipt suppresses the second effect. A failed receiver commit leaves the event
 eligible after recovery. External side effects need their own atomicity or
 idempotency contract.
 
-Receipts use provider, complete `StreamId`, sender, epoch, and sequence number.
+In receipt mode, receipts use provider, complete `StreamId`, sender, epoch, and sequence number.
 Timestamp and trace metadata are informational. Unseen lower sequences and
 previous epochs remain eligible: different postman groups can deliver sequence 12
 before sequence 11. Fan-out to distinct full stream sources is independent.
 Equal payloads appended as separate outbox entries have separate identities.
 
-Custom stream callbacks opt in at the actual send (`using Orleans.Streams`):
+Custom stream callbacks attach identity at the actual send (`using Orleans.Streams`);
+receivers still choose their tracking mode:
 
 ```csharp
 processor.AddPostman<OrderSubmitted>((message, token) =>
@@ -1275,16 +1338,17 @@ for null). `StreamManager` detaches before invoking application code; its async
 boundary isolates that removal from the publisher. Its handlers continue reading
 `cursor.OutboxToken`. Manual stream receivers
 must include the token, provider, and complete stream ID in a `StreamCursor` when
-tracking messages. The bare-token `TryAcceptMessage(token, out tracker)` overload
+using receipt tracking. The bare-token `TryAcceptMessage(token, out tracker)` overload
 uses RPC sender high-water ordering, which is different from per-stream receipts.
 
 Generic `AddPostman`, keyed `IPostman<T>`, and the dispatcher do not establish
 ambient identity automatically. RPC postmen can pass the token explicitly or opt
 in to the same request-context scope.
 
-Ordinary stream publishers without the reserved metadata retain provider-position
-tracking; untagged null-token events leave the tracker unchanged. Tagged events
-still retain a receipt with a null native token. Present malformed, null,
+Ordinary stream publishers without the reserved metadata use provider-position
+tracking in both modes. Tokenless events store no position; tagged tokenless events
+store a receipt only in `OutboxIdentity` mode. Accepted tokenless events can still
+remove expired entries. Present malformed, null,
 wrong-type, or legacy string metadata faults the observer before the
 application handler and bypasses its normal log-and-swallow error policy.
 Missing metadata cannot distinguish a raw publisher from an adapter that dropped
@@ -1292,16 +1356,39 @@ context. There is no strict-identity subscription mode in this version.
 
 ### Receipt retention and provider checkpoints
 
-Receipts grow until explicit eviction; there is no automatic TTL or size limit.
-Evicting a receipt ends its deduplication guarantee. Global and stream eviction
+When `RetentionPeriod` is configured, accepting a message removes entries whose
+receiver acceptance time is at or before `now - RetentionPeriod`. Entries that
+expired are also ignored when deciding whether that message is eligible, so a
+duplicate can become eligible again at the cutoff. New acceptance timestamps use
+the receiver's clock, never a sender timestamp. Duplicate attempts do not refresh
+the window.
+
+Cleanup is part of the returned tracker snapshot or the staged journal operation;
+persist it with the business changes. Rejected duplicates return the original
+snapshot without cleanup changes. Idle trackers keep their stored state until
+another accepted message or explicit eviction; there is no timer or schedule.
+An in-memory earliest-expiry bound skips cleanup scans until an entry could expire.
+The bound is rebuilt after loading state or manual eviction; a due sweep still
+scans the retained entries. Only actual cleanup is recorded in the journal.
+Retention bounds history, not the number of messages in that history. There is
+no automatic size cap. Without configured retention, receipts grow until explicit
+eviction.
+
+Evicting an entry ends its deduplication guarantee. Global and stream eviction
 remove checkpoints and receipts according to each entry's own receiver acceptance
 time. `EvictOutboxes` and sender-only eviction affect RPC high-water entries only.
 `Evict(streamId, cutoff)` targets that full stream across providers;
 `Evict(provider, streamId, cutoff)` narrows it to one provider. Namespace eviction
 covers all streams in that namespace. Journaling provides the same operations.
 
-Native checkpoints remain separate. Accepting an unseen identity never moves a
-checkpoint backwards. Rejecting a retry returns `false` and the original tracker,
+`EvictStreamReceipts(cutoff)` removes only receipts, preserving stream checkpoints
+and RPC positions. When moving an existing receiver to position tracking, use
+`EvictStreamReceipts(DateTimeOffset.MaxValue)` and persist the result to discard
+its old receipt history. Selecting position mode alone stops adding receipts but
+does not erase previously stored ones.
+
+Native checkpoints remain separate. In receipt mode, accepting an unseen identity
+never moves a retained checkpoint backwards. Rejecting a retry returns `false` and the original tracker,
 even at a newer native position, so ordinary early-return handlers do not silently
 lose an unpersisted checkpoint change. This can cause extra replay after
 activation. A maximum checkpoint does not establish safe resumption for an
@@ -1389,9 +1476,10 @@ clock it finds:
 
 1. A clock set on the instance with `RegisterTimeProvider`. Snapshots returned
    by `TryAcceptMessage` and `Evict` keep it.
-2. The silo-wide clock from `ConfigureMessageTracker`: `MessageTrackerOptions.TimeProvider`
+2. A clock captured by the instance's `Configure` callback.
+3. The silo-wide clock from `ConfigureMessageTracker`: `MessageTrackerOptions.TimeProvider`
    when set, otherwise the `TimeProvider` registered in the silo's services.
-3. `TimeProvider.System`.
+4. `TimeProvider.System`.
 
 Set the silo-wide clock once instead of registering one on every tracker after
 each read. It covers every tracker in the silo, including ones created with
@@ -1409,16 +1497,18 @@ siloBuilder.ConfigureMessageTracker((options, services) =>
     options.TimeProvider = services.GetRequiredKeyedService<TimeProvider>("pricing"));
 ```
 
-A tracker cannot reach the silo's services by itself, so without a
-`ConfigureMessageTracker` call it skips step 2 and uses `TimeProvider.System`.
+A tracker cannot reach the silo's services by itself. Without a
+`ConfigureMessageTracker` call, there is no silo fallback; an instance without its
+own clock uses `TimeProvider.System`.
 
-The silo installs the clock before any grain activates and removes it when it
+The silo installs its tracker defaults before any grain activates and removes them when it
 stops. Calls add up in registration order, as `services.Configure<MessageTrackerOptions>(...)`
-does, and `IServiceCollection` has the same overloads. The clock is
+does, and `IServiceCollection` has the same overloads. These global settings are
 process-wide, so silos sharing a process, as in an in-process test cluster,
-share the clock of the most recently started silo that is still running. A
-silo that stops withdraws only its own clock. Give a tracker its own clock with
-`RegisterTimeProvider` when it needs a different one.
+share the defaults of the most recently started configured silo that is still
+running. A silo that stops withdraws only its own settings. Use `Configure` for
+per-grain settings, or `RegisterTimeProvider` for a clock that takes precedence
+over both global and per-instance configuration.
 
 Use `LatestStreamSequenceToken(provider, streamId)` when all you need is the previous
 resume token for a complete source. Keep using `LatestStream("prices")` when you need the full
@@ -1718,6 +1808,18 @@ guaranteed; use a System.Text.Json serializer or the Orleans binary serializer.
 This package is messaging infrastructure, not an event-sourcing or CQRS framework. It wraps Orleans state, outbox dispatch, receiver deduplication, and stream subscription management while leaving domain modeling, read models, transport targets, and operational policy to the application.
 
 ## Beta API changes
+
+- **Stream tracking now defaults to provider positions, including outbox-tagged deliveries.**
+  Receivers must be idempotent for republished messages at new provider positions.
+  To preserve the previous receipt behavior, set
+  `StreamTrackingMode = StreamTrackingMode.OutboxIdentity` through
+  `ConfigureMessageTracker` globally or `Tracker.Configure` in the grain's state
+  configuration hook. `RetentionPeriod` enables cleanup on acceptance; `null`
+  preserves manual eviction. Use `EvictStreamReceipts(DateTimeOffset.MaxValue)`
+  and persist the result when discarding old receipts without losing checkpoints.
+  Snapshot formats remain readable. New journal operations record retention
+  cutoffs and receipt-only eviction; do not downgrade journal readers or writers
+  after using these operations.
 
 - **Outbox request-context metadata is now a typed `OutboxSequenceToken`.** Use
   `RequestContext.AttachOutboxToken(token)` for scoped fanout or grain calls and

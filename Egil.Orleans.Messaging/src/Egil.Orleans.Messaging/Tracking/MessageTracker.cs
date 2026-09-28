@@ -11,20 +11,22 @@ namespace Egil.Orleans.Messaging.Tracking;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Outbox-tagged stream deliveries use exact receipts scoped by provider, complete StreamId,
-/// sender, epoch, and sequence. Unseen lower sequences and earlier epochs remain eligible.
-/// Native checkpoints are separate and never move backwards. Ordinary untagged streams and
-/// explicit RPC outbox tokens retain their provider/sender high-water rules.
+/// Streams default to one provider high-water mark per complete source. Opt into
+/// <see cref="StreamTrackingMode.OutboxIdentity"/> for exact receipts scoped by provider,
+/// complete StreamId, sender, epoch, and sequence. In that mode, unseen lower sequences and
+/// earlier epochs remain eligible without moving retained checkpoints backwards.
+/// Untagged streams and explicit RPC tokens retain their provider/sender high-water rules.
 /// </para>
 /// <para>
-/// Receipts also track deliveries with null native positions and grow until explicit eviction.
-/// Removing a receipt ends its deduplication guarantee. Duplicate rejection returns the original
-/// tracker even at a newer native position, so callers need not make checkpoint-only writes.
+/// Receipt mode also tracks deliveries with null native positions. Configured retention removes
+/// expired entries on acceptance; otherwise entries remain until explicit eviction. Removing an
+/// entry ends its duplicate protection. Rejection always returns the original tracker, so callers
+/// need not make cleanup-only or checkpoint-only writes.
 /// </para>
 /// <para>
-/// Acceptance times use the instance clock from <see cref="RegisterTimeProvider"/>, then the
-/// silo-wide clock, then <see cref="TimeProvider.System"/>. Immutable updates retain the instance
-/// clock; serialization does not persist it. Eviction compares each entry's own acceptance time.
+/// Acceptance times use <see cref="RegisterTimeProvider"/>, then instance configuration, then
+/// silo defaults, then <see cref="TimeProvider.System"/>. Immutable updates retain instance
+/// settings; serialization does not persist them. Eviction uses each entry's acceptance time.
 /// </para>
 /// <para>
 /// Old namespace-only checkpoints remain legacy entries. Complete-source lookup never guesses
@@ -60,7 +62,19 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
     [JsonIgnore]
     private TimeProvider? time;
 
-    private TimeProvider Clock => MessageTrackerClock.Resolve(time);
+    [field: NonSerialized]
+    [JsonIgnore]
+    internal MessageTrackerSettings? Configuration { get; set; }
+
+    private MessageTrackerSettings Settings => Configuration ?? MessageTrackerDefaults.Current;
+
+    // A lower bound lets receives skip full-state cleanup until an entry could expire.
+    // Updating a checkpoint can make the bound conservative; a due sweep refreshes it.
+    // Rebuild after loading or manual eviction instead of persisting derived state.
+    // Publish an immutable reference because callers can share a snapshot across readers.
+    [NonSerialized]
+    [JsonIgnore]
+    private volatile RetentionBound? retentionBound;
 
     /// <summary>
     /// Creates an empty <see cref="MessageTracker"/> with no tracked sources.
@@ -88,18 +102,46 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
     /// </summary>
     public void RegisterTimeProvider(TimeProvider time) => this.time = time;
 
+    /// <summary>Overrides the effective global settings for this tracker and its future snapshots.</summary>
+    /// <remarks>
+    /// Call from the grain's state configuration hook so overrides are restored after every load.
+    /// Settings are runtime configuration, are not serialized, and do not change existing entries.
+    /// </remarks>
+    public void Configure(Action<MessageTrackerOptions> configure) => Configuration = Settings.Configure(configure);
+
     /// <summary>
-    /// Accepts an unseen logical stream identity, or a newer native position for an untagged delivery.
+    /// Accepts a delivery according to the configured stream tracking mode and retention period.
     /// </summary>
     /// <remarks>
-    /// A tagged delivery requires complete source metadata and stores a receipt even without a native
-    /// token. Untagged tokenless deliveries leave state unchanged. Rejection returns this instance.
+    /// Receipt mode requires complete source metadata for tagged deliveries, including tokenless ones.
+    /// Position mode ignores outbox identity. Acceptance also removes expired entries;
+    /// tokenless position deliveries only perform cleanup. Rejection returns this instance.
     /// </remarks>
-    public bool TryAcceptMessage(StreamCursor cursor, out MessageTracker next)
+    public bool TryAcceptMessage(StreamCursor cursor, out MessageTracker next) =>
+        TryAcceptMessage(cursor, out next, out _);
+
+    internal bool TryAcceptMessage(StreamCursor cursor, out MessageTracker next, out MessageTrackerAcceptance acceptance, MessageTrackerSettings? settings = null)
     {
         ArgumentNullException.ThrowIfNull(cursor);
         cursor.ValidateSource();
-        var now = Clock.GetUtcNow();
+        settings ??= Settings;
+        if (settings.StreamTrackingMode == StreamTrackingMode.StreamPosition && cursor.OutboxToken is not null)
+            cursor = cursor with { OutboxToken = null };
+        var now = (time ?? settings.TimeProvider ?? TimeProvider.System).GetUtcNow();
+        var cutoff = settings.RetentionCutoff(now);
+        var current = cutoff is { } expiry ? EvictExpiredEntries(expiry) : this;
+        acceptance = new(now, ReferenceEquals(current, this) ? null : cutoff, cursor);
+        if (current.TryAcceptStream(cursor, now, out next))
+            return true;
+
+        // Existing handlers return immediately on rejection. Cleanup must only become
+        // visible with an accepted message whose business state they will persist.
+        next = this;
+        return false;
+    }
+
+    private bool TryAcceptStream(StreamCursor cursor, DateTimeOffset now, out MessageTracker next)
+    {
         if (cursor.OutboxToken is not null)
         {
             if (StreamReceipts.ContainsKey(StreamMessageIdentity.From(cursor)))
@@ -124,7 +166,7 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
         if (!streams.TryGetValue(source, out var entry))
         {
             MessagingTelemetry.RecordStreamReceiveLag(cursor, now);
-            next = CreateTracker(streams.Add(source, new StreamEntry(cursor, now)), outbox);
+            next = CreateTracker(streams.Add(source, new StreamEntry(cursor, now)), outbox, acceptedAt: now);
             return true;
         }
 
@@ -135,21 +177,22 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
         }
 
         MessagingTelemetry.RecordStreamReceiveLag(cursor, now);
-        next = CreateTracker(streams.SetItem(source, new StreamEntry(cursor, now)), outbox);
+        next = CreateTracker(streams.SetItem(source, new StreamEntry(cursor, now)), outbox, acceptedAt: now);
         return true;
     }
 
     /// <summary>
     /// Evaluates a stream message for acceptance. Returns <c>true</c> if the
     /// <paramref name="token"/> is null or advances past the stored high-water mark for
-    /// <paramref name="streamNamespace"/>. Tokenless messages leave tracking state unchanged.
+    /// <paramref name="streamNamespace"/>. Tokenless messages do not store a position,
+    /// but can remove expired entries when retention is configured.
     /// </summary>
     /// <param name="streamNamespace">The Orleans stream namespace within the grain.</param>
     /// <param name="token">The stream sequence token to evaluate.</param>
     /// <param name="next">
     /// When accepted, a new <see cref="MessageTracker"/> with the updated
-    /// position. Tokenless messages are accepted without advancing the position
-    /// and return <c>this</c>. Rejected messages also return <c>this</c>.
+    /// position and any retention cleanup. Tokenless messages return <c>this</c>
+    /// unless cleanup removes entries. Rejected messages always return <c>this</c>.
     /// </param>
     /// <returns><c>true</c> if accepted, including tokenless messages; <c>false</c> if duplicate or stale.</returns>
     public bool TryAcceptMessage(
@@ -165,15 +208,16 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
     /// <summary>
     /// Evaluates a provider-qualified stream message for acceptance. Returns
     /// <c>true</c> if the <paramref name="token"/> is null or advances past the stored
-    /// high-water mark for the provider and namespace. Tokenless messages leave tracking state unchanged.
+    /// high-water mark for the provider and namespace. Tokenless messages do not store
+    /// a position, but can remove expired entries when retention is configured.
     /// </summary>
     /// <param name="streamProviderName">The Orleans stream provider name.</param>
     /// <param name="streamNamespace">The Orleans stream namespace within the grain.</param>
     /// <param name="token">The stream sequence token to evaluate.</param>
     /// <param name="next">
     /// When accepted, a new <see cref="MessageTracker"/> with the updated
-    /// position. Tokenless messages are accepted without advancing the position
-    /// and return <c>this</c>. Rejected messages also return <c>this</c>.
+    /// position and any retention cleanup. Tokenless messages return <c>this</c>
+    /// unless cleanup removes entries. Rejected messages always return <c>this</c>.
     /// </param>
     /// <returns><c>true</c> if accepted, including tokenless messages; <c>false</c> if duplicate or stale.</returns>
     public bool TryAcceptMessage(
@@ -199,28 +243,44 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
     /// position. When rejected, equals <c>this</c>.
     /// </param>
     /// <returns><c>true</c> if accepted; <c>false</c> if duplicate or stale.</returns>
-    public bool TryAcceptMessage(OutboxSequenceToken token, out MessageTracker next)
-    {
-        var now = Clock.GetUtcNow();
+    public bool TryAcceptMessage(OutboxSequenceToken token, out MessageTracker next) =>
+        TryAcceptMessage(token, out next, out _);
 
+    internal bool TryAcceptMessage(OutboxSequenceToken token, out MessageTracker next, out MessageTrackerAcceptance acceptance, MessageTrackerSettings? settings = null)
+    {
+        ArgumentNullException.ThrowIfNull(token);
+        settings ??= Settings;
+        var now = (time ?? settings.TimeProvider ?? TimeProvider.System).GetUtcNow();
+        var cutoff = settings.RetentionCutoff(now);
+        var current = cutoff is { } expiry ? EvictExpiredEntries(expiry) : this;
+        acceptance = new(now, ReferenceEquals(current, this) ? null : cutoff);
+        if (current.TryAcceptOutbox(token, now, out next))
+            return true;
+
+        next = this;
+        return false;
+    }
+
+    private bool TryAcceptOutbox(OutboxSequenceToken token, DateTimeOffset now, out MessageTracker next)
+    {
         if (!outbox.TryGetValue(token.Sender, out var entry))
         {
             MessagingTelemetry.RecordOutboxReceiveLag(token, now);
-            next = CreateTracker(streams, outbox.Add(token.Sender, new OutboxEntry(token.Epoch, token.SequenceNumber, now, token.Timestamp)));
+            next = CreateTracker(streams, outbox.Add(token.Sender, new OutboxEntry(token.Epoch, token.SequenceNumber, now, token.Timestamp)), acceptedAt: now);
             return true;
         }
 
         if (token.Epoch > entry.Epoch)
         {
             MessagingTelemetry.RecordOutboxReceiveLag(token, now);
-            next = CreateTracker(streams, outbox.SetItem(token.Sender, new OutboxEntry(token.Epoch, token.SequenceNumber, now, token.Timestamp)));
+            next = CreateTracker(streams, outbox.SetItem(token.Sender, new OutboxEntry(token.Epoch, token.SequenceNumber, now, token.Timestamp)), acceptedAt: now);
             return true;
         }
 
         if (token.Epoch == entry.Epoch && token.SequenceNumber > entry.LastSequenceNumber)
         {
             MessagingTelemetry.RecordOutboxReceiveLag(token, now);
-            next = CreateTracker(streams, outbox.SetItem(token.Sender, new OutboxEntry(entry.Epoch, token.SequenceNumber, now, token.Timestamp)));
+            next = CreateTracker(streams, outbox.SetItem(token.Sender, new OutboxEntry(entry.Epoch, token.SequenceNumber, now, token.Timestamp)), acceptedAt: now);
             return true;
         }
 
@@ -341,8 +401,43 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
     /// </summary>
     public MessageTracker Evict(DateTimeOffset olderThan) => EvictSources(static _ => true, olderThan, includeOutboxes: true);
 
+    private MessageTracker EvictExpiredEntries(DateTimeOffset cutoff)
+    {
+        var bound = retentionBound ??= new RetentionBound(FindOldestReceived());
+        if (bound.Received > cutoff)
+            return this;
+
+        var next = Evict(cutoff);
+        next.retentionBound = new RetentionBound(next.FindOldestReceived());
+        return next;
+    }
+
+    private sealed record RetentionBound(DateTimeOffset Received);
+
+    private DateTimeOffset FindOldestReceived()
+    {
+        var oldest = DateTimeOffset.MaxValue;
+        foreach (var entry in streams.Values)
+            oldest = entry.Received < oldest ? entry.Received : oldest;
+        foreach (var received in StreamReceipts.Values)
+            oldest = received < oldest ? received : oldest;
+        foreach (var entry in outbox.Values)
+            oldest = entry.Received < oldest ? entry.Received : oldest;
+        return oldest;
+    }
+
     /// <summary>Evicts stream checkpoints and receipts received at or before the cutoff.</summary>
     public MessageTracker EvictStreams(DateTimeOffset olderThan) => EvictSources(static _ => true, olderThan);
+
+    /// <summary>
+    /// Evicts only stream receipts accepted at or before the cutoff, preserving stream checkpoints
+    /// and RPC positions. Use <see cref="DateTimeOffset.MaxValue"/> when migrating to position tracking.
+    /// </summary>
+    public MessageTracker EvictStreamReceipts(DateTimeOffset olderThan)
+    {
+        var remaining = StreamReceipts.RemoveRange(StreamReceipts.Where(item => item.Value <= olderThan).Select(item => item.Key));
+        return remaining.Count == StreamReceipts.Count ? this : CreateTracker(streams, outbox, remaining);
+    }
 
     /// <summary>Evicts RPC sender high-water entries; stream receipts are retained.</summary>
     public MessageTracker EvictOutboxes(DateTimeOffset olderThan)
@@ -445,11 +540,16 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
     private MessageTracker CreateTracker(
         ImmutableDictionary<StreamSource, StreamEntry> streams,
         ImmutableDictionary<GrainId, OutboxEntry> outbox,
-        ImmutableDictionary<StreamMessageIdentity, DateTimeOffset>? receipts = null)
+        ImmutableDictionary<StreamMessageIdentity, DateTimeOffset>? receipts = null,
+        DateTimeOffset? acceptedAt = null)
     {
+        var bound = retentionBound;
         var next = new MessageTracker(streams, outbox, receipts ?? StreamReceipts)
         {
-            time = time
+            time = time,
+            Configuration = Configuration,
+            retentionBound = bound is not null && acceptedAt is { } received
+                ? (received < bound.Received ? new RetentionBound(received) : bound) : null
         };
 
         return next;
@@ -465,7 +565,7 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
         if (cursor.Token is not null && (!streams.TryGetValue(source, out var previous) || IsNewer(cursor.Token, previous.LastPosition.Token)))
             updatedStreams = streams.SetItem(source, new StreamEntry(cursor, received));
         var updatedReceipts = cursor.OutboxToken is null ? StreamReceipts : StreamReceipts.SetItem(StreamMessageIdentity.From(cursor), received);
-        return CreateTracker(updatedStreams, outbox, updatedReceipts);
+        return CreateTracker(updatedStreams, outbox, updatedReceipts, received);
     }
 
     // Dispatcher groups can deliver higher sequences before unseen lower ones. Timestamp and trace

@@ -18,8 +18,9 @@ public static class MessageTrackerServiceCollectionExtensions
         /// Each call adds a configuration step, applied in registration order, as
         /// <c>services.Configure&lt;MessageTrackerOptions&gt;(...)</c> does. The silo
         /// applies the result when it starts, before any grain activates, and removes
-        /// it when it stops. Trackers given a clock with
-        /// <see cref="MessageTracker.RegisterTimeProvider"/> keep using it.
+        /// it when it stops. <see cref="MessageTracker.Configure"/> overrides these defaults
+        /// for a grain's tracker. Explicit clocks from <see cref="MessageTracker.RegisterTimeProvider"/>
+        /// take precedence over both configurations.
         /// </remarks>
         /// <param name="configure">Configures the <see cref="MessageTrackerOptions"/>.</param>
         /// <returns>The service collection, for chaining.</returns>
@@ -62,6 +63,6 @@ public static class MessageTrackerServiceCollectionExtensions
 
         private void AddMessageTrackerInstaller() =>
             services.TryAddEnumerable(
-                ServiceDescriptor.Singleton<ILifecycleParticipant<ISiloLifecycle>, MessageTrackerTimeProviderInstaller>());
+                ServiceDescriptor.Singleton<ILifecycleParticipant<ISiloLifecycle>, MessageTrackerOptionsInstaller>());
     }
 }

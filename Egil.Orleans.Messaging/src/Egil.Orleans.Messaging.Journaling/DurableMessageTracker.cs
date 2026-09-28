@@ -9,7 +9,9 @@ namespace Egil.Orleans.Messaging.Journaling;
 
 internal sealed class DurableMessageTracker : JournaledSnapshot<MessageTracker, TrackerOperation>, IDurableMessageTracker
 {
-    private TimeProvider time;
+    private readonly TimeProvider time;
+    private TimeProvider? ownTime;
+    private MessageTrackerSettings? configuration;
     private readonly IDurableValueCommandCodec<TrackerOperation> codec;
 
     public DurableMessageTracker(
@@ -28,7 +30,13 @@ internal sealed class DurableMessageTracker : JournaledSnapshot<MessageTracker, 
         this.codec = codec;
     }
 
-    public void RegisterTimeProvider(TimeProvider time) => this.time = time;
+    public void RegisterTimeProvider(TimeProvider time) => ownTime = time;
+
+    public void Configure(Action<MessageTrackerOptions> configure)
+    {
+        configuration = (configuration ?? MessageTrackerDefaults.Current).Configure(configure);
+        Current.Configuration = configuration;
+    }
 
     public StreamCursor? LatestStream(string streamNamespace) => Current.LatestStream(streamNamespace);
     public StreamSequenceToken? LatestStreamSequenceToken(string streamNamespace) => Current.LatestStreamSequenceToken(streamNamespace);
@@ -82,30 +90,29 @@ internal sealed class DurableMessageTracker : JournaledSnapshot<MessageTracker, 
 
     public bool TryAcceptMessage(OutboxSequenceToken token)
     {
-        Current.RegisterTimeProvider(time);
-        if (!Current.TryAcceptMessage(token, out var next))
+        var settings = ConfigureCurrent();
+        if (!Current.TryAcceptMessage(token, out var next, out var acceptance, settings))
         {
             return false;
         }
 
-        Stage(next, new TrackerOperation("outbox", OutboxToken: token, Received: next.OutboxEntries[token.Sender].Received));
+        Stage(next, new TrackerOperation("outbox", OutboxToken: token, Received: acceptance.Received, RetentionCutoff: acceptance.RetentionCutoff));
         return true;
     }
 
     public bool TryAcceptMessage(StreamCursor cursor)
     {
-        Current.RegisterTimeProvider(time);
-        if (!Current.TryAcceptMessage(cursor, out var next))
+        var settings = ConfigureCurrent();
+        if (!Current.TryAcceptMessage(cursor, out var next, out var acceptance, settings))
         {
             return false;
         }
 
-        // Identity-bearing tokenless events still have durable receipts; ordinary tokenless events do not.
+        // Even a tokenless delivery can remove expired entries. Record its resolved policy
+        // in the same operation so recovery reproduces cleanup without consulting the clock.
         if (!ReferenceEquals(next, Current))
         {
-            var source = MessageTracker.StreamSource.From(cursor);
-            Stage(next, new TrackerOperation("stream", Stream: cursor, Received: cursor.OutboxToken is null ? next.StreamEntries[source].Received
-                : next.StreamReceipts[MessageTracker.StreamMessageIdentity.From(cursor)]));
+            Stage(next, new TrackerOperation("stream", Stream: acceptance.Stream, Received: acceptance.Received, RetentionCutoff: acceptance.RetentionCutoff));
         }
 
         return true;
@@ -116,6 +123,9 @@ internal sealed class DurableMessageTracker : JournaledSnapshot<MessageTracker, 
 
     public IDurableMessageTracker EvictStreams(DateTimeOffset olderThan) =>
         StageEviction(Current.EvictStreams(olderThan), new TrackerOperation("evict-streams", Received: olderThan));
+
+    public IDurableMessageTracker EvictStreamReceipts(DateTimeOffset olderThan) =>
+        StageEviction(Current.EvictStreamReceipts(olderThan), new TrackerOperation("evict-receipts", Received: olderThan));
 
     public IDurableMessageTracker EvictOutboxes(DateTimeOffset olderThan) =>
         StageEviction(Current.EvictOutboxes(olderThan), new TrackerOperation("evict-outboxes", Received: olderThan));
@@ -145,11 +155,22 @@ internal sealed class DurableMessageTracker : JournaledSnapshot<MessageTracker, 
 
     protected override MessageTracker Empty() => new();
     protected override TrackerOperation Snapshot(MessageTracker value) => new("snapshot", State: value);
-    protected override JournaledSnapshot<MessageTracker, TrackerOperation> CreateCopy() => new DurableMessageTracker(time, codec);
+    protected override JournaledSnapshot<MessageTracker, TrackerOperation> CreateCopy() =>
+        new DurableMessageTracker(time, codec) { configuration = configuration, ownTime = ownTime };
+
+    private MessageTrackerSettings ConfigureCurrent()
+    {
+        var settings = configuration ?? MessageTrackerDefaults.Current;
+        Current.Configuration = configuration;
+        Current.RegisterTimeProvider(ownTime ?? settings.TimeProvider ?? time);
+        return settings;
+    }
 
     protected override MessageTracker Apply(MessageTracker value, TrackerOperation operation)
     {
         // Replay applies the recorded facts directly: no fresh clock, dedup decision, or receive telemetry.
+        if (operation.RetentionCutoff is { } cutoff)
+            value = value.Evict(cutoff);
         switch (operation.Kind)
         {
             case "snapshot":
@@ -163,6 +184,8 @@ internal sealed class DurableMessageTracker : JournaledSnapshot<MessageTracker, 
                 return value.Evict(operation.Received);
             case "evict-streams":
                 return value.EvictStreams(operation.Received);
+            case "evict-receipts":
+                return value.EvictStreamReceipts(operation.Received);
             case "evict-outboxes":
                 return value.EvictOutboxes(operation.Received);
             case "evict-namespace" when operation.StreamNamespace is { } streamNamespace:
@@ -188,4 +211,5 @@ internal sealed record TrackerOperation(
     string? StreamNamespace = null,
     GrainId? Sender = null,
     StreamIdJsonModel? StreamId = null,
-    string? ProviderName = null);
+    string? ProviderName = null,
+    DateTimeOffset? RetentionCutoff = null);
