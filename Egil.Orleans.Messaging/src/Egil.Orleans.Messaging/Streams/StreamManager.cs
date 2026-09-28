@@ -491,9 +491,6 @@ public sealed class StreamManager : IStreamManagerComponent
         var cursor = string.IsNullOrWhiteSpace(streamProviderName)
             ? trackerSnapshot?.LatestStream(streamId)
             : trackerSnapshot?.LatestStream(streamProviderName, streamId);
-        if (cursor is null && trackerSnapshot?.HasLegacyStream(streamProviderName, streamId.GetNamespace()!) == true)
-            throw new InvalidOperationException($"Legacy namespace-only checkpoint for '{streamId}' requires migration. Explicitly rebind the known source with TryAcceptMessage(legacy with {{ StreamId = streamId, ProviderName = providerName }}, out next), persist it, and then attach subscriptions; otherwise establish a deliberate replay baseline.");
-
         return cursor?.Token;
     }
 
