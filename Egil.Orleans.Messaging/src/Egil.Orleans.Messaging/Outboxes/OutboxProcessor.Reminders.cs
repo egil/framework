@@ -25,7 +25,9 @@ public sealed partial class OutboxProcessor<TOutbox>
     {
         if (reminder is null || reminderPeriod is null)
         {
-            await RegisterReminderIfNeededAsync(options.IdleReminderPeriod);
+            await RegisterReminderIfNeededAsync(GetPendingItems().IsDefaultOrEmpty
+                ? options.IdleReminderPeriod
+                : options.ActiveReminderPeriod);
         }
     });
 
@@ -39,8 +41,18 @@ public sealed partial class OutboxProcessor<TOutbox>
             return;
         }
 
-        reminder = await owner.RegisterOrUpdateReminder(reminderName, period, period);
-        reminderPeriod = period;
+        try
+        {
+            reminder = await owner.RegisterOrUpdateReminder(reminderName, period, period);
+            reminderPeriod = period;
+        }
+        catch (Exception exception) when (reminder is not null && reminderPeriod is not null)
+        {
+            // An upsert failure cannot remove the established fallback. Changing
+            // its cadence is best effort and must not fail an acknowledged post.
+            // A handle alone is insufficient after an ambiguous removal failure.
+            LogReminderAdjustmentFailed(exception, owner.GrainContext.GrainId, grainType, reminderName, period);
+        }
     }
 
     private Task ReconcileIdleReminderAsync() =>

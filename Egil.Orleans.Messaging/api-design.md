@@ -2350,7 +2350,8 @@ Active retries use grain timers, including when PostAsync throws; the caller nee
 not schedule recovery. Empty drains remove known inherited reminders. Registration
 failure during deactivation still logs OutboxDeactivationReminderFailed.
 
-`KeepRegistered` starts an idle fallback during activation and posts await an
+`KeepRegistered` starts a fallback during activation, using the active period when
+persisted work is pending and the idle period otherwise. Posts await an
 in-progress registration before dispatch. Successful batches reuse it without
 reminder calls. Its configurable `IdleReminderPeriod` defaults to one hour and
 must exceed the grain's idle collection age with a collection/deactivation margin.
@@ -2363,6 +2364,9 @@ upserts directly without a lookup. Removal uses the cached handle or, only after
 an inherited tick, looks up the handle needed to unregister. A tick alone is not
 a durable registration guarantee because an already queued tick can outlive removal.
 Reminder mutations are serialized; unchanged periods require no writes.
+Failed period adjustments log `OutboxReminderAdjustmentFailed` without failing
+the post when a fallback is already established. Initial registration failures
+still propagate; a previously delivered tick is not enough to suppress them.
 
 Orderly deactivation waits for in-flight reminder work, then registers or updates
 the retry reminder for pending entries or removes a known reminder for an empty
@@ -2380,10 +2384,13 @@ registration styles without requiring a grain shutdown override. Raw
 `services.Configure<OutboxProcessorOptions>(...)` sets defaults only and does not
 install this hook.
 
-For constructor attachment, the lifecycle awaits fallback registration. Orleans
+For constructor attachment, the lifecycle awaits fallback registration and fails
+activation if registration fails or is cancelled. This prevents grain calls from
+proceeding without the fallback promised by KeepRegistered. Orleans
 runs lifecycle start before the grain's OnActivateAsync, so attachment there or
 later starts registration immediately and observes failures through
-`OutboxActivationReminderFailed`. Posts and shutdown join the operation. Await an
+`OutboxActivationReminderFailed`; this late-attachment warning does not apply to
+constructor-attached startup failures. Posts and shutdown join the operation. Await an
 empty KeepRegistered post before a business write if registration must have
 completed before that write. Undefined policies and reminder periods below one minute
 are rejected. Alternative durable retry providers remain outside this API.

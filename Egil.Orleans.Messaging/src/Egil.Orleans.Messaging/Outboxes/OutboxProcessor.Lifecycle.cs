@@ -78,11 +78,24 @@ public sealed partial class OutboxProcessor<TOutbox>
         EventId = 3,
         EventName = "OutboxActivationReminderFailed",
         Level = LogLevel.Warning,
-        Message = "Could not establish the fallback outbox reminder for grain {GrainId} ({GrainType}) during activation. " +
+        Message = "Could not establish the fallback outbox reminder for grain {GrainId} ({GrainType}) after late processor attachment. " +
             "A subsequent post or deactivation will retry registration. Reminder: {ReminderName}.")]
     private partial void LogActivationReminderFailed(
         Exception exception,
         GrainId grainId,
         string grainType,
         string reminderName);
+
+    [LoggerMessage(
+        EventId = 4,
+        EventName = "OutboxReminderAdjustmentFailed",
+        Level = LogLevel.Warning,
+        Message = "Could not adjust the established outbox reminder for grain {GrainId} ({GrainType}) to {Period}. " +
+            "The fallback remains registered. Reminder: {ReminderName}.")]
+    private partial void LogReminderAdjustmentFailed(
+        Exception exception,
+        GrainId grainId,
+        string grainType,
+        string reminderName,
+        TimeSpan period);
 }
