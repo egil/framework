@@ -132,6 +132,69 @@ public sealed partial class OutboxReminderPolicyTests
         Assert.Equal(new ReminderApiCounts(0, 1, 0), fixture.ReminderApi.For(grain.GetGrainId()));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Failed_idle_adjustment_preserves_successful_delivery_and_can_be_retried(bool inBackground)
+    {
+        var grain = await CreateGrainAsync(OutboxReminderPolicy.KeepRegistered);
+        await grain.RejectDeliveryAsync();
+        await grain.PublishAsync("pending", false);
+        fixture.Reminders.RejectWrites(grain.GetGrainId());
+        await grain.AllowDeliveryAsync();
+
+        await grain.PostAsync(inBackground);
+        await grain.PostAsync(false);
+
+        var observation = await grain.ObserveAsync();
+        Assert.Equal(1, observation.Delivered);
+        Assert.Equal(0, observation.Pending);
+        var active = Assert.Single((await fixture.Reminders.ReadRows(grain.GetGrainId())).Reminders);
+        Assert.Equal(TimeSpan.FromMinutes(10), active.Period);
+        Assert.Contains(fixture.Logs.Warnings, entry =>
+            entry.EventId.Name == "OutboxReminderAdjustmentFailed"
+            && Equals(entry.Properties.GetValueOrDefault("GrainId"), grain.GetGrainId()));
+
+        fixture.Reminders.AllowWrites(grain.GetGrainId());
+        await grain.PostAsync(false);
+        var idle = Assert.Single((await fixture.Reminders.ReadRows(grain.GetGrainId())).Reminders);
+        Assert.Equal(TimeSpan.FromHours(2), idle.Period);
+        Assert.Equal(0, fixture.ReminderApi.For(grain.GetGrainId()).Lookups);
+    }
+
+    [Fact]
+    public async Task Activation_with_pending_work_preserves_the_active_recovery_period()
+    {
+        var grain = fixture.GetUniqueGrain<IOutboxReminderPolicyGrain>();
+        await grain.ConfigureReminderAsync(OutboxReminderPolicy.KeepRegistered, TimeSpan.FromHours(1));
+        await grain.PersistAsync("pending");
+        await grain.ObserveDeactivationAsync();
+        await grain.DeactivateAsync();
+        await fixture.Deactivations.WaitForCompletionAsync(grain.GetGrainId())
+            .WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        using var response = fixture.ReminderApi.HoldRegistrationResponse(grain.GetGrainId());
+        await grain.ObserveAsync();
+        await response.Entered.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        response.Release();
+        var row = Assert.Single((await fixture.Reminders.ReadRows(grain.GetGrainId())).Reminders);
+        Assert.Equal(TimeSpan.FromMinutes(10), row.Period);
+        Assert.Equal(1, (await grain.ObserveAsync()).Pending);
+    }
+
+    [Fact]
+    public async Task Constructor_attached_fallback_failure_prevents_activation()
+    {
+        var grain = fixture.GetUniqueGrain<IConstructorFallbackReminderGrain>();
+        fixture.Reminders.RejectWrites(grain.GetGrainId());
+
+        await Assert.ThrowsAnyAsync<Exception>(() => grain.PingAsync());
+
+        Assert.True(fixture.Reminders.FailedWrites(grain.GetGrainId()) > 0);
+        Assert.Empty((await fixture.Reminders.ReadRows(grain.GetGrainId())).Reminders);
+        fixture.Reminders.AllowWrites(grain.GetGrainId());
+        await grain.PingAsync();
+        Assert.Single((await fixture.Reminders.ReadRows(grain.GetGrainId())).Reminders);
+    }
     private async Task<IOutboxReminderPolicyGrain> CreateGrainAsync(OutboxReminderPolicy policy, TimeSpan? retryDelay = null)
     {
         var grain = fixture.GetUniqueGrain<IOutboxReminderPolicyGrain>();

@@ -25,10 +25,13 @@ public enum OutboxReminderPolicy
     /// for pending-work recovery. Grain timers provide the normal retry cadence.
     /// </summary>
     /// <remarks>
-    /// Constructor attachment registers through the activation lifecycle. Attachment
+    /// Constructor attachment registers through the activation lifecycle and fails
+    /// activation if the fallback cannot be established. Attachment
     /// in OnActivateAsync or later starts registration immediately; posts await it
     /// before dispatching. Configure the idle period longer than the grain's idle
     /// collection age, with a margin for collection scans and deactivation.
+    /// Failed period adjustments preserve the established fallback and log a warning
+    /// without failing the post. Initial registration failures still propagate.
     /// </remarks>
     KeepRegistered,
 }

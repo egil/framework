@@ -25,6 +25,8 @@ internal sealed class OutboxDeactivationObserver(IGrainContext context) : ILifec
     public Task OnStart(CancellationToken cancellationToken)
     {
         HasStarted = true;
+        // Constructor attachment makes the fallback a startup prerequisite:
+        // KeepRegistered must not admit calls without confirmed registration.
         return context.GetComponent<IOutboxComponent>()?.OnActivateAsync(cancellationToken) ?? Task.CompletedTask;
     }
 

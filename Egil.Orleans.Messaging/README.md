@@ -1676,6 +1676,12 @@ This package is messaging infrastructure, not an event-sourcing or CQRS framewor
   deactivation. Persist deferred acknowledgements before that cleanup. Inherited
   reminders are looked up only after firing when removal needs a handle;
   registration directly upserts and may reset cadence.
+- **KeepRegistered requires an established fallback.** Constructor attachment fails
+  grain activation if initial registration fails. For attachment in `OnActivateAsync`
+  or later, await a post before business writes to confirm registration; asynchronous
+  initialization failures are logged. Activation uses the active reminder period
+  when persisted work is pending. Once established, failed period adjustments log a
+  warning without failing posts, since the fallback remains registered.
 
 - If `RegisterOutboxProcessor` runs in `OnActivateAsync` or a grain method, add
   `siloBuilder.ConfigureOutboxProcessor()` to host setup (an existing options
