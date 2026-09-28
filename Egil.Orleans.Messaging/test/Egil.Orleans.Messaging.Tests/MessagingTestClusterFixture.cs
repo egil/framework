@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using Egil.Orleans.Testing;
 using Egil.Orleans.Messaging.Tests.Outboxes;
+using Egil.Orleans.Messaging.Tests.Fakes;
 using Egil.Orleans.Messaging.Tests.Streams;
 using Orleans.Streams;
 using Orleans.TestingHost;
@@ -13,6 +14,8 @@ public sealed class MessagingTestClusterFixture : IAsyncLifetime, IGrainActivity
     private InProcessTestCluster? cluster;
 
     public GrainActivityCollector Collector { get; } = new();
+
+    public FakePublishingStreamProvider FanOutStreams { get; } = new();
 
     public ManualTimeProvider TimeProvider { get; } =
         new(new DateTimeOffset(2026, 5, 23, 12, 30, 0, TimeSpan.Zero));
@@ -42,6 +45,7 @@ public sealed class MessagingTestClusterFixture : IAsyncLifetime, IGrainActivity
                 services.AddDefaultStateManager("Default");
                 services.AddDefaultStateManager("Payload");
                 services.AddSingleton(TimeProvider);
+                services.AddKeyedSingleton<IStreamProvider>(FakePublishingStreamProvider.ProviderName, FanOutStreams);
                 services.AddKeyedSingleton<IStreamProvider>(
                     OutboxProcessorTestProviderNames.RecordingEvents,
                     (provider, _) => new RecordingStreamProvider(

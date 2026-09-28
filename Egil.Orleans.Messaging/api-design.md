@@ -2534,6 +2534,19 @@ caller could not apply before adding the message.
 These single-type-parameter overloads carry no `OverloadResolutionPriority`: it
 applies only when type arguments are omitted, where it would prune a projection
 returning a derived type and silently change the stream's event type.
+Multi-stream registrations publish the original payload and accept a fixed
+`IEnumerable<StreamId>`, `Func<TSub, IEnumerable<StreamId>>`, or
+`Func<TSub, OutboxSequenceToken, IEnumerable<StreamId>>`. Fixed collections are retained
+without copying and must support repeated enumeration. Selectors run once per attempt.
+Destinations are enumerated as publications are awaited, in the supplied order and
+including repeated IDs. Empty collections complete successfully without publishing;
+null collections are invalid. A selector
+or enumeration failure leaves the item pending, even if earlier publications succeeded.
+Publications are sequential, share the item's outbox token, and must all succeed
+before acknowledgement. Partial failure retries
+from the beginning with newly selected destinations and the same token, so routing
+should be stable and receivers must account for at-least-once delivery. There is
+no per-destination progress record or transaction across streams.
 `ForStreamProvider(name, configure)` invokes synchronous configuration and returns the
 original processor. Registrations are immediate and preserve first-match order,
 including if the callback subsequently throws. `ForStreamProvider(name)` returns an `OutboxStreamProviderBuilder<TOutbox>` with
@@ -2598,6 +2611,18 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         string postmanName) where TSub : TOutbox;
     public OutboxProcessor<TOutbox> AddStreamPostman<TSub>(
         string streamProviderName,
+        IEnumerable<StreamId> streamIds)
+        where TSub : TOutbox;
+    public OutboxProcessor<TOutbox> AddStreamPostman<TSub>(
+        string streamProviderName,
+        Func<TSub, IEnumerable<StreamId>> streamIds)
+        where TSub : TOutbox;
+    public OutboxProcessor<TOutbox> AddStreamPostman<TSub>(
+        string streamProviderName,
+        Func<TSub, OutboxSequenceToken, IEnumerable<StreamId>> streamIds)
+        where TSub : TOutbox;
+    public OutboxProcessor<TOutbox> AddStreamPostman<TSub>(
+        string streamProviderName,
         Func<TSub, StreamId> streamId)
         where TSub : TOutbox;
     public OutboxProcessor<TOutbox> AddStreamPostman<TSub>(
@@ -2660,6 +2685,12 @@ public sealed class OutboxStreamProviderBuilder<TOutbox>
     /// The same AddStreamPostman combinations as the processor, with the
     /// provider name supplied once by ForStreamProvider. Each call forwards
     /// immediately and returns this builder for chaining.
+    public OutboxStreamProviderBuilder<TOutbox> AddStreamPostman<TSub>(
+        IEnumerable<StreamId> streamIds) where TSub : TOutbox;
+    public OutboxStreamProviderBuilder<TOutbox> AddStreamPostman<TSub>(
+        Func<TSub, IEnumerable<StreamId>> streamIds) where TSub : TOutbox;
+    public OutboxStreamProviderBuilder<TOutbox> AddStreamPostman<TSub>(
+        Func<TSub, OutboxSequenceToken, IEnumerable<StreamId>> streamIds) where TSub : TOutbox;
     public OutboxStreamProviderBuilder<TOutbox> AddStreamPostman<TSub>(
         Func<TSub, StreamId> streamId) where TSub : TOutbox;
     public OutboxStreamProviderBuilder<TOutbox> AddStreamPostman<TSub>(

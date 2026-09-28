@@ -954,6 +954,56 @@ outboxProcessor.AddPostman<OrderSubmitted>(message =>
 
 Stream selectors and projections remain synchronous, with optional token arguments.
 
+Publish the same payload to multiple streams with one registration. Supply a fixed
+list of destinations:
+
+```csharp
+processor.AddStreamPostman<OrderSubmitted>("events",
+[
+    StreamId.Create("orders", "audit"),
+    StreamId.Create("orders", "analytics")
+]);
+```
+
+Or select destinations from each message:
+
+```csharp
+processor.AddStreamPostman<OrderSubmitted>("events", message =>
+[
+    StreamId.Create("orders", message.OrderId),
+    StreamId.Create("orders", "audit")
+]);
+```
+
+The selector can also receive the `OutboxSequenceToken`:
+
+```csharp
+processor.AddStreamPostman<OrderSubmitted>("events", (message, token) =>
+[
+    StreamId.Create("orders", message.OrderId),
+    StreamId.Create("orders-by-sender", token.Sender.ToString())
+]);
+```
+
+These overloads publish the original payload to each supplied stream ID using the
+same provider and outbox token. Repeated IDs cause repeated publications. Fixed
+collections are retained without copying, so supply a repeatable enumerable; changes
+to its contents affect subsequent deliveries. Selectors run once per delivery attempt.
+Destination sequences are enumerated as messages are published. An empty fixed list
+or selector result is a successful no-op: nothing is published and the item is acknowledged.
+Null collections are invalid. Fixed registrations reject null at registration;
+a selector returning null fails delivery and leaves the item pending.
+
+Publications are awaited sequentially in destination order, and the item is
+acknowledged only after all succeed. A publication or enumeration failure stops the
+attempt; earlier publications may already have succeeded. Retries select destinations
+again and publish from the beginning. Keep selectors stable across
+retries when every originally selected destination must receive the message.
+Streams that already succeeded may receive it again with the same outbox token;
+receivers can use `MessageTracker.TryAcceptMessage(cursor, out tracker)` to suppress
+duplicate business effects per stream. There is no transaction across streams or
+separate acknowledgement per destination.
+
 Group registrations that use the same configured provider:
 
 ```csharp
@@ -964,7 +1014,7 @@ processor.ForStreamProvider("events", provider => provider
         message => StreamId.Create("cancelled-orders", message.OrderId)));
 ```
 
-The group supports the same projections and token-aware selectors as direct
+The group supports the same fixed destination lists, selectors, and projections as direct
 `AddStreamPostman` calls. Each call registers immediately on the original
 processor, so registration order remains first-match-wins across both forms.
 `ForStreamProvider` selects an existing Orleans provider; it does not install one.
@@ -2111,3 +2161,8 @@ The earlier sender-free message-ID and revision changes described above changed
 the stored JSON shape; migration of snapshots predating those changes is not
 provided. The payload-first collection and OutboxAccessor changes preserve that
 existing sender-free, revision-bearing JSON and Orleans layout.
+
+The multi-stream `AddStreamPostman` overloads introduce one narrow source ambiguity:
+a selector returning an untyped `default`, such as `message => default`, can now
+match either `StreamId` or `IEnumerable<StreamId>`. Specify `default(StreamId)` to
+retain single-stream selection, or return `[]` for an intentional multi-stream no-op.

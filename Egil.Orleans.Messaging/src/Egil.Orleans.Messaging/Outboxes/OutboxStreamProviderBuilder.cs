@@ -18,6 +18,47 @@ public sealed class OutboxStreamProviderBuilder<TOutbox> where TOutbox : notnull
         this.streamProviderName = streamProviderName;
     }
 
+    /// <summary>Publishes matching payloads to a supplied collection of streams.</summary>
+    /// <remarks>
+    /// The collection is retained without copying and enumerated per attempt, including repeated IDs.
+    /// Supply a repeatable sequence. An empty collection is a successful no-op.
+    /// Delivery completes only after every publication succeeds; a retry may publish again
+    /// to destinations that already succeeded, retaining the same outbox token.
+    /// </remarks>
+    public OutboxStreamProviderBuilder<TOutbox> AddStreamPostman<TSub>(IEnumerable<StreamId> streamIds)
+        where TSub : TOutbox
+    {
+        processor.AddStreamPostman<TSub>(streamProviderName, streamIds);
+        return this;
+    }
+
+    /// <summary>Publishes matching payloads to a collection of streams selected for each delivery attempt.</summary>
+    /// <remarks>
+    /// The result is enumerated while publishing, including repeated IDs.
+    /// Empty results are successful no-ops; null results fail delivery. A failure retries
+    /// selection and all publications using the same outbox token, including after an enumeration failure.
+    /// </remarks>
+    public OutboxStreamProviderBuilder<TOutbox> AddStreamPostman<TSub>(Func<TSub, IEnumerable<StreamId>> streamIds)
+        where TSub : TOutbox
+    {
+        processor.AddStreamPostman<TSub>(streamProviderName, streamIds);
+        return this;
+    }
+
+    /// <summary>Selects multiple streams using the message and its delivery token.</summary>
+    /// <remarks>
+    /// The selector runs once per attempt and is enumerated while publishing, including repeated IDs.
+    /// An empty result is a successful no-op and null fails delivery.
+    /// Every destination receives the same outbox token, including on retries after partial failure.
+    /// </remarks>
+    public OutboxStreamProviderBuilder<TOutbox> AddStreamPostman<TSub>(
+        Func<TSub, OutboxSequenceToken, IEnumerable<StreamId>> streamIds)
+        where TSub : TOutbox
+    {
+        processor.AddStreamPostman<TSub>(streamProviderName, streamIds);
+        return this;
+    }
+
     /// <summary>Publishes matching payloads to their selected streams.</summary>
     public OutboxStreamProviderBuilder<TOutbox> AddStreamPostman<TSub>(Func<TSub, StreamId> streamId)
         where TSub : TOutbox
