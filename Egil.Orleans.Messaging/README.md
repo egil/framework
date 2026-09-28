@@ -1676,8 +1676,12 @@ This package is messaging infrastructure, not an event-sourcing or CQRS framewor
   deactivation. Persist deferred acknowledgements before that cleanup. Inherited
   reminders are looked up only after firing when removal needs a handle;
   registration directly upserts and may reset cadence.
-- **KeepRegistered requires an established fallback.** Constructor attachment fails
-  grain activation if initial registration fails. For attachment in `OnActivateAsync`
+- **KeepRegistered requires an established fallback.** Attaching the processor in
+  the constructor only installs the processor and its lifecycle hook; it performs
+  no reminder API calls or asynchronous registration. During activation, Orleans
+  awaits the hook's asynchronous reminder registration. Failure or cancellation
+  intentionally fails grain activation, so grain calls cannot proceed without the
+  promised fallback. For attachment in `OnActivateAsync`
   or later, await a post before business writes to confirm registration; asynchronous
   initialization failures are logged. Activation uses the active reminder period
   when persisted work is pending. Once established, failed period adjustments log a

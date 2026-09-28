@@ -2384,9 +2384,14 @@ registration styles without requiring a grain shutdown override. Raw
 `services.Configure<OutboxProcessorOptions>(...)` sets defaults only and does not
 install this hook.
 
-For constructor attachment, the lifecycle awaits fallback registration and fails
-activation if registration fails or is cancelled. This prevents grain calls from
-proceeding without the fallback promised by KeepRegistered. Orleans
+Attaching the processor in the constructor only installs the processor and its
+lifecycle hook. It performs no reminder API calls or asynchronous registration
+and does not require the reminder service to be usable during construction.
+During activation, Orleans awaits the hook's asynchronous fallback registration.
+Failure or cancellation intentionally fails activation: grain calls must not
+proceed without the fallback promised by `KeepRegistered`. The processor supplies
+this activation hook; constructor attachment does not require a grain override of
+`OnActivateAsync`. Orleans
 runs lifecycle start before the grain's OnActivateAsync, so attachment there or
 later starts registration immediately and observes failures through
 `OutboxActivationReminderFailed`; this late-attachment warning does not apply to

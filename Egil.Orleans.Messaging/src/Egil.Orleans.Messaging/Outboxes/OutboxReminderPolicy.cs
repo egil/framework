@@ -25,8 +25,10 @@ public enum OutboxReminderPolicy
     /// for pending-work recovery. Grain timers provide the normal retry cadence.
     /// </summary>
     /// <remarks>
-    /// Constructor attachment registers through the activation lifecycle and fails
-    /// activation if the fallback cannot be established. Attachment
+    /// Constructor attachment only installs the processor and lifecycle hook; it
+    /// performs no reminder I/O. During activation, Orleans awaits asynchronous
+    /// fallback registration. Failure or cancellation intentionally fails activation
+    /// so grain calls cannot proceed without the fallback. Attachment
     /// in OnActivateAsync or later starts registration immediately; posts await it
     /// before dispatching. Configure the idle period longer than the grain's idle
     /// collection age, with a margin for collection scans and deactivation.
