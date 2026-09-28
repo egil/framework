@@ -31,10 +31,15 @@ public sealed class StreamSubscriptionOptions
     public Action<string, Exception>? OnError { get; set; }
 
     /// <summary>
-    /// Whether the manager passes the tracker's last cursor token to Orleans when
-    /// it attaches or resumes the subscription. Default: <see langword="true"/>.
+    /// Whether the manager passes the tracker's token for the matching provider
+    /// and full stream identity to Orleans when it attaches or resumes the
+    /// subscription. Default: <see langword="true"/>.
     /// </summary>
     /// <remarks>
+    /// When no matching checkpoint exists, including when only a legacy
+    /// namespace-only checkpoint exists, the manager passes <see langword="null"/>
+    /// and leaves positioning to Orleans and the provider. Once a matching
+    /// checkpoint is tracked, later attachments can use it.
     /// Set it to <see langword="false"/> for a subscription that must attach
     /// without a resume token, such as one in a <c>[StatelessWorker]</c> grain,
     /// where Orleans rejects any non-null token.

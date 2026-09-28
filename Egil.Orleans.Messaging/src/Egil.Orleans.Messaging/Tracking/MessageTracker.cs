@@ -305,10 +305,6 @@ public sealed class MessageTracker : IEquatable<MessageTracker>
     /// <summary>Returns the native checkpoint for exactly this provider and complete stream identity.</summary>
     public StreamSequenceToken? LatestStreamSequenceToken(string streamProviderName, StreamId stream) => LatestStream(streamProviderName, stream)?.Token;
 
-    internal bool HasLegacyStream(string? providerName, string streamNamespace) =>
-        streams.Keys.Any(source => source.StreamId is null && source.StreamNamespace == streamNamespace
-            && (source.ProviderName is null || source.ProviderName == providerName));
-
     private StreamCursor? UniqueStream(Func<StreamSource, bool> matches)
     {
         StreamCursor? result = null;

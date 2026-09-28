@@ -26,7 +26,7 @@ public sealed class StreamManagerResumeTests
     }
 
     [Fact]
-    public async Task Legacy_checkpoint_requires_explicit_source_migration_before_tracked_resume()
+    public async Task Rebound_legacy_checkpoint_is_used_for_tracked_resume()
     {
         var tracker = new MessageTracker();
         tracker.TryAcceptMessage(new StreamCursor("orders", new EventSequenceToken(7)), out tracker);
@@ -34,14 +34,97 @@ public sealed class StreamManagerResumeTests
         var manager = CreateManager(() => tracker, stream)
             .ConfigureExplicitSubscription<string>("provider-a", "orders", static (_, _) => ValueTask.CompletedTask);
 
-        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => manager.EnsureExplicitSubscriptionsAsync(TestContext.Current.CancellationToken));
-
-        Assert.Contains("requires migration", error.Message);
-        Assert.Equal(0, stream.SubscribeCount);
         var legacy = Assert.IsType<StreamCursor>(tracker.LatestStream("orders"));
         Assert.True(tracker.TryAcceptMessage(legacy with { StreamId = stream.StreamId, ProviderName = "provider-a" }, out tracker));
+
         await manager.EnsureExplicitSubscriptionsAsync(TestContext.Current.CancellationToken);
+
         Assert.Equal(new EventSequenceToken(7), stream.SubscribeToken);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("provider-a")]
+    public async Task Legacy_checkpoint_allows_subscription_without_token_and_later_tracked_resume(string? legacyProvider)
+    {
+        var tracker = new MessageTracker();
+        tracker.TryAcceptMessage(new StreamCursor("orders", new EventSequenceToken(7), legacyProvider), out tracker);
+        var stream = new FakeStream<string>("provider-a", StreamId.Create("orders", "one"));
+        var manager = CreateManager(() => tracker, stream)
+            .ConfigureExplicitSubscription<string>("provider-a", "orders", static (_, _) => ValueTask.CompletedTask);
+
+        await manager.EnsureExplicitSubscriptionsAsync(TestContext.Current.CancellationToken);
+
+        Assert.Null(stream.SubscribeToken);
+        var handle = Assert.IsType<FakeSubscriptionHandle<string>>(Assert.Single(stream.Handles));
+
+        tracker.TryAcceptMessage(new StreamCursor("orders", new EventSequenceToken(9), "provider-a") { StreamId = stream.StreamId }, out tracker);
+        await manager.ResumeExplicitSubscriptionsAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(new EventSequenceToken(9), handle.ResumeToken);
+        Assert.Equal(1, handle.ResumeCount);
+        Assert.Equal(1, stream.SubscribeCount);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("provider-a")]
+    public async Task Legacy_checkpoint_allows_existing_subscription_to_resume_without_token(string? legacyProvider)
+    {
+        var tracker = new MessageTracker();
+        tracker.TryAcceptMessage(new StreamCursor("orders", new EventSequenceToken(7), legacyProvider), out tracker);
+        var stream = new FakeStream<string>("provider-a", StreamId.Create("orders", "one"));
+        var handle = new FakeSubscriptionHandle<string>("provider-a", stream.StreamId);
+        stream.Handles.Add(handle);
+        var manager = CreateManager(() => tracker, stream)
+            .ConfigureExplicitSubscription<string>("provider-a", "orders", static (_, _) => ValueTask.CompletedTask);
+
+        await manager.ResumeExplicitSubscriptionsAsync(TestContext.Current.CancellationToken);
+
+        Assert.Null(handle.ResumeToken);
+        Assert.Equal(1, handle.ResumeCount);
+        Assert.Equal(0, stream.SubscribeCount);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("provider-a")]
+    public async Task Legacy_checkpoint_allows_implicit_subscription_to_resume_without_token(string? legacyProvider)
+    {
+        var tracker = new MessageTracker();
+        tracker.TryAcceptMessage(new StreamCursor("orders", new EventSequenceToken(7), legacyProvider), out tracker);
+        var streamId = StreamId.Create("orders", "one");
+        var handleFactory = new FakeStreamSubscriptionHandleFactory(
+            "provider-a", streamId, new FakeSubscriptionHandle<string>("provider-a", streamId));
+        var manager = CreateManager(() => tracker, new FakeStream<string>("provider-a", streamId));
+
+        await ((IStreamManagerComponent)manager
+            .ConfigureImplicitSubscription<string>("orders", static (_, _) => ValueTask.CompletedTask))
+            .OnSubscribedAsync(handleFactory);
+
+        Assert.Null(handleFactory.StringHandle.ResumeToken);
+        Assert.Equal(1, handleFactory.StringHandle.ResumeCount);
+    }
+
+    [Theory]
+    [InlineData("provider-b", "one")]
+    [InlineData("provider-a", "other")]
+    [InlineData(null, "one")]
+    public async Task Checkpoint_for_another_source_is_not_used_for_subscription(string? checkpointProvider, string checkpointKey)
+    {
+        var tracker = new MessageTracker();
+        tracker.TryAcceptMessage(new StreamCursor("orders", new EventSequenceToken(7), checkpointProvider)
+        {
+            StreamId = StreamId.Create("orders", checkpointKey),
+        }, out tracker);
+        var stream = new FakeStream<string>("provider-a", StreamId.Create("orders", "one"));
+        var manager = CreateManager(() => tracker, stream)
+            .ConfigureExplicitSubscription<string>("provider-a", "orders", static (_, _) => ValueTask.CompletedTask);
+
+        await manager.EnsureExplicitSubscriptionsAsync(TestContext.Current.CancellationToken);
+
+        Assert.Null(stream.SubscribeToken);
+        Assert.Equal(1, stream.SubscribeCount);
     }
 
     [Fact]

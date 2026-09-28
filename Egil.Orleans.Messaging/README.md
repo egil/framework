@@ -1328,9 +1328,15 @@ events sharing one context is outside this contract. Raw handlers that bypass
 ### Upgrading stream tracking
 
 Old binary and JSON snapshots remain readable, with empty receipts. Their
-namespace-only checkpoints cannot reveal the original stream key. Tracked resume
-fails with an actionable migration error when only matching legacy state exists.
-For a verified mapping, bind and persist the full source before attaching:
+namespace-only checkpoints cannot reveal the original stream key. When no
+checkpoint matches the provider and full stream identity, `StreamManager` passes
+`null` when attaching or resuming, leaving positioning to Orleans and the provider.
+This includes legacy checkpoints and lets an existing application adopt OM without
+manufacturing a token or disabling tracked resume. Once the application tracks and
+persists a matching cursor, later attachments use its token automatically.
+
+To resume from a known legacy position, bind and persist a verified source mapping
+before attaching:
 
 ```csharp
 var tracker = state.State.Tracker;
@@ -1343,9 +1349,11 @@ if (legacy is { StreamId: null, Token: not null }
 }
 ```
 
-The legacy entry may remain; exact lookup wins for attachment. An unknown mapping
-requires a deliberate new checkpoint/replay baseline. Disabling tracked resume is
-an explicit choice to start from the provider default, not a lossless migration.
+The legacy entry may remain; exact lookup wins for attachment. Without a verified
+mapping, attachment proceeds without a token. This does not guarantee replay from
+the application's last processed event. Establish a deliberate checkpoint/replay
+baseline when that continuity is required. `UseTrackedResumeToken = false` always
+omits the token, even after a matching checkpoint becomes available.
 
 Receipts for already processed events cannot be reconstructed. Coordinate the
 cutover: pause producers, finish and acknowledge old outboxes, wait for consumers
@@ -1499,7 +1507,7 @@ Each subscription takes an optional `configure` callback that receives a
 
 | Option                  | Default                     | Effect                                                              |
 |-------------------------|-----------------------------|---------------------------------------------------------------------|
-| `UseTrackedResumeToken` | `true`                      | Pass the tracker's last cursor token when attaching or resuming.    |
+| `UseTrackedResumeToken` | `true`                      | Pass the token matching the provider and full stream identity when attaching or resuming, or `null` when none exists. |
 | `OnError`               | `null` (log the error)      | Called with the namespace and exception when the handler throws.    |
 | `Trace`                 | `MessageTraceOptions.Link`  | How the consumer span relates to the producer's trace.              |
 | `TimeProvider`          | registered, else `System`   | Clock for `MessageTraceOptions.ParentWithinLag`.                    |
@@ -1755,8 +1763,10 @@ This package is messaging infrastructure, not an event-sourcing or CQRS framewor
   `StreamId` and `OutboxToken`; existing constructor arguments keep their meaning.
   `StreamManager` always supplies the full source. Use provider-qualified full-id
   lookups for resume. `LatestStream(StreamId)` and `Evict(StreamId, cutoff)` now
-  match the actual key rather than every key in its namespace. Rebind verified
-  legacy checkpoints before tracked attachment, following [Upgrading stream tracking](#upgrading-stream-tracking).
+  match the actual key rather than every key in its namespace. Missing or legacy
+  namespace-only checkpoints now allow attachment without a token. Rebind verified
+  legacy checkpoints when resuming from their position is required, following
+  [Upgrading stream tracking](#upgrading-stream-tracking).
 - **Outbox stream publication now carries logical identity automatically through
   `AddStreamPostman`.** Custom stream postmen use `PublishFromOutboxAsync` or an
   explicit `AttachOutboxToken` scope; generic and RPC postmen remain context-free
