@@ -20,12 +20,15 @@ public sealed class StateRecoveryActivationTests(StateRecoveryCluster fixture) :
 
         var error = await Assert.ThrowsAsync<OrleansException>(() => grain.FailAsync(clear, persist));
         Assert.IsType<IOException>(error.InnerException);
+        var evidence = fixture.Storage.For(grain.GetGrainId());
+        // The failed call can return before Orleans has removed the fenced activation.
+        // Await runtime completion so the next call reaches its replacement.
+        await evidence.Deactivated.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         var after = await grain.ObserveAsync();
 
         Assert.NotEqual(before.Activation, after.Activation);
         Assert.Equal(expected, after.Value);
         Assert.Equal("fresh private state", after.PrivateValue);
-        var evidence = fixture.Storage.For(grain.GetGrainId());
         Assert.Equal(4, evidence.Reads);
         Assert.Equal(2, evidence.Mutations);
         Assert.True(evidence.DeactivationSaveRejected);
@@ -125,6 +128,7 @@ public sealed class RecoveryActivationGrain : Grain, IRecoveryActivationGrain
         privateValue = "stale private state";
         manager.State = new() { Value = "must not flush" };
         var evidence = storage.For(this.GetGrainId());
+        evidence.Deactivated = GrainContext.Deactivated;
         evidence.FailNext = true;
         evidence.PersistBeforeFailure = persist;
         failed = true;
@@ -198,6 +202,7 @@ public sealed class RecoveryGrainStorage : IGrainStorage
 
 public sealed class RecoveryEvidence
 {
+    public Task Deactivated { get; set; } = null!;
     public bool FailNext { get; set; }
     public bool PersistBeforeFailure { get; set; }
     public bool DeactivationSaveRejected { get; set; }
