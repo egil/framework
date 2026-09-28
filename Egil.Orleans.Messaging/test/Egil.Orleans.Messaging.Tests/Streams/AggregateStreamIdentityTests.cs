@@ -21,16 +21,17 @@ public sealed class AggregateStreamIdentityTests(MessagingTestClusterFixture fix
         {
             builder.AddAssembly(typeof(AzureQueueDataAdapterV2).Assembly);
             builder.AddAssembly(typeof(StreamRetryEvent).Assembly);
+            builder.AddAssembly(typeof(OutboxSequenceToken).Assembly);
         }).BuildServiceProvider();
         var serializer = services.GetRequiredService<Serializer>();
         var adapter = new AzureQueueDataAdapterV2(serializer);
         var capture = new StreamManagerResumeTests.FakeStream<StreamRetryEvent>(OutboxProcessorTestProviderNames.Events, source);
         var publications = new List<IBatchContainer>();
-        var encodedIdentities = new List<string>();
+        var identities = new List<OutboxSequenceToken>();
         await capture.SubscribeAsync(new CaptureObserver(message =>
         {
             var context = RequestContext.Keys.ToDictionary(name => name, name => RequestContext.Get(name)!);
-            encodedIdentities.Add(Assert.IsType<string>(context[ContextKey]));
+            identities.Add(Assert.IsType<OutboxSequenceToken>(context[ContextKey]));
             var text = adapter.ToQueueMessage(source, [message], null, context);
             var container = adapter.FromQueueMessage(text, publications.Count + 1);
             publications.Add(Assert.IsAssignableFrom<IBatchContainer>(serializer.Deserialize<IBatchContainer>(serializer.SerializeToArray<IBatchContainer>(container))));
@@ -41,7 +42,7 @@ public sealed class AggregateStreamIdentityTests(MessagingTestClusterFixture fix
         await capture.PublishFromOutboxAsync(new(key), first);
         await capture.PublishFromOutboxAsync(new(key), second);
         Assert.Equal(2, publications.Count);
-        Assert.NotEqual(encodedIdentities[0], encodedIdentities[1]);
+        Assert.NotEqual(identities[0], identities[1]);
 
         var aggregateSize = await receiver.DeliverAggregateAsync(publications.ToImmutableArray());
 

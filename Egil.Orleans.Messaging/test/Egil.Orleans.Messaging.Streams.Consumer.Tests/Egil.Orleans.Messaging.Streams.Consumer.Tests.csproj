@@ -17,4 +17,7 @@
     <PackageReference Include="xunit.v3" />
     <PackageReference Include="xunit.runner.visualstudio" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Egil.Orleans.Messaging\Egil.Orleans.Messaging.csproj" />
+  </ItemGroup>
 </Project>
