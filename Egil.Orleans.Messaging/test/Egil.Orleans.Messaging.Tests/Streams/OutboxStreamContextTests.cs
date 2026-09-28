@@ -1,4 +1,3 @@
-using System.Text.Json;
 using System.Collections.Concurrent;
 using Orleans.Streams;
 
@@ -29,7 +28,7 @@ public sealed class OutboxStreamContextTests
 
         await stream.PublishFromOutboxAsync("plain-event", Token(1));
 
-        Assert.Equal("v1:" + JsonSerializer.Serialize(Token(1)), observed);
+        Assert.Equal(Token(1), Assert.IsType<OutboxSequenceToken>(observed));
         Assert.Equal(hadPrevious, RequestContext.Keys.Contains(Key));
         Assert.Equal(previous, RequestContext.Get(Key));
         Assert.Equal("retained", RequestContext.Get("unrelated"));
@@ -77,8 +76,8 @@ public sealed class OutboxStreamContextTests
         release.SetResult();
         await Task.WhenAll(first, second);
 
-        Assert.Equal("v1:" + JsonSerializer.Serialize(Token(1)), identities["first"]);
-        Assert.Equal("v1:" + JsonSerializer.Serialize(Token(2)), identities["second"]);
+        Assert.Equal(Token(1), Assert.IsType<OutboxSequenceToken>(identities["first"]));
+        Assert.Equal(Token(2), Assert.IsType<OutboxSequenceToken>(identities["second"]));
         Assert.DoesNotContain(Key, RequestContext.Keys);
     }
 
@@ -96,6 +95,7 @@ public sealed class OutboxStreamContextTests
             {
                 nestedCursor = cursor;
                 Assert.DoesNotContain(Key, RequestContext.Keys);
+                Assert.Null(RequestContext.GetOutboxToken());
                 return ValueTask.CompletedTask;
             }, options => options.Trace = MessageTraceOptions.None);
         await nestedManager.EnsureExplicitSubscriptionsAsync(TestContext.Current.CancellationToken);
@@ -110,7 +110,11 @@ public sealed class OutboxStreamContextTests
             }, options => options.Trace = MessageTraceOptions.None);
         await manager.EnsureExplicitSubscriptionsAsync(TestContext.Current.CancellationToken);
 
-        await incoming.PublishFromOutboxAsync("incoming", Token(1));
+        using (RequestContext.AttachOutboxToken(Token(1)))
+        {
+            await incoming.OnNextAsync("incoming");
+            Assert.Equal(Token(1), RequestContext.GetOutboxToken());
+        }
 
         Assert.NotNull(receivedCursor);
         Assert.Equal(Token(1), receivedCursor.OutboxToken);
@@ -122,13 +126,7 @@ public sealed class OutboxStreamContextTests
     }
 
     [Theory]
-    [InlineData(null)]
-    [InlineData(42)]
-    [InlineData("v2:{}")]
-    [InlineData("v1:null")]
-    [InlineData("v1:{}")]
-    [InlineData("v1:{")]
-    [InlineData("v1:{\"SequenceNumber\":0,\"Sender\":{\"Type\":\"sender\",\"Key\":\"one\"},\"Timestamp\":\"1970-01-01T00:00:00Z\",\"Epoch\":\"1970-01-01T00:00:00Z\"}")]
+    [MemberData(nameof(OutboxRequestContextTests.InvalidContextValues), MemberType = typeof(OutboxRequestContextTests))]
     public async Task Malformed_present_metadata_faults_the_observer_before_application_code(object? value)
     {
         var stream = Stream();
@@ -143,7 +141,7 @@ public sealed class OutboxStreamContextTests
         await manager.EnsureExplicitSubscriptionsAsync(TestContext.Current.CancellationToken);
         RequestContext.Set(Key, value!);
 
-        await Assert.ThrowsAnyAsync<Exception>(() => stream.OnNextAsync("corrupt"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => stream.OnNextAsync("corrupt"));
 
         Assert.Equal(0, calls);
         Assert.Equal(0, errors);

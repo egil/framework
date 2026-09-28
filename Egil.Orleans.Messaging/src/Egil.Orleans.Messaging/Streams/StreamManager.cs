@@ -508,29 +508,16 @@ public sealed class StreamManager : IStreamManagerComponent
         OutboxSequenceToken? identity;
         try
         {
-            // Decode before the business-handler catch: corrupt identity must fault the observer task.
-            identity = OutboxStreamContext.Read();
+            // Validate before the business-handler catch: corrupt identity must fault the observer task.
+            identity = RequestContext.DetachOutboxToken();
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Invalid outbox identity for stream {StreamId} from provider {ProviderName}.", streamId, providerName);
             throw;
         }
-        var hadIdentity = RequestContext.Keys.Contains(OutboxStreamContext.Key);
-        var previous = RequestContext.Get(OutboxStreamContext.Key);
-        RequestContext.Remove(OutboxStreamContext.Key);
-        try
-        {
-            await InvokeHandlerAsync(streamId, providerName, item, token, identity, onNextAsync, settings);
-        }
-        finally
-        {
-            // Application publications and RPCs must not inherit this delivered item's logical identity.
-            if (hadIdentity)
-                RequestContext.Set(OutboxStreamContext.Key, previous!);
-            else
-                RequestContext.Remove(OutboxStreamContext.Key);
-        }
+        // Keep this boundary async: detaching here must not clear the publisher's context.
+        await InvokeHandlerAsync(streamId, providerName, item, token, identity, onNextAsync, settings);
     }
 
     private async Task InvokeHandlerAsync<TEvent>(StreamId streamId, string? providerName, TEvent item,

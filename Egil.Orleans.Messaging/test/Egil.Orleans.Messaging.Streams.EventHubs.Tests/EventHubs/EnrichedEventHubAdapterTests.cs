@@ -18,17 +18,19 @@ public sealed class EnrichedEventHubAdapterTests
     public void Default_enriched_adapter_preserves_outbox_identity_through_body_cache_and_consumer_serialization()
     {
         var adapter = CreateAdapter(out var serializer);
-        var identity = "v1:" + System.Text.Json.JsonSerializer.Serialize(new Egil.Orleans.Messaging.Outboxes.OutboxSequenceToken(
-            1, GrainId.Create("sender", "one"), DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch));
+        var identity = new Egil.Orleans.Messaging.Outboxes.OutboxSequenceToken(
+            1, GrainId.Create("sender", "one"), DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, TraceParent);
+        using var scope = RequestContext.AttachOutboxToken(identity);
         var outgoing = adapter.ToQueueMessage(StreamId.Create("orders", "one"), ["domain-event"], null,
-            new Dictionary<string, object> { ["egil.orleans.messaging.outbox"] = identity, ["unrelated"] = "retained" });
+            new Dictionary<string, object> { ["egil.orleans.messaging.outbox"] = RequestContext.Get("egil.orleans.messaging.outbox")!, ["unrelated"] = "retained" });
         var cached = CreateCachedMessage(adapter, outgoing.EventBody, []);
 
         var container = RoundTrip(serializer, adapter.GetBatchContainer(ref cached));
 
         Assert.Equal("domain-event", Assert.Single(container.GetEvents<string>()).Item1);
         Assert.True(container.ImportRequestContext());
-        Assert.Equal(identity, RequestContext.Get("egil.orleans.messaging.outbox"));
+        Assert.Equal(identity, Assert.IsType<Egil.Orleans.Messaging.Outboxes.OutboxSequenceToken>(RequestContext.Get("egil.orleans.messaging.outbox")));
+        Assert.Equal(TraceParent, RequestContext.GetOutboxToken()!.TraceParent);
         Assert.Equal("retained", RequestContext.Get("unrelated"));
         AssertEnrichedToken(container.SequenceToken, 0, EnqueuedTime, TraceParent);
     }

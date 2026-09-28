@@ -8,6 +8,32 @@ namespace Egil.Orleans.Messaging.Tests.Streams;
 
 public sealed class OutboxStreamRetryTests(MessagingTestClusterFixture fixture) : IClassFixture<MessagingTestClusterFixture>
 {
+    [Fact]
+    public async Task Fanout_and_failed_acknowledgement_retry_apply_one_durable_effect_per_stream()
+    {
+        var key = Guid.NewGuid();
+        var source = fixture.GrainFactory.GetGrain<IStreamRetrySource>(key);
+        var receiver = fixture.GrainFactory.GetGrain<IStreamFanOutReceiver>(key);
+        await receiver.ReadAsync();
+        var publishing = source.PublishFanOutAsync(key);
+        await fixture.WaitForAssertionAsync(receiver, async () =>
+            Assert.Equal((2, 3), await receiver.ReadAsync()), ct: TestContext.Current.CancellationToken);
+        await source.ReleaseAcknowledgementAsync();
+        var firstActivation = await publishing;
+
+        Assert.NotEqual(firstActivation, await RetryAfterStorageFailureAsync(source));
+
+        await fixture.WaitForAssertionAsync(receiver, async () =>
+            Assert.Equal((2, 6), await receiver.ReadAsync()), ct: TestContext.Current.CancellationToken);
+        Assert.Equal(0, await source.PendingAsync());
+        var deliveries = await receiver.DeliveriesAsync();
+        Assert.NotNull(deliveries[0].OutboxToken);
+        Assert.All(deliveries, cursor => Assert.Equal(deliveries[0].OutboxToken, cursor.OutboxToken));
+        Assert.Equal(2, deliveries.Select(cursor => cursor.StreamId).Distinct().Count());
+        await receiver.DeactivateAsync();
+        Assert.Equal((2, 0), await receiver.ReadAsync());
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -120,6 +146,7 @@ public sealed class OutboxStreamRetryTests(MessagingTestClusterFixture fixture) 
 [System.Text.Json.Serialization.JsonPolymorphic]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(HighStreamRetryEvent), "high")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(LowStreamRetryEvent), "low")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(FanOutStreamRetryEvent), "fan-out")]
 [GenerateSerializer]
 public record StreamRetryEvent([property: Id(0)] Guid Target);
 
@@ -127,6 +154,9 @@ public record StreamRetryEvent([property: Id(0)] Guid Target);
 public sealed record HighStreamRetryEvent(Guid Target) : StreamRetryEvent(Target);
 [GenerateSerializer]
 public sealed record LowStreamRetryEvent(Guid Target) : StreamRetryEvent(Target);
+
+[GenerateSerializer]
+public sealed record FanOutStreamRetryEvent(Guid Target) : StreamRetryEvent(Target);
 
 [GenerateSerializer]
 public sealed record StreamRetrySourceState
@@ -138,6 +168,7 @@ public interface IStreamRetrySource : IGrainWithGuidKey
 {
     Task<Guid> PublishAsync(Guid target, bool failAcknowledgement);
     Task<Guid> PublishPairAsync(Guid target);
+    Task<Guid> PublishFanOutAsync(Guid target);
     [AlwaysInterleave] Task ReleaseAcknowledgementAsync();
     Task<Guid> RetryAsync();
     Task<int> PendingAsync();
@@ -165,6 +196,11 @@ public class StreamRetrySource : Grain, IStreamRetrySource, IOutboxGrain
             options.AcknowledgePostedAsync = AcknowledgeAsync;
         });
         var highPublished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        processor.AddPostman<FanOutStreamRetryEvent>(async Task (message, token) =>
+        {
+            using var scope = RequestContext.AttachOutboxToken(token);
+            await Task.WhenAll(PublishFanOut(message));
+        });
         processor.AddPostman<HighStreamRetryEvent>(async ValueTask (message, token) =>
         {
             await this.GetStreamProvider(OutboxProcessorTestProviderNames.Events).GetStream<StreamRetryEvent>(Destination(message))
@@ -189,6 +225,25 @@ public class StreamRetrySource : Grain, IStreamRetrySource, IOutboxGrain
 
     private StreamId Destination(StreamRetryEvent message) =>
         StreamManager.CreateStreamId("stream-retry", GrainFactory.GetGrain<IStreamRetryReceiver>(message.Target).GetGrainId());
+
+    private IEnumerable<Task> PublishFanOut(FanOutStreamRetryEvent message)
+    {
+        var provider = this.GetStreamProvider(OutboxProcessorTestProviderNames.Events);
+        var receiverId = GrainFactory.GetGrain<IStreamFanOutReceiver>(message.Target).GetGrainId();
+        var first = provider.GetStream<StreamRetryEvent>(StreamManager.CreateStreamId("fanout-first", receiverId));
+        var second = provider.GetStream<StreamRetryEvent>(StreamManager.CreateStreamId("fanout-second", receiverId));
+        yield return first.OnNextAsync(message);
+        yield return second.OnNextAsync(message);
+        // The same destination twice remains one logical event, even before an outbox retry.
+        yield return first.OnNextAsync(message);
+    }
+
+    public async Task<Guid> PublishFanOutAsync(Guid target)
+    {
+        failAcknowledgement = true;
+        await state.WriteAsync(state.State with { Outbox = state.State.Outbox.Add(new FanOutStreamRetryEvent(target)) });
+        return await PostWithFailedAcknowledgementAsync();
+    }
 
     public async Task<Guid> PublishAsync(Guid target, bool failAcknowledgement)
     {
