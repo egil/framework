@@ -49,6 +49,8 @@ public sealed class StateManagerFencingTests
         Assert.Same(failure, (await Assert.ThrowsAsync<StateManagerFencedException>(() => manager.SaveChangesAsync(canceled.Token))).InnerException);
         Assert.Equal(1, storage.Mutations);
         Assert.Equal(0, storage.Reads);
+        Assert.Equal(StorageFailureKind.UnknownOutcome, manager.LastFailureKind);
+        Assert.Equal(StateRecoveryPolicy.FenceAndDeactivate, manager.Options.RecoveryPolicy);
     }
 
     [Theory]

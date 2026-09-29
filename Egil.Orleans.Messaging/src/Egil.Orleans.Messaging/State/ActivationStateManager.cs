@@ -73,6 +73,10 @@ internal sealed class ActivationStateManager<T> : IStateManager<T>
 
     public bool HasUnsavedChanges => Manager.HasUnsavedChanges;
 
+    public StateManagerOptionsSnapshot Options => Manager.Options;
+
+    public StorageFailureKind? LastFailureKind => Manager.LastFailureKind;
+
     public Task ReadAsync(CancellationToken cancellationToken = default) => OperationManager.ReadAsync(cancellationToken);
 
     public Task SaveChangesAsync(CancellationToken cancellationToken = default) => OperationManager.SaveChangesAsync(cancellationToken);

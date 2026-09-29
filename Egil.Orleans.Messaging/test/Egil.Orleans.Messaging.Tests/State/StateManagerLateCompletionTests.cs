@@ -1,3 +1,5 @@
+using Orleans.Storage;
+
 namespace Egil.Orleans.Messaging.Tests.State;
 
 public sealed class StateManagerLateCompletionTests
@@ -40,6 +42,45 @@ public sealed class StateManagerLateCompletionTests
         Assert.Equal(0, defaults);
         Assert.Equal("stored", manager.State.Value);
         Assert.False(manager.HasUnsavedChanges);
+        Assert.Equal(StorageFailureKind.UnknownOutcome, manager.LastFailureKind);
+    }
+
+    [Fact]
+    public async Task A_late_failure_cannot_replace_the_classification_which_fenced_the_manager()
+    {
+        var storage = new DelayedStorage(new("stored"));
+        IStateManager<Snapshot> manager = new DefaultStateManager<Snapshot>(storage, static () => new("default"));
+        var token = TestContext.Current.CancellationToken;
+        var pending = manager.WriteAsync(new("pending"), token);
+        storage.WriteFailure = new InconsistentStateException("The first completed failure is a conflict.");
+        await Assert.ThrowsAsync<InconsistentStateException>(() => manager.WriteAsync(new("failed"), token));
+
+        storage.FailPending(new IOException("The earlier call failed later."));
+        await Assert.ThrowsAsync<IOException>(() => pending);
+
+        Assert.Equal(StorageFailureKind.Conflict, manager.LastFailureKind);
+        var fenced = Assert.Throws<StateManagerFencedException>(() => manager.State = new("rejected"));
+        Assert.Equal(manager.LastFailureKind, fenced.FailureKind);
+    }
+
+    [Fact]
+    public async Task A_successful_callback_completion_after_fencing_keeps_the_fencing_classification()
+    {
+        var storage = new RecoveryStorage<Snapshot>(new("stored"));
+        IStateManager<Snapshot> manager = new DefaultStateManager<Snapshot>(storage, static () => new("default"));
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        manager.ConfigureHooks(hooks => hooks.OnWriteAsync = (_, _) => completion.Task);
+        var token = TestContext.Current.CancellationToken;
+        var pending = manager.WriteAsync(new("persisted"), token);
+        Assert.False(pending.IsCompleted);
+        storage.MutationFailure = new InconsistentStateException("Another call fenced the manager.");
+        await Assert.ThrowsAsync<InconsistentStateException>(() => manager.WriteAsync(new("failed"), token));
+
+        completion.SetResult();
+        await pending;
+
+        Assert.Equal(StorageFailureKind.Conflict, manager.LastFailureKind);
+        await Assert.ThrowsAsync<StateManagerFencedException>(() => manager.SaveChangesAsync(token));
     }
 
     private sealed record Snapshot(string Value);
@@ -52,6 +93,7 @@ public sealed class StateManagerLateCompletionTests
         public bool RecordExists { get; private set; } = true;
         public Exception? WriteFailure { get; set; }
         public void Complete() => completion.SetResult();
+        public void FailPending(Exception failure) => completion.SetException(failure);
 
         public Task ReadStateAsync() => ReadStateAsync(CancellationToken.None);
         public Task WriteStateAsync() => WriteStateAsync(CancellationToken.None);

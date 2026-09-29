@@ -120,7 +120,6 @@ public abstract class StateManagerBase<T> : IStateManager<T>
     private readonly IPersistentState<T> storage;
     private readonly Func<T> createInitialState;
     private readonly Action<T>? configureState;
-    private readonly StateRecoveryPolicy recoveryPolicy;
     private readonly IGrainContext? grainContext;
     private Exception? fencingFailure;
     private StorageFailureKind fencingFailureKind;
@@ -167,7 +166,7 @@ public abstract class StateManagerBase<T> : IStateManager<T>
         this.storage = storage;
         this.createInitialState = createInitialState;
         this.configureState = configureState;
-        this.recoveryPolicy = recoveryPolicy;
+        Options = new(recoveryPolicy);
         this.grainContext = grainContext;
         state = ResolveLoadedState();
         lastStored = state;
@@ -207,6 +206,12 @@ public abstract class StateManagerBase<T> : IStateManager<T>
     public bool HasUnsavedChanges => hasUnsavedChanges;
 
     /// <inheritdoc/>
+    public StateManagerOptionsSnapshot Options { get; }
+
+    /// <inheritdoc/>
+    public StorageFailureKind? LastFailureKind { get; private set; }
+
+    /// <inheritdoc/>
     public async Task ReadAsync(CancellationToken cancellationToken = default)
     {
         ThrowIfInsideHandler();
@@ -228,6 +233,7 @@ public abstract class StateManagerBase<T> : IStateManager<T>
             AdoptLoadedState();
             await hookDispatcher.InvokeAsync(operationHooks, state, StateManagerOperation.Read,
                 storage.RecordExists, cancellationToken);
+            SetLastFailureKind(null);
         }
         finally
         {
@@ -244,7 +250,11 @@ public abstract class StateManagerBase<T> : IStateManager<T>
         // Deliberately does not observe the token when there is nothing to write: this
         // method exists to be called unconditionally from deactivation hooks, where the
         // token is routinely already canceled.
-        return hasUnsavedChanges ? WriteAsync(state, cancellationToken) : Task.CompletedTask;
+        if (hasUnsavedChanges)
+            return WriteAsync(state, cancellationToken);
+
+        SetLastFailureKind(null);
+        return Task.CompletedTask;
     }
 
     /// <inheritdoc/>
@@ -273,6 +283,7 @@ public abstract class StateManagerBase<T> : IStateManager<T>
         try
         {
             await WriteCoreAsync(newState, operationHooks, cancellationToken);
+            SetLastFailureKind(null);
         }
         finally
         {
@@ -295,13 +306,17 @@ public abstract class StateManagerBase<T> : IStateManager<T>
             {
                 failureKind = ClassifyWriteFailure(ex);
             }
-            catch (Exception) when (recoveryPolicy is StateRecoveryPolicy.FenceAndDeactivate)
+            catch (Exception) when (Options.RecoveryPolicy is StateRecoveryPolicy.FenceAndDeactivate)
             {
                 // A broken custom classifier cannot keep failed state usable or
                 // replace the original storage error. Its outcome stays unknown.
             }
+            finally
+            {
+                SetLastFailureKind(failureKind);
+            }
 
-            if (recoveryPolicy is StateRecoveryPolicy.FenceAndDeactivate)
+            if (Options.RecoveryPolicy is StateRecoveryPolicy.FenceAndDeactivate)
             {
                 Fence(ex, failureKind, nameof(WriteAsync));
                 throw;
@@ -363,6 +378,7 @@ public abstract class StateManagerBase<T> : IStateManager<T>
         try
         {
             await ClearCoreAsync(operationHooks, cancellationToken);
+            SetLastFailureKind(null);
         }
         finally
         {
@@ -383,13 +399,17 @@ public abstract class StateManagerBase<T> : IStateManager<T>
             {
                 failureKind = ClassifyClearFailure(ex);
             }
-            catch (Exception) when (recoveryPolicy is StateRecoveryPolicy.FenceAndDeactivate)
+            catch (Exception) when (Options.RecoveryPolicy is StateRecoveryPolicy.FenceAndDeactivate)
             {
                 // Preserve the original clear failure and fence even if custom
                 // classification fails, just as for a failed write.
             }
+            finally
+            {
+                SetLastFailureKind(failureKind);
+            }
 
-            if (recoveryPolicy is StateRecoveryPolicy.FenceAndDeactivate)
+            if (Options.RecoveryPolicy is StateRecoveryPolicy.FenceAndDeactivate)
             {
                 Fence(ex, failureKind, nameof(ClearAsync));
                 throw;
@@ -436,6 +456,14 @@ public abstract class StateManagerBase<T> : IStateManager<T>
         hasUnsavedChanges = false;
         Adopt(CreateInitialState());
         await hookDispatcher.InvokeAsync(operationHooks, state, StateManagerOperation.Clear, false, cancellationToken);
+    }
+
+    private void SetLastFailureKind(StorageFailureKind? failureKind)
+    {
+        // An overlapping operation may finish after another failure fenced this manager.
+        // Keep the classification paired with that permanent fence.
+        if (fencingFailure is null)
+            LastFailureKind = failureKind;
     }
 
     private void ThrowIfFenced()
