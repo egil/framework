@@ -211,6 +211,8 @@ public sealed class StateManagerOptions
         = StateRecoveryPolicy.FenceAndDeactivate;
 }
 
+public sealed record StateManagerOptionsSnapshot(StateRecoveryPolicy RecoveryPolicy);
+
 public interface IStateManagerFactory
 {
     IStateManager<T> Create<T>(IPersistentState<T> storage,
@@ -227,6 +229,20 @@ configuration and named post-configuration, then the grain callback runs. The
 result is copied, validated, and passed to the factory. No cached `IOptions<T>`
 or monitor value is retained by managers. Constructors capture the explicit enum
 value; later edits to a callback's retained options cannot change that manager.
+The manager exposes that effective configuration through the immutable `Options`
+snapshot. Registered handles defer both diagnostic getters until hydration has
+created the underlying manager; they remain readable after fencing.
+
+`LastFailureKind` is initially null and records the existing write/clear classifier's
+result under both policies. A classifier which throws leaves `UnknownOutcome`
+without changing which exception the operation reports. Successful public reads,
+writes, clears, and saves reset it, including no-op saves and read-back recovery
+which reports success. A recovery read does not clear it if the original mutation
+still throws. State assignment, property access, hook configuration, validation
+and read failures leave it unchanged. Callback failures are not classified and
+prevent an operation from qualifying as a successful reset. Once fenced, the first
+fencing classification survives all late completions. This diagnostic does not
+establish durability or replace activation-wide fencing evidence for the outbox.
 
 Synchronous `RegisterStateManager` overloads append
 `Action<StateManagerOptions>? configure = null`. Async overloads insert it before
@@ -260,7 +276,9 @@ The default changes from read-back to fencing. Opt into `ReadBack` explicitly to
 retain the old behavior. Custom factories add `options` and `grainContext` to
 `Create`, forwarding `options.RecoveryPolicy` and the context to their managers.
 Positional async registration token arguments must become `cancellationToken: token`
-or include the new callback argument. `IStateManager<T>` has no new members.
+or include the new callback argument. Custom `IStateManager<T>` implementations
+must expose `Options` and `LastFailureKind`; implementations deriving from
+`StateManagerBase<T>` inherit them. Forward these properties through custom wrappers.
 Fenced-operation exact-type checks should use `StateManagerFencedException` and its
 `FailureKind` rather than the former generic `InvalidOperationException`.
 Custom classifiers now run under either recovery policy; a classifier failure
@@ -301,6 +319,8 @@ public interface IStateManager<T> where T : class, IEquatable<T>
 {
     T State { get; set; }
     bool HasUnsavedChanges { get; }
+    StateManagerOptionsSnapshot Options { get; }
+    StorageFailureKind? LastFailureKind { get; }
     Task ReadAsync(CancellationToken cancellationToken = default);
     Task WriteAsync(T newState, CancellationToken cancellationToken = default);
     Task SaveChangesAsync(CancellationToken cancellationToken = default);

@@ -29,9 +29,13 @@ public sealed class StateManagerFailureClassificationTests
         DeactivationReason? reason = null;
         context.OnDeactivate = (value, _) => reason = value;
         var manager = new ClassifyingManager(storage, kind, readBack, context);
+        Assert.Null(manager.LastFailureKind);
+        Assert.Equal(readBack ? StateRecoveryPolicy.ReadBack : StateRecoveryPolicy.FenceAndDeactivate,
+            manager.Options.RecoveryPolicy);
 
         Assert.Same(failure, await Assert.ThrowsAsync<IOException>(() => MutateAsync(manager, clear)));
 
+        Assert.Equal(kind, manager.LastFailureKind);
         Assert.Equal(clear ? 0 : 1, manager.WriteClassifications);
         Assert.Equal(clear ? 1 : 0, manager.ClearClassifications);
         Assert.Same(failure, manager.ClassifiedFailure);
@@ -72,6 +76,7 @@ public sealed class StateManagerFailureClassificationTests
         var actual = await Record.ExceptionAsync(() => MutateAsync(manager, clear));
 
         Assert.Same(readBack ? classifierFailure : failure, actual);
+        Assert.Equal(StorageFailureKind.UnknownOutcome, manager.LastFailureKind);
         Assert.Equal(1, manager.WriteClassifications + manager.ClearClassifications);
         Assert.Equal(0, storage.Reads);
         if (!readBack)
@@ -104,6 +109,7 @@ public sealed class StateManagerFailureClassificationTests
 
         Assert.Same(failure, await Record.ExceptionAsync(() => MutateAsync(manager, clear)));
 
+        Assert.Equal(expected, manager.LastFailureKind);
         var fenced = Assert.Throws<StateManagerFencedException>(() => manager.State = new("rejected"));
         Assert.Equal(expected, fenced.FailureKind);
         Assert.Same(failure, fenced.InnerException);

@@ -125,6 +125,31 @@ namespace Egil.Orleans.Messaging.State;
 public interface IStateManager<T>
     where T : class, IEquatable<T>
 {
+    /// <summary>Gets the effective configuration captured for this manager's lifetime.</summary>
+    /// <remarks>
+    /// Registered managers expose this immutable snapshot after persistent-state hydration.
+    /// Remains readable after fencing and performs no storage I/O.
+    /// </remarks>
+    StateManagerOptionsSnapshot Options { get; }
+
+    /// <summary>
+    /// Gets the most recent write or clear failure classification, or null after a successful operation.
+    /// </summary>
+    /// <remarks>
+    /// Initially null. Both recovery policies record the existing classifier's result.
+    /// Successful <see cref="ReadAsync"/>, <see cref="WriteAsync"/>, <see cref="ClearAsync"/>
+    /// and <see cref="SaveChangesAsync"/> calls reset it,
+    /// including a no-op save and a failed mutation which read-back recovers as success.
+    /// A recovery read which still leaves the original operation throwing does not reset it.
+    /// Property access, state assignment, hook configuration and rejected calls do not reset it.
+    /// Read failures and application callback failures are not classified as mutation failures.
+    /// A classifier which throws records <see cref="StorageFailureKind.UnknownOutcome"/> without
+    /// changing the policy's exception behavior. Once fenced, the original classification remains
+    /// readable and cannot be replaced or reset by late completions. This property does not establish
+    /// whether the local snapshot is durable.
+    /// </remarks>
+    StorageFailureKind? LastFailureKind { get; }
+
     /// <summary>Atomically replaces all lifecycle handlers without replaying state.</summary>
     /// <remarks>
     /// Invokes the callback once with a fresh configuration object, validates and copies its handlers,

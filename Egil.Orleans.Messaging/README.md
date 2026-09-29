@@ -269,6 +269,20 @@ additional storage reads. If a custom classifier throws while fencing, the kind
 is `UnknownOutcome` and the original storage failure is still preserved. The
 initial failed operation continues to throw its original exception.
 
+Inspect `state.LastFailureKind` for the latest write or clear failure classification
+under either policy. It starts as `null` and resets to `null` when `ReadAsync`,
+`WriteAsync`, `ClearAsync`, or `SaveChangesAsync` completes successfully, including
+a no-op save and a mutation recovered as success by read-back. A successful recovery
+read which still leaves the original mutation throwing retains its classification.
+Reads which fail, validation failures, state assignment, property access, and hook
+configuration do not clear or replace it. Callback failures are not classified;
+an operation which throws from a callback does not count as a successful reset.
+A throwing classifier records `UnknownOutcome`; its existing exception behavior
+under each policy is unchanged. Once fenced, the manager retains the classification
+which caused its fence, including through late completions. This diagnostic is
+not a guarantee about the current durable state and does not replace the activation's
+fencing record used for outbox recovery.
+
 Deactivation uses `ApplicationError` and retains the original exception. Its
 description includes the state type, operation, and classification, for example:
 `State manager for 'Example.OrderState' was fenced after WriteAsync failed. Storage failure: Conflict.`
@@ -278,6 +292,13 @@ description includes the state type, operation, and classification, for example:
 Precedence is **library defaults → silo-wide configuration → factory-registration
 configuration → grain-local configuration**. Every manager gets an isolated options
 snapshot after hydration which stays fixed for its lifetime.
+
+`state.Options` exposes those effective settings as an immutable
+`StateManagerOptionsSnapshot`, currently containing `RecoveryPolicy`. The mutable
+`StateManagerOptions` passed to configuration callbacks remains configuration input;
+retaining and changing it cannot change a manager's settings. Registered handles
+expose `Options` and `LastFailureKind` after hydration, starting in `OnActivateAsync`.
+Both getters remain readable after fencing and perform no storage I/O.
 
 ```csharp
 // Shared baseline for every named and unkeyed manager in this silo.
@@ -1900,6 +1921,17 @@ guaranteed; use a System.Text.Json serializer or the Orleans binary serializer.
 This package is messaging infrastructure, not an event-sourcing or CQRS framework. It wraps Orleans state, outbox dispatch, receiver deduplication, and stream subscription management while leaving domain modeling, read models, transport targets, and operational policy to the application.
 
 ## Beta API changes
+
+- **State managers expose `LastFailureKind` and immutable `Options`.** Custom
+  `IStateManager<T>` implementations must add both getters; implementations derived
+  from `StateManagerBase<T>` inherit them. Wrappers should forward them to the
+  underlying manager. `Options` returns `StateManagerOptionsSnapshot` with the
+  effective lifetime `RecoveryPolicy`. `LastFailureKind` reports classified write
+  and clear failures under either recovery policy and resets after a successful
+  read, write, clear, or save, including recovered success and no-op saves. A recovery
+  read which still leaves the mutation throwing retains the failure. Fenced managers
+  retain their original classification. Outbox reminder decisions still use the
+  separate activation-wide fencing record.
 
 - **Fenced operations throw `StateManagerFencedException`; local inspection remains available.** It still derives from
   `InvalidOperationException`, but exact-type checks should use the dedicated type.

@@ -1,9 +1,28 @@
 using Microsoft.Extensions.Options;
+using Orleans.Storage;
 
 namespace Egil.Orleans.Messaging.Tests.State;
 
 public sealed class StateManagerOptionsTests
 {
+    [Fact]
+    public async Task A_registered_handle_exposes_failure_and_success_from_its_manager()
+    {
+        using var provider = new ServiceCollection().AddDefaultStateManager().BuildServiceProvider();
+        var grain = new RegistrationGrain(new RecoveryGrainContext(provider));
+        var storage = new RecoveryStorage<Snapshot>(new()) { MutationFailure = new InconsistentStateException("Stale ETag.") };
+        var manager = grain.RegisterStateManager(storage, configure: options => options.RecoveryPolicy = StateRecoveryPolicy.ReadBack);
+        var token = TestContext.Current.CancellationToken;
+        Assert.Null(manager.LastFailureKind);
+
+        await Assert.ThrowsAsync<InconsistentStateException>(() => manager.WriteAsync(new("rejected"), token));
+        Assert.Equal(StorageFailureKind.Conflict, manager.LastFailureKind);
+        await manager.ReadAsync(token);
+
+        Assert.Null(manager.LastFailureKind);
+        Assert.Equal(StateRecoveryPolicy.ReadBack, manager.Options.RecoveryPolicy);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -28,7 +47,7 @@ public sealed class StateManagerOptionsTests
         using var provider = services.BuildServiceProvider();
         var grain = new RegistrationGrain(new RecoveryGrainContext(provider));
 
-        grain.RegisterStateManager("Orders", new RecoveryStorage<Snapshot>(new()), configure: options =>
+        var manager = grain.RegisterStateManager("Orders", new RecoveryStorage<Snapshot>(new()), configure: options =>
         {
             Assert.Equal(StateRecoveryPolicy.FenceAndDeactivate, options.RecoveryPolicy);
             calls.Add("grain");
@@ -40,6 +59,7 @@ public sealed class StateManagerOptionsTests
         Assert.Equal(StateRecoveryPolicy.ReadBack, Assert.Single(factory.Options).RecoveryPolicy);
         Assert.Same(grain.GrainContext, factory.Context);
         Assert.Equal(["global", "factory", "grain"], calls);
+        Assert.Equal(StateRecoveryPolicy.ReadBack, manager.Options.RecoveryPolicy);
     }
 
     [Fact]
@@ -160,6 +180,8 @@ public sealed class StateManagerOptionsTests
 
         await manager.WriteAsync(new("committed"), token);
 
+        Assert.Equal(StateRecoveryPolicy.ReadBack, manager.Options.RecoveryPolicy);
+        Assert.Null(manager.LastFailureKind);
         Assert.Equal("committed", manager.State.Value);
         Assert.Equal(1, storage.Reads);
     }
