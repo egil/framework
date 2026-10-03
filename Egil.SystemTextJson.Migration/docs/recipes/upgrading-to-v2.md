@@ -51,7 +51,7 @@ Applying the attribute to a type whose contract is not a JSON object now throws 
 
 ## .NET 11
 
-The package multi-targets `net10.0` and `net11.0`. On .NET 11, `AddJsonMigrationSupport()` also registers `JsonMigratableUnionTypeClassifier`, so a C# `union` whose cases are `[JsonMigratable]` types is classified by migration discriminator. Source-generated contexts must name the classifier on the union (`[JsonUnion(TypeClassifier = typeof(JsonMigratableUnionTypeClassifier))]`); see [polymorphism.md](polymorphism.md). The `[JsonPolymorphic]` limitation is unchanged.
+The package multi-targets `net8.0`, `net9.0`, `net10.0` and `net11.0`. On .NET 11, `AddJsonMigrationSupport()` also registers `JsonMigratableUnionTypeClassifier`, so a C# `union` whose cases are `[JsonMigratable]` types is classified by migration discriminator. Source-generated contexts must name the classifier on the union (`[JsonUnion(TypeClassifier = typeof(JsonMigratableUnionTypeClassifier))]`); see [polymorphism.md](polymorphism.md). The `[JsonPolymorphic]` limitation is unchanged.
 
 ## Checklist
 

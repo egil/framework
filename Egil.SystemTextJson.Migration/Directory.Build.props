@@ -1,0 +1,10 @@
+<Project>
+  <Import Project="../Directory.Build.props" />
+
+  <PropertyGroup>
+    <!-- Retain older framework assets for hosts that cannot upgrade their runtime.
+         Their support end dates must not make newer SDKs reject these builds.
+         TODO: Re-enable this check when the retained targets are all supported. -->
+    <CheckEolTargetFramework>false</CheckEolTargetFramework>
+  </PropertyGroup>
+</Project>

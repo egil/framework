@@ -61,6 +61,15 @@ Two consequences of living in the resolver chain:
 
 Options that have no resolver at all still serialize through reflection, as they would without the library.
 
+On .NET 8 and .NET 9, assigning a decorated `options.TypeInfoResolver` back to the same options can create a self-referencing chain because System.Text.Json mutates the options-bound chain during assignment. Snapshot the entries before decorating them:
+
+```csharp
+var resolver = JsonTypeInfoResolver.Combine(options.TypeInfoResolverChain.ToArray());
+options.TypeInfoResolver = resolver.WithAddedModifier(ModifyContract);
+```
+
+Alternatively, configure the base resolver and its modifiers before calling `AddJsonMigrationSupport()`.
+
 ## What the library does at runtime
 
 Migration itself is driven by `static abstract` interface methods and the type metadata your `JsonSerializerContext` provides; once a type's converter has been created, the library's own read and write paths do not use reflection (System.Text.Json's converter and metadata resolution behaves as it does without the library).
@@ -71,4 +80,4 @@ Discovery does. When a converter is created for a `[JsonMigratable]` type — on
 
 The [deployment requirements above](#aot--source-generation) follow from migration's interface discovery, assembly scanning, external migrator activation, and runtime generic construction. JSON source generation supplies serialization metadata but does not replace those operations. Even `RegisterMigrator<TSource, TTarget, TMigrator>()` currently enters the reflection-based invoker factory. Trimming can remove required contracts or constructors, and NativeAOT may lack code for runtime generic instantiations. Failures can include missing migrators when reading old payloads even when current payloads appear to work.
 
-The library enables trim and AOT analyzers on both supported target frameworks without declaring `IsTrimmable` or `IsAotCompatible`. Member-preservation annotations and warning-free library analysis do not establish compatibility. A supported NativeAOT path requires separate implementation and published runtime evidence.
+The library enables trim and AOT analyzers on all supported target frameworks without declaring `IsTrimmable` or `IsAotCompatible`. Member-preservation annotations and warning-free library analysis do not establish compatibility. A supported NativeAOT path requires separate implementation and published runtime evidence.
