@@ -25,9 +25,9 @@ env:
 permissions:
   contents: read
 
-# SDK band policy: every setup-dotnet step below installs the 10.x band plus
+# SDK band policy: every setup-dotnet step below installs the 8.x, 9.x and 10.x bands plus
 # the .NET 11 SDK because the package and all of its projects (src, test, perf,
-# samples) multi-target net10.0 and net11.0. The .NET 11 SDK is pinned to the
+# samples) multi-target net8.0, net9.0, net10.0 and net11.0. The .NET 11 SDK is pinned to the
 # RC1 build because setup-dotnet applies dotnet-quality to every listed band and
 # an "11.0.x" wildcard would not resolve a prerelease. Replace the pin with
 # "11.0.x" at .NET 11 GA (2026-11-10). Keep these bands in sync with the retained
@@ -48,6 +48,8 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: |
+            8.x
+            9.x
             10.x
             11.0.100-rc.1.26425.128
 
@@ -58,7 +60,10 @@ jobs:
           dotnet build ./src/Egil.SystemTextJson.Migration.Analyzers/Egil.SystemTextJson.Migration.Analyzers.csproj -c Release
           dotnet build ./src/Egil.SystemTextJson.Migration/Egil.SystemTextJson.Migration.csproj -c Release
           dotnet pack ./src/Egil.SystemTextJson.Migration/Egil.SystemTextJson.Migration.csproj -c Release --no-build --output ${{ env.NuGetDirectory }}
-          pwsh -NoProfile -File ./scripts/verify-analyzer-package.ps1 -PackagePath "$(find ${{ env.NuGetDirectory }} -maxdepth 1 -name '*.nupkg' -print -quit)"
+          # setup-dotnet installs SDKs in this job; this script verifies one target per call.
+          for framework in net8.0 net9.0 net10.0 net11.0; do
+            pwsh -NoProfile -File ./scripts/verify-analyzer-package.ps1 -TargetFramework "$framework" -PackagePath "$(find ${{ env.NuGetDirectory }} -maxdepth 1 -name '*.nupkg' -print -quit)"
+          done
 
       - name: Install NativeAOT prerequisites
         run: |
@@ -102,6 +107,8 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: |
+            8.x
+            9.x
             10.x
             11.0.100-rc.1.26425.128
 
@@ -135,6 +142,8 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: |
+            8.x
+            9.x
             10.x
             11.0.100-rc.1.26425.128
 
@@ -168,6 +177,8 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: |
+            8.x
+            9.x
             10.x
             11.0.100-rc.1.26425.128
 

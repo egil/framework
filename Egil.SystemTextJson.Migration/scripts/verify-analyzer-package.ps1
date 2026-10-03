@@ -1,7 +1,9 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
-    [string]$PackagePath
+    [string]$PackagePath,
+    [ValidateSet('net8.0', 'net9.0', 'net10.0', 'net11.0')]
+    [string]$TargetFramework = 'net10.0'
 )
 
 Set-StrictMode -Version Latest
@@ -59,7 +61,7 @@ try {
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>$TargetFramework</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <RestoreSources>$($package.Directory.FullName)</RestoreSources>
   </PropertyGroup>
@@ -92,7 +94,7 @@ try {
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Library</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>$TargetFramework</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <RestoreSources>$($package.Directory.FullName)</RestoreSources>
   </PropertyGroup>
@@ -137,7 +139,7 @@ public sealed class Source
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Library</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>$TargetFramework</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <RestoreSources>$($package.Directory.FullName)</RestoreSources>
   </PropertyGroup>
