@@ -489,7 +489,20 @@ public class ResolverChainTests
     }
 
     [Fact]
-    public void Cyclic_decorated_chain_registration_terminates_without_resolving_contracts()
+    public void Snapshot_decorated_chain_retains_registration_without_resolving_contracts()
+    {
+        var options = new JsonSerializerOptions().AddJsonMigrationSupport();
+        options.TypeInfoResolver = JsonTypeInfoResolver.Combine(options.TypeInfoResolverChain.ToArray())
+            .WithAddedModifier(_ => Assert.Fail("Registration must not resolve contracts."));
+
+        options.AddJsonMigrationSupport(_ => Assert.Fail("Existing registration must be retained."));
+
+        Assert.Single(options.TypeInfoResolverChain);
+    }
+
+#if NET10_0_OR_GREATER
+    [Fact]
+    public void Decorated_options_bound_chain_retains_registration_without_resolving_contracts()
     {
         var options = new JsonSerializerOptions().AddJsonMigrationSupport();
         options.TypeInfoResolver = options.TypeInfoResolver!.WithAddedModifier(_ => Assert.Fail("Registration must not resolve contracts."));
@@ -498,6 +511,30 @@ public class ResolverChainTests
 
         Assert.Single(options.TypeInfoResolverChain);
     }
+#else
+    [Fact]
+    public void Cyclic_options_bound_chain_allows_fresh_registration_without_resolving_contracts()
+    {
+        var options = new JsonSerializerOptions().AddJsonMigrationSupport();
+        var chain = options.TypeInfoResolverChain;
+        Assert.Same(chain, options.TypeInfoResolver);
+        var decorated = options.TypeInfoResolver!.WithAddedModifier(_ => Assert.Fail("Registration must not resolve contracts."));
+
+        // STJ 8/9 clears this same chain before adding its wrapper, losing the original
+        // registration and creating a cycle through the wrapper's source. Keep the
+        // actual cycle here to exercise registration discovery's termination guard.
+        // https://github.com/dotnet/runtime/blob/v9.0.0/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializerOptions.cs
+        options.TypeInfoResolver = decorated;
+        Assert.Same(decorated, Assert.Single(chain));
+        bool configured = false;
+
+        options.AddJsonMigrationSupport(_ => configured = true);
+
+        Assert.True(configured);
+        Assert.Equal(2, chain.Count);
+        Assert.Same(decorated, chain[1]);
+    }
+#endif
 
     [Fact]
     public void Repeated_resolver_entries_keep_the_existing_migration_registration()
