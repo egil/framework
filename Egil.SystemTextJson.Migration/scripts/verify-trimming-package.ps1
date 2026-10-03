@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Verifies trimming/AOT diagnostics from a packed migration library on both supported frameworks.
+Verifies trimming/AOT diagnostics from a packed migration library on all supported frameworks.
 .DESCRIPTION
 Uses isolated consumers and package caches, retains logs and a package-hash results manifest,
 and executes only the supported untrimmed consumers. -Publish adds rooted trim and NativeAOT
@@ -18,7 +18,7 @@ param(
     [string]$RuntimeIdentifier = [System.Runtime.InteropServices.RuntimeInformation]::RuntimeIdentifier,
     [switch]$Publish,
     [switch]$NativeCompileOnly,
-    [ValidateSet('net10.0', 'net11.0')] [string[]]$TargetFrameworks = @('net10.0', 'net11.0')
+    [ValidateSet('net8.0', 'net9.0', 'net10.0', 'net11.0')] [string[]]$TargetFrameworks = @('net8.0', 'net9.0', 'net10.0', 'net11.0')
 )
 
 Set-StrictMode -Version Latest
@@ -168,7 +168,7 @@ foreach ($framework in $TargetFrameworks) {
             if ($mode -eq 'aot' -and $NativeCompileOnly) {
                 # Run the actual NativeAOT compiler and its analysis, but do not invoke a linker.
                 # This is useful on Windows without the C++ workload; CI uses the full publish.
-                # The .NET 11 compiler consumes ResolvedFileToPublish; .NET 10 consumes copy-local assets.
+                # The .NET 11 compiler consumes ResolvedFileToPublish; earlier targets consume copy-local assets.
                 $targets = if ($framework -eq 'net11.0') { 'Build;ComputeResolvedFilesToPublishList;IlcCompile' } else { 'Build;_ComputeResolvedCopyLocalPublishAssets;_ComputeAssembliesToCompileToNative;IlcCompile' }
                 $output = Invoke-DotNet @('msbuild', $project, "-t:$targets", '-p:Configuration=Release', '-p:SelfContained=true', "-p:RuntimeIdentifier=$RuntimeIdentifier", '-p:IlcUseEnvironmentalTools=true') (Join-Path $directory 'native-compile.log')
             }

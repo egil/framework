@@ -4,6 +4,8 @@
 
 Version-tolerant JSON migration for `System.Text.Json`.
 
+Supports .NET 8, .NET 9, .NET 10, and .NET 11 using each target's framework-provided `System.Text.Json`; the package does not require a newer JSON package in .NET 8 or .NET 9 hosts. C# union support is available only in the .NET 11 asset.
+
 When data models evolve, old JSON payloads still exist — in databases, caches, queues, and on disk. This library migrates those payloads to the current type **automatically during deserialization**, so application code never deals with obsolete shapes.
 
 **Key characteristics:**
@@ -484,7 +486,7 @@ builder.Services.AddOpenTelemetry()
 
 Every benchmark compares the library against hand-written migration code on top of plain `System.Text.Json`. The small profile is a minimal `{ "name": "...", "age": ... }` object that highlights worst-case fixed overhead; the medium profile is a best-guess average object with about 12 object members; and the large profile has about 96 object members spread across nested objects, arrays, and dictionary entries. See [benchmark payload examples](https://github.com/egil/framework/blob/main/Egil.SystemTextJson.Migration/docs/perf/payload-examples.md) for representative JSON from each profile.
 
-The generated table below is refreshed by `.\scripts\update-perf-docs.ps1` from the latest source-generated BenchmarkDotNet report, produced with the `net11.0` build of the benchmarks (the union dispatch scenario only exists there; every other scenario also runs on `net10.0`). It keeps BenchmarkDotNet's `Ratio`, `RatioSD`, and `Alloc Ratio` columns so README numbers stay tied to the raw benchmark output.
+The generated table below is refreshed by `.\scripts\update-perf-docs.ps1` from the latest source-generated BenchmarkDotNet report, produced with the `net11.0` build of the benchmarks (the union dispatch scenario only exists there; every other scenario also runs on `net8.0`, `net9.0` and `net10.0`). It keeps BenchmarkDotNet's `Ratio`, `RatioSD`, and `Alloc Ratio` columns so README numbers stay tied to the raw benchmark output.
 
 <!-- This is a summary; see [full source-gen results](https://github.com/egil/framework/blob/main/Egil.SystemTextJson.Migration/docs/perf/source-gen-benchmarks.md) and [full reflection results](https://github.com/egil/framework/blob/main/Egil.SystemTextJson.Migration/docs/perf/reflection-benchmarks.md). -->
 

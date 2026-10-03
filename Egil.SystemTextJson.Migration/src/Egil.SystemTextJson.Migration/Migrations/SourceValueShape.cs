@@ -169,5 +169,9 @@ internal static class SourceValueShapes
     /// report their real element type.
     /// </summary>
     public static Type GetValueType(JsonTypeInfo collectionTypeInfo)
+#if NET8_0
+        => StjInternals.GetElementType(collectionTypeInfo) ?? typeof(object);
+#else
         => collectionTypeInfo.ElementType ?? typeof(object);
+#endif
 }
