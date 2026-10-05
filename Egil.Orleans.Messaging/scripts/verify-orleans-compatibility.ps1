@@ -66,6 +66,10 @@ function Assert-JournalingPackage {
 }
 $testNames = @('Egil.Orleans.Messaging.Tests', 'Egil.Orleans.Messaging.State.Consumer.Tests', 'Egil.Orleans.Messaging.Streams.Consumer.Tests', 'Egil.Orleans.Messaging.State.AzureStorage.Tests', 'Egil.Orleans.Messaging.Streams.EventHubs.Tests')
 New-Item -ItemType Directory -Path $ArtifactsDirectory -Force | Out-Null
+function Write-Evidence([string] $FileName, [string[]] $Tests) {
+    @{ OrleansVersion = $version; Packages = $packages; Tests = $Tests; Commit = (& git -C $projectRoot rev-parse HEAD); WorkingTree = @(& git -C $projectRoot status --porcelain); Infrastructure = 'In-process Orleans and provider adapter tests; no external broker or Azure storage restart proof' } |
+        ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $runDirectory $FileName)
+}
 foreach ($version in $OrleansVersions) {
     if ($version -notin @('10.3.1', '10.4.0')) { throw "Unsupported matrix version: $version" }
     # Each invocation gets a fresh cache: local packages can have the same version
@@ -103,7 +107,10 @@ foreach ($version in $OrleansVersions) {
             }
         }
         Invoke-DotNet @('test', '--root-directory', $output, '--test-modules', "$name.dll", '--no-progress', '--minimum-expected-tests', '1', '--results-directory', (Join-Path $runDirectory "results/$name"))
+        # Retain independent stable acceptance even if the following preview check
+        # fails. A preview receipt is written only after its own suite succeeds.
+        if ($name -eq $testNames[-1]) { Write-Evidence 'evidence.json' $testNames }
+        if ($name -eq 'Egil.Orleans.Messaging.Journaling.Tests') { Write-Evidence 'journaling-evidence.json' @($name) }
     }
-    @{ OrleansVersion = $version; Packages = $packages; Tests = $hostTests; Commit = (& git -C $projectRoot rev-parse HEAD); WorkingTree = @(& git -C $projectRoot status --porcelain); Infrastructure = 'In-process Orleans and provider adapter tests; no external broker or Azure storage restart proof' } |
-        ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $runDirectory 'evidence.json')
+
 }
