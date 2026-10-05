@@ -3098,3 +3098,61 @@ No mocking `IPersistentState<T>` or Orleans internals. The cluster
 provides real storage (in-memory), real timers, real reminders. Test
 grains exercise the library through the same code path production grains
 use.
+
+## Optional journaled messaging composition
+
+The separate `Egil.Orleans.Messaging.Journaling` preview targets Orleans Journaling
+10.4.0-alpha.1 and a 10.4 host. Stable OM remains on its 10.3.1 baseline. A journaled
+grain uses a single Orleans `IDurableStateManager` instead of conventional
+`IStateManager<T>` for its business state, receiver progress, and outgoing messages:
+
+```csharp
+public sealed class JournaledOrders : Grain, IJournaledOrders
+{
+    private readonly IDurableStateManager manager;
+    private readonly IDurableValue<OrderState> business;
+    private readonly IDurableMessageTracker tracker;
+    private readonly IDurableOutbox<OrderEvent> outbox;
+
+    public JournaledOrders(IDurableStateManager manager)
+    {
+        this.manager = manager;
+        business = manager.GetOrAddValue<OrderState>("business");
+        tracker = manager.GetOrAddState<IDurableMessageTracker>("receiver");
+        outbox = manager.GetOrAddState<IDurableOutbox<OrderEvent>>("outgoing");
+    }
+
+    public async Task ReceiveAsync(OutboxSequenceToken token, OrderEvent message)
+    {
+        if (!tracker.TryAcceptMessage(token)) return;
+        try
+        {
+            business.Value = Apply(business.Value, message);
+            outbox.Add(message);
+            await manager.WriteStateAsync();
+        }
+        catch
+        {
+            DeactivateOnIdle();
+            throw;
+        }
+    }
+}
+```
+
+Application interfaces, payloads, and `Apply` are illustrative. `AddMessagingJournaling`
+calls `AddJournaling` and registers the custom `IStateMachine` components. The standard
+grain-scoped manager recovers at SetupState before activation, including on an ordinary
+Grain. Constructor lookup and keyed injection share canonical named instances;
+open-generic outboxes work for arbitrary payload types. All registrations must occur
+before initialization begins. `DurableGrain` offers the same manager via its convenience
+write API.
+
+A write acknowledges all registered components together. Posting remains an explicit
+application choice. Failed append, snapshot, or delete permanently fences that manager
+and requests deactivation; recovery requires a fresh activation and reflects whatever
+storage durably accepted. Failed initial replay alone supports explicit serialized
+initialization retries on the same registered instances. Standalone factory managers
+use `CreateStandalone`, caller-owned initialization, and disposal. The package README
+and executable plain-Grain/DurableGrain tests define the supported examples and JSON
+format compatibility.
