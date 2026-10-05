@@ -7,7 +7,7 @@ using Orleans.Streams;
 
 namespace Egil.Orleans.Messaging.Tests.Streams.EventHubs;
 
-public sealed class EventHubs104RecoveryTests
+public sealed class EventHubsRecoveryTests
 {
     [Fact]
     public void Inherited_event_factory_retains_enrichment()
@@ -78,9 +78,15 @@ public sealed class EventHubs104RecoveryTests
         Assert.Throws<ArgumentOutOfRangeException>(() => token.CompareTo(genericV2));
     }
 
-    public enum CheckpointKind { Standard, Enriched, HistoricalV1 }
+    public enum CheckpointKind
+    {
+        Standard,
+        Enriched,
+        HistoricalV1
+    }
 
     private sealed class UnrelatedProviderToken(long sequenceNumber, int eventIndex) : EventSequenceToken(sequenceNumber, eventIndex);
+
     private static (PooledQueueCache Cache, StreamId Stream) CreateCache()
     {
         var services = new ServiceCollection();

@@ -1825,8 +1825,9 @@ this.RegisterStreamManager()
         async (message, cursor) => await UpdateProjectionAsync(message));
 ```
 
-The Event Hubs extensions support Orleans **10.3.1 and 10.4.0** with the same
-package binary. On 10.4, enriched tokens share the built-in Event Hubs comparison
+All OM packages require Orleans **10.4.0 or later**. Upgrade the Orleans packages
+in your host together when upgrading OM. Enriched tokens share the built-in Event
+Hubs comparison
 domain: equal sequence numbers and event indexes compare equally regardless of
 enrichment. Checkpoints still belong to their provider and complete `StreamId`;
 this does not make positions from different streams interchangeable. The JSON
