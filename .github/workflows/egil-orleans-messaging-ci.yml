@@ -163,7 +163,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
           path: |
-            Egil.Orleans.Messaging/artifacts/compatibility/**/evidence.json
+            Egil.Orleans.Messaging/artifacts/compatibility/**/*evidence.json
             Egil.Orleans.Messaging/artifacts/compatibility/**/results/**
 
   release:
