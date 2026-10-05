@@ -17,15 +17,16 @@ public static class MessagingJournalingExtensions
     public static ISiloBuilder AddMessagingJournaling(this ISiloBuilder silo)
     {
         ArgumentNullException.ThrowIfNull(silo);
-        silo.AddJournalStorage();
+        silo.AddJournaling();
         silo.Services.AddOptions<JournaledStateManagerOptions>()
-            .Validate(options => options.JournalFormatKey == JsonJournalExtensions.JournalFormatKey,
+            .Validate(options => options.JournalFormatKey == JsonLinesJournalFormat.JournalFormatKey,
                 "Messaging journaling requires UseJsonJournalFormat().")
             .ValidateOnStart();
         silo.Services.TryAddSingleton<TimeProvider>(TimeProvider.System);
         silo.Services.TryAddSingleton(typeof(JournalCodec<>));
         silo.Services.TryAddKeyedScoped(typeof(IDurableOutbox<>), KeyedService.AnyKey, typeof(DurableOutbox<>));
-        silo.Services.TryAddKeyedScoped<IDurableMessageTracker, DurableMessageTracker>(KeyedService.AnyKey);
+        if (!silo.Services.Any(descriptor => descriptor.ServiceType == typeof(IDurableMessageTracker)))
+            silo.Services.AddStateMachine<IDurableMessageTracker, DurableMessageTracker>();
         return silo;
     }
 }

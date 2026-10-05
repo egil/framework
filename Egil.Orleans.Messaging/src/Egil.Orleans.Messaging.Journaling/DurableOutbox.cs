@@ -6,7 +6,7 @@ using Orleans.Journaling;
 
 namespace Egil.Orleans.Messaging.Journaling;
 
-internal sealed class DurableOutbox<T> : IDurableOutbox<T>, IJournaledState, IDurableValueCommandHandler<OutboxOperation<T>>
+internal sealed class DurableOutbox<T> : IDurableOutbox<T>, IStateMachine, IDurableValueCommandHandler<OutboxOperation<T>>
 {
     private readonly TimeProvider time;
     private readonly IDurableValueCommandCodec<OutboxOperation<T>> codec;
@@ -21,7 +21,12 @@ internal sealed class DurableOutbox<T> : IDurableOutbox<T>, IJournaledState, IDu
         TimeProvider time,
         JournalCodec<OutboxOperation<T>> codec) : this(time, codec.Value)
     {
-        manager.RegisterState(name, this);
+        // AddStateMachine<TState, TImplementation> registers closed contracts only. Keep
+        // arbitrary payload types on DI's open-generic binding and enroll each resolved
+        // instance through the public journal manager. GetOrAddState returns that same
+        // named instance; the manager validates conflicting names and late registration.
+        // https://github.com/dotnet/orleans/blob/v10.4.0/src/Orleans.Journaling/DurableStateManager.cs
+        manager.RegisterStateMachine(name, this);
     }
 
     private DurableOutbox(TimeProvider time, IDurableValueCommandCodec<OutboxOperation<T>> codec)
@@ -65,14 +70,14 @@ internal sealed class DurableOutbox<T> : IDurableOutbox<T>, IJournaledState, IDu
         return this;
     }
 
-    void IJournaledState.Reset(JournalStreamWriter writer)
+    void IStateMachine.Reset(JournalStreamWriter writer)
     {
         original = current = Outbox<T>.Create();
         snapshotBeingWritten = null;
         bound = true;
     }
 
-    void IJournaledState.ReplayEntry(JournalEntry entry, JournalReplayContext context) =>
+    void IStateMachine.ReplayEntry(JournalEntry entry, JournalReplayContext context) =>
         context.GetRequiredCommandCodec(entry.FormatKey, codec).Apply(entry.Reader, this);
 
     void IDurableValueCommandHandler<OutboxOperation<T>>.ApplySet(OutboxOperation<T> operation)
@@ -105,9 +110,9 @@ internal sealed class DurableOutbox<T> : IDurableOutbox<T>, IJournaledState, IDu
         current = new Outbox<T>(operation.LatestSequenceNumber, envelopes, operation.Epoch, operation.Revision);
     }
 
-    void IJournaledState.OnRecoveryCompleted() => original = current;
+    void IStateMachine.OnRecoveryCompleted() => original = current;
 
-    void IJournaledState.AppendEntries(JournalStreamWriter writer)
+    void IStateMachine.WritePendingEntries(JournalStreamWriter writer)
     {
         snapshotBeingWritten = null;
         if (ReferenceEquals(original, current))
@@ -125,13 +130,13 @@ internal sealed class DurableOutbox<T> : IDurableOutbox<T>, IJournaledState, IDu
             Removed = removed.Length == 0 ? null : removed
         }, writer);
 
-        // The manager retains encoded append entries after a storage failure. Advance the
-        // diff baseline only after encoding succeeds, so a retry adds just the later changes.
+        // Advance the encoded baseline only after encoding succeeds. Storage failures fence
+        // the manager, so recovery must rebuild this baseline from a fresh activation.
         // This reference is a journal baseline, not a separate user-visible committed view.
         original = current;
     }
 
-    void IJournaledState.AppendSnapshot(JournalStreamWriter writer)
+    void IStateMachine.WriteSnapshot(JournalStreamWriter writer)
     {
         snapshotBeingWritten = null;
         codec.WriteSet(Operation("snapshot", current) with { State = current }, writer);
@@ -140,7 +145,7 @@ internal sealed class DurableOutbox<T> : IDurableOutbox<T>, IJournaledState, IDu
         snapshotBeingWritten = current;
     }
 
-    void IJournaledState.OnWriteCompleted()
+    void IStateMachine.OnWriteCompleted()
     {
         if (snapshotBeingWritten is { } snapshot)
         {
@@ -149,12 +154,6 @@ internal sealed class DurableOutbox<T> : IDurableOutbox<T>, IJournaledState, IDu
             snapshotBeingWritten = null;
         }
     }
-
-    IJournaledState IJournaledState.DeepCopy() => new DurableOutbox<T>(time, codec)
-    {
-        original = original,
-        current = current
-    };
 
     private static OutboxOperation<T> Operation(string kind, Outbox<T> state) =>
         new(kind, state.LatestSequenceNumber, state.Epoch, state.Revision);

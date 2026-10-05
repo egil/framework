@@ -17,12 +17,14 @@ public sealed class RecordingJournalStorageProvider : IJournalStorageProvider
 
 public sealed class RecordingJournalStorage : IJournalStorage
 {
-    private readonly VolatileJournalStorage storage = new(JsonJournalExtensions.JournalFormatKey);
+    private readonly VolatileJournalStorage storage = new(JsonLinesJournalFormat.JournalFormatKey);
     private readonly List<string> writes = [];
     public IReadOnlyList<string> Writes { get { lock (writes) { return writes.ToArray(); } } }
     private PausedJournalWrite? pause;
+    private PausedJournalWrite? readPause;
     public bool CompactNext { get; set; }
     public JournalFailure NextFailure { get; set; }
+    public bool FailNextReadAfterReplay { get; set; }
     public PausedJournalWrite PauseNextWrite()
     {
         var result = new PausedJournalWrite();
@@ -31,6 +33,14 @@ public sealed class RecordingJournalStorage : IJournalStorage
             throw new InvalidOperationException("A write is already paused.");
         }
 
+        return result;
+    }
+
+    public PausedJournalWrite PauseNextRead()
+    {
+        var result = new PausedJournalWrite();
+        if (Interlocked.CompareExchange(ref readPause, result, null) is not null)
+            throw new InvalidOperationException("A read is already paused.");
         return result;
     }
 
@@ -61,8 +71,17 @@ public sealed class RecordingJournalStorage : IJournalStorage
     }
     public bool IsCompactionRequested => CompactNext;
 
-    public ValueTask ReadAsync(IJournalStorageConsumer consumer, CancellationToken cancellationToken) =>
-        storage.ReadAsync(consumer, cancellationToken);
+    public async ValueTask ReadAsync(IJournalStorageConsumer consumer, CancellationToken cancellationToken)
+    {
+        var gate = Interlocked.Exchange(ref readPause, null);
+        if (gate is not null) await gate.WaitAsync(cancellationToken);
+        await storage.ReadAsync(consumer, cancellationToken);
+        if (FailNextReadAfterReplay)
+        {
+            FailNextReadAfterReplay = false;
+            throw new IOException("Injected failure after initial replay.");
+        }
+    }
 
     public async ValueTask AppendAsync(ReadOnlySequence<byte> value, CancellationToken cancellationToken)
     {
@@ -81,7 +100,12 @@ public sealed class RecordingJournalStorage : IJournalStorage
         AfterWrite(failure);
     }
 
-    public ValueTask DeleteAsync(CancellationToken cancellationToken) => storage.DeleteAsync(cancellationToken);
+    public async ValueTask DeleteAsync(CancellationToken cancellationToken)
+    {
+        var failure = await BeforeWriteAsync(cancellationToken);
+        await storage.DeleteAsync(cancellationToken);
+        AfterWrite(failure);
+    }
 }
 
 public enum JournalFailure { None, BeforeCommit, AfterCommit }

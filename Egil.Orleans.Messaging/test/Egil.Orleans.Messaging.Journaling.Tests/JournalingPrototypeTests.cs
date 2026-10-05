@@ -133,6 +133,7 @@ public sealed class JournalingPrototypeTests(JournalingPrototypeFixture fixture)
 
         await Assert.ThrowsAsync<IOException>(() =>
             grain.ReceiveAsync(token, "uncertain", TestContext.Current.CancellationToken));
+        await fixture.Completions.WaitAsync(grain.GetGrainId());
         var recovered = await grain.ReadAsync();
 
         Assert.NotEqual(initial.Activation, recovered.Activation);
@@ -249,6 +250,7 @@ public sealed class JournalingPrototypeFixture : IAsyncLifetime
     private InProcessTestCluster cluster = null!;
     public RecordingJournalStorageProvider Storage { get; } = new();
     public DeliveredMessages Delivered { get; } = new();
+    public ActivationCompletions Completions { get; } = new();
 
     public async ValueTask InitializeAsync()
     {
@@ -256,11 +258,17 @@ public sealed class JournalingPrototypeFixture : IAsyncLifetime
         builder.ConfigureSilo((_, silo) =>
         {
             silo.AddMessagingJournalingPrototype();
+            // Repeat the default-provider registration so every hosted messaging scenario
+            // proves it keeps one provider and resolves the same standalone factory.
+            silo.AddJournalStorage("Default", _ => Storage);
+            silo.AddJournalStorage("Default", _ => Storage);
             silo.UseInMemoryReminderService();
             silo.ConfigureServices(services =>
             {
                 services.AddSingleton<IJournalStorageProvider>(Storage);
+                services.AddSingleton(Storage);
                 services.AddSingleton(Delivered);
+                services.AddSingleton(Completions);
             });
         });
         cluster = builder.Build();
@@ -270,23 +278,32 @@ public sealed class JournalingPrototypeFixture : IAsyncLifetime
     public INamedComponentsGrain NewNamedGrain() => cluster.Client.GetGrain<INamedComponentsGrain>(Guid.NewGuid());
     public IJournaledOrderGrain NewGrain() => cluster.Client.GetGrain<IJournaledOrderGrain>(Guid.NewGuid());
     public IImmediateOutboxGrain NewImmediateGrain() => cluster.Client.GetGrain<IImmediateOutboxGrain>(Guid.NewGuid());
-    public async Task<JournalSession> NewSessionAsync(JournalId id = default, TimeProvider? time = null)
+    public IPlainJournaledGrain NewPlainGrain() => cluster.Client.GetGrain<IPlainJournaledGrain>(Guid.NewGuid());
+
+    public JournalSession CreateSession(JournalId id = default, TimeProvider? time = null)
     {
         var services = cluster.Silos.Single().ServiceProvider;
         var journalId = id.IsDefault ? new JournalId($"prototype/{Guid.NewGuid():N}") : id;
-        var manager = services.GetRequiredService<IJournaledStateManagerFactory>().Create(journalId);
-        var tracker = new DurableMessageTracker("tracker", manager, time ?? TimeProvider.System,
+        var manager = services.GetRequiredService<IJournaledStateManagerFactory>().CreateStandalone(journalId);
+        var tracker = new DurableMessageTracker(time ?? TimeProvider.System,
             services.GetRequiredService<JournalCodec<TrackerOperation>>());
+        manager.RegisterStateMachine("tracker", tracker);
         var outbox = new DurableOutbox<OrderEvent>("outbox", manager, time ?? TimeProvider.System,
             services.GetRequiredService<JournalCodec<OutboxOperation<OrderEvent>>>());
+        return new JournalSession(journalId, manager, tracker, outbox);
+    }
+
+    public async Task<JournalSession> NewSessionAsync(JournalId id = default, TimeProvider? time = null)
+    {
+        var session = CreateSession(id, time);
         try
         {
-            await manager.InitializeAsync(TestContext.Current.CancellationToken);
-            return new JournalSession(journalId, manager, tracker, outbox);
+            await session.Manager.InitializeAsync(TestContext.Current.CancellationToken);
+            return session;
         }
         catch
         {
-            await manager.DisposeAsync();
+            await session.DisposeAsync();
             throw;
         }
     }

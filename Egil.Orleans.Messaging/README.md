@@ -598,7 +598,8 @@ journal commit with business state while storing incremental messaging changes.
 
 The companion is built and released with Egil.Orleans.Messaging by the same
 workflow. Its NuGet version uses the matching messaging version with a `-preview`
-suffix, and it targets Orleans Journaling 10.3.1-alpha.1. Installing core OM does
+suffix, and it targets Orleans Journaling 10.4.0-alpha.1 with a 10.4 host. Stable OM
+packages retain the Orleans 10.3.1 baseline. Installing core OM does
 not install Journaling.
 See the package README for registration, grain composition, storage requirements,
 format compatibility, and runnable verification.
@@ -1921,6 +1922,18 @@ guaranteed; use a System.Text.Json serializer or the Orleans binary serializer.
 This package is messaging infrastructure, not an event-sourcing or CQRS framework. It wraps Orleans state, outbox dispatch, receiver deduplication, and stream subscription management while leaving domain modeling, read models, transport targets, and operational policy to the application.
 
 ## Beta API changes
+
+- The Journaling preview now targets Orleans Journaling 10.4.0-alpha.1. Keep
+  `AddMessagingJournaling()` and stable keyed component names; use
+  `IDurableStateManager.GetOrAddState<TState>` for constructor composition.
+  Ordinary `Grain` recovery runs at SetupState; `DurableGrain` remains supported.
+  Replace standalone factory `Create` calls with `CreateStandalone`, and custom
+  `IJournaledState` implementations with `IStateMachine` (`WritePendingEntries`,
+  `WriteSnapshot`, no `DeepCopy`). Use `AddJournaling()` instead of parameterless
+  `AddJournalStorage()`. Failed writes/deletes need a fresh activation or manager;
+  only failed initial replay can explicitly retry initialization on the same instances.
+  Old-preview JSON append/snapshot fixtures replay with unchanged messaging data.
+  The stable packages' Orleans 10.3.1 dependency floor is unchanged.
 
 - **State managers expose `LastFailureKind` and immutable `Options`.** Custom
   `IStateManager<T>` implementations must add both getters; implementations derived

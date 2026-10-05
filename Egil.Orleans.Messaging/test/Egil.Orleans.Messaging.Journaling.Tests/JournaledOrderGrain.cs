@@ -28,8 +28,11 @@ public sealed class JournaledOrderGrain : DurableGrain, IJournaledOrderGrain, IO
         [FromKeyedServices("business")] IDurableValue<OrderState> business,
         [FromKeyedServices("tracker")] IDurableMessageTracker tracker,
         [FromKeyedServices("outbox")] IDurableOutbox<OrderEvent> outbox,
-        DeliveredMessages delivered)
+        DeliveredMessages delivered,
+        IGrainContext context,
+        ActivationCompletions completions)
     {
+        completions.Observe(context);
         this.business = business;
         this.tracker = tracker;
         this.outbox = outbox;
