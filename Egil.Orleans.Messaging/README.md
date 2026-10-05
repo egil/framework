@@ -658,8 +658,8 @@ journal commit with business state while storing incremental messaging changes.
 
 The companion is built and released with Egil.Orleans.Messaging by the same
 workflow. Its NuGet version uses the matching messaging version with a `-preview`
-suffix, and it targets Orleans Journaling 10.4.0-alpha.1 with a 10.4 host. Stable OM
-packages retain the Orleans 10.3.1 baseline. Installing core OM does
+suffix, and it targets Orleans Journaling 10.4.0-alpha.1. All OM packages now
+require Orleans 10.4.0; upgrade the host and Orleans packages together. Installing core OM does
 not install Journaling.
 See the package README for registration, grain composition, storage requirements,
 format compatibility, and runnable verification.
@@ -2000,7 +2000,9 @@ This package is messaging infrastructure, not an event-sourcing or CQRS framewor
   `AddJournalStorage()`. Failed writes/deletes need a fresh activation or manager;
   only failed initial replay can explicitly retry initialization on the same instances.
   Old-preview JSON append/snapshot fixtures replay with unchanged messaging data.
-  The stable packages' Orleans 10.3.1 dependency floor is unchanged.
+  All OM packages require Orleans 10.4.0; upgrade the host and Orleans packages
+  together. The 10.3.1-alpha.1 journal fixtures verify persisted-data recovery,
+  not continued support for the old runtime.
 
 - **State managers expose `LastFailureKind` and immutable `Options`.** Custom
   `IStateManager<T>` implementations must add both getters; implementations derived

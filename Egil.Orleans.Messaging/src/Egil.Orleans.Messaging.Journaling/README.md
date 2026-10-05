@@ -8,9 +8,9 @@ share one journal write. Core `Egil.Orleans.Messaging` does not depend on Journa
 ## Compatibility
 
 This preview targets **Microsoft.Orleans.Journaling 10.4.0-alpha.1** and Orleans
-10.4.0. Stable OM packages retain their Orleans 10.3.1 baseline; only this optional
-preview and its test host require 10.4. Its NuGet dependency specifies the matching
-minimum core OM version; use
+10.4.0. All OM packages require Orleans 10.4.0; consumers must upgrade their hosts
+and Orleans packages together. The Journaling integration uses the matching preview
+10.4.0-alpha.1. Its NuGet dependency specifies the matching minimum core OM version; use
 the core version from the same release or a compatible later version. Journaling
 is released alongside core OM with the same numeric version and a `-preview` suffix.
 Use the exact tested Journaling version: newer previews can change lifecycle APIs.

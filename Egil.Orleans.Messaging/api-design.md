@@ -3102,7 +3102,8 @@ use.
 ## Optional journaled messaging composition
 
 The separate `Egil.Orleans.Messaging.Journaling` preview targets Orleans Journaling
-10.4.0-alpha.1 and a 10.4 host. Stable OM remains on its 10.3.1 baseline. A journaled
+10.4.0-alpha.1. All OM packages require Orleans 10.4.0; consumers upgrade their
+host and Orleans packages together. A journaled
 grain uses a single Orleans `IDurableStateManager` instead of conventional
 `IStateManager<T>` for its business state, receiver progress, and outgoing messages:
 
