@@ -55,7 +55,7 @@ foreach ($id in $stableIds | Where-Object { $_ -ne 'Egil.Orleans.Messaging' }) {
         throw "$id must match core package version and dependency $coreVersion"
     }
 }
-if ($IncludeJournaling) {
+function Assert-JournalingPackage {
     $journal = $packages['Egil.Orleans.Messaging.Journaling']
     if ($null -eq $journal -or $journal.Version -ne "$($coreVersion.Split('-')[0])-preview") { throw 'Journaling must use the aligned core-preview version' }
     $journalDependency = @($journal.Dependencies | Where-Object id -EQ 'Microsoft.Orleans.Journaling')
@@ -78,6 +78,9 @@ foreach ($version in $OrleansVersions) {
     $hostTests = @($testNames)
     if ($IncludeJournaling -and $version -eq '10.4.0') { $hostTests += 'Egil.Orleans.Messaging.Journaling.Tests' }
     foreach ($name in $hostTests) {
+        # Stable evidence must not be prevented by a preview prerequisite. Validate
+        # preview metadata only when its 10.4 suite is about to consume the package.
+        if ($name -eq 'Egil.Orleans.Messaging.Journaling.Tests') { Assert-JournalingPackage }
         $project = Join-Path $projectRoot "test/$name/$name.csproj"
         $properties = @("-p:OrleansTestVersion=$version", "-p:MessagingPackageVersion=$coreVersion", "-p:MessagingJournalingPackageVersion=$($packages['Egil.Orleans.Messaging.Journaling'].Version)", "-p:RestorePackagesPath=$runDirectory/packages")
         Invoke-DotNet (@('restore', $project, '--artifacts-path', $runDirectory, '--configfile', $configPath) + $properties)
