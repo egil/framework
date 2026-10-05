@@ -1,0 +1,15 @@
+<Project>
+  <!-- Reuse the behavioral suites with the actual NuGet binaries. Leaving the
+       project references here would rebuild OM for each host and hide binary
+       compatibility failures. The package version comes from the inspected feed. -->
+  <ItemGroup Condition="'$(MessagingPackageVersion)' != ''">
+    <_MessagingProjectReference Include="@(ProjectReference)" />
+    <ProjectReference Remove="@(_MessagingProjectReference)" />
+    <PackageReference Include="@(_MessagingProjectReference->'%(Filename)')"
+                      VersionOverride="$(MessagingPackageVersion)"
+                      Condition="'$(MSBuildProjectName)' != 'Egil.Orleans.Messaging.Journaling.Tests'" />
+    <PackageReference Include="@(_MessagingProjectReference->'%(Filename)')"
+                      VersionOverride="$(MessagingJournalingPackageVersion)"
+                      Condition="'$(MSBuildProjectName)' == 'Egil.Orleans.Messaging.Journaling.Tests'" />
+  </ItemGroup>
+</Project>
