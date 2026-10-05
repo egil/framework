@@ -41,6 +41,64 @@ using Orleans;
 using Orleans.Hosting;
 ```
 
+## Orleans compatibility
+
+All stable Messaging libraries target `net10.0` and retain Orleans **10.3.1** as
+their supported minimum: core, `State.AzureStorage`, and `Streams.EventHubs`.
+Production dependencies stay at that minimum. A host can resolve a newer Orleans
+version without recompiling these packages; support for 10.4 requires the
+[packed-consumer matrix](scripts/verify-orleans-compatibility.ps1) to pass for the
+same artifacts on both versions. Dependency metadata alone does not establish
+binary or provider compatibility.
+
+`Journaling` is a separate preview integration. Its Orleans preview version and
+host requirements can move independently. Do not use its dependency floor as the
+minimum for the stable libraries.
+
+To verify freshly built packages, run from `Egil.Orleans.Messaging`:
+
+```powershell
+pwsh -File scripts/verify-orleans-compatibility.ps1 -PackageDirectory ./artifacts/packages
+```
+
+Add `-IncludeJournaling` after integrating the 10.4 Journaling migration to check
+all four packages and run the preview suite on 10.4. The script checks dependency
+groups and actual resolved Orleans versions, replaces test project references
+with package references, verifies loaded OM DLL hashes, and runs the existing
+behavioral suites in isolated output directories and fresh package caches.
+It records package hashes, source revision, working-tree state and scope in
+`artifacts/compatibility/<version>-<run>/evidence.json` only after that host passes.
+The Azure and Event Hubs suites exercise adapters and storage failure handling;
+they do not establish external broker or Azure storage restart behavior.
+
+When upgrading a host to Orleans 10.4, review these application-owned changes:
+
+- Request latency uses `orleans-app-requests-latency`, a histogram measured in
+  fractional milliseconds. Update exporter Views, dashboards and alerts that use
+  the removed bucket/count/sum instruments or `duration` labels.
+  [Upstream change](https://github.com/dotnet/orleans/pull/11251).
+- Grain metrics use the canonical `grain_type` dimension instead of CLR `type`.
+  OM's own instruments are separate.
+  [Upstream change](https://github.com/dotnet/orleans/pull/11253).
+- Existing SQLite hosts need the corrected idempotent Orleans main and
+  persistence scripts. OM does not install or migrate these databases.
+  [Upstream change](https://github.com/dotnet/orleans/pull/11354).
+- Memory-stream `MaxAddCount` is host tuning; its default remains 100.
+  [Upstream change](https://github.com/dotnet/orleans/pull/11238).
+- Audit application grain RPC interfaces with explicit parameter `[Id]`
+  attributes or non-trailing `CancellationToken` parameters before a rolling
+  upgrade. Orleans 10.4 honors explicit parameter IDs and excludes cancellation
+  tokens from automatic serialized-parameter numbering. Changing those wire IDs
+  needs a coordinated contract rollout. These IDs are distinct from `[Id]` on
+  serialized state members. OM ships no application grain RPC interfaces; the
+  examples above and below keep cancellation tokens last.
+  [Upstream change](https://github.com/dotnet/orleans/pull/11179).
+
+Cancellation-aware reminder adoption and subscription start positions remain
+separate optional work. Start-position controls require upgrading pulling-agent
+silos before enabling them. This compatibility work does not enable either
+feature or claim NativeAOT support.
+
 ## State Manager
 
 Default and Azure managers use `FenceAndDeactivate`: a failed storage mutation
