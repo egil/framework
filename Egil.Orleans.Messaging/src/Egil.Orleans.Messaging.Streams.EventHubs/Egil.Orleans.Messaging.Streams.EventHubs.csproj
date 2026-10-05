@@ -51,17 +51,4 @@
     </None>
   </ItemGroup>
 
-  <!-- Compile the optional virtual override against 10.4 while restoring and packing
-       the 10.3.1 runtime floor. The same binary is tested with both provider versions. -->
-  <ItemGroup>
-    <PackageDownload Include="Microsoft.Orleans.Streaming" Version="[10.4.0]" />
-    <PackageDownload Include="Microsoft.Orleans.Streaming.EventHubs" Version="[10.4.0]" />
-  </ItemGroup>
-  <Target Name="UseEventHubsCompatibilityCompileReferences" BeforeTargets="CoreCompile" DependsOnTargets="ResolveReferences">
-    <ItemGroup>
-      <ReferencePathWithRefAssemblies Remove="@(ReferencePathWithRefAssemblies)" Condition="'%(ReferencePathWithRefAssemblies.Filename)' == 'Orleans.Streaming' Or '%(ReferencePathWithRefAssemblies.Filename)' == 'Orleans.Streaming.EventHubs'" />
-      <ReferencePathWithRefAssemblies Include="$(NuGetPackageRoot)microsoft.orleans.streaming/10.4.0/lib/net10.0/Orleans.Streaming.dll" />
-      <ReferencePathWithRefAssemblies Include="$(NuGetPackageRoot)microsoft.orleans.streaming.eventhubs/10.4.0/lib/net10.0/Orleans.Streaming.EventHubs.dll" />
-    </ItemGroup>
-  </Target>
 </Project>

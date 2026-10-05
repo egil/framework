@@ -51,13 +51,12 @@ public sealed class JournaledFacetRejectionTests
     // Carries the real marker. Only the interface's identity matters to the detection —
     // the journaling members are never reached, because construction is refused first.
 #pragma warning disable ORLEANSEXP005 // Journaling is experimental; this only names its marker.
-    private sealed class FakeJournaledState(TestState state) : FakeStorage(state), IJournaledState
+    private sealed class FakeJournaledState(TestState state) : FakeStorage(state), IStateMachine
     {
         public void ReplayEntry(JournalEntry entry, JournalReplayContext context) => throw new NotSupportedException();
         public void Reset(JournalStreamWriter writer) => throw new NotSupportedException();
-        public void AppendEntries(JournalStreamWriter writer) => throw new NotSupportedException();
-        public void AppendSnapshot(JournalStreamWriter writer) => throw new NotSupportedException();
-        public IJournaledState DeepCopy() => throw new NotSupportedException();
+        public void WritePendingEntries(JournalStreamWriter writer) => throw new NotSupportedException();
+        public void WriteSnapshot(JournalStreamWriter writer) => throw new NotSupportedException();
     }
 #pragma warning restore ORLEANSEXP005
 }

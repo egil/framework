@@ -17,23 +17,16 @@
     <PackageVersion Include="Azure.Data.Tables" Version="12.11.0" />
     <PackageVersion Include="Azure.Storage.Blobs" Version="12.27.0" />
   </ItemGroup>
-  <PropertyGroup>
-    <!-- Production keeps the supported minimum. Only independently resolved test
-         hosts may select a newer Orleans release; never compile shipped binaries
-         against the matrix version. -->
-    <_OrleansVersion>10.3.1</_OrleansVersion>
-    <_OrleansVersion Condition="'$(OrleansTestVersion)' != '' and $(MSBuildProjectName.EndsWith('.Tests'))">$(OrleansTestVersion)</_OrleansVersion>
-  </PropertyGroup>
   <ItemGroup Label="Orleans">
     <PackageVersion Include="Microsoft.Orleans.Journaling" Version="10.4.0-alpha.1" />
-    <PackageVersion Include="Microsoft.Orleans.Reminders" Version="$(_OrleansVersion)" />
-    <PackageVersion Include="Microsoft.Orleans.Runtime" Version="$(_OrleansVersion)" />
-    <PackageVersion Include="Microsoft.Orleans.Sdk" Version="$(_OrleansVersion)" />
-    <PackageVersion Include="Microsoft.Orleans.Server" Version="$(_OrleansVersion)" />
-    <PackageVersion Include="Microsoft.Orleans.Streaming" Version="$(_OrleansVersion)" />
-    <PackageVersion Include="Microsoft.Orleans.Streaming.AzureStorage" Version="$(_OrleansVersion)" />
-    <PackageVersion Include="Microsoft.Orleans.Streaming.EventHubs" Version="$(_OrleansVersion)" />
-    <PackageVersion Include="Microsoft.Orleans.TestingHost" Version="$(_OrleansVersion)" />
+    <PackageVersion Include="Microsoft.Orleans.Reminders" Version="10.4.0" />
+    <PackageVersion Include="Microsoft.Orleans.Runtime" Version="10.4.0" />
+    <PackageVersion Include="Microsoft.Orleans.Sdk" Version="10.4.0" />
+    <PackageVersion Include="Microsoft.Orleans.Server" Version="10.4.0" />
+    <PackageVersion Include="Microsoft.Orleans.Streaming" Version="10.4.0" />
+    <PackageVersion Include="Microsoft.Orleans.Streaming.AzureStorage" Version="10.4.0" />
+    <PackageVersion Include="Microsoft.Orleans.Streaming.EventHubs" Version="10.4.0" />
+    <PackageVersion Include="Microsoft.Orleans.TestingHost" Version="10.4.0" />
   </ItemGroup>
   <ItemGroup Label="Testing">
     <PackageVersion Include="coverlet.msbuild" Version="10.0.1" />
