@@ -1764,6 +1764,13 @@ this.RegisterStreamManager()
         async (message, cursor) => await UpdateProjectionAsync(message));
 ```
 
+The Event Hubs extensions support Orleans **10.3.1 and 10.4.0** with the same
+package binary. On 10.4, enriched tokens share the built-in Event Hubs comparison
+domain: equal sequence numbers and event indexes compare equally regardless of
+enrichment. Checkpoints still belong to their provider and complete `StreamId`;
+this does not make positions from different streams interchangeable. The JSON
+discriminators and Orleans serialization aliases remain unchanged.
+
 Install `Egil.Orleans.Messaging.Streams.EventHubs` when using Orleans Event
 Hubs streams and the enriched adapter/token support:
 
