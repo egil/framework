@@ -55,6 +55,12 @@ namespace Egil.Orleans.Messaging.Streams.EventHubs;
 [Alias(EnrichedEventHubSequenceToken.TypeAlias)]
 public class EnrichedEventHubSequenceToken : EventHubSequenceTokenV2, IStreamSequenceTokenMetadata
 {
+    // Orleans 10.4 isolates derived tokens unless they explicitly share the provider's domain.
+    // This virtual override also loads on 10.3.1, where it introduces an unused virtual slot;
+    // keep the packed-artifact tests on both versions when changing the compile references.
+    /// <inheritdoc/>
+    protected override Type SequenceTokenCompatibilityDomain => typeof(EventHubSequenceToken);
+
     /// <summary>
     /// Stable Orleans/STJ token discriminator for this token type.
     /// </summary>
