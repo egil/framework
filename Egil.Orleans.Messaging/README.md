@@ -67,7 +67,9 @@ groups and actual resolved Orleans versions, replaces test project references
 with package references, verifies loaded OM DLL hashes, and runs the existing
 behavioral suites in isolated output directories and fresh package caches.
 It records package hashes, source revision, working-tree state and scope in
-`artifacts/compatibility/<version>-<run>/evidence.json` only after that host passes.
+`artifacts/compatibility/<version>-<run>/evidence.json` after the stable suites pass.
+Preview acceptance is recorded separately in `journaling-evidence.json`, so a
+preview failure preserves successful stable evidence.
 The Azure and Event Hubs suites exercise adapters and storage failure handling;
 they do not establish external broker or Azure storage restart behavior.
 
