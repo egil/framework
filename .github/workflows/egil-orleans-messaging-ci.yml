@@ -123,8 +123,51 @@ jobs:
           export GITHUB_ENV=/dev/null
           dotnet test --solution ./Egil.Orleans.Messaging.slnx --configuration Release
 
+  compatibility:
+    runs-on: ubuntu-latest
+    if: github.event.inputs.prepare-release != 'true'
+    needs: [create-nuget]
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        orleans: ['10.3.1', '10.4.0']
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.x
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: nuget
+          path: ${{ env.NuGetDirectory }}
+
+      - name: Verify the same packed binaries in independent Orleans hosts
+        shell: pwsh
+        working-directory: Egil.Orleans.Messaging
+        env:
+          GITHUB_ENV: /dev/null
+        run: ./scripts/verify-orleans-compatibility.ps1 -PackageDirectory "${{ env.NuGetDirectory }}" -OrleansVersions '${{ matrix.orleans }}' -IncludeJournaling
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: compatibility-${{ matrix.orleans }}
+          if-no-files-found: warn
+          retention-days: 7
+          path: |
+            Egil.Orleans.Messaging/artifacts/compatibility/**/evidence.json
+            Egil.Orleans.Messaging/artifacts/compatibility/**/results/**
+
   release:
-    needs: [validate-nuget, run-test]
+    needs: [validate-nuget, run-test, compatibility]
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/heads/release/egil-orleans-messaging/v')
     runs-on: ubuntu-latest
     permissions:
