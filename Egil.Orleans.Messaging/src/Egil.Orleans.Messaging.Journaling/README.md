@@ -7,16 +7,18 @@ share one journal write. Core `Egil.Orleans.Messaging` does not depend on Journa
 
 ## Compatibility
 
-This preview targets **Microsoft.Orleans.Journaling 10.3.1-alpha.1** and Orleans
-10.3.1. Its NuGet dependency specifies the matching minimum core OM version; use
+This preview targets **Microsoft.Orleans.Journaling 10.4.0-alpha.1** and Orleans
+10.4.0. All OM packages require Orleans 10.4.0; consumers must upgrade their hosts
+and Orleans packages together. The Journaling integration uses the matching preview
+10.4.0-alpha.1. Its NuGet dependency specifies the matching minimum core OM version; use
 the core version from the same release or a compatible later version. Journaling
 is released alongside core OM with the same numeric version and a `-preview` suffix.
 Use the exact tested Journaling version: newer previews can change lifecycle APIs.
 
-The pinned Orleans package calls its internal lifecycle protocol `IJournaledState`
-and its shared coordinator `IJournaledStateManager`. Newer Orleans source calls
-these `IStateMachine` and `IDurableStateManager`; those APIs are not used here.
-OM's `IStateManager<T>` is not needed for these components.
+The components implement Orleans `IStateMachine`. Grains compose them through
+`IDurableStateManager.GetOrAddState<TState>(name)` or keyed injection. All named
+components share one acknowledgement boundary. OM's conventional `IStateManager<T>`
+is independent and does not participate in the journal commit.
 
 ## Install and configure
 
@@ -31,7 +33,7 @@ Import `Egil.Orleans.Messaging.Journaling`, `Orleans.Journaling`, and
 silo.UseJsonJournalFormat(options =>
     options.AddTypeInfoResolver(new DefaultJsonTypeInfoResolver()));
 silo.AddMessagingJournaling();
-silo.Services.AddSingleton<IJournalStorageProvider>(journalStorageProvider);
+silo.AddJournalStorage("Default", _ => journalStorageProvider);
 ```
 
 `DefaultJsonTypeInfoResolver` is in `System.Text.Json.Serialization.Metadata`.
@@ -45,16 +47,20 @@ fallback without modifying host serializer options.
 
 ## Compose a grain
 
-Derive the grain from Orleans `DurableGrain` to enroll the shared manager in the
-activation lifecycle. Inject components by name, using a **different, stable name
-for every component in the grain**, including components of different types:
+`AddMessagingJournaling()` calls Orleans `AddJournaling()`. Resolving the
+standard grain-scoped `IDurableStateManager` enrolls recovery at
+`GrainLifecycleStage.SetupState`, before `OnActivateAsync`, including for an ordinary
+`Grain`. Register or resolve all components in the constructor; new registrations
+after initialization begins are rejected. Inject components by name, using a **different,
+stable name for every component in the grain**, including components of different types:
 
 ```csharp
 public sealed class OrderGrain(
+    IDurableStateManager stateManager,
     [FromKeyedServices("business")] IDurableValue<OrderState> business,
     [FromKeyedServices("receiver")] IDurableMessageTracker tracker,
     [FromKeyedServices("outgoing")] IDurableOutbox<OrderEvent> outbox)
-    : DurableGrain, IOrderGrain
+    : Grain, IOrderGrain
 {
     public async Task<bool> ReceiveAsync(OutboxSequenceToken token, OrderEvent message)
     {
@@ -65,7 +71,7 @@ public sealed class OrderGrain(
         {
             business.Value = ApplyMessage(business.Value, message);
             outbox.Add(message);
-            await WriteStateAsync();
+            await stateManager.WriteStateAsync();
             return true;
         }
         catch
@@ -77,6 +83,22 @@ public sealed class OrderGrain(
 }
 ```
 
+Alternatively, resolve components from the injected manager in the constructor:
+
+```csharp
+business = stateManager.GetOrAddValue<OrderState>("business");
+tracker = stateManager.GetOrAddState<IDurableMessageTracker>("receiver");
+outbox = stateManager.GetOrAddState<IDurableOutbox<OrderEvent>>("outgoing");
+```
+
+Keyed injection and manager lookup return the same named instance. Tracker
+registration uses `AddStateMachine<IDurableMessageTracker, DurableMessageTracker>`.
+The open-generic outbox binding supports every payload type and enrolls each resolved
+instance with the public journal manager; no consumer self-registration is needed.
+Repeated silo registration retains the original bindings. Names must be unique
+across contracts and payload types. `DurableGrain` remains a supported convenience:
+it exposes `WriteStateAsync` over the same grain-scoped manager.
+
 `OrderState`, `OrderEvent`, `IOrderGrain`, and `ApplyMessage` are application types
 and logic. Check the tracker first so duplicate messages skip business processing.
 If processing fails after acceptance has been staged, this example deactivates and
@@ -84,9 +106,18 @@ recovers before accepting another command. One
 `WriteStateAsync` gathers all registered components for that grain. Separately
 written conventional grain storage does not participate in that commit. The
 journal is shared pending state, not a transaction with arbitrary rollback:
-interleaved calls can commit staged changes. On uncertain writes, choose an
-explicit recovery policy before processing further commands. The executable
-sample deactivates on write failure and recovers on the next activation.
+interleaved calls can commit staged changes. On uncertain writes, choose a
+recovery policy before processing further commands. Failed writes (including
+snapshots) and deletes permanently fence the manager and request grain deactivation.
+Never retry persistence or initialization on that manager: use a fresh activation.
+An ambiguous storage acknowledgement can mean that the data was committed; recovery
+reads storage rather than inventing rollback.
+
+Failed **initial replay** is different. Standalone managers created by
+`IJournaledStateManagerFactory.CreateStandalone(journalId)` allow an explicit
+`InitializeAsync` retry, serialized on the same registered component instances.
+Callers own their initialization and disposal. A retry resets and replays those
+instances; it does not make a failed write/delete recoverable on the same manager.
 
 ## Work directly with the durable components
 
@@ -96,7 +127,7 @@ change the registered component and return that same component for fluent use:
 ```csharp
 outbox.Add(first).AddRange(rest);
 tracker.EvictStreams(cutoff).Evict(sender, cutoff);
-await WriteStateAsync();
+await stateManager.WriteStateAsync();
 ```
 
 Outbox reads include indexing, enumeration, `Count`, `IsEmpty`, `Envelopes`,
@@ -152,7 +183,7 @@ var processor = this.RegisterOutboxProcessor(() => outbox.AsImmutable(), options
     options.AcknowledgePostedAsync = async (items, cancellationToken) =>
     {
         outbox.RemoveRange(items);
-        await WriteStateAsync(cancellationToken);
+        await stateManager.WriteStateAsync(cancellationToken);
     });
 ```
 
@@ -183,12 +214,16 @@ Orleans JSON durable-value command containing an internal operation record:
 
 **JSON is the only supported journal format.** Other configured write formats fail
 options validation. Native AOT, binary migration, importing existing grain blobs,
-and cross-version journal migration are not supported in this preview. Component
+and arbitrary cross-version journal migration are not supported in this preview.
+Append and compacted JSON journals from the preceding OM preview using Orleans
+10.3.1-alpha.1 are replay-tested with unchanged operation formats, identities,
+revisions, epochs, provider checkpoints, receiver timestamps, and receipt retention.
+Keep component names, payloads, and codec settings unchanged during this upgrade. Component
 names, payload types, and serializer configuration are part of your persisted
 schema; keep them stable across restarts. Unknown operation kinds fail recovery.
 Internal CLR types are not a public extension API, but their serialized shape is
-persisted data. This initial preview does not promise compatibility with the old
-non-packable prototype or future previews: upgrades need explicit release-note
+persisted data. This preview does not promise compatibility with the old
+non-packable prototype, arbitrary historical journals, or future previews: upgrades need explicit release-note
 review, replay testing against existing data, and a migration or fresh journal
 when a format changes. Do not reinterpret an existing named component as another
 type or rename it without migrating its data.
@@ -206,7 +241,8 @@ the `-preview` suffix to the Journaling build. CI generates Journaling notes fro
 shared Messaging release tags and commits touching this project.
 The dedicated tests exercise shared recovery, processor acknowledgements, immediate
 posting without saving, compaction, net diffs, failures, and mutations during a
-pending write.
+pending write, plain-Grain lifecycle recovery, canonical lookup, old-preview fixtures,
+serialized initial-replay retry, and terminal append/snapshot/delete failures.
 
 The `egil-orleans-messaging` workflow builds, validates, and releases this package
 alongside the core messaging packages.

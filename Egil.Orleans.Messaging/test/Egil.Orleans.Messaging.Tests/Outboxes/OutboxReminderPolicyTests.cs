@@ -390,12 +390,12 @@ public sealed class OutboxReminderPolicyGrain(
     {
         // Deliver through the grain's public reminder entry point without waiting
         // for Orleans' minimum reminder period. Scheduling remains real Orleans work.
-        return ((IRemindable)this).ReceiveReminder(Processor.ReminderName, default);
+        return ((IRemindable)this).ReceiveReminder(Processor.ReminderName, default, CancellationToken.None);
     }
 
     public Task DeliverReminderWhilePostingAsync() => DeliverReminderAsync();
 
-    public Task DeliverUnrelatedReminderAsync() => ((IRemindable)this).ReceiveReminder("unrelated", default);
+    public Task DeliverUnrelatedReminderAsync() => ((IRemindable)this).ReceiveReminder("unrelated", default, CancellationToken.None);
 
     public async Task ConfigureReminderAsync(OutboxReminderPolicy policy, TimeSpan retryDelay)
     {

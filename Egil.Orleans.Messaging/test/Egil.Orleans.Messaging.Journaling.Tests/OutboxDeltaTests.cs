@@ -60,29 +60,35 @@ public sealed class OutboxDeltaTests(JournalingPrototypeFixture fixture)
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Retrying_a_failed_append_or_compaction_preserves_changes_made_after_the_failure(bool compact)
+    [InlineData(false, JournalFailure.BeforeCommit, 1)]
+    [InlineData(true, JournalFailure.BeforeCommit, 1)]
+    [InlineData(false, JournalFailure.AfterCommit, 2)]
+    [InlineData(true, JournalFailure.AfterCommit, 2)]
+    public async Task Failed_persistence_fences_the_manager_and_fresh_recovery_uses_durable_storage(
+        bool compact, JournalFailure failure, int expectedCount)
     {
         await using var session = await fixture.NewSessionAsync();
         session.Outbox.Add(new OrderEvent("original"));
         await session.Manager.WriteStateAsync(TestContext.Current.CancellationToken);
         var storage = fixture.Storage.For(session.Id);
         storage.CompactNext = compact;
-        session.Outbox.Add(new OrderEvent("failed-attempt"));
-        var removed = session.Outbox.Envelopes[^1];
-        storage.NextFailure = JournalFailure.BeforeCommit;
+        session.Outbox.Add(new OrderEvent("uncertain"));
+        var candidate = session.Outbox.AsImmutable();
+        storage.NextFailure = failure;
 
         await Assert.ThrowsAsync<IOException>(() => session.Manager.WriteStateAsync(TestContext.Current.CancellationToken).AsTask());
-        session.Outbox.RemoveRange(new[] { removed }).Add(new OrderEvent("after-failure"));
-        var expected = session.Outbox.AsImmutable();
-        storage.CompactNext = false;
-        await session.Manager.WriteStateAsync(TestContext.Current.CancellationToken);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => session.Manager.WriteStateAsync(TestContext.Current.CancellationToken).AsTask());
+        await Assert.ThrowsAsync<InvalidOperationException>(() => session.Manager.InitializeAsync(TestContext.Current.CancellationToken).AsTask());
         await session.DisposeAsync();
         await using var recovered = await fixture.NewSessionAsync(session.Id);
 
-        Assert.Equal(expected, recovered.Outbox.AsImmutable());
-        Assert.Equal(expected.Envelopes, recovered.Outbox.Envelopes);
-        Assert.Equal(new[] { "original", "after-failure" }, recovered.Outbox.Select(item => item.Text));
+        Assert.Equal(expectedCount, recovered.Outbox.Count);
+        Assert.Equal(candidate.Envelopes.Take(expectedCount), recovered.Outbox.Envelopes);
+        recovered.Outbox.Add(new OrderEvent("after-recovery"));
+        await recovered.Manager.WriteStateAsync(TestContext.Current.CancellationToken);
+        await recovered.DisposeAsync();
+        await using var again = await fixture.NewSessionAsync(session.Id);
+        Assert.Equal(expectedCount + 1, again.Outbox.Count);
+        Assert.Equal("after-recovery", again.Outbox[^1].Text);
     }
 }

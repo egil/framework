@@ -607,12 +607,13 @@ public abstract class StateManagerBase<T> : IStateManager<T>
         // but this wrapper still requires meaningful explicit reads. Keep journaled
         // facets unsupported under both policies; the journal owns their durability.
         //
-        // Matched by interface name rather than by type: IJournaledState is public in
-        // that package while DurableState<T> is internal, and this library does not
-        // reference it. A rename upstream costs us the detection, never a false positive.
+        // Match the public marker by name: the storage facet is internal, and the
+        // stable library must not take a dependency on the optional preview package.
+        // The facet replays at activation and has no-op reads.
+        // https://github.com/dotnet/orleans/blob/v10.4.0/src/Orleans.Journaling/JournaledPersistentState.cs
         foreach (var contract in storage.GetType().GetInterfaces())
         {
-            if (!string.Equals(contract.FullName, "Orleans.Journaling.IJournaledState", StringComparison.Ordinal))
+            if (contract.FullName != "Orleans.Journaling.IStateMachine")
             {
                 continue;
             }

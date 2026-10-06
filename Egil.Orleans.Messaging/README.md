@@ -41,6 +41,41 @@ using Orleans;
 using Orleans.Hosting;
 ```
 
+## Orleans compatibility
+
+All Messaging libraries target `net10.0` and require Orleans **10.4.0**.
+Consumers upgrading to this release must upgrade the host's Orleans packages
+consistently to 10.4.0. The optional `Journaling` integration requires
+`Microsoft.Orleans.Journaling` **10.4.0-alpha.1** and remains a preview package.
+
+When upgrading a host to Orleans 10.4, review these application-owned changes:
+
+- Request latency uses `orleans-app-requests-latency`, a histogram measured in
+  fractional milliseconds. Update exporter Views, dashboards and alerts that use
+  the removed bucket/count/sum instruments or `duration` labels.
+  [Upstream change](https://github.com/dotnet/orleans/pull/11251).
+- Grain metrics use the canonical `grain_type` dimension instead of CLR `type`.
+  OM's own instruments are separate.
+  [Upstream change](https://github.com/dotnet/orleans/pull/11253).
+- Existing SQLite hosts need the corrected idempotent Orleans main and
+  persistence scripts. OM does not install or migrate these databases.
+  [Upstream change](https://github.com/dotnet/orleans/pull/11354).
+- Memory-stream `MaxAddCount` is host tuning; its default remains 100.
+  [Upstream change](https://github.com/dotnet/orleans/pull/11238).
+- Audit application grain RPC interfaces with explicit parameter `[Id]`
+  attributes or non-trailing `CancellationToken` parameters before a rolling
+  upgrade. Orleans 10.4 honors explicit parameter IDs and excludes cancellation
+  tokens from automatic serialized-parameter numbering. Changing those wire IDs
+  needs a coordinated contract rollout. These IDs are distinct from `[Id]` on
+  serialized state members. OM ships no application grain RPC interfaces; the
+  examples above and below keep cancellation tokens last.
+  [Upstream change](https://github.com/dotnet/orleans/pull/11179).
+
+Cancellation-aware reminder adoption and subscription start positions remain
+separate optional work. Start-position controls require upgrading pulling-agent
+silos before enabling them. This compatibility work does not enable either
+feature or claim NativeAOT support.
+
 ## State Manager
 
 Default and Azure managers use `FenceAndDeactivate`: a failed storage mutation
@@ -598,7 +633,8 @@ journal commit with business state while storing incremental messaging changes.
 
 The companion is built and released with Egil.Orleans.Messaging by the same
 workflow. Its NuGet version uses the matching messaging version with a `-preview`
-suffix, and it targets Orleans Journaling 10.3.1-alpha.1. Installing core OM does
+suffix, and it targets Orleans Journaling 10.4.0-alpha.1 with a 10.4 host. All OM
+packages require Orleans 10.4.0. Installing core OM does
 not install Journaling.
 See the package README for registration, grain composition, storage requirements,
 format compatibility, and runnable verification.
@@ -1566,7 +1602,7 @@ unsupported without separate migration validation.
 
 ### Provider evidence
 
-| Orleans 10.3.1 configuration | Verification |
+| Orleans 10.4.0 configuration | Verification |
 | --- | --- |
 | Default Memory streams | Real-cluster sender acknowledgement failure, reactivation, redelivery, durable receiver reload, and separately appended equal payloads; default body serializer round-trip |
 | Default Azure Queue V2 adapter | Provider-owned queue-text encode/decode, consumer serialization, and request-context import |
@@ -1751,7 +1787,7 @@ Both overloads exist on `IServiceCollection` too. Calls add up in
 registration order, as `services.Configure<StreamSubscriptionOptions>(...)`
 does.
 
-Orleans 10.3 lets `[StatelessWorker]` grains consume streams, but such
+Orleans 10.4 lets `[StatelessWorker]` grains consume streams, but such
 consumers use provider-managed live delivery and reject any non-null resume
 token. When a stateless worker registers a stream manager with a tracker
 snapshot, set `UseTrackedResumeToken = false` on its subscriptions, or omit the
@@ -1763,6 +1799,12 @@ this.RegisterStreamManager()
         "prices",
         async (message, cursor) => await UpdateProjectionAsync(message));
 ```
+
+The Event Hubs extensions require Orleans **10.4.0**. Enriched tokens share the built-in Event Hubs comparison
+domain: equal sequence numbers and event indexes compare equally regardless of
+enrichment. Checkpoints still belong to their provider and complete `StreamId`;
+this does not make positions from different streams interchangeable. The JSON
+discriminators and Orleans serialization aliases remain unchanged.
 
 Install `Egil.Orleans.Messaging.Streams.EventHubs` when using Orleans Event
 Hubs streams and the enriched adapter/token support:
@@ -1903,7 +1945,7 @@ hide exactly the conflict worth knowing about.
 `Outbox<T>`, `OutboxMessageEnvelope<T>`, `OutboxMessageId`, `OutboxSequenceToken`,
 `MessageTracker`, and `StreamCursor` carry `[JsonConverter]` attributes, so
 they round-trip through any System.Text.Json-based grain storage — including
-the Orleans 10.3 `siloBuilder.UseSystemTextJsonGrainStorageSerializer()` —
+the Orleans 10.4 `siloBuilder.UseSystemTextJsonGrainStorageSerializer()` —
 without extra `JsonSerializerOptions` configuration. Orleans' own
 System.Text.Json `StreamSequenceToken` converter only handles
 `EventSequenceToken`/`EventSequenceTokenV2`; tokens stored inside
@@ -1913,7 +1955,7 @@ as `EnrichedEventHubSequenceToken` persist correctly.
 
 Orleans' default Newtonsoft.Json storage serializer is not supported by these
 converters. All library state types are `[GenerateSerializer]`, so they pass
-the Orleans 10.3 JSON `$type` allow-list, but the payload shape is not
+the Orleans 10.4 JSON `$type` allow-list, but the payload shape is not
 guaranteed; use a System.Text.Json serializer or the Orleans binary serializer.
 
 ## Scope
@@ -1921,6 +1963,18 @@ guaranteed; use a System.Text.Json serializer or the Orleans binary serializer.
 This package is messaging infrastructure, not an event-sourcing or CQRS framework. It wraps Orleans state, outbox dispatch, receiver deduplication, and stream subscription management while leaving domain modeling, read models, transport targets, and operational policy to the application.
 
 ## Beta API changes
+
+- The Journaling preview now targets Orleans Journaling 10.4.0-alpha.1. Keep
+  `AddMessagingJournaling()` and stable keyed component names; use
+  `IDurableStateManager.GetOrAddState<TState>` for constructor composition.
+  Ordinary `Grain` recovery runs at SetupState; `DurableGrain` remains supported.
+  Replace standalone factory `Create` calls with `CreateStandalone`, and custom
+  `IJournaledState` implementations with `IStateMachine` (`WritePendingEntries`,
+  `WriteSnapshot`, no `DeepCopy`). Use `AddJournaling()` instead of parameterless
+  `AddJournalStorage()`. Failed writes/deletes need a fresh activation or manager;
+  only failed initial replay can explicitly retry initialization on the same instances.
+  Old-preview JSON append/snapshot fixtures replay with unchanged messaging data.
+  All stable packages now require Orleans 10.4.0; upgrade the host dependencies together.
 
 - **State managers expose `LastFailureKind` and immutable `Options`.** Custom
   `IStateManager<T>` implementations must add both getters; implementations derived
