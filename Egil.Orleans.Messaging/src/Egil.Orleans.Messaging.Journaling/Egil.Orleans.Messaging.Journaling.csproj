@@ -51,6 +51,8 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.Orleans.Journaling" />
+    <PackageReference Include="Microsoft.Orleans.Sdk" PrivateAssets="all" />
+
   </ItemGroup>
 
   <ItemGroup>

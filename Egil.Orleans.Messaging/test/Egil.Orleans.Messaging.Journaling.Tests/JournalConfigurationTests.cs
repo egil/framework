@@ -9,6 +9,27 @@ namespace Egil.Orleans.Messaging.Journaling.Tests;
 
 public sealed class JournalConfigurationTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Existing_tracker_services_do_not_suppress_wildcard_registration(bool keyed)
+    {
+        var existing = keyed
+            ? ServiceDescriptor.KeyedScoped<IDurableMessageTracker, DurableMessageTracker>("custom")
+            : ServiceDescriptor.Scoped<IDurableMessageTracker, DurableMessageTracker>();
+        IServiceCollection? services = null;
+        using var host = new HostBuilder().UseOrleans(silo =>
+        {
+            services = silo.Services;
+            services.Add(existing);
+            silo.AddMessagingJournaling().AddMessagingJournaling();
+        }).Build();
+
+        Assert.Contains(existing, services!);
+        Assert.Single(services!, descriptor => descriptor.ServiceType == typeof(IDurableMessageTracker)
+            && descriptor.IsKeyedService && Equals(descriptor.ServiceKey, KeyedService.AnyKey));
+    }
+
     [Fact]
     public void Unsupported_journal_formats_fail_configuration_validation()
     {

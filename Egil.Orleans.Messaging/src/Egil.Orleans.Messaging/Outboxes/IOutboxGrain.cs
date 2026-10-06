@@ -2,7 +2,7 @@ namespace Egil.Orleans.Messaging.Outboxes;
 
 /// <summary>
 /// Marker interface for grains that use <see cref="OutboxProcessor{TOutbox}"/>.
-/// Provides a default interface method (DIM) for <see cref="IRemindable.ReceiveReminder"/>
+/// Provides a default interface method (DIM) for <see cref="IRemindable.ReceiveReminder(string, TickStatus)"/>
 /// that routes reminder callbacks to the processor automatically.
 /// </summary>
 /// <remarks>
@@ -16,7 +16,7 @@ namespace Egil.Orleans.Messaging.Outboxes;
 /// </para>
 /// <para>
 /// <b>Escape hatch:</b> Grains with their own reminders can override
-/// <see cref="IRemindable.ReceiveReminder"/> explicitly, handle their own
+/// <see cref="IRemindable.ReceiveReminder(string, TickStatus)"/> explicitly, handle their own
 /// reminder names, and forward unknown names to the processor:
 /// <code>
 /// public async Task ReceiveReminder(string name, TickStatus status)
@@ -59,3 +59,4 @@ public interface IOutboxGrain : IRemindable
         return component.ReceiveReminderAsync(reminderName, status).AsTask();
     }
 }
+

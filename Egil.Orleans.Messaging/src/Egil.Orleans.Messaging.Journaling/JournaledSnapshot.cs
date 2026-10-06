@@ -2,11 +2,9 @@ using Orleans.Journaling;
 
 namespace Egil.Orleans.Messaging.Journaling;
 
-// The pinned package calls this protocol IJournaledState; current Orleans main calls it IStateMachine.
-// See https://github.com/dotnet/orleans/blob/137d9acc17830f15b13a4eb0058d6cee633cad5e/src/Orleans.Journaling/IJournaledState.cs
 internal abstract class JournaledSnapshot<TSnapshot, TOperation>(
     TSnapshot initial,
-    IDurableValueCommandCodec<TOperation> codec) : IJournaledState, IDurableValueCommandHandler<TOperation>
+    IDurableValueCommandCodec<TOperation> codec) : IStateMachine, IDurableValueCommandHandler<TOperation>
     where TSnapshot : class
 {
     private JournalStreamWriter writer;
@@ -32,18 +30,17 @@ internal abstract class JournaledSnapshot<TSnapshot, TOperation>(
     protected abstract TSnapshot Empty();
     protected abstract TOperation Snapshot(TSnapshot value);
     protected abstract TSnapshot Apply(TSnapshot value, TOperation operation);
-    protected abstract JournaledSnapshot<TSnapshot, TOperation> CreateCopy();
 
-    void IJournaledState.Reset(JournalStreamWriter journalWriter)
+    void IStateMachine.Reset(JournalStreamWriter journalWriter)
     {
         writer = journalWriter;
         Current = Empty();
-        // 10.3.1 binds brand-new streams after its recovery callback. Reset establishes
-        // the writer; the owning grain/session still waits for manager initialization.
+        // Recovery retries reset these same instances. The owner waits for initialization
+        // before staging changes so replay never races with application mutations.
         bound = true;
     }
 
-    void IJournaledState.ReplayEntry(JournalEntry entry, JournalReplayContext context) =>
+    void IStateMachine.ReplayEntry(JournalEntry entry, JournalReplayContext context) =>
         context.GetRequiredCommandCodec(entry.FormatKey, codec).Apply(entry.Reader, this);
 
     void IDurableValueCommandHandler<TOperation>.ApplySet(TOperation operation) =>
@@ -51,19 +48,10 @@ internal abstract class JournaledSnapshot<TSnapshot, TOperation>(
 
     // Mutations already encode entries and update the sole view. Journal acknowledgements
     // do not publish a second view; the owning grain decides when to save and when to post.
-    void IJournaledState.OnRecoveryCompleted() { }
-    void IJournaledState.AppendEntries(JournalStreamWriter journalWriter) { }
-    void IJournaledState.OnWriteCompleted() { }
+    void IStateMachine.OnRecoveryCompleted() { }
+    void IStateMachine.WritePendingEntries(JournalStreamWriter journalWriter) { }
+    void IStateMachine.OnWriteCompleted() { }
 
-    void IJournaledState.AppendSnapshot(JournalStreamWriter journalWriter) =>
+    void IStateMachine.WriteSnapshot(JournalStreamWriter journalWriter) =>
         codec.WriteSet(Snapshot(Current), journalWriter);
-
-    IJournaledState IJournaledState.DeepCopy()
-    {
-        // Immutable payloads allow snapshots to be shared. A copy has no live journal writer;
-        // Orleans must bind/reset it before use. This member was removed on current main.
-        var copy = CreateCopy();
-        copy.Current = Current;
-        return copy;
-    }
 }

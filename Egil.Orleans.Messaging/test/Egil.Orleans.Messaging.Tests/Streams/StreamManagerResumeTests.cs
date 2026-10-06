@@ -1,4 +1,7 @@
+using System.Text.Json;
+using Egil.Orleans.Messaging.Streams.EventHubs;
 using Microsoft.Extensions.Logging.Abstractions;
+using Orleans.Streaming.EventHubs;
 using Orleans.Providers.Streams.Common;
 using Orleans.Streams;
 using Orleans.Streams.Core;
@@ -7,6 +10,34 @@ namespace Egil.Orleans.Messaging.Tests.Streams;
 
 public sealed class StreamManagerResumeTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Restored_Event_Hubs_checkpoint_resumes_the_matching_stream(bool enriched)
+    {
+        EventHubStreamSequenceTokenJsonConverters.Register();
+        var streamId = StreamId.Create("orders", "one");
+        StreamSequenceToken checkpoint = enriched
+            ? new EnrichedEventHubSequenceToken("123", 42, 2, DateTimeOffset.UnixEpoch, "provider-a")
+            : new EventHubSequenceTokenV2("123", 42, 2);
+        var tracker = new MessageTracker();
+        Assert.True(tracker.TryAcceptMessage(new StreamCursor("orders", checkpoint, "provider-a") { StreamId = streamId }, out tracker));
+        var restored = JsonSerializer.Deserialize<MessageTracker>(JsonSerializer.Serialize(tracker))!;
+        var stream = new FakeStream<string>("provider-a", streamId);
+        var handle = new FakeSubscriptionHandle<string>("provider-a", streamId);
+        stream.Handles.Add(handle);
+        var manager = CreateManager(() => restored, stream)
+            .ConfigureExplicitSubscription<string>("provider-a", streamId, static (_, _) => ValueTask.CompletedTask);
+
+        await manager.ResumeExplicitSubscriptionsAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(42, handle.ResumeToken!.SequenceNumber);
+        Assert.Equal(2, handle.ResumeToken.EventIndex);
+        Assert.Equal(checkpoint.GetType(), handle.ResumeToken.GetType());
+        Assert.Equal("123", Assert.IsAssignableFrom<EventHubSequenceToken>(handle.ResumeToken).EventHubOffset);
+        Assert.Equal(streamId, stream.ResolvedStreamId);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

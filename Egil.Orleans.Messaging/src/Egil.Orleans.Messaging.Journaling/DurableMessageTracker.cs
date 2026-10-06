@@ -1,8 +1,6 @@
 using Egil.Orleans.Messaging.Outboxes;
 using Egil.Orleans.Messaging.Streams;
 using Egil.Orleans.Messaging.Tracking;
-using Microsoft.Extensions.DependencyInjection;
-using Orleans.Journaling;
 using Orleans.Streams;
 
 namespace Egil.Orleans.Messaging.Journaling;
@@ -12,22 +10,11 @@ internal sealed class DurableMessageTracker : JournaledSnapshot<MessageTracker, 
     private readonly TimeProvider time;
     private TimeProvider? ownTime;
     private MessageTrackerSettings? configuration;
-    private readonly IDurableValueCommandCodec<TrackerOperation> codec;
 
-    public DurableMessageTracker(
-        [ServiceKey] string name,
-        IJournaledStateManager manager,
-        TimeProvider time,
-        JournalCodec<TrackerOperation> codec) : this(time, codec.Value)
-    {
-        manager.RegisterState(name, this);
-    }
-
-    private DurableMessageTracker(TimeProvider time, IDurableValueCommandCodec<TrackerOperation> codec)
-        : base(new MessageTracker(), codec)
+    public DurableMessageTracker(TimeProvider time, JournalCodec<TrackerOperation> codec)
+        : base(new MessageTracker(), codec.Value)
     {
         this.time = time;
-        this.codec = codec;
     }
 
     public void RegisterTimeProvider(TimeProvider time) => ownTime = time;
@@ -155,9 +142,6 @@ internal sealed class DurableMessageTracker : JournaledSnapshot<MessageTracker, 
 
     protected override MessageTracker Empty() => new();
     protected override TrackerOperation Snapshot(MessageTracker value) => new("snapshot", State: value);
-    protected override JournaledSnapshot<MessageTracker, TrackerOperation> CreateCopy() =>
-        new DurableMessageTracker(time, codec) { configuration = configuration, ownTime = ownTime };
-
     private MessageTrackerSettings ConfigureCurrent()
     {
         var settings = configuration ?? MessageTrackerDefaults.Current;
