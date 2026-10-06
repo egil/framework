@@ -57,6 +57,8 @@ jobs:
       # policy, Microsoft.Testing.Platform runner) is discovered by the SDK resolver.
       - working-directory: Egil.SystemTextJson.Migration
         run: |
+          # Nested consumer builds must not export version data into the job's environment file.
+          export GITHUB_ENV=/dev/null
           dotnet build ./src/Egil.SystemTextJson.Migration.Analyzers/Egil.SystemTextJson.Migration.Analyzers.csproj -c Release
           dotnet build ./src/Egil.SystemTextJson.Migration/Egil.SystemTextJson.Migration.csproj -c Release
           dotnet pack ./src/Egil.SystemTextJson.Migration/Egil.SystemTextJson.Migration.csproj -c Release --no-build --output ${{ env.NuGetDirectory }}
@@ -72,7 +74,9 @@ jobs:
 
       - name: Verify packaged trimming and NativeAOT diagnostics
         working-directory: Egil.SystemTextJson.Migration
-        run: pwsh -NoProfile -File ./scripts/verify-trimming-package.ps1 -PackagePath "$(find ${{ env.NuGetDirectory }} -maxdepth 1 -name '*.nupkg' -print -quit)" -Publish -RuntimeIdentifier linux-x64
+        run: |
+          export GITHUB_ENV=/dev/null
+          pwsh -NoProfile -File ./scripts/verify-trimming-package.ps1 -PackagePath "$(find ${{ env.NuGetDirectory }} -maxdepth 1 -name '*.nupkg' -print -quit)" -Publish -RuntimeIdentifier linux-x64
 
       - name: Retain diagnostic evidence
         if: always()
