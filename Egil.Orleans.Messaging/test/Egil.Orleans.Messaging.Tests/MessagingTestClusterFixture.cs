@@ -42,6 +42,7 @@ public sealed class MessagingTestClusterFixture : IAsyncLifetime, IGrainActivity
             AddStreamProviders(siloBuilder);
             siloBuilder.ConfigureServices(services =>
             {
+                GatedOutboxTimerRegistry.Install(services);
                 services.AddDefaultStateManager("Default");
                 services.AddDefaultStateManager("Payload");
                 services.AddSingleton(TimeProvider);
