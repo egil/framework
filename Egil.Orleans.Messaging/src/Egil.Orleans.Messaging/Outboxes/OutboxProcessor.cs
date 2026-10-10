@@ -159,6 +159,15 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
             return;
         }
 
+        // A timer wakeup can be deferred behind a delivered batch and then
+        // overwritten by acknowledgement's retry reconciliation. Retain the
+        // caller's request until a fresh dispatch snapshot includes its work.
+        drainRequested = true;
+        if (pendingAcknowledgement is not null)
+        {
+            return;
+        }
+
         EnsureDispatchTimer(TimeSpan.Zero);
     }
 
@@ -278,10 +287,18 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
 
         try
         {
+            if (acknowledgement is null)
+            {
+                // A foreground post may have consumed this batch before its
+                // queued timer callback ran. Reconciliation here would replace
+                // that post's requested immediate drain with the retry delay.
+                return;
+            }
+
             await RunAsActiveDrainAsync(async () =>
             {
                 await acknowledger.AcknowledgeAsync(
-                    acknowledgement.GetValueOrDefault(),
+                    acknowledgement.Value,
                     cancellationToken);
 
                 // Keep ownership visible while user callbacks run. An
@@ -326,8 +343,6 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
     {
         await RunAsActiveDrainAsync(async () =>
         {
-            drainRequested = false;
-
             // A foreground caller can acquire the gate between background
             // dispatch and its queued acknowledgement turn. Finish that batch
             // first so already-posted items are acknowledged before taking a
@@ -384,6 +399,10 @@ public sealed partial class OutboxProcessor<TOutbox> : IOutboxComponent
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        // Only taking a fresh snapshot consumes a caller's request. Delivery
+        // and acknowledgement can accept another request while awaiting work;
+        // an ordinary retry tick must never create one on their behalf.
+        drainRequested = false;
         var pending = GetPendingItems();
 
         if (pending.IsDefaultOrEmpty)
